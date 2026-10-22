@@ -1,6 +1,9 @@
 import { defineConfig } from 'vitest/config';
 
-import { loadScaled } from './devkit/lint/vitest.base.mjs';
+import {
+  clockShiftSetupFiles,
+  loadScaled,
+} from './devkit/lint/vitest.base.mjs';
 
 // Two tiers, one run (`npm run test:all`, the pre-commit hook): one worker
 // pool, one coverage report. `npm test` selects the unit projects (`unit*`),
@@ -20,6 +23,10 @@ export default defineConfig({
     // (the Mac reached load 95 on 2026-10-12); all cores in CI, whose test job
     // runs nothing else (.github/workflows/ci.yml).
     maxWorkers: process.env.CI ? '100%' : 4,
+    // Empty unless tier_guard runs the tier under DEVKIT_CLOCK_SHIFT (the gate's
+    // CLOCK group): then the shifted, ticking Date, first so every project's own
+    // setup files run on it (devkit README "Clock shift").
+    setupFiles: [...clockShiftSetupFiles],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],
