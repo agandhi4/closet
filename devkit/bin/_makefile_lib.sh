@@ -1,8 +1,9 @@
 # shellcheck shell=bash
 # Sourced, never run. Reads the root Makefile the way the guards need it, without running make
 # (a Makefile's $(shell …) and includes of generated files must not run inside a check).
-# Used by: docs_check.sh (rule 9, `make <target>` words in docs), ci_targets_check.sh and
-# devkit-check.sh (makefile_raw_docker).
+# Used by: docs_check.sh (rule 9, `make <target>` words in docs), ci_targets_check.sh,
+# devkit-check.sh (makefile_raw_docker), hook_steps.sh (the docs-check fallback) and
+# hooks_check.sh (a ci-lint no pre-commit step runs).
 
 # makefile_files: ./Makefile, then each file it includes by literal path, one per line.
 makefile_files() {
@@ -84,17 +85,24 @@ makefile_raw_docker() {
 # worktree of the repo, so concurrent lanes remove each other's databases or fail on the port
 # (2026-10-19); `throwaway_pg.sh name|port <base>` derives both from the checkout. Comment
 # lines are skipped; any other indirection (`$(shell …)`, a nested variable) counts as derived.
+# Each value may be quoted, `"x"` or `'x'` (`--name "x"` once read as no name at all).
 makefile_fixed_pg() {
   local files=() file
   while IFS= read -r file; do files+=("$file"); done < <(makefile_files)
   [ "${#files[@]}" -gt 0 ] || return 0
   awk '
+    # ARG: one whole shell word, optionally single- or double-quoted (`"x"$(SUFFIX)` is not one);
+    # judge drops the quotes and the separator after it, from the word and from a variable value.
+    BEGIN { ARG = "[\"\047]?[^ \t;&|\"\047]+[\"\047]?([ \t;&|]|$)" }
     function judge(kind, arg, file, n,    v, value, at) {
+      sub(/[ \t;&|]$/, "", arg)
+      gsub(/["\047]/, "", arg)
       value = arg; at = file ":" n
       if (match(arg, /^\$[({][A-Za-z_][A-Za-z0-9_]*[)}]$/)) {
         v = substr(arg, 3, length(arg) - 3)
         if (!(v in val)) return
         value = val[v]; at = loc[v]
+        gsub(/^["\047]|["\047]$/, "", value)
       }
       if (kind != "port" && value !~ /^[A-Za-z0-9][A-Za-z0-9_.-]*$/) return
       if (kind == "port" && value !~ /^[0-9]+$/) return
@@ -115,7 +123,7 @@ makefile_fixed_pg() {
           if (line ~ /^[ \t]*#/) continue
           for (v in pg) gsub("\\$[({]" v "[)}]", "throwaway_pg.sh", line)
           rest = line
-          while (match(rest, /throwaway_pg\.sh[ \t]+(up|url|down)[ \t]+[^ \t;&|"\047]+/)) {
+          while (match(rest, "throwaway_pg\\.sh[ \t]+(up|url|down)[ \t]+" ARG)) {
             call = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH)
             sub(/^throwaway_pg\.sh[ \t]+(up|url|down)[ \t]+/, "", call)
             judge("name", call, file, n)
@@ -123,14 +131,14 @@ makefile_fixed_pg() {
           rest = line
           if (match(rest, /(^|[^A-Za-z0-9_.-])docker(_bounded\.sh)?[ \t]+run[ \t]/)) {
             rest = substr(rest, RSTART + RLENGTH)
-            if (match(rest, /(^|[ \t])--name[ \t=]+[^ \t;&|"\047]+/)) {
+            if (match(rest, "(^|[ \t])--name([ \t]+|=)" ARG)) {
               call = substr(rest, RSTART, RLENGTH)
-              sub(/^[ \t]*--name[ \t=]+/, "", call)
+              sub(/^[ \t]*--name([ \t]+|=)/, "", call)
               judge("container", call, file, n)
             }
           }
           rest = line
-          while (match(rest, /(^|[^A-Za-z0-9_])PG_PORT=[^ \t;&|"\047]+/)) {
+          while (match(rest, "(^|[^A-Za-z0-9_])PG_PORT=" ARG)) {
             call = substr(rest, RSTART, RLENGTH); rest = substr(rest, RSTART + RLENGTH)
             sub(/^.*PG_PORT=/, "", call)
             judge("port", call, file, n)

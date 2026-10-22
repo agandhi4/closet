@@ -14,17 +14,20 @@
 # GATE_STATE_NAME) and the vendored devkit are main's, never a developer's branch.
 # _dependency_pr.py classifies the open Renovate and Dependabot PRs against main, oldest first;
 # majors and unreadable update types are skipped and listed. Then, per minor/patch PR:
-#   - behind (Renovate only): the main fetched at the start of the repo's turn is not an
-#     ancestor of the head. Skipped, "behind main, Renovate will rebase" (renovate/default.json
-#     rebaseWhen). Read once per repo on purpose: a merge this run makes moves main, and
-#     re-reading it would put every later PR behind, one merge per repo per night. Dependabot
-#     rebases only on a conflict, so its PRs are not held to this; the gate tests the merge into
-#     the current main regardless.
+#   - behind main: gated like any PR. The gate tests the merge into the current main and
+#     pr_merge.sh merges only onto the main it gated, so a branch that is not rebased is no risk;
+#     waiting for a rebase was (homelab #128, 2026-10-22): with Renovate's rebaseWhen
+#     behind-base-branch, each merge this run made had Renovate force-push every other open
+#     branch, racing the next merge. renovate/default.json keeps rebaseWhen auto (conflicts only,
+#     no automerge and no up-to-date protection in this fleet), and Dependabot rebases only on a
+#     conflict too.
 #   - conflicting: `git merge-tree` of the head into the current origin/main fails. Skipped.
 #   - this head already failed a gate here (the marker comment below): skipped until it moves.
 #   - else `make gate PR=<n> GATE_ARGS="--expect-head <head>"`, which takes a machine gate slot
-#     like any gate. PASS: `make merge PR=<n>`. Otherwise the verdict is the gate record's
-#     (gate_record.py verdict-of), never make's exit code: make exits 2 for any failed recipe.
+#     like any gate. PASS: `make merge PR=<n>`; a refusal to re-gate (main or the head moved
+#     after the gate, or GitHub refused the merge for it: pr_merge.sh's `re-gate:` lines) is
+#     "skipped behind", and the next run gates the new tree. Otherwise the verdict is the gate
+#     record's (gate_record.py verdict-of), never make's exit code: make exits 2 for any failed recipe.
 #     fail with a job failing on the PR's code: one PR comment per head naming the failing jobs
 #     and rules (gate_record.py failures). error, no record of the head, or only machine
 #     failures (a gate step such as worktree, toolchain or a conflict; the silence watchdog; a
@@ -36,13 +39,15 @@
 #   $XDG_STATE_HOME/devkit/dependency-merge/<repo>-<n>.log. Then one summary line per repo.
 # Kill switch: ${XDG_CONFIG_HOME:-~/.config}/devkit/dependency-merge.off, read before every PR.
 # One run at a time (flock); a second run exits 0 with one line.
-# Exit 0 when it ran, whatever each PR's outcome; 1 when no repo could be read; 2 usage or a
-# missing tool.
+# Exit 0 when it ran, whatever each PR's outcome; 1 when no repo could be read; 2 usage, a
+# missing tool (bin/_toolchain_lib.sh's devkit_preflight: one line naming each), checked before any repo.
 set -uo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 2
 # shellcheck source=bin/_gate_env.sh
 . "$HERE/_gate_env.sh"
+# shellcheck source=bin/_toolchain_lib.sh
+. "$HERE/_toolchain_lib.sh"
 
 readonly MARKER=devkit-dependency-merge
 STATE=${XDG_STATE_HOME:-$HOME/.local/state}/devkit
@@ -70,11 +75,14 @@ parse_args() {
 }
 
 require_tools() {
-  local tool
-  for tool in gh git make python3; do
-    command -v "$tool" >/dev/null || { echo "dependency-merge: $tool not found" >&2; exit 2; }
-  done
-  command -v flock >/dev/null || { echo "dependency-merge: flock not found (macOS: brew install flock)" >&2; exit 2; }
+  # Before any repo: without one every gate fails the same way, logged as N per-PR box errors
+  # (2026-10-22: launchd's PATH had only Xcode's 3.9, then no uv). The toolchain directory goes
+  # first on PATH, too, so a repo whose vendored devkit predates _toolchain_lib.sh still runs its
+  # bare python3 and uv calls on it.
+  devkit_preflight gh git make flock -- "${REPOS[@]}" \
+    || { echo "dependency-merge: $DEVKIT_PREFLIGHT_ERROR; no repo gated" >&2; exit 2; }
+  devkit_toolchain_bin || { echo "dependency-merge: $DEVKIT_PYTHON_ERROR; no repo gated" >&2; exit 2; }
+  export PATH="$DEVKIT_TOOLCHAIN_BIN:$PATH"
 }
 
 parse_args "$@"
@@ -144,17 +152,20 @@ gate_pr() {
       record "$slug#$n" merged "head ${head:0:12}"
     else
       refusal=$(grep -E '^merge: refused: ' "$PR_LOG" | tail -n 1)
-      record "$slug#$n" refused "${refusal:-make merge failed; see $PR_LOG}"
+      case "$refusal" in
+        "merge: refused: re-gate: "*) record "$slug#$n" skipped "behind (${refusal#merge: refused: re-gate: }); the next run re-gates" ;;
+        *) record "$slug#$n" refused "${refusal:-make merge failed; see $PR_LOG}" ;;
+      esac
     fi
     return 0
   fi
-  verdict=$(python3 -I "$HERE/gate_record.py" verdict-of "$gate_json" "$head")
+  verdict=$("$DEVKIT_PYTHON" -I "$HERE/gate_record.py" verdict-of "$gate_json" "$head")
   if [ "$verdict" != fail ]; then
     record "$slug#$n" error "make gate exit $rc, gate verdict ${verdict:-unrecorded} (the box, not the PR); see $PR_LOG"
     return 0
   fi
-  failures=$(python3 -I "$HERE/gate_record.py" failures "$gate_json" "$head")
-  if [ -z "$(python3 -I "$HERE/gate_record.py" failures --code-only "$gate_json" "$head")" ]; then
+  failures=$("$DEVKIT_PYTHON" -I "$HERE/gate_record.py" failures "$gate_json" "$head")
+  if [ -z "$("$DEVKIT_PYTHON" -I "$HERE/gate_record.py" failures --code-only "$gate_json" "$head")" ]; then
     record "$slug#$n" error "only the machine failed (gate step, silence or budget; not the PR): $(paste -sd ';' - <<<"${failures:-whole-gate budget}"); see $PR_LOG"
     return 0
   fi
@@ -165,16 +176,14 @@ gate_pr() {
   fi
 }
 
-# check_pr <slug> <n> <head> <main at start> <bot>: print why PR <n> is not gated now, or nothing.
+# check_pr <slug> <n> <head>: print why PR <n> is not gated now, or nothing.
 check_pr() {
-  local slug=$1 n=$2 head=$3 main0=$4 bodies
+  local slug=$1 n=$2 head=$3 bodies
   # refs/worktree/ is private to this worktree and goes with it: the checkout's refs stay as they were.
-  git -C "$WT" fetch -q --no-tags origin +main:refs/remotes/origin/main "+pull/$n/head:refs/worktree/dependency-pr" \
+  fetch_main "$WT" "+pull/$n/head:refs/worktree/dependency-pr" \
     || { echo "error cannot fetch main and PR #$n (git above)"; return; }
   [ "$(git -C "$WT" rev-parse refs/worktree/dependency-pr)" = "$head" ] \
     || { echo "skipped head moved since the PR list; next run"; return; }
-  [ "$5" != renovate ] || git -C "$WT" merge-base --is-ancestor "$main0" "$head" \
-    || { echo "skipped behind main, Renovate will rebase"; return; }
   git -C "$WT" merge-tree --write-tree origin/main "$head" >/dev/null 2>&1 \
     || { echo "skipped conflicts with main, Renovate will rebase"; return; }
   bodies=$(gh api "repos/$slug/issues/$n/comments" --paginate --jq '.[].body') \
@@ -192,62 +201,55 @@ list_prs() {
   local list numbers n
   list=$(gh pr list --repo "$1" --base main --state open --limit 1000 \
     --json number,author,title,labels,headRefOid,createdAt,body) || return
-  numbers=$(python3 -I "$HERE/_dependency_pr.py" needs-commits <<<"$list") || return
+  numbers=$("$DEVKIT_PYTHON" -I "$HERE/_dependency_pr.py" needs-commits <<<"$list") || return
   {
     printf '%s\n' "$list"
     for n in $numbers; do
       gh pr view "$n" --repo "$1" --json number,headRefOid,commits || exit
     done
-  } | python3 -I "$HERE/_dependency_pr.py"
+  } | "$DEVKIT_PYTHON" -I "$HERE/_dependency_pr.py"
 }
 
 # repo_error <label> <why>: one line, and the repo counts as not read.
 repo_error() { echo "dependency-merge: $1: cannot run: $2" >&2; return 1; }
 
-# open_repo <dir>: set SLUG, STATE_NAME, MAIN0 (origin/main now, the "behind" reference for
-# the whole turn), PRS (_dependency_pr.py lines) and WT (a detached worktree of MAIN0).
+# open_repo <dir>: set SLUG, STATE_NAME, PRS (_dependency_pr.py lines) and WT (a detached
+# worktree of origin/main now, whose plan and vendored devkit run every gate and merge).
 open_repo() {
-  local root plan
+  local root
   root=$(cd "$1" 2>/dev/null && pwd -P) || { repo_error "$1" "not a directory"; return; }
-  git -C "$root" fetch -q --no-tags origin main || { repo_error "$root" "git fetch origin main failed (above)"; return; }
-  MAIN0=$(git -C "$root" rev-parse --verify origin/main) || { repo_error "$root" "no origin/main"; return; }
-  plan=$(git -C "$root" show "$MAIN0:scripts/ci/gate_plan.sh" 2>/dev/null) \
-    || { repo_error "$root" "main has no scripts/ci/gate_plan.sh"; return; }
-  SLUG=$(gate_plan_literal <(echo "$plan") GATE_SLUG)
-  STATE_NAME=$(gate_plan_literal <(echo "$plan") GATE_STATE_NAME)
-  # The slug names the worktree that is rm -rf'd below: owner/repo, nothing that climbs.
-  [[ "$SLUG" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] && [[ "$SLUG" != *..* ]] && [ -n "$STATE_NAME" ] \
-    || { repo_error "$root" "main's gate plan lacks a literal GATE_SLUG=owner/repo or GATE_STATE_NAME"; return; }
+  gate_plan_main "$root" || { repo_error "$root" "$PLAN_ERROR"; return; }
+  SLUG=$PLAN_SLUG STATE_NAME=$PLAN_STATE_NAME
   PRS=$(list_prs "$SLUG") || { repo_error "$SLUG" "cannot list its open PRs (gh or _dependency_pr.py above)"; return; }
   WT=$STATE/dependency-merge/wt-${SLUG#*/}
   git -C "$root" worktree remove --force "$WT" >/dev/null 2>&1
   rm -rf "$WT"
-  git -C "$root" worktree add -q --detach "$WT" "$MAIN0" || { WT=""; repo_error "$SLUG" "cannot add a worktree of main (git above)"; return; }
+  git -C "$root" worktree add -q --detach "$WT" "$PLAN_MAIN" || { WT=""; repo_error "$SLUG" "cannot add a worktree of main (git above)"; return; }
 }
 
-# handle_pr <n> <head> <bot> <decision> <detail>: record a skip, or gate (GATED counts toward --max).
+# handle_pr <n> <head> <decision> <detail>: record a skip, or gate (GATED counts toward --max).
 handle_pr() {
   local n=$1 head=$2 why
-  [ "$4" = gate ] || { record "$SLUG#$n" skipped "$5"; return; }
+  [ "$3" = gate ] || { record "$SLUG#$n" skipped "$4"; return; }
   [ "$GATED" -lt "$MAX" ] || { record "$SLUG#$n" skipped "limit of $MAX gated per run reached; next run"; return; }
-  why=$(check_pr "$SLUG" "$n" "$head" "$MAIN0" "$3")
+  why=$(check_pr "$SLUG" "$n" "$head")
   [ -z "$why" ] || { record "$SLUG#$n" "${why%% *}" "${why#* }"; return; }
   GATED=$((GATED + 1))
   if [ "$DRY_RUN" = 1 ]; then
-    record "$SLUG#$n" would-gate "$5: make gate PR=$n, then make merge PR=$n on PASS"
+    record "$SLUG#$n" would-gate "$4: make gate PR=$n, then make merge PR=$n on PASS"
   else
     gate_pr "$SLUG" "$STATE_NAME" "$n" "$head"
   fi
 }
 
 run_repo() {
-  local n head bot decision detail
+  local n head decision detail
   open_repo "$1" || return
   GATED=0
-  while IFS=$'\t' read -r n head bot decision detail <&3; do
+  while IFS=$'\t' read -r n head _ decision detail <&3; do
     [ -n "$n" ] || continue  # the here-string of an empty list is one empty line
     if switched_off; then break; fi
-    handle_pr "$n" "$head" "$bot" "$decision" "$detail"
+    handle_pr "$n" "$head" "$decision" "$detail"
   done 3<<<"$PRS"
   cleanup_worktree
   summary "$SLUG"
