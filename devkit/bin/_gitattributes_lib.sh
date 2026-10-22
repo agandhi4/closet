@@ -26,3 +26,19 @@ has_decisions_union() {
     END { exit !found }
   ' "$1"
 }
+
+# The committed metrics files merge key by key (metrics_ratchet.py merge-driver: why, and the
+# rules), not as text: every lane's tighten rewrites them, so parallel lanes conflicted on rebase.
+# A driver is per-clone git config, never committed, so hooks_check.sh --fix sets both halves:
+# these lines and merge.devkit-metrics.driver. A clone without the config merges them as text.
+# shellcheck disable=SC2034  # read by the scripts that source this file
+METRICS_MERGE_LINES='docs/metrics/ratchet.json merge=devkit-metrics
+docs/metrics/report-only.json merge=devkit-metrics
+docs/metrics/scorecard.json merge=devkit-metrics'
+
+# metrics_merge_driver <bin dir, relative to the worktree top>: the driver command. git runs it
+# from the worktree's top level; a missing or failing driver (an older devkit in that tree, two
+# sides that changed one key's direction) falls back to git's own text merge.
+metrics_merge_driver() {
+  echo "python3 -I $1/metrics_ratchet.py merge-driver %O %A %B %P || git merge-file -q %A %O %B"
+}

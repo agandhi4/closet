@@ -25,6 +25,11 @@
 # repo-side setup (`make install`), and docs_check rule 12 reports the line missing in ci-quick,
 # where this check never runs. Why union: bin/_gitattributes_lib.sh.
 #
+# --fix also gives docs/metrics/{ratchet,report-only,scorecard}.json devkit's per-key merge driver
+# when the repo has docs/metrics/: the .gitattributes lines (left to commit) and this clone's
+# merge.devkit-metrics.driver config, which no commit can carry (bin/_gitattributes_lib.sh). The
+# check warns, never fails, when the lines are committed but this clone has no driver.
+#
 # Usage: devkit/bin/hooks_check.sh [--fix] [repo-root]
 #   repo-root defaults to the current checkout. --fix sets core.hooksPath to .githooks (the
 #   relative form, so each worktree runs its own checkout's hooks), installs a missing hook as a
@@ -87,6 +92,25 @@ if [ "$FIX" = 1 ]; then
     echo "$DECISIONS_UNION_LINE" >>"$attrs"
     echo "hooks-check: added '$DECISIONS_UNION_LINE' to .gitattributes; commit it"
   fi
+  if [ -d "$ROOT/docs/metrics" ]; then
+    added=0
+    while IFS= read -r line; do
+      grep -qxF "$line" "$attrs" 2>/dev/null && continue
+      if [ -s "$attrs" ] && [ -n "$(tail -c 1 "$attrs")" ]; then echo >>"$attrs"; fi
+      echo "$line" >>"$attrs"
+      added=1
+    done <<<"$METRICS_MERGE_LINES"
+    [ "$added" = 0 ] || echo "hooks-check: added the docs/metrics merge=devkit-metrics lines to .gitattributes; commit it"
+    # Relative to the worktree top, where git runs a driver, so each worktree runs its own copy.
+    bin=$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+    bin=${bin#"$ROOT"/}
+    driver=$(metrics_merge_driver "$bin")
+    if [ "$(git -C "$ROOT" config --get merge.devkit-metrics.driver || true)" != "$driver" ]; then
+      git -C "$ROOT" config merge.devkit-metrics.name "devkit metrics bounds, per key"
+      git -C "$ROOT" config merge.devkit-metrics.driver "$driver"
+      echo "hooks-check: set merge.devkit-metrics.driver (docs/metrics/*.json merge per key)"
+    fi
+  fi
 fi
 
 HOOKS_PATH=$(git -C "$ROOT" config --get core.hooksPath || true)
@@ -108,6 +132,10 @@ done
 
 if grep -qs 'filter=lfs' "$ROOT/.gitattributes" && ! grep -qE 'git lfs pre-push|run_hook_steps pre-push' "$ROOT/.githooks/pre-push"; then
   fail ".gitattributes uses LFS but .githooks/pre-push does not chain 'git lfs pre-push', so LFS objects never upload"
+fi
+
+if grep -qs 'merge=devkit-metrics' "$ROOT/.gitattributes" && ! git -C "$ROOT" config --get merge.devkit-metrics.driver >/dev/null; then
+  echo "hooks-check: warning: .gitattributes names merge=devkit-metrics but this clone has no driver, so docs/metrics/*.json merge as text (fix: $0 --fix)" >&2
 fi
 
 CONF=$ROOT/scripts/ci/hooks.conf

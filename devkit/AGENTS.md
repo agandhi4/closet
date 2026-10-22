@@ -46,7 +46,7 @@ is README.md "Architecture". Invariants of the design:
 
 ## Commands
 ```sh
-make ci-quick                  # shellcheck, python + template unit tests (npm), devkit's own guards on itself
+make ci-quick                  # shellcheck, python + template unit tests (npm), devkit's own guards and ruff (ci-lint) on itself
 make ci-unit                   # bats tests/ (~2 min)
 make ci-metrics                # the ratchet over devkit's own shell (scripts/ci/metrics.conf, docs/metrics/ratchet.json)
 make gate PR=<n>               # all three, on the PR merged into origin/main; posts `local-gate`

@@ -101,6 +101,15 @@
 # to stderr, adds `core.bare=<v> is-bare=<v>` as a sixth column on that step's ledger row, and
 # restores the value from before the step. Only a failed restore fails the hook.
 #
+# Metrics preview (pre-push, after every step passed): when the repo has scripts/ci/metrics.conf
+# and docs/metrics/ratchet.json and the push touched more than docs and native paths, the hook
+# runs `metrics_collect.sh check --quick` (the collectors whose tier inputs are already built;
+# no tier runs). It never blocks the push: a clean ratchet is one line, a failing one prints the
+# lines the gate's metrics job would fail on (with `BETTER: run make metrics-tighten before push`
+# for a gain left unlocked), a preview that cannot run says why in one line. Why (2026-10-20):
+# all eight instalite PRs #37-#46 failed their first gate on unlocked coverage gains and bundle
+# growth that a 20 s local run shows. The ledger row is `metrics-quick`, always ok.
+#
 # Toolchains: before the first step, toolchain_path (bin/toolchain_path.sh, the gate's own code)
 # puts the checkout's pinned Node (.nvmrc) and Rust (rust-toolchain.toml) first on PATH, so
 # `make ci-*` here runs what the gate runs. A machine with no cargo (redlib's Mac) or another node
@@ -261,6 +270,9 @@ run_hook_steps() {
       return "$rc"
     fi
   done
+  if [ "$hook" = pre-push ] && [ "$native_only" = 0 ] && ! { [ "$listed" = 1 ] && _hook_areas_within " docs native "; }; then
+    _hook_metrics_quick "$root"
+  fi
   _hook_record "$root" "$hook" total "$hook_start" 0
 
   echo "✓ $hook passed"
@@ -358,6 +370,24 @@ _hook_record() {
     "$([ "$rc" -eq 0 ] && echo ok || echo fail)")
   [ -z "$note" ] || row+=$'\t'$note
   printf '%s\n' "$row" >>"$dir/$(_hook_ledger_name "$root").tsv" 2>/dev/null || true
+}
+
+# <root>: the pre-push metrics preview (header: Metrics preview). Prints, never fails.
+_hook_metrics_quick() {
+  local root=$1 out rc=0 start
+  [ -f "$root/scripts/ci/metrics.conf" ] && [ -f "$root/docs/metrics/ratchet.json" ] || return 0
+  start=$(date +%s)
+  # A hook is never inside a gate, even when a gate job's tests run one: drop the gate's areas.
+  out=$(cd "$root" && env -u GATE_AREAS "$(dirname "${BASH_SOURCE[0]}")/metrics_collect.sh" check --quick 2>&1 </dev/null) || rc=$?
+  _hook_record "$root" pre-push metrics-quick "$start" 0
+  case "$rc" in
+    0) echo "✓ metrics (quick): every bound holds" ;;
+    1)
+      grep -E '^ratchet ' <<<"$out" | grep -vE ' SAME$| SKIPPED \(|REPORT-ONLY|within tolerance|^ratchet (summary|untracked|base|merged) '
+      grep '^BETTER: ' <<<"$out"
+      echo "– metrics (quick): the gate's metrics job fails on the lines above; not blocking the push" ;;
+    *) echo "– metrics (quick) did not run ($(grep -m1 -E '^metrics_collect: |FAIL' <<<"$out" || echo "exit $rc")); the gate's metrics job decides" ;;
+  esac
 }
 
 # <root>: unexport GIT_DIR and GIT_WORK_TREE when git resolves the same git dir from <root>
