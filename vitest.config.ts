@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
+import { loadScaled } from './devkit/lint/vitest.base.mjs';
+
 // Two tiers, one run (`npm run test:all`, the pre-commit hook): one worker
 // pool, one coverage report. `npm test` selects the unit projects (`unit*`),
 // `npm run test:int` the integration project.
@@ -9,9 +11,10 @@ export default defineConfig({
   test: {
     // Global, inherited by every project (extends: true). The budget covers
     // an integration spec's beforeAll: scratch database, migrations and app
-    // boot, slower on CI's 4-vCPU runner.
-    testTimeout: 30000,
-    hookTimeout: 30000,
+    // boot, slower on CI's 4-vCPU runner. loadScaled stretches it by the
+    // gate's DEVKIT_LOAD_SCALE (at most x2) on an overloaded box.
+    testTimeout: loadScaled(30_000),
+    hookTimeout: loadScaled(30_000),
     // Four on a developer machine, where the gate runs two PRs at once
     // (GATE_SLOTS=2) beside Postgres in Docker and more workers overload it
     // (the Mac reached load 95 on 2026-10-12); all cores in CI, whose test job
