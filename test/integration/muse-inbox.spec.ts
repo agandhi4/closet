@@ -741,7 +741,7 @@ describe('the Muse inbox', () => {
 
     // The race above lands on either refusal; this is its 409 every run,
     // so the branch's coverage does not ride on the scheduler.
-    it('refuses a need settled between its check and the save: a 409, the save rolled back', async () => {
+    it('refuses a need settled between its check and the save with a 409, the winner kept', async () => {
       const id = await need('A card holder');
       await pick('Slim card holder', id, { category: 'bags' });
       const [first, second] = await Promise.all(
