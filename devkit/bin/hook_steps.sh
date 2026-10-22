@@ -238,8 +238,9 @@ run_hook_steps() {
     fi
   fi
 
-  if [ "$hook" = pre-commit ] && [ "$listed" = 1 ] && _hook_vendoring_only "$changed"; then
+  if [ "$listed" = 1 ] && _hook_vendoring_only "$hook" "$push_input" "$changed"; then
     echo "– vendoring only (devkit/ is .devkit-rev's tree ${HOOK_VENDORED_TREE:0:7}, every other path a base copy): the repo's steps skip; the PR gate runs them"
+    _hook_allow_push "$uses_lfs" "$push_input" "$@"
     return 0
   fi
 
@@ -322,29 +323,30 @@ _hook_missing_node_modules() {
   return 1
 }
 
-# <staged paths>: true when the commit only vendors devkit, as devkit-sync's own commit does:
-# every path is under devkit/, is .devkit-rev, or is a base copy (_vendor_paths.sh base_copies)
-# staged byte-identical to its staged base, and the staged devkit/ tree is the tree .devkit-rev
-# records. Sets HOOK_VENDORED_TREE. Why skip the repo's steps for it (closet, 2026-10-19): the
-# sync commits in a fresh worktree before any install, and a lint or typecheck step then fails
-# on a missing node_modules, not on the change. The tree hash is the check this commit needs and
-# it needs no dependency; the code is upstream's, already gated there, and its effect on this
-# repo is the PR gate's to judge. A hand edit under devkit/ breaks the hash, so it runs every step.
+# <hook> <push input> <changed paths>: true when the change only vendors devkit
+# (_vendor_paths.sh vendoring_only), as devkit-sync's own commit does: pre-commit judges the
+# index, pre-push the one commit it pushes (a push of several tips runs every step). Sets
+# HOOK_VENDORED_TREE. Why skip the repo's steps for it (closet, 2026-10-19): the sync commits and
+# pushes from a fresh worktree before any install (by hand, or the nightly sync in
+# dependency_merge.sh), and a lint, typecheck or test step then fails on a missing node_modules,
+# not on the change. The tree hash is the check it needs and it needs no dependency; the code is
+# upstream's, already gated there, and its effect on this repo is the PR gate's to judge. A hand
+# edit under devkit/ breaks the hash, so it runs every step.
 _hook_vendoring_only() {
-  local changed=$1 rev path base copy bases
+  local rev='' tips rc
   HOOK_VENDORED_TREE=
-  [ -n "$changed" ] || return 1
-  rev=$(git show :.devkit-rev 2>/dev/null) || return 1
-  HOOK_VENDORED_TREE=$(git write-tree --prefix=devkit/ 2>/dev/null) || return 1
-  [ "$HOOK_VENDORED_TREE" = "${rev#* }" ] || return 1
-  bases=$(base_copies)
-  while IFS= read -r path; do
-    case "$path" in ''|devkit/*|.devkit-rev) continue ;; esac
-    base=$(awk -v c="$path" '$2 == c { print $1; exit }' <<<"$bases")
-    [ -n "$base" ] || return 1
-    copy=$(git rev-parse -q --verify ":$path") || return 1
-    [ "$copy" = "$(git rev-parse -q --verify ":devkit/$base")" ] || return 1
-  done <<<"$changed"
+  case $1 in
+    pre-commit) ;;
+    pre-push)
+      tips=$(awk '$2 !~ /^0+$/ { print $2 }' <<<"$2" | sort -u)
+      [[ "$tips" =~ ^[0-9a-f]{40}$ ]] || return 1
+      rev=$tips ;;
+    *) return 1 ;;
+  esac
+  vendoring_only "$rev" "$3"
+  rc=$?
+  HOOK_VENDORED_TREE=$VENDORED_TREE
+  return "$rc"
 }
 
 # <root> <message file>: run COMMIT_MSG_STEPS (header: commit-msg); stops at the first failure.

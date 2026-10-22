@@ -36,7 +36,7 @@ DEVKIT_AREA_ORDER="docs backend frontend native tooling other"
 
 # Never run from the merged tree by a job: the gate and hook machinery (run from the invoking
 # checkout, main's copy), the guards ci-quick runs (devkit-check, docs/toolchain/workflows/
-# release/ci-targets checks, own-commit, ios-check, hooks_check and their libs), and fleet
+# release/ci-targets checks, own-commit, ios-check, hooks_check, bats_assert_check and their libs), and fleet
 # operations run from a devkit checkout or after merge (sync, new, monthly audit, ship_tag in
 # publish.yml, the nightly dependency merge), machine setup (install_gh_shim.sh, whose --check
 # the scorecard reads; install_dependency_merge.sh), and
@@ -49,7 +49,7 @@ DEVKIT_TOOLING_BIN="local_gate.sh gate.sh remote_gate.sh _paths_lib.sh
   devkit-sync.sh devkit-new.sh monthly_audit.sh dead_alert_audit.py ship_tag.sh scorecard.py agent_cost.py secrets_check.sh migration_check.py
   gate_record.py pr_merge.sh codex_review.py gate_bite.py _repo_identity.py _renovate.py install_gh_shim.sh
   dependency_merge.sh _dependency_pr.py install_dependency_merge.sh
-  ios_check.py ios_device.sh"
+  ios_check.py ios_device.sh bats_assert_check.py"
 # What the image group exercises (ci-smoke/ci-image boot through them): tooling, but a change
 # to one runs the image group even when nothing else would.
 DEVKIT_IMAGE_BIN="boot_image.sh contract_probe.sh"

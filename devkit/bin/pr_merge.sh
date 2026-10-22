@@ -54,6 +54,17 @@
 #     text, so no one can call a code PR docs-only. Neither exemption holds for a PR with no
 #     changed files, or one whose files GitHub listed short of `changedFiles` (the API stops at
 #     3000). Their open threads, and a running review, still block.
+#     Nor of a devkit sync: a PR whose every changed path only vendors devkit at its head
+#     (_vendor_paths.sh vendoring_only: devkit/ is the tree .devkit-rev records, every other path
+#     is .devkit-rev or a base copy byte-equal to its base) from a commit on devkit's main that
+#     descends from main's vendored one (vendored_from, against a fresh fetch of DEVKIT_URL); it
+#     prints `codex-review: not required (devkit sync, vendoring-only diff from devkit main)`.
+#     Why (owner, 2026-10-22): the nightly sync (dependency_merge.sh) opens one per repo per
+#     devkit change, and the code is devkit's own, Codex-reviewed and gated on devkit main, so a
+#     second review per consumer adds nothing; its effect on the repo is the gate's to judge.
+#     Content decides, not the label or the author: a hand edit under devkit/, a downgrade or any
+#     repo-owned path (a metrics-tighten of docs/metrics/ratchet.json included) takes the
+#     normal rule.
 # A draft that passes every check above is marked ready (`gh pr ready`, one `merge: … marked it
 # ready` line) and then merged: the fleet Workflow gates a PR while it is a draft, and GitHub
 # refuses to merge one (locus #136 needed a hand `gh pr ready`). A draft that fails a check is
@@ -102,6 +113,8 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 2
 . "$HERE/_paths_lib.sh"
 # shellcheck source=bin/_toolchain_lib.sh
 . "$HERE/_toolchain_lib.sh"
+# shellcheck source=bin/_vendor_paths.sh  # vendoring_only, vendored_from: the devkit-sync exemption
+. "$HERE/_vendor_paths.sh"
 ROOT=$(git -C "$HERE" rev-parse --show-toplevel) || exit 2
 PLAN=${GATE_PLAN:-$ROOT/scripts/ci/gate_plan.sh}
 
@@ -192,16 +205,17 @@ review_gap_hints() {
   [ -z "$recorded" ] || echo "merge:   the head's codex-review success ('$recorded') records no fallback review of ${head:0:7}" >&2
   [ -z "$not_exempt" ] || echo "merge:   a bot PR, but its review is required: $not_exempt" >&2
   [ -z "$not_docs" ] || echo "merge:   not docs-only, so its review is required: $not_docs" >&2
+  [ -z "$not_sync" ] || echo "merge:   it changes .devkit-rev, but is no devkit sync, so its review is required: $not_sync" >&2
 }
 
 fallback_hint() { # <why>
   echo "merge:   gh api repos/$SLUG/statuses/$head -f state=success -f context=codex-review -f description='Claude adversarial review (Codex $1) of ${head:0:7}'" >&2
 }
 
-# pr_changes: read PR <n>'s authors and changed files once, for both exemptions (header): sets
-# $changed (GitHub's changedFiles), $author, $commit_authors, $files (one JSON object per line)
-# and $short (why the list is not the whole PR, else ""). gh failing is exit 2, like every read
-# before the merge.
+# pr_changes: read PR <n>'s authors and changed files once, for every exemption (header): sets
+# $changed (GitHub's changedFiles), $author, $commit_authors, $files (one JSON object per line),
+# $touched (every path, both sides of a rename) and $short (why the list is not the whole PR,
+# else ""). gh or python failing is exit 2, like every read before the merge.
 pr_changes() {
   local who listed
   who=$(gh pr view "$PR" --repo "$SLUG" --json changedFiles,author,commits \
@@ -215,13 +229,16 @@ pr_changes() {
   listed=$(grep -c . <<<"$files")
   short=""
   [ "$listed" = "$changed" ] || short="GitHub listed $listed of its ${changed:-?} changed files"
+  touched=$("$DEVKIT_PYTHON" -I "$HERE/_dependency_pr.py" paths <<<"$files") \
+    || { echo "merge: cannot read the paths PR #$PR changes (python above)" >&2; exit 2; }
 }
 
 # review_exempt: return 0, naming why in $exemption, when PR <n> needs no Codex review (header):
-# a bot dependency PR, or a docs-only diff. Else 1, with each one's reason, where it has one, in
-# $not_exempt and $not_docs for review_gap_hints.
+# a bot dependency PR, a docs-only diff or a devkit sync. Else 1, with each one's reason, where it
+# has one, in $not_exempt, $not_docs and $not_sync for review_gap_hints.
 not_exempt=""
 not_docs=""
+not_sync=""
 review_exempt() {
   pr_changes
   [ -n "$files" ] || return 1
@@ -229,6 +246,8 @@ review_exempt() {
     exemption="bot dependency PR, manifest-only diff"
   elif docs_exempt; then
     exemption="docs-only diff"
+  elif sync_exempt; then
+    exemption="devkit sync, vendoring-only diff from devkit main"
   else
     return 1
   fi
@@ -251,9 +270,7 @@ dependency_exempt() {
 # table; else 1, naming in $not_docs the first other path of a PR that touches docs at all (a
 # plain code PR gets no hint), or the short listing.
 docs_exempt() {
-  local touched path DEVKIT_AREA DEVKIT_AREAS
-  touched=$("$DEVKIT_PYTHON" -I "$HERE/_dependency_pr.py" paths <<<"$files") \
-    || { echo "merge: cannot read the paths PR #$PR changes (python above)" >&2; exit 2; }
+  local path DEVKIT_AREA DEVKIT_AREAS
   devkit_areas "$touched"
   # DEVKIT_AREAS is " a b ", docs first in DEVKIT_AREA_ORDER.
   case "$DEVKIT_AREAS" in
@@ -266,6 +283,23 @@ docs_exempt() {
     [ "$DEVKIT_AREA" = docs ] || { not_docs="$path is $DEVKIT_AREA"; return 1; }
   done <<<"$touched"
   return 1
+}
+
+# sync_exempt: 0 when PR <n> is a devkit sync (header); else 1, naming why in $not_sync for a PR
+# that changes .devkit-rev (any other PR gets no hint). Both checks read git objects, so the head
+# and devkit's main are fetched here, into this clone; a fetch failing is exit 2.
+sync_exempt() {
+  local upstream
+  grep -qxF .devkit-rev <<<"$touched" || return 1
+  [ -z "$short" ] || { not_sync=$short; return 1; }
+  fetch_main "$ROOT" "pull/$PR/head" \
+    || { echo "merge: cannot fetch PR #$PR's head and main to check its vendoring (git above)" >&2; exit 2; }
+  upstream=$(fetch_devkit_main "$ROOT") \
+    || { echo "merge: cannot fetch devkit's main from $DEVKIT_URL (git above)" >&2; exit 2; }
+  (cd "$ROOT" && vendoring_only "$head" "$touched") \
+    || { not_sync="a path other than devkit/, .devkit-rev and byte-equal base copies, or a devkit/ that is not the tree its .devkit-rev records"; return 1; }
+  (cd "$ROOT" && vendored_from "$head" "$upstream" "$main_now") \
+    || { not_sync="its .devkit-rev names no commit on devkit main, forward of main's, whose vendored tree it records"; return 1; }
 }
 
 # codex_review_success: the description of the head's codex-review status when it is success.

@@ -59,6 +59,11 @@
 # nothing beyond the declared digest hole (bin/_renovate.py, which the scorecard's `renovate`
 # check shares). Renovate merges server-side, so this is the only place a self-merge that skips
 # the gate is caught before it is live (homelab #109/#110, 2026-10-19).
+#
+# Also (WARNINGS, exit 0): a bats assertion errexit never sees (bin/bats_assert_check.py, which
+# devkit's ci-lint fails on): `[[ ]]` mid-test passes untested on macOS bash 3.2, where lanes run
+# bats (devkit #212). `bats_assert_check.py --fix` appends the `|| false` that fixes most.
+# It reads the working tree even under --staged: a warning judges the files a lane edits next.
 set -euo pipefail
 STAGED=0
 case "${1:-}" in
@@ -231,4 +236,7 @@ renovate_args=(audit)
 while IFS= read -r issue; do
   [ -z "$issue" ] || echo "devkit-check: WARNING: $issue (README \"Renovate\": every Renovate PR waits for make merge)" >&2
 done <<<"$("$(dirname "${BASH_SOURCE[0]}")/python.sh" -I "$(dirname "${BASH_SOURCE[0]}")/_renovate.py" "${renovate_args[@]}")"
+while IFS= read -r issue; do
+  [ -z "$issue" ] || echo "devkit-check: WARNING: $issue (devkit/bin/bats_assert_check.py --fix)" >&2
+done <<<"$("$(dirname "${BASH_SOURCE[0]}")/python.sh" -I "$(dirname "${BASH_SOURCE[0]}")/bats_assert_check.py" --root .)"
 echo "devkit-check: ok (${_commit:0:7})"
