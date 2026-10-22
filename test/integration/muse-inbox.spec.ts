@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garment, optionGroup, user, wardrobeShare } from '../../src/db/schema';
+import { postedDestination } from '../../src/web/wardrobe/destination';
 import { decide, markSuggestion } from '../../src/web/wishlist/decisions';
 import { createGarment, createWishlistItem, garmentRow } from './garments';
 import {
@@ -736,6 +737,35 @@ describe('the Muse inbox', () => {
       expect(String(winner.headers.location)).toContain(
         `/wardrobe/${settled.resolvedGarmentId}?`,
       );
+    });
+
+    // The race above lands on either refusal; this is its 409 every run,
+    // so the branch's coverage does not ride on the scheduler.
+    it('refuses a need settled between its check and the save with a 409, the winner kept', async () => {
+      const id = await need('A card holder');
+      await pick('Slim card holder', id, { category: 'bags' });
+      const [first, second] = await Promise.all(
+        ['Leather card holder', 'Canvas card holder'].map((name) =>
+          createGarment(t, { name, category: 'bags' }),
+        ),
+      );
+      const { withGarment } = await postedDestination(
+        t.db,
+        { to: 'closet', forNeed: id },
+        { ownerId, isOwner: true, canView: true, canManage: true },
+      );
+      // Settled on another phone after the check.
+      expect(
+        await decide(t.db, ownerId, {
+          kind: 'bought',
+          garmentId: first,
+          groupId: id,
+        }),
+      ).toMatchObject({ ok: true });
+      await expect(
+        t.db.transaction((tx) => withGarment!(tx, second)),
+      ).rejects.toMatchObject({ statusCode: 409 });
+      expect((await groupRow(id)).resolvedGarmentId).toBe(first);
     });
 
     it('takes one of two different ones decided at once, under the owner lock', async () => {

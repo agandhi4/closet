@@ -1,5 +1,5 @@
 import { and, count, eq, isNotNull } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   garmentWear,
   outfitCalendar,
@@ -12,7 +12,11 @@ import { addDays } from '../../src/calendar-date';
 import { deleteOutfit } from '../../src/web/outfits/queries';
 import { lockTrip } from '../../src/web/trips/packed';
 import { addTripOutfit } from '../../src/web/trips/queries';
-import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
+import {
+  STUB_WEATHER_NOW,
+  startWeatherStub,
+  type WeatherStub,
+} from '../support/weather-stub';
 import {
   createTestApp,
   hasText,
@@ -161,6 +165,7 @@ describe('trips', () => {
   };
 
   beforeAll(async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: STUB_WEATHER_NOW });
     stub = await startWeatherStub();
     t = await createTestApp(
       { WEATHER_ENABLED: 'true' },
@@ -219,6 +224,7 @@ describe('trips', () => {
   });
 
   afterAll(async () => {
+    vi.useRealTimers();
     await t?.cleanup();
     await stub?.close();
   });

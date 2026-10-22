@@ -412,6 +412,9 @@ export const pendingPhoto = pgTable(
   {
     fileName: varchar('file_name', { length: 255 }).primaryKey(),
     userId: integer('user_id').notNull(),
+    // Written from the app's clock (pending-photos.ts), not the default: the
+    // cutoffs it is judged against are the app's (pendingCutoffs), and one
+    // clock on both sides is what the gate's clock shift can move.
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),

@@ -59,6 +59,14 @@ GATE_JOBS_IMAGE="image ci-image ci-smoke CI_IMAGE=$IMAGE CI_BUILD_VERSION=gate-$
 # shellcheck disable=SC2034
 GATE_IMAGE_EXCLUDE_PATHS='^(LICENSE$|\.github/|test/|docs/metrics/|(playwright|vitest|drizzle)\.config\.ts$|eslint\.config\.mjs$|knip\.jsonc$|lighthouserc\.js$|renovate\.json$)'
 
+# Both vitest tiers again with the wall clock shifted (devkit README "Clock shift"), each once per
+# offset before the real-clock db run, which rewrites the coverage report the ratchet reads. The
+# CLOCK group runs on every "other" path, so a .github- or Playwright-only change pays for it too:
+# no finer area exists, and a date bug is cheapest caught on the PR that writes it.
+# Exceptions: scripts/ci/clock_shift.conf.
+# shellcheck disable=SC2034
+GATE_JOBS_CLOCK="clock-unit ci-unit|clock-db ci-db PG_CONTAINER=$PG_CONTAINER"
+
 # The metrics ratchet, last so it merges every earlier job's seconds (devkit owns the label and
 # which collectors run: devkit/bin/_paths_lib.sh, METRICS).
 # shellcheck disable=SC2034

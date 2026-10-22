@@ -58,12 +58,16 @@ describe('photo storage on disk', () => {
   it('boots by removing partial writes abandoned over an hour ago, never a live one', async () => {
     await writeFile(join(directory, '.incoming', 'dead-a.webp'), 'partial');
     await writeFile(join(directory, '.incoming', 'live-b.webp'), 'arriving');
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    // Both ages from the clock prepare() reads, not the filesystem's: under the
+    // gate's clock shift a file written just now is a month old to the app.
+    const now = new Date();
+    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
     await utimes(
       join(directory, '.incoming', 'dead-a.webp'),
       twoHoursAgo,
       twoHoursAgo,
     );
+    await utimes(join(directory, '.incoming', 'live-b.webp'), now, now);
 
     storage.prepare();
 
