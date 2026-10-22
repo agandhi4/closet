@@ -166,7 +166,7 @@ function PickingGrid(props: {
   const { model, picking } = props;
   const { destination, choice } = picking;
   return (
-    <PostForm action="/calendar" needsNetwork>
+    <PostForm action="/calendar">
       <input type="hidden" name="date" value={destination.day} />
       <input type="hidden" name="occasion" value={destination.occasion} />
       <input type="hidden" name="week" value={destination.day} />

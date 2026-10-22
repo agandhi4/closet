@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { PostForm } from '../../src/web/auth/form';
+import { renderToString } from '../../src/web/render';
 import { createTestApp, TestApp } from './harness';
 import {
   createPageFixture,
@@ -7,6 +9,7 @@ import {
   expectFullPage,
   HX_BOOSTED,
   HX_FRAGMENT,
+  offlineUnguardedPostForms,
   PageFixture,
   PageRoute,
   pageRoutes,
@@ -47,13 +50,38 @@ describe('pages', () => {
   const routes = (): PageRoute[] => pageRoutes(fixture, inviteToken);
 
   it('renders every page route for a signed-in user', async () => {
+    // expectFullPage holds every PostForm to the offline guard; the count
+    // proves the table reaches the forms (the account, token, link import,
+    // laundry, sharing and styling ones were unguarded before #411's default).
+    let postForms = 0;
     for (const route of routes()) {
       const { url } = route;
       const res = await t.inject({ method: 'GET', url });
       expect({ url, status: res.statusCode }).toEqual({ url, status: 200 });
       expectFullPage(res);
       expectFormPageFlag(route, res);
+      postForms +=
+        res.body.match(/<form\b[^>]*data-submit-once=/g)?.length ?? 0;
     }
+    expect(postForms).toBeGreaterThan(40);
+  });
+
+  it('a PostForm posts offline only with a stated reason', async () => {
+    const guarded = await renderToString(PostForm({ action: '/x' }));
+    expect(guarded).toContain('data-needs-network=""');
+    expect(offlineUnguardedPostForms(guarded)).toEqual([]);
+
+    const reason = 'the worker queues this post itself';
+    const allowed = await renderToString(
+      PostForm({ action: '/x', allowOffline: reason }),
+    );
+    expect(allowed).not.toContain('data-needs-network');
+    expect(allowed).toContain(`data-allow-offline="${reason}"`);
+    expect(offlineUnguardedPostForms(allowed)).toEqual([]);
+
+    // A form marked as PostForm's but with neither is what the check catches.
+    const bare = allowed.replace(/ data-allow-offline="[^"]*"/, '');
+    expect(offlineUnguardedPostForms(bare)).toHaveLength(1);
   });
 
   it('answers boosted navigations with the full page', async () => {

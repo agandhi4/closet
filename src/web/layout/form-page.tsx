@@ -13,12 +13,12 @@ import { CancelLink } from './parts';
  * `formPage`, the fields post through one `PostForm`, and Cancel (back past
  * the form) sits beside the submit.
  *
- * Disabled offline, always (`needsNetwork`, and the edit page's Delete): a
- * copy the worker cached, opened in the installed app without a connection,
- * would otherwise post into the worker's offline page and lose what was
- * typed. It was each page's opt-in, and only the trip form had opted in.
- * guards.conf `@form-page` keeps `CancelLink` here, so a new add or edit
- * page starts from this frame and cannot leave the guard out.
+ * Disabled offline: the form like every PostForm, and the edit page's
+ * Delete, an `hx-delete` outside it, by its own `data-needs-network`. A copy
+ * the worker cached, opened without a connection, would otherwise post into
+ * the worker's offline page and lose what was typed. guards.conf
+ * `@form-page` keeps `CancelLink` here, so a new add or edit page starts
+ * from this frame.
  */
 export function FormPage(props: {
   ctx: ViewContext;
@@ -41,11 +41,7 @@ export function FormPage(props: {
       <AppBar ctx={ctx} title={title} back={back} formPage />
       <PageMain class="p-4 pt-20 pb-24">
         {props.intro}
-        <PostForm
-          action={props.action}
-          class="flex flex-col gap-4"
-          needsNetwork
-        >
+        <PostForm action={props.action} class="flex flex-col gap-4">
           {props.children}
           <div class="flex gap-2 mt-2">
             <CancelLink href={back} class="flex-1" />

@@ -154,7 +154,7 @@ describe('adding a garment from a photo', () => {
       expect(sheet).not.toMatch(/form="add-photo-library"[^>]*capture=/);
       for (const source of ['camera', 'library']) {
         expect(sheet).toContain(
-          `<form id="add-photo-${source}" method="post" action="/wardrobe/new/photo" enctype="multipart/form-data" hx-boost="false" data-submit-once="">`,
+          `<form id="add-photo-${source}" method="post" action="/wardrobe/new/photo" enctype="multipart/form-data" hx-boost="false" data-needs-network="" data-submit-once="">`,
         );
       }
       expect(sheet).toContain("import('photo-input')");
