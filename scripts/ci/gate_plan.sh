@@ -32,6 +32,10 @@ GATE_STATE_NAME=closet-gate
 # make merge (devkit/bin/pr_merge.sh) also requires Codex's status on the head.
 # shellcheck disable=SC2034
 GATE_MERGE_REQUIRES=codex-review
+# make merge also refuses a head Codex did not review (failed, missing, stale) unless that
+# codex-review status names the head's fallback review; the status alone names no commit.
+# shellcheck disable=SC2034
+GATE_CODEX_REVIEW=1
 
 PG_CONTAINER="closet-gate-pg-$PR"
 SMOKE_PG_CONTAINER="closet-gate-smoke-pg-$PR"
