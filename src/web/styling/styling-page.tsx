@@ -528,7 +528,6 @@ function SaveSheet({ model }: { model: StylingModel }) {
             type="submit"
             form="styling-form"
             class="btn btn-primary"
-            data-needs-network=""
             data-styling-save=""
           >
             {saveLabel(model)}

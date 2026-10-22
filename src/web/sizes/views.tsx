@@ -251,7 +251,7 @@ export function SizesPage(props: { ctx: ViewContext; model: SizesPageModel }) {
  */
 function UnitSwitch({ unit }: { unit: LengthUnit }) {
   return (
-    <PostForm action={SIZES_UNIT_PATH} class="join" needsNetwork>
+    <PostForm action={SIZES_UNIT_PATH} class="join">
       {LENGTH_UNITS.map((choice) => (
         <button
           type="submit"
@@ -272,11 +272,7 @@ function MeasurementsForm({ model }: { model: SizesPageModel }) {
   const errors = model.measurementErrors ?? {};
   const unit = t(`sizes.unit.${model.unit}`);
   return (
-    <PostForm
-      action={SIZES_MEASUREMENTS_PATH}
-      class="flex flex-col gap-3"
-      needsNetwork
-    >
+    <PostForm action={SIZES_MEASUREMENTS_PATH} class="flex flex-col gap-3">
       {/* The unit the numbers are shown in, which is how they are read. */}
       <input type="hidden" name="unit" value={model.unit} />
       <div class="grid grid-cols-2 gap-3">
@@ -329,7 +325,6 @@ function BrandForm(props: {
     <PostForm
       action={id === undefined ? BRAND_SIZES_PATH : brandSizeUrl(id)}
       class="card bg-base-200 card-body p-3 gap-2"
-      needsNetwork
     >
       <div class="grid grid-cols-[2fr_1fr] gap-2">
         <BrandInput

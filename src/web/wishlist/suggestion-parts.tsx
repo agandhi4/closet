@@ -55,7 +55,7 @@ function ReturnTo({ path }: { path: string }) {
 /** "This one": the card's one primary action. */
 export function ChooseForm(props: { action: string; returnTo: string }) {
   return (
-    <PostForm action={props.action} needsNetwork>
+    <PostForm action={props.action}>
       <ReturnTo path={props.returnTo} />
       <button type="submit" class="btn btn-primary btn-block">
         {t('muse.THIS_ONE')}
@@ -84,11 +84,7 @@ export function NotForMe(props: {
       <summary class={`btn btn-ghost btn-sm ${props.class ?? ''}`}>
         {props.label ?? t('muse.NOT_FOR_ME')}
       </summary>
-      <PostForm
-        action={props.action}
-        needsNetwork
-        class="flex flex-col gap-2 pt-2"
-      >
+      <PostForm action={props.action} class="flex flex-col gap-2 pt-2">
         <ReturnTo path={props.returnTo} />
         <label class="flex flex-col gap-1 text-xs text-muted">
           {t('muse.NOTE_LABEL')}
@@ -127,7 +123,7 @@ export function UndoForm(props: {
   ariaLabel?: string;
 }) {
   return (
-    <PostForm action={props.action} needsNetwork>
+    <PostForm action={props.action}>
       <ReturnTo path={props.returnTo} />
       <button
         type="submit"

@@ -449,10 +449,7 @@ function StillLooking(props: { model: InboxModel; returnTo: string }) {
           >
             <span>{need.name}</span>
             {props.model.isOwner && (
-              <PostForm
-                action={needUrl(need.id, undefined, '/dismiss')}
-                needsNetwork
-              >
+              <PostForm action={needUrl(need.id, undefined, '/dismiss')}>
                 <input type="hidden" name="returnTo" value={props.returnTo} />
                 <button
                   type="submit"

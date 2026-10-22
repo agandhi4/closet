@@ -306,7 +306,6 @@ function TripOutfitRow(props: {
           action={tripUrl(tripId, `/outfits/${outfit.id}/delete`)}
           class="ms-auto shrink-0"
           confirm={t('trips.CONFIRM_REMOVE_OUTFIT')}
-          needsNetwork
         >
           <button
             type="submit"
@@ -550,16 +549,11 @@ function ExtrasSection({ model }: { model: TripPageModel }) {
               id={removeForm(item.id)}
               action={tripUrl(trip.id, `/items/${item.id}/delete`)}
               class="hidden"
-              needsNetwork
             />
           ))}
         </>
       )}
-      <PostForm
-        action={tripUrl(trip.id, '/items')}
-        class="join w-full"
-        needsNetwork
-      >
+      <PostForm action={tripUrl(trip.id, '/items')} class="join w-full">
         <input
           type="text"
           name="label"
@@ -574,11 +568,7 @@ function ExtrasSection({ model }: { model: TripPageModel }) {
         </button>
       </PostForm>
       {model.copyFrom.length > 0 && (
-        <PostForm
-          action={tripUrl(trip.id, '/items/copy')}
-          class="join w-full"
-          needsNetwork
-        >
+        <PostForm action={tripUrl(trip.id, '/items/copy')} class="join w-full">
           <select
             name="from"
             class="select select-sm join-item w-full"

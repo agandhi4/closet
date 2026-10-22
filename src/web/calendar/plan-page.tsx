@@ -72,11 +72,7 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
             {t('CALENDAR_PLAN_SAVED')}
           </h2>
           {model.outfits.length > 0 ? (
-            <PostForm
-              action="/calendar"
-              class="flex flex-col gap-2"
-              needsNetwork
-            >
+            <PostForm action="/calendar" class="flex flex-col gap-2">
               <input type="hidden" name="date" value={model.day} />
               <input type="hidden" name="occasion" value={model.occasion} />
               <input type="hidden" name="week" value={model.day} />

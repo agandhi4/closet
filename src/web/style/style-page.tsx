@@ -60,11 +60,7 @@ export function StyleProfilePage(props: {
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
         <p class="text-sm text-base-content/70 mb-4">{t('style.INTRO')}</p>
         {model.home && <HomeCity name={model.home.name} />}
-        <PostForm
-          action={STYLE_PROFILE_PATH}
-          class="flex flex-col gap-5"
-          needsNetwork
-        >
+        <PostForm action={STYLE_PROFILE_PATH} class="flex flex-col gap-5">
           <ChipGroup label={t('style.STYLES')}>
             {STYLES.map((style) => (
               <input

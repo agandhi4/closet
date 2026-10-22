@@ -110,7 +110,6 @@ export function RepairEditor({ panel }: { panel: RepairPanel }) {
               <PostForm
                 action={`${action}/${entry.id}/delete`}
                 confirm={t('care.REPAIR_CONFIRM_DELETE')}
-                needsNetwork
               >
                 <button type="submit" class="btn btn-ghost btn-sm text-error">
                   {t('care.REPAIR_DELETE')}
@@ -123,7 +122,6 @@ export function RepairEditor({ panel }: { panel: RepairPanel }) {
       <PostForm
         action={action}
         class="card bg-base-200 p-4 flex flex-col gap-3"
-        needsNetwork
       >
         <h3 class="font-medium">{t('care.REPAIR_ADD_TITLE')}</h3>
         <div role="group" aria-label={t('care.REPAIR_KIND')} class="flex gap-2">

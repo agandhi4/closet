@@ -292,6 +292,7 @@ export function expectFullPage(res: LightMyRequestResponse): void {
   expect(res.body.match(/<meta\s+name="htmx-config"/g)).toHaveLength(1);
   expectNoRawI18nKeys(res);
   expectNativePostForms(res);
+  expectPostFormsOfflineGuarded(res);
   expectAutosaveControls(res);
   expectNoScriptNavigation(res);
   expectAppBar(res);
@@ -351,6 +352,28 @@ export function expectNativePostForms(res: LightMyRequestResponse): void {
       !/\bhx-boost=["']?false\b/i.test(tag),
   );
   expect(offenders).toEqual([]);
+}
+
+/**
+ * The `PostForm`s (marked by their `data-submit-once`) a page renders that
+ * would post while offline: neither `data-needs-network`, which
+ * public/js/connectivity.js disables offline with every control that
+ * submits the form, nor an `allowOffline` reason (`data-allow-offline`).
+ * Disabled is the default (#411; owner, 2026-10-22): a cached form posting
+ * without a connection lands on the worker's offline page and loses what was
+ * typed. Read per page, so a new form is checked by the page rendering it.
+ */
+export function offlineUnguardedPostForms(html: string): string[] {
+  return (html.match(/<form\b[^>]*>/gi) ?? []).filter(
+    (tag) =>
+      /\bdata-submit-once=/.test(tag) &&
+      !/\bdata-needs-network=/.test(tag) &&
+      !/\bdata-allow-offline="[^"]+"/.test(tag),
+  );
+}
+
+function expectPostFormsOfflineGuarded(res: LightMyRequestResponse): void {
+  expect(offlineUnguardedPostForms(res.body)).toEqual([]);
 }
 
 /**
