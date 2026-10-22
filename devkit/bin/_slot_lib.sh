@@ -61,7 +61,8 @@ _slot_try() {
     if flock -n 9; then
       # shellcheck disable=SC2034  # read by the callers (their `slot <n>/<slots>` line)
       SLOT=$n
-      printf '%s pid %s since %s\n' "$1" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$(_slot_file "$n")"
+      printf '%s pid %s since %s\n' "$1" "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        | tee "$(_slot_file "$n").holder" >"$(_slot_file "$n")"
       return 0
     fi
     n=$((n + 1))
@@ -72,13 +73,20 @@ _slot_try() {
 # _slot_holders: "<n> running[: <label>, ...]"; a holder that wrote no line (an older devkit,
 # a bare flock) is `?`. The probe takes a free slot's lock for an instant; a caller racing it
 # for that slot retries next second.
+# The holder's line is also in <slot file>.holder, read when the slot file is empty and its pid
+# still lives (a slot is held until its holder exits, so a live pid there is the holder). Why: a
+# waiter vendored before #175 opens slot files with `>` as it polls, emptying every
+# holder's line, so a mixed fleet printed `2 running: ?, ?` (locus, redlib's waiter).
 _slot_holders() {
   local f n=0 who="" label
   for f in "$SLOT_LOCK" "$SLOT_LOCK".[0-9]*; do
+    case $f in *.holder) continue ;; esac
     [ -f "$f" ] || continue
     flock -n "$f" true 2>/dev/null && continue
     n=$((n + 1))
     label=$(awk 'NR == 1 { print $1 }' "$f" 2>/dev/null)
+    [ -n "$label" ] || label=$(awk 'NR == 1 && $2 == "pid" { print $1, $3 }' "$f.holder" 2>/dev/null \
+      | { read -r l p && kill -0 "$p" 2>/dev/null && echo "$l"; })
     who="$who${who:+, }${label:-?}"
   done
   echo "$n running${who:+: $who}"

@@ -8,6 +8,10 @@ Usage (local_gate.sh only; the job lines come on stdin, one `<name> <verdict> <s
                  --verdict pass|fail|error --seconds N [--over NAME]... [--total-seconds N]
 Read back (pr_merge.sh: refuse a merge after main moved past the gated main):
   gate_record.py main-of <gate.json> <head>   the main SHA the gate of <head> ran on, or nothing
+Read back (dependency_merge.sh: whether a dependency PR's gate failed, and on what):
+  gate_record.py verdict-of <gate.json> <head>  pass, fail or error, or nothing
+  gate_record.py failures [--code-only] <gate.json> <head>
+      one `<job> (<verdict>): <rules>` line per failed job; --code-only keeps the PR's code's own
 Copied back (remote_gate.sh, after the host's gate: a remote run's record is on the host, so
 without this BITE and pr_merge.sh on this machine never saw it):
   gate_record.py import --pr N --runs F --logdir D < ledger
@@ -101,6 +105,11 @@ ERROR_LINE = re.compile(
     r"|could not|not found|no such)\b"
 )
 MAKE_TRAILER = re.compile(r"^make(?:\[\d+\])?: \*\*\* ")
+# tier_guard.sh's lines for a tier whose own command failed or ran too few tests. A fail whose
+# only parsed rules are budgets but which has one of these failed in a way no pattern names; the
+# job:<name>:<hash> fallback keeps that from reading as a budget overrun alone, which
+# dependency_merge.sh treats as the machine's (devkit#191).
+TIER_FAILED = re.compile(r"^TIER \S+ (?:FAIL \(exit|FLOOR )", re.MULTILINE)
 ERROR_MAX_CHARS = 200
 
 
@@ -110,7 +119,7 @@ class Job:
     verdict: str
     seconds: int | None
     rules: tuple[str, ...]
-    error: str | None = None  # the first error line of a failed job with no parsed rule
+    error: str | None = None  # the first error line behind a job:<name>:<hash> rule
 
 
 def log_rules(text: str) -> list[str]:
@@ -138,7 +147,7 @@ def unparsed_rule(name: str, text: str) -> tuple[str, str | None]:
 def job_rules(
     name: str, verdict: str, logdir: Path, over: set[str]
 ) -> tuple[tuple[str, ...], str | None]:
-    """The job's rules, and its first error line when no rule could be parsed."""
+    """The job's rules, and its first error line when the fallback rule was needed."""
     rules: list[str] = []
     error = None
     if verdict == "error":
@@ -147,9 +156,9 @@ def job_rules(
         log = logdir / f"{name}.log"
         text = log.read_text(errors="replace") if log.is_file() else ""
         rules = log_rules(text)
-        if not rules:
+        if not rules or (budget_only(rules) and TIER_FAILED.search(ANSI.sub("", text))):
             rule, error = unparsed_rule(name, text)
-            rules = [rule]
+            rules.append(rule)
     if name in over:
         rules.append(f"budget:gate.{name}")
     return tuple(rules), error
@@ -335,21 +344,70 @@ def _import_record(text: str, pr: int, dest: Path) -> bool:
     return True
 
 
-def recorded_main(path: Path, head: str) -> str:
-    """The main SHA a schema 2 record of `head` names; "" when the file is absent, unreadable,
-    older than schema 2, or records another head (a later gate elsewhere, or a stale run)."""
+def _record_of(path: Path, head: str) -> dict[str, object]:
+    """The schema 2 record at `path` when it is of `head`; {} when the file is absent,
+    unreadable, older than schema 2, or records another head (a later gate elsewhere, or a
+    stale run)."""
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return ""
+        return {}
     if (
         not isinstance(doc, dict)
         or doc.get("schema_version") != SCHEMA_VERSION
         or doc.get("head") != head
     ):
-        return ""
-    main = doc.get("main")
+        return {}
+    return doc
+
+
+def recorded_main(path: Path, head: str) -> str:
+    """The main SHA the record of `head` names, or ""."""
+    main = _record_of(path, head).get("main")
     return main if isinstance(main, str) and re.fullmatch(r"[0-9a-f]{40}", main) else ""
+
+
+def recorded_verdict(path: Path, head: str) -> str:
+    """pass, fail or error from the record of `head`, or "". The exit code of `make gate` cannot
+    say this: make exits 2 for any failed recipe, so a FAIL and a watchdog stop look alike."""
+    verdict = _record_of(path, head).get("verdict")
+    return verdict if verdict in RUN_VERDICTS else ""
+
+
+def budget_only(rules: object) -> bool:
+    """True for a non-empty rule list of nothing but budget rules."""
+    return (
+        isinstance(rules, list) and bool(rules) and all(str(r).startswith("budget:") for r in rules)
+    )
+
+
+def _machine_failure(job: dict[str, object]) -> bool:
+    """A failed job the machine caused, not the PR's code: a gate step (fetch, head, worktree,
+    merge, toolchain: `seconds: null`), the silence watchdog's `error`, a `budget` job (passed,
+    over its budget), or a fail whose every rule is a budget (tier_guard OVERBUDGET under load;
+    job_rules adds the fallback rule when a tier also failed, so a code failure is never this).
+    Left as the machine's: a crash outside any tier after an OVERBUDGET; its PR is retried
+    nightly, never merged, it just gets no comment."""
+    if job.get("seconds") is None or job.get("verdict") in {"error", "budget"}:
+        return True
+    return budget_only(job.get("rules"))
+
+
+def recorded_failures(path: Path, head: str, code_only: bool = False) -> list[str]:
+    """One `<job> (<verdict>): <rules>` line per job of the record of `head` that did not pass
+    or skip; a job no rule names shows its first error line. [] for no such record.
+    code_only leaves out the machine's failures (_machine_failure)."""
+    jobs = _record_of(path, head).get("jobs")
+    lines = []
+    for name, job in jobs.items() if isinstance(jobs, dict) else ():
+        if not isinstance(job, dict) or job.get("verdict") in {"pass", "skip"}:
+            continue
+        if code_only and _machine_failure(job):
+            continue
+        rules = job.get("rules")
+        named = ", ".join(str(r) for r in rules) if isinstance(rules, list) and rules else ""
+        lines.append(f"{name} ({job.get('verdict')}): {named or job.get('error') or 'no rule'}")
+    return lines
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -390,6 +448,20 @@ def main(argv: list[str] | None = None) -> int:
             print("usage: gate_record.py main-of <gate.json> <head>", file=sys.stderr)
             return 2
         print(recorded_main(Path(argv[1]), argv[2]))
+        return 0
+    if argv[:1] in (["verdict-of"], ["failures"]):
+        code_only = argv[0] == "failures" and argv[1:2] == ["--code-only"]
+        args = argv[2:] if code_only else argv[1:]
+        if len(args) != 2:
+            print(f"usage: gate_record.py {argv[0]} <gate.json> <head>", file=sys.stderr)
+            return 2
+        path, head = Path(args[0]), args[1]
+        if argv[0] == "verdict-of":
+            lines = [recorded_verdict(path, head)]
+        else:
+            lines = recorded_failures(path, head, code_only)
+        for line in lines:
+            print(line)
         return 0
     if argv[:1] == ["import"]:
         return _cmd_import(argv[1:])

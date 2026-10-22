@@ -27,7 +27,8 @@ codex_gate.py reads):
   "security_review": {...}} -->`. Only `completed` is finished. `running` and `failed` are
   blockers; a null status means never requested, which is a blocker for the code review only
   (a security review runs on request). Any other status is exit 2 naming it (devkit#188: a new
-  `queued` must not read as finished).
+  `queued` must not read as finished). Its `has_any_findings`/`has_unresolved_findings` are
+  never read: Codex's usage-limit summary says true with no thread at all (orbit #115).
 - A review thread whose FIRST comment is Codex's is its finding. Only GraphQL `isResolved`
   clears it: a reply alone does not, so a fixer replies (fixed in <sha>, or why not) and then
   resolves. Threads other reviewers opened never block here.

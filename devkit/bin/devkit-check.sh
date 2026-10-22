@@ -26,6 +26,11 @@
 # (_dockerignore.py), so such an alternative is a hand copy that drifts (redlib #23, locus #133).
 # Read from a literal assignment, single-quoted or bare, the fleet's two forms.
 #
+# Also (a WARNING, exit 0): a repo tracking a tsconfig*.json and a .dockerignore whose build
+# context would still see a tsbuildinfo beside a tsconfig (probed with _dockerignore.py, so any
+# pattern that excludes it counts). A stale one copied into the image let `tsc -b` call the
+# project up to date and skip the image's type-check (locus #145); the fix is `**/*.tsbuildinfo`.
+#
 # Also (a WARNING, exit 0): a Makefile recipe line that runs `docker` itself (makefile_raw_docker,
 # bin/_makefile_lib.sh), naming the line. It bypasses the daemon probe and per-call bound, so a
 # wedged daemon hangs the job until the watchdog; route it through devkit/bin/docker_bounded.sh.
@@ -155,6 +160,18 @@ if [ -n "$plan_src" ]; then
     fi
     break
   done <<<"$plan"
+fi
+if git ls-files --error-unmatch .dockerignore >/dev/null 2>&1; then
+  # One probe per directory holding a tsconfig: where `tsc -b` writes its tsbuildinfo by default.
+  probes=$(git ls-files -- 'tsconfig*.json' '**/tsconfig*.json' \
+    | awk '{ d = $0; sub(/[^\/]*$/, "", d); print d "tsconfig.tsbuildinfo" }' | sort -u)
+  if [ -n "$probes" ]; then
+    if seen=$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/_dockerignore.py" keep . <<<"$probes"); then
+      [ -z "$seen" ] || echo "devkit-check: WARNING: .dockerignore lets the image build see $(head -n 1 <<<"$seen"): a stale tsbuildinfo makes tsc -b skip the image's type-check (locus #145); add: **/*.tsbuildinfo" >&2
+    else
+      echo "devkit-check: WARNING: could not hold .dockerignore to **/*.tsbuildinfo (above)" >&2
+    fi
+  fi
 fi
 while IFS= read -r raw; do
   [ -z "$raw" ] || echo "devkit-check: WARNING: ${raw%%: *}: docker runs unbounded (no daemon probe, no per-call timeout); use devkit/bin/docker_bounded.sh: ${raw#*: }" >&2
