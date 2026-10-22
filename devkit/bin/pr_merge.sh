@@ -34,7 +34,20 @@
 #     self-review's "Codex unavailable (usage limit); <sha8> passed on Claude self-review" (the
 #     headless worker, owner 2026-09-27). Codex's open threads still block then, as in
 #     codex_gate.py. A head-pinned review of the head also excuses a stale Codex review: what
-#     Codex saw of an older commit adds nothing a review of the head lacks.
+#     Codex saw of an older commit adds nothing a review of the head lacks. Nor is a review
+#     required of a Renovate or Dependabot PR whose every commit is that bot's and whose diff
+#     changes only dependency pins (_dependency_pr.py exempt: whole manifests and lockfiles,
+#     compose `image:` and Dockerfile `FROM` lines, lines under a `renovate:` comment); it prints
+#     `codex-review: not required (bot dependency PR, manifest-only diff)`. Why: Codex never
+#     reviews bot PRs (homelab #109/#110), so the nightly dependency merge was refused forever.
+#     Nor of a PR whose every changed path, both sides of a rename, is `docs` in _paths_lib.sh's
+#     table (the one the hooks and gate use, so docs/metrics/ratchet.json stays reviewed); it
+#     prints `codex-review: not required (docs-only diff)`. Why (owner policy, closet #422):
+#     claude-kit work-loop §3c skips Codex for docs-only PRs, so one was refused whenever Codex
+#     was at its limit or a push left its review stale. Paths decide, never a label or a status
+#     text, so no one can call a code PR docs-only. Neither exemption holds for a PR with no
+#     changed files, or one whose files GitHub listed short of `changedFiles` (the API stops at
+#     3000). Their open threads, and a running review, still block.
 # A draft that passes every check above is marked ready (`gh pr ready`, one `merge: … marked it
 # ready` line) and then merged: the fleet Workflow gates a PR while it is a draft, and GitHub
 # refuses to merge one (locus #136 needed a hand `gh pr ready`). A draft that fails a check is
@@ -74,6 +87,8 @@ unset DEVKIT_MERGE_VERIFIED
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 2
 # shellcheck source=bin/_gate_env.sh
 . "$HERE/_gate_env.sh"
+# shellcheck source=bin/_paths_lib.sh  # the path table: what a docs-only diff is (docs_exempt)
+. "$HERE/_paths_lib.sh"
 ROOT=$(git -C "$HERE" rev-parse --show-toplevel) || exit 2
 PLAN=${GATE_PLAN:-$ROOT/scripts/ci/gate_plan.sh}
 
@@ -128,6 +143,78 @@ review_gap_hints() {
   local recorded
   recorded=$(codex_review_success)
   [ -z "$recorded" ] || echo "merge:   the head's codex-review success ('$recorded') records no fallback review of ${head:0:7}" >&2
+  [ -z "$not_exempt" ] || echo "merge:   a bot PR, but its review is required: $not_exempt" >&2
+  [ -z "$not_docs" ] || echo "merge:   not docs-only, so its review is required: $not_docs" >&2
+}
+
+# pr_changes: read PR <n>'s authors and changed files once, for both exemptions (header): sets
+# $changed (GitHub's changedFiles), $author, $commit_authors, $files (one JSON object per line)
+# and $short (why the list is not the whole PR, else ""). gh failing is exit 2, like every read
+# before the merge.
+pr_changes() {
+  local who listed
+  who=$(gh pr view "$PR" --repo "$SLUG" --json changedFiles,author,commits \
+    --jq '[.changedFiles, .author.login, ([.commits[].authors[] | .login // "?"] | unique | join(","))] | @tsv') \
+    || { echo "merge: cannot read PR #$PR's authors (gh above)" >&2; exit 2; }
+  IFS=$'\t' read -r changed author commit_authors <<<"$who"
+  files=$(gh api --paginate "repos/$SLUG/pulls/$PR/files?per_page=100" \
+    --jq '.[] | {filename, previous_filename, status, patch}') \
+    || { echo "merge: cannot read PR #$PR's changed files (gh above)" >&2; exit 2; }
+  # The files API stops at 3000 without saying so; an unlisted file would go unchecked.
+  listed=$(grep -c . <<<"$files")
+  short=""
+  [ "$listed" = "$changed" ] || short="GitHub listed $listed of its ${changed:-?} changed files"
+}
+
+# review_exempt: return 0, naming why in $exemption, when PR <n> needs no Codex review (header):
+# a bot dependency PR, or a docs-only diff. Else 1, with each one's reason, where it has one, in
+# $not_exempt and $not_docs for review_gap_hints.
+not_exempt=""
+not_docs=""
+review_exempt() {
+  pr_changes
+  [ -n "$files" ] || return 1
+  if dependency_exempt; then
+    exemption="bot dependency PR, manifest-only diff"
+  elif docs_exempt; then
+    exemption="docs-only diff"
+  else
+    return 1
+  fi
+}
+
+# dependency_exempt: 0 when the PR is a bot's and changes only dependency pins
+# (_dependency_pr.py exempt); else 1, with its reason for a bot's PR in $not_exempt.
+dependency_exempt() {
+  local out rc
+  out=$(python3 -I "$HERE/_dependency_pr.py" exempt "$author" "$commit_authors" <<<"$files")
+  rc=$?
+  case $rc in
+    0) [ -z "$short" ] && return 0; not_exempt=$short; return 1 ;;
+    1) not_exempt=$out; return 1 ;;
+    *) echo "merge: cannot tell whether PR #$PR is a manifest-only dependency PR (python3 above)" >&2; exit 2 ;;
+  esac
+}
+
+# docs_exempt: 0 when every path the PR touches, both sides of a rename, is `docs` in the path
+# table; else 1, naming in $not_docs the first other path of a PR that touches docs at all (a
+# plain code PR gets no hint), or the short listing.
+docs_exempt() {
+  local touched path DEVKIT_AREA DEVKIT_AREAS
+  touched=$(python3 -I "$HERE/_dependency_pr.py" paths <<<"$files") \
+    || { echo "merge: cannot read the paths PR #$PR changes (python3 above)" >&2; exit 2; }
+  devkit_areas "$touched"
+  # DEVKIT_AREAS is " a b ", docs first in DEVKIT_AREA_ORDER.
+  case "$DEVKIT_AREAS" in
+    " docs ") [ -z "$short" ] && return 0; not_docs=$short; return 1 ;;
+    " docs "*) ;;
+    *) return 1 ;;
+  esac
+  while IFS= read -r path; do
+    _devkit_area "$path"
+    [ "$DEVKIT_AREA" = docs ] || { not_docs="$path is $DEVKIT_AREA"; return 1; }
+  done <<<"$touched"
+  return 1
 }
 
 # codex_review_success: the description of the head's codex-review status when it is success.
@@ -163,9 +250,14 @@ check_codex() {
     '' | 0) codex=$(grep -vE "$REVIEW_GAPS" <<<"$codex") ;;
     *) echo "merge: $PLAN: GATE_CODEX_REVIEW must be 0 or 1 (got '$required')" >&2; exit 2 ;;
   esac
-  if grep -qE "$REVIEW_GAPS" <<<"$codex" && recorded=$(fallback_review); then
-    echo "merge: no Codex review of head ${head:0:12}; its codex-review status records the fallback: $recorded"
-    codex=$(grep -vE "$REVIEW_GAPS" <<<"$codex")
+  if grep -qE "$REVIEW_GAPS" <<<"$codex"; then
+    if recorded=$(fallback_review); then
+      echo "merge: no Codex review of head ${head:0:12}; its codex-review status records the fallback: $recorded"
+      codex=$(grep -vE "$REVIEW_GAPS" <<<"$codex")
+    elif review_exempt; then
+      echo "merge: codex-review: not required ($exemption)"
+      codex=$(grep -vE "$REVIEW_GAPS" <<<"$codex")
+    fi
   fi
   [ -z "$codex" ] || refuse_codex "$codex"
 }
