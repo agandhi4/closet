@@ -32,7 +32,7 @@ An email a run did not finish has no row and is read again next time. `order_ite
 
 ## The review list
 
-`GET /wardrobe/orders`, and `POST /wardrobe/orders/:id/add` and `/dismiss`, both native `PostForm`s with `needsNetwork`. They answer only the `ORDER_MAIL_OWNER` account; anyone else, and everyone with the order mail off, gets a 404. They are registered even when off: unregistered, `/wardrobe/orders` fell to `/wardrobe/:id`, whose id check answered 400. The Wardrobe's ⋯ menu links the list when `ViewContext.orderReview` is set.
+`GET /wardrobe/orders`, and `POST /wardrobe/orders/:id/add` and `/dismiss`, both native `PostForm`s (disabled offline). They answer only the `ORDER_MAIL_OWNER` account; anyone else, and everyone with the order mail off, gets a 404. They are registered even when off: unregistered, `/wardrobe/orders` fell to `/wardrobe/:id`, whose id check answered 400. The Wardrobe's ⋯ menu links the list when `ViewContext.orderReview` is set.
 
 "Add to closet" runs `importLink` on the stored product link and renders the ordinary new-garment form for the closet. The form carries the photo choices, the order's day as `dateAquired`, the stored price when the page has none in dollars, and `orderItem` (hidden, with a notice). `POST /wardrobe` resolves `orderItem` in `postedDestination`: the requester's own pending item in their own wardrobe, else a 404 before anything is stored. It then marks the item `added` in the garment's own transaction (`WithGarment`, as a plan candidate link). A page that cannot be fetched now opens the form with the stored details and a notice. Fetching counts against a `LINK_IMPORT_LIMIT` checker of its own.
 

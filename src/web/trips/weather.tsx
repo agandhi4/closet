@@ -211,7 +211,7 @@ export function TripPlaceResults(props: {
   answer: PlaceAnswer;
 }) {
   const Form = (form: { children: Child }) => (
-    <PostForm action={tripUrl(props.tripId, '/destination')} needsNetwork>
+    <PostForm action={tripUrl(props.tripId, '/destination')}>
       {form.children}
     </PostForm>
   );

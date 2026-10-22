@@ -24,7 +24,7 @@ export function AvoidedPartners(props: {
             <a href={`/wardrobe/${partner.id}`} class="link link-hover">
               {partner.name ?? categoryLabel(partner.category)}
             </a>
-            <PostForm action={`${IDEAS_PATH}/allow`} needsNetwork>
+            <PostForm action={`${IDEAS_PATH}/allow`}>
               <input
                 type="hidden"
                 name="garmentId"

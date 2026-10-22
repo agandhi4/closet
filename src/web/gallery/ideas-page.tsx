@@ -321,7 +321,7 @@ function IdeaCard(props: {
         {/* One row: the pick, and "Not this" opening upward over the
             collage, so a whole card fits a phone screen above the dock. */}
         <div class="flex items-start gap-2">
-          <PostForm action="/outfits/ideas/pick" class="flex-1" needsNetwork>
+          <PostForm action="/outfits/ideas/pick" class="flex-1">
             {idea.garments.map((g) => (
               <input type="hidden" name="garmentId" value={String(g.id)} />
             ))}
@@ -337,11 +337,7 @@ function IdeaCard(props: {
             <div class="dropdown-content bg-base-100 rounded-box shadow-md z-20 w-72 p-3 mb-1 flex flex-col gap-2">
               <div class="flex flex-wrap gap-2">
                 {model.weather && (
-                  <PostForm
-                    action="/outfits/ideas/feedback"
-                    class="contents"
-                    needsNetwork
-                  >
+                  <PostForm action="/outfits/ideas/feedback" class="contents">
                     <StateFields state={model.state} />
                     <button
                       type="submit"

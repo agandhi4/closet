@@ -122,6 +122,14 @@ export function ErrorAlert({ message }: { message: string }) {
  * Every PostForm submits once (`data-submit-once`, public/js/submit-once.js):
  * its buttons are disabled after the first submit, until the page returns
  * from the back/forward cache.
+ *
+ * Every PostForm is disabled offline (`data-needs-network`,
+ * public/js/connectivity.js), its controls outside it through `form=`
+ * included: a cached copy posting without a connection lands on the
+ * worker's offline page and loses what was typed (#411). The default since
+ * the owner's call of 2026-10-22; it was each caller's opt-in and 15 forms
+ * had left it out. `allowOffline` is the one way out, and guards.conf
+ * `@post-form-offline` makes it carry its reason as a literal.
  */
 export function PostForm(props: {
   action: string;
@@ -129,8 +137,11 @@ export function PostForm(props: {
   class?: string;
   /** For buttons outside the form that submit it through their `form` attribute. */
   id?: string;
-  /** Disabled while offline (data-needs-network, public/js/connectivity.js). */
-  needsNetwork?: boolean;
+  /**
+   * Why this form may post while offline, which turns the offline guard
+   * off. Rendered as `data-allow-offline`, so a reader of the page sees it.
+   */
+  allowOffline?: string;
   /** Posts a file (multipart/form-data): selfies, garment photos, the add sheet. */
   multipart?: boolean;
   children?: Child;
@@ -144,7 +155,8 @@ export function PostForm(props: {
       class={props.class}
       hx-boost="false"
       data-confirm={props.confirm}
-      data-needs-network={props.needsNetwork ? '' : undefined}
+      data-needs-network={props.allowOffline === undefined ? '' : undefined}
+      data-allow-offline={props.allowOffline}
       // One post per tap: public/js/submit-once.js (the layout loads it).
       data-submit-once=""
       onsubmit={

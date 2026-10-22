@@ -988,13 +988,13 @@ function PhotoSheet(props: {
  * One way in to the sheet: a button-styled label over its file input
  * (`relative`: the sr-only input must not escape the sheet, see Gotchas),
  * in a form of its own, so an empty input never posts beside the chosen
- * one. Disabled offline (needsNetwork).
+ * one. Disabled offline, like every PostForm.
  */
 function PhotoSource(props: { action: string; source: 'camera' | 'library' }) {
   const camera = props.source === 'camera';
   const Icon = camera ? CameraIcon : PhotoLibraryIcon;
   return (
-    <PostForm action={props.action} multipart needsNetwork>
+    <PostForm action={props.action} multipart>
       <label
         class="relative btn btn-outline w-full justify-start gap-3"
         data-photo-source={props.source}
@@ -1029,11 +1029,7 @@ function RotateButtons(props: { action: string }) {
     { direction: 'right', glyph: '↻', label: t('garment.ROTATE_RIGHT') },
   ] as const;
   return (
-    <PostForm
-      action={props.action}
-      needsNetwork
-      class="group/rotate flex flex-col gap-3"
-    >
+    <PostForm action={props.action} class="group/rotate flex flex-col gap-3">
       <div class="flex gap-3">
         {turns.map((turn) => (
           <button

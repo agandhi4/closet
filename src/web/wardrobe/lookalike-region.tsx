@@ -134,7 +134,6 @@ function LookalikeRow(props: {
           formaction={garmentUrl(match.id, viewOwner, '/copies')}
           class="btn btn-sm btn-primary shrink-0"
           aria-label={t('lookalikes.ADD_COPY_OF', { name })}
-          data-needs-network=""
         >
           {t('lookalikes.ADD_COPY')}
         </button>
@@ -149,5 +148,5 @@ function LookalikeRow(props: {
  * the form's own action, the check's read path, is never posted to.
  */
 export function LookalikeCopyForm() {
-  return <PostForm id={COPY_FORM_ID} action={LOOKALIKES_PATH} needsNetwork />;
+  return <PostForm id={COPY_FORM_ID} action={LOOKALIKES_PATH} />;
 }

@@ -14,7 +14,7 @@ export const LOGOUT_PATH = '/auth/logout';
 
 export function SignOutForm() {
   return (
-    <PostForm id="logout-form" action={LOGOUT_PATH} needsNetwork>
+    <PostForm id="logout-form" action={LOGOUT_PATH}>
       <button type="submit" class="btn btn-outline btn-error w-full">
         {t('LOGOUT')}
       </button>

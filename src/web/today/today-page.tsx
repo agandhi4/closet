@@ -350,7 +350,7 @@ function IdeaCard(props: {
           {ideaName(idea.garments)}
         </h3>
         <Reasons idea={idea} weather={props.weather} />
-        <PostForm action={WEAR_THIS_PATH} class="mt-auto" needsNetwork>
+        <PostForm action={WEAR_THIS_PATH} class="mt-auto">
           {idea.garments.map((g) => (
             <input type="hidden" name="garmentId" value={String(g.id)} />
           ))}

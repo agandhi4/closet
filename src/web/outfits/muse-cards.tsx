@@ -180,7 +180,7 @@ function PrimaryAction(props: { item: MuseOutfit; primary: Primary }) {
     case 'save':
     case 'love':
       return (
-        <PostForm action={`${outfitUrl(item.id)}/love`} needsNetwork>
+        <PostForm action={`${outfitUrl(item.id)}/love`}>
           <input type="hidden" name="returnTo" value={RETURN_TO} />
           <button
             type="submit"

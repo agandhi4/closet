@@ -79,12 +79,12 @@ function OrderItemCard({ item }: { item: ReviewItem }) {
             {t('VIEW_PRODUCT')}
           </a>
           <div class="flex gap-2 ml-auto">
-            <PostForm action={orderItemUrl(item.id, 'dismiss')} needsNetwork>
+            <PostForm action={orderItemUrl(item.id, 'dismiss')}>
               <button type="submit" class="btn btn-sm btn-ghost">
                 {t('orders.DISMISS')}
               </button>
             </PostForm>
-            <PostForm action={orderItemUrl(item.id, 'add')} needsNetwork>
+            <PostForm action={orderItemUrl(item.id, 'add')}>
               <button type="submit" class="btn btn-sm btn-primary">
                 {t('orders.ADD_TO_CLOSET')}
               </button>

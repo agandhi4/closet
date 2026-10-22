@@ -220,7 +220,7 @@ function ProposalBlock(props: {
       )}
       {waiting && (
         <div class="flex flex-wrap items-start gap-2">
-          <PostForm action={action('love')} needsNetwork>
+          <PostForm action={action('love')}>
             <input type="hidden" name="returnTo" value={returnTo} />
             <button type="submit" class="btn btn-primary min-h-11 fine:min-h-8">
               {t(props.complete ? 'outfits.muse.SAVE' : 'outfits.muse.LOVE')}
@@ -362,7 +362,7 @@ function PlanSheet(props: { outfitId: number; today: IsoDate }) {
         <h2 id="outfit-plan-sheet-title" class="font-semibold text-lg">
           {t('outfits.PLAN_TITLE')}
         </h2>
-        <PostForm action="/calendar" class="flex flex-col gap-4" needsNetwork>
+        <PostForm action="/calendar" class="flex flex-col gap-4">
           <input type="hidden" name="outfitId" value={String(props.outfitId)} />
           <label class="flex flex-col gap-1">
             <span class="text-sm text-muted">{t('outfits.PLAN_DAY')}</span>

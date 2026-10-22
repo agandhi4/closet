@@ -135,7 +135,16 @@ export function StylingPage(props: { ctx: ViewContext; model: StylingModel }) {
         <Header model={model} />
         {model.rows.length > 0 ? (
           <>
-            <PostForm id="styling-form" action={STYLING_PATH}>
+            {/* Not guarded as a whole: guarding it would dim and freeze the
+                strips it wraps, and "choosing still works" offline
+                (styling.OFFLINE). Every network control around it
+                (Shuffle, picks, + Add row, the sheet's Save) carries its own
+                data-needs-network. */}
+            <PostForm
+              id="styling-form"
+              action={STYLING_PATH}
+              allowOffline="choosing a look works offline; Save is guarded in the sheet"
+            >
               <StateFields model={model} />
               <StylingRows model={model} context={context} />
             </PostForm>
@@ -419,6 +428,7 @@ function AddRow({ model }: { model: StylingModel }) {
               hx-include="#styling-form"
               hx-target="#styling-rows"
               hx-swap="outerHTML"
+              data-needs-network=""
               onclick="this.closest('details').open = false"
             >
               {roleLabel(role)}

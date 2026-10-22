@@ -91,7 +91,7 @@ export function WornControl(props: WornControlProps) {
     );
   }
   return (
-    <PostForm action={action} class={layout} needsNetwork>
+    <PostForm action={action} class={layout}>
       {fields}
       {body}
     </PostForm>

@@ -113,7 +113,6 @@ export function AddOutfitPage(props: {
             <PostForm
               action={tripUrl(trip.id, '/outfits')}
               class="flex flex-col gap-2"
-              needsNetwork
             >
               <input type="hidden" name="day" value={day ?? ''} />
               <input type="hidden" name="occasion" value={occasion ?? ''} />

@@ -31,7 +31,7 @@ import {
 /** "Plan my week": a native post, answered on the calendar with the banner. Static, so the calendar stays byte-stable. */
 export function PlanWeekForm(props: { class?: string; small?: boolean }) {
   return (
-    <PostForm action={PLAN_WEEK_PATH} class={props.class} needsNetwork>
+    <PostForm action={PLAN_WEEK_PATH} class={props.class}>
       <button
         type="submit"
         class={`btn btn-primary btn-soft${props.small ? ' btn-sm' : ''}`}
@@ -98,7 +98,6 @@ export function PlannedWeekBanner({ banner }: { banner: PlannedBanner }) {
         <PostForm
           action={undoWeekPlanUrl(banner.weekPlanId)}
           confirm={t('weekPlan.UNDO_CONFIRM')}
-          needsNetwork
         >
           <button type="submit" class="btn btn-sm btn-ghost">
             {t('weekPlan.UNDO')}
@@ -142,11 +141,7 @@ export function WeekTemplateSettings(props: {
       heading={t('weekPlan.template.HEADING')}
     >
       <p class="text-sm text-base-content/70">{t('weekPlan.template.HINT')}</p>
-      <PostForm
-        action={WEEK_TEMPLATE_PATH}
-        class="flex flex-col gap-3"
-        needsNetwork
-      >
+      <PostForm action={WEEK_TEMPLATE_PATH} class="flex flex-col gap-3">
         {templateDays(props.slots).map((day) => {
           const names = weekdayFieldNames(day.weekday);
           const weekday = t(DAY_NAMES[day.weekday]);

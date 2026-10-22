@@ -118,7 +118,6 @@ export function DraftQueueSection(props: {
         <PostForm
           action={wardrobeUrl(viewOwner, {}, DRAFT_DISCARD_PATH)}
           class="flex-1"
-          needsNetwork
         >
           <input type="hidden" name="photo" value={current} />
           <input type="hidden" name="saved" value={idListValue(saved)} />

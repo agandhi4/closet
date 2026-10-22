@@ -43,6 +43,33 @@ const GUARD_MARK = 'offlineDisabled';
 const CONTROLS = 'button, input, select, textarea';
 
 /**
+ * A zone's controls. A form's are its `elements`, which also holds the
+ * controls outside it that name it in `form=` (the styling sheet's Save, a
+ * lookalike's "Add a copy", the add sheet's photo inputs): guarding the
+ * form guards every way to submit it.
+ */
+function zoneControls(zone) {
+  if (zone.matches(CONTROLS)) return [zone];
+  if (zone instanceof HTMLFormElement) {
+    return Array.from(zone.elements).filter((el) => el.matches(CONTROLS));
+  }
+  return zone.querySelectorAll(CONTROLS);
+}
+
+/**
+ * The forms holding a control this module disabled. Counted after the pass,
+ * not per zone: an area around a form's control (the add sheet's rows) may
+ * have disabled it first.
+ */
+function guardedForms() {
+  return Array.from(
+    document.querySelectorAll('form[data-needs-network]'),
+  ).filter((form) =>
+    Array.from(form.elements).some((el) => GUARD_MARK in el.dataset),
+  ).length;
+}
+
+/**
  * The writes marked data-needs-network (and the controls inside them) get
  * the real `disabled` while offline or reconnecting, so neither a tap nor
  * the keyboard can submit them; main.css dims them, the banner says why.
@@ -54,10 +81,7 @@ function guardWrites() {
   if (offline) {
     let guarded = 0;
     for (const zone of document.querySelectorAll('[data-needs-network]')) {
-      const controls = zone.matches(CONTROLS)
-        ? [zone]
-        : zone.querySelectorAll(CONTROLS);
-      for (const control of controls) {
+      for (const control of zoneControls(zone)) {
         if (control.disabled) continue;
         control.disabled = true;
         control.setAttribute('aria-disabled', 'true');
@@ -68,7 +92,9 @@ function guardWrites() {
     // Only newly disabled controls: a page whose writes are not counted
     // here while offline posts into the worker's offline page (#411).
     if (guarded > 0) {
-      console.info(`[connectivity] ${guarded} write controls disabled`);
+      console.info(
+        `[connectivity] ${guarded} write controls disabled (${guardedForms()} forms)`,
+      );
     }
     return;
   }

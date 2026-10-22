@@ -48,7 +48,7 @@ function SelfieUpload(props: {
   const action = `/calendar/${entryId}/selfie?returnTo=${encodeURIComponent(props.returnTo)}`;
   const Icon = source === 'camera' ? CameraIcon : PhotoLibraryIcon;
   return (
-    <PostForm action={action} multipart needsNetwork class="inline-flex">
+    <PostForm action={action} multipart class="inline-flex">
       {/* `relative`: the sr-only input is absolutely positioned, and
           without a positioned ancestor it escapes a scroll container (the
           Worn strip) and widens the whole page. */}
@@ -144,7 +144,6 @@ export function SelfieView(props: {
             <PostForm
               action={`/selfies/${selfie.id}/delete`}
               confirm={t('selfie.REMOVE_CONFIRM')}
-              needsNetwork
             >
               <input type="hidden" name="returnTo" value={returnTo} />
               <button type="submit" class="btn btn-sm btn-error btn-outline">
