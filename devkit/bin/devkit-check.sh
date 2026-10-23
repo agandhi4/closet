@@ -59,6 +59,17 @@
 # nothing beyond the declared digest hole (bin/_renovate.py, which the scorecard's `renovate`
 # check shares). Renovate merges server-side, so this is the only place a self-merge that skips
 # the gate is caught before it is live (homelab #109/#110, 2026-10-19).
+#
+# Also (WARNINGS, exit 0): a bats assertion errexit never sees (bin/bats_assert_check.py, which
+# devkit's ci-lint fails on): `[[ ]]` mid-test passes untested on macOS bash 3.2, where lanes run
+# bats (devkit #212). `bats_assert_check.py --fix` appends the `|| false` that fixes most.
+# It reads the working tree even under --staged: a warning judges the files a lane edits next.
+#
+# Also (WARNINGS, exit 0): a tracked stylesheet whose Tailwind v4 `@import "tailwindcss"` has no
+# source(...) scope that leaves devkit/ out, or a source()/@source path that reaches it
+# (tailwind_unscoped). Unscoped, v4 scans every file
+# git tracks, so a word in devkit's comments ("shadow") became a CSS class and moved rollcall's
+# bundle bound with no src/ change (#81). Working tree, like the bats check.
 set -euo pipefail
 STAGED=0
 case "${1:-}" in
@@ -231,4 +242,42 @@ renovate_args=(audit)
 while IFS= read -r issue; do
   [ -z "$issue" ] || echo "devkit-check: WARNING: $issue (README \"Renovate\": every Renovate PR waits for make merge)" >&2
 done <<<"$("$(dirname "${BASH_SOURCE[0]}")/python.sh" -I "$(dirname "${BASH_SOURCE[0]}")/_renovate.py" "${renovate_args[@]}")"
+while IFS= read -r issue; do
+  [ -z "$issue" ] || echo "devkit-check: WARNING: $issue (devkit/bin/bats_assert_check.py --fix)" >&2
+done <<<"$("$(dirname "${BASH_SOURCE[0]}")/python.sh" -I "$(dirname "${BASH_SOURCE[0]}")/bats_assert_check.py" --root .)"
+# tailwind_unscoped: "<css>:<line>" for each place a tracked stylesheet (outside devkit/) has
+# Tailwind v4 scan devkit/: an `@import "tailwindcss"` with no source(...), or a source() or
+# `@source` path (source(none)'s explicit list) that tw_reaches_devkit. A path that does not
+# resolve is Tailwind's own error, not this check's.
+# tw_reaches_devkit <top> <css> <path>: the directory <path> names from <css>'s (a glob's part
+# before its first wildcard; a file's directory) is <top>, above it or inside <top>/devkit/.
+tw_reaches_devkit() {
+  local d dir
+  d=$(dirname "$2")/${3%%[\*\?\{\[]*}
+  [ -d "$d" ] || d=$(dirname "$d")
+  dir=$(cd "$d" 2>/dev/null && pwd -P) || return 1
+  case "$dir/" in "$1/devkit/"*) return 0 ;; "$1/"?*) return 1 ;; esac
+  return 0
+}
+tailwind_unscoped() {
+  local css hit top
+  top=$(pwd -P)
+  while IFS= read -r css; do
+    [ -f "$css" ] || continue
+    hit=$(grep -nE "^[[:space:]]*@import[[:space:]]+[\"']tailwindcss(/utilities(\\.css)?)?[\"']" "$css" | head -n 1) || hit=""
+    if [ -n "$hit" ] && [[ ! "$hit" =~ source\([[:space:]]*none[[:space:]]*\) ]]; then
+      if [[ ! "$hit" =~ source\([[:space:]]*[\"\']([^\"\']*)[\"\'] ]] || tw_reaches_devkit "$top" "$css" "${BASH_REMATCH[1]}"; then
+        echo "$css:${hit%%:*}"
+      fi
+    fi
+    # `@source not "<path>"` excludes and `@source inline(...)` names classes: neither matches.
+    while IFS= read -r hit; do
+      [[ "$hit" =~ @source[[:space:]]+[\"\']([^\"\']*)[\"\'] ]] || continue
+      ! tw_reaches_devkit "$top" "$css" "${BASH_REMATCH[1]}" || echo "$css:${hit%%:*}"
+    done < <(grep -nE "^[[:space:]]*@source[[:space:]]+[\"']" "$css" || true)
+  done < <(git ls-files -- '*.css' ':!:devkit/')
+}
+while IFS= read -r raw; do
+  [ -z "$raw" ] || echo "devkit-check: WARNING: $raw: Tailwind v4 scans devkit/ from here (an unscoped @import \"tailwindcss\", or a source() or @source path reaching the repo root or devkit/), and a word in its comments becomes a CSS class (rollcall #81: .shadow); scope it to the app's sources: @import \"tailwindcss\" source(\"<dir>\")" >&2
+done <<<"$(tailwind_unscoped)"
 echo "devkit-check: ok (${_commit:0:7})"

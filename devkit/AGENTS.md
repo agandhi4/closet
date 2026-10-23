@@ -13,8 +13,9 @@ agent more than it catches is overhead, not standardization.
 - Portable shell: macOS bash 3.2 + GNU bash; BSD + GNU coreutils. Empty arrays under `set -u`
   use `${a[@]+"${a[@]}"}`. No `readarray`, no `declare -A`, no GNU-only `sed -i` without `''`.
 - `shellcheck -s bash` (0.11) clean; `bats tests/` green before any push. CI runs both. On a
-  Mac, bats runs under /bin/bash 3.2, where a false `[[ … ]]` that is not a test's last line
-  passes silently: a Mac run is a smoke test, CI (bash 5, mawk) is the verdict.
+  Mac, bats runs under /bin/bash 3.2, where a false `[[ … ]]` or `(( … ))` mid-test fails
+  nothing (and `! cmd` or `[ a ] && [ b ]` never do, on any bash): every such assertion ends
+  `|| false`. ci-lint holds it (`bin/bats_assert_check.py`, `--fix` appends it).
 
 ## Architecture
 Scripts in `bin/` and the shared metrics collectors in `metrics/`, vendored by consumers (the

@@ -95,7 +95,7 @@ RATCHET_SNAPSHOT=${AUDIT_RATCHET_SNAPSHOT:-docs/metrics/snapshot.json}
 # Issues are filed only while fewer than this many fleet-audit issues are open (memo §7a).
 BACKLOG_CAP=3
 
-for tool in jq gh git python3; do
+for tool in jq gh git; do   # python3 is devkit_python's, above: it may be off PATH
   command -v "$tool" >/dev/null || die "$tool not found (brew install $tool)"
 done
 [ "$LLM" -eq 0 ] || command -v claude >/dev/null || die "claude not found (install Claude Code, or pass --llm 0)"

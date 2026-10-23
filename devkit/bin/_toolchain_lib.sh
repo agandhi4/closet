@@ -16,7 +16,8 @@
 #                       (DEVKIT_<NAME>, PATH, mise, python, XDG_BIN_HOME, CARGO_HOME, Homebrew)
 #                       and DEVKIT_TOOL_VERSION. 1: DEVKIT_TOOL_ERROR, one clause naming every place.
 #   devkit_toolchain    devkit_python and devkit_tool for every DEVKIT_TOOLCHAIN_TOOLS entry:
-#                       DEVKIT_TOOLCHAIN_LINKS ("python3=<path> uv=<path>"), DEVKIT_TOOLCHAIN_OFF_PATH
+#                       DEVKIT_TOOLCHAIN_LINKS ("python3=<path>" and "uv=<path>" lines: one per line, so
+#                       a path with a space stays one target), DEVKIT_TOOLCHAIN_OFF_PATH
 #                       the ones PATH did not have ("python 3.14.3 from mise; uv 0.9.5 from
 #                       python"), DEVKIT_TOOLCHAIN_MISSING the tools not found (DEVKIT_TOOL_ERROR
 #                       each, in DEVKIT_TOOLCHAIN_ERROR). 1 and DEVKIT_PYTHON_ERROR only for no
@@ -90,13 +91,23 @@ _devkit_python_try() {
   DEVKIT_PYTHON_SOURCE=$source DEVKIT_PYTHON_VERSION=$version
 }
 
-# _devkit_python_glob <source> <pattern>: try each match, newest version first.
+# _devkit_python_glob <source> <pattern>: the newest qualifying match, by the version each one
+# reports. Every match is probed rather than sorted by path: `sort -V` is no POSIX sort option
+# (macOS before 13 shipped GNU sort 5.93, which lacks it), and a sort failing inside a process
+# substitution silently yields no candidates (homelab #130 Codex).
 _devkit_python_glob() {
-  local source=$1 cand
+  local source=$1 cand python='' version='' best=-1 key major minor patch
   while IFS= read -r cand; do
-    _devkit_python_try "$source" "$cand" && return 0
-  done < <(compgen -G "$2" | sort -rV)
-  return 1
+    [ -n "$cand" ] || continue
+    _devkit_python_try "$source" "$cand" || continue
+    IFS=. read -r major minor patch <<<"$DEVKIT_PYTHON_VERSION"
+    key=$(((major * 1000 + minor) * 1000 + patch))
+    [ "$key" -gt "$best" ] || continue
+    best=$key python=$DEVKIT_PYTHON version=$DEVKIT_PYTHON_VERSION
+  done <<<"$(compgen -G "$2")"
+  [ -n "$python" ] || return 1
+  export DEVKIT_PYTHON=$python
+  DEVKIT_PYTHON_SOURCE=$source DEVKIT_PYTHON_VERSION=$version
 }
 
 # _devkit_mise_which <name>: mise's choice of <name>, or fail. From $HOME: `mise which` resolves
@@ -116,7 +127,7 @@ _devkit_mise_which() {
 _devkit_python_mise() {
   local cand
   cand=$(_devkit_mise_which python3) && _devkit_python_try mise "$cand" && return 0
-  _devkit_python_glob mise "${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/installs/python/*/bin/python3"
+  _devkit_python_glob mise "${MISE_DATA_DIR:-${XDG_DATA_HOME:-${HOME:-}/.local/share}/mise}/installs/python/*/bin/python3"
 }
 
 _devkit_python_homebrew() {
@@ -147,7 +158,7 @@ devkit_python() {
     path_python=$(command -v python3) && out=$(_devkit_python_probe "$path_python") \
       && [ "${out#* }" = "$DEVKIT_PYTHON" ] && DEVKIT_PYTHON_SOURCE=PATH
   elif ! { _devkit_python_try PATH "$(command -v python3)" || _devkit_python_mise \
-    || _devkit_python_glob uv "${UV_PYTHON_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/uv/python}/cpython-*/bin/python3" \
+    || _devkit_python_glob uv "${UV_PYTHON_INSTALL_DIR:-${XDG_DATA_HOME:-${HOME:-}/.local/share}/uv/python}/cpython-*/bin/python3" \
     || _devkit_python_homebrew; }; then
     DEVKIT_PYTHON_ERROR="no python3 >= $DEVKIT_PYTHON_FLOOR on this box (tried PATH, mise, uv, Homebrew${_DEVKIT_PYTHON_TRIED:+: ${_DEVKIT_PYTHON_TRIED#; }}); install one (mise use -g python@3.14) or set DEVKIT_PYTHON"
     return 1
@@ -155,15 +166,21 @@ devkit_python() {
   _DEVKIT_PYTHON_RESOLVED=$DEVKIT_PYTHON
 }
 
-# _devkit_tool_try <source> <candidate>: 0 and DEVKIT_TOOL set when the candidate answers
-# --version; else 1 and one clause appended to _DEVKIT_TOOL_TRIED (an empty or absent candidate,
-# the usual case for a fixed directory, adds none).
+# _devkit_tool_try <source> <candidate>: 0 and DEVKIT_TOOL set (absolute) when the candidate
+# answers --version; else 1 and one clause appended to _DEVKIT_TOOL_TRIED (an empty or absent
+# candidate, the usual case for a fixed directory, adds none). Absolute because
+# devkit_toolchain_link points a link at it from another directory: DEVKIT_UV=./uv linked as is
+# made `uv -> ./uv`, a link to itself (kitchen #10 Codex).
 _devkit_tool_try() {
-  local source=$1 cand=$2 out
+  local source=$1 cand=$2 out dir
   [ -n "$cand" ] && [ -e "$cand" ] || return 1
   [ -x "$cand" ] || { _DEVKIT_TOOL_TRIED+="; $source $cand is not executable"; return 1; }
   out=$("$cand" --version </dev/null 2>/dev/null) || { _DEVKIT_TOOL_TRIED+="; $source $cand does not run"; return 1; }
   read -r _ DEVKIT_TOOL_VERSION _ <<<"$out"
+  case "$cand" in
+    /*) ;;
+    *) dir=$(cd "$(dirname "$cand")" && pwd) || return 1; cand=$dir/${cand##*/} ;;
+  esac
   DEVKIT_TOOL=$cand DEVKIT_TOOL_SOURCE=$source
 }
 
@@ -210,10 +227,10 @@ devkit_toolchain() {
   [ -z "$off" ] || DEVKIT_TOOLCHAIN_OFF_LINKS=$DEVKIT_TOOLCHAIN_LINKS
   for tool in $DEVKIT_TOOLCHAIN_TOOLS; do
     if devkit_tool "$tool"; then
-      DEVKIT_TOOLCHAIN_LINKS+=" $tool=$DEVKIT_TOOL"
+      DEVKIT_TOOLCHAIN_LINKS+=$'\n'"$tool=$DEVKIT_TOOL"
       [ "$DEVKIT_TOOL_SOURCE" = PATH ] && continue
       off="${off:+$off; }$tool $DEVKIT_TOOL_VERSION from $DEVKIT_TOOL_SOURCE"
-      DEVKIT_TOOLCHAIN_OFF_LINKS="${DEVKIT_TOOLCHAIN_OFF_LINKS:+$DEVKIT_TOOLCHAIN_OFF_LINKS }$tool=$DEVKIT_TOOL"
+      DEVKIT_TOOLCHAIN_OFF_LINKS="${DEVKIT_TOOLCHAIN_OFF_LINKS:+$DEVKIT_TOOLCHAIN_OFF_LINKS$'\n'}$tool=$DEVKIT_TOOL"
     else
       missing="${missing:+$missing }$tool" errors="${errors:+$errors; }$DEVKIT_TOOL_ERROR"
     fi
@@ -226,10 +243,11 @@ devkit_toolchain_link() {
   # One directory per set of targets: two gates resolving different tools never share a link.
   dir=${XDG_STATE_HOME:-${HOME:-}/.local/state}/devkit/toolchain/$(printf %s "$links" | cksum | cut -d' ' -f1)
   mkdir -p "$dir" || { DEVKIT_PYTHON_ERROR="cannot create $dir"; return 1; }
-  for link in $links; do
+  while IFS= read -r link; do
+    [ -n "$link" ] || continue
     _devkit_link "$dir" "${link%%=*}" "${link#*=}" \
       || { DEVKIT_PYTHON_ERROR="cannot link $dir/${link%%=*} to ${link#*=}"; return 1; }
-  done
+  done <<<"$links"
   DEVKIT_TOOLCHAIN_BIN=$dir
 }
 
