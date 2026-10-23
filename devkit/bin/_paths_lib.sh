@@ -36,7 +36,7 @@ DEVKIT_AREA_ORDER="docs backend frontend native tooling other"
 
 # Never run from the merged tree by a job: the gate and hook machinery (run from the invoking
 # checkout, main's copy), the guards ci-quick runs (devkit-check, docs/toolchain/workflows/
-# release/ci-targets checks, own-commit, ios-check, hooks_check and their libs), and fleet
+# release/ci-targets checks, own-commit, ios-check, hooks_check, bats_assert_check and their libs), and fleet
 # operations run from a devkit checkout or after merge (sync, new, monthly audit, ship_tag in
 # publish.yml, the nightly dependency merge), machine setup (install_gh_shim.sh, whose --check
 # the scorecard reads; install_dependency_merge.sh), and
@@ -49,7 +49,7 @@ DEVKIT_TOOLING_BIN="local_gate.sh gate.sh remote_gate.sh _paths_lib.sh
   devkit-sync.sh devkit-new.sh monthly_audit.sh dead_alert_audit.py ship_tag.sh scorecard.py agent_cost.py secrets_check.sh migration_check.py
   gate_record.py pr_merge.sh codex_review.py gate_bite.py _repo_identity.py _renovate.py install_gh_shim.sh
   dependency_merge.sh _dependency_pr.py install_dependency_merge.sh
-  ios_check.py ios_device.sh"
+  ios_check.py ios_device.sh bats_assert_check.py"
 # What the image group exercises (ci-smoke/ci-image boot through them): tooling, but a change
 # to one runs the image group even when nothing else would.
 DEVKIT_IMAGE_BIN="boot_image.sh contract_probe.sh"
@@ -62,14 +62,15 @@ DEVKIT_IMAGE_BIN="boot_image.sh contract_probe.sh"
 # _compose.py (vuln.py --compose reads it too); codegen_drift.sh, which finplat's drift job
 # runs; devkit's toolchain lookup (_toolchain_lib.sh, which toolchain_path.sh sources, and python.sh); the
 # timeout and load libs, docker_bounded.sh, which a recipe's docker call runs through, and the
-# slot pool and gate.env parser tier_guard.sh sources): other. Only
+# slot pool, gate.env parser and metrics.conf reader (_metrics_conf_lib.sh) tier_guard.sh
+# sources): other. Only
 # a record of the decision; the classification needs no lookup for other.
 # shellcheck disable=SC2034  # read by tests/gate_contract.bats (every bin/ file listed once)
 DEVKIT_JOB_BIN="tier_guard.sh throwaway_pg.sh playwright_browsers.sh node_toolchain.sh
   rust_toolchain.sh toolchain_path.sh toolchain_exec.sh toolchain_shell.sh cargo_tool.sh metrics_ratchet.py metrics_collect.sh layer_check.py
   guard_check.py _source_tree.py _ts_lex.py _guard_rules.py _compose.py _timeout_lib.sh _load_lib.sh
   docker_bounded.sh release_tool.sh shellcheck.sh _awake_lib.sh _slot_lib.sh _gate_env.sh
-  codegen_drift.sh _toolchain_lib.sh python.sh"
+  codegen_drift.sh _toolchain_lib.sh python.sh _metrics_conf_lib.sh"
 
 # <path>: set DEVKIT_AREA (no subshell; devkit_areas calls it once per changed path).
 _devkit_area() {
@@ -224,10 +225,11 @@ devkit_gate_areas() {
 #   group     default areas                 notes
 #   QUICK     backend frontend tooling other  required; must include docs-check (every ci-quick does)
 #   DOCS      docs tooling other              required; skipped when QUICK ran, which covers it
-#   CLOCK     backend other                   optional; before BACKEND: a shifted run rewrites
-#                                             its target's own outputs (pytest-cov's report),
-#                                             and the unshifted tier after it writes them again,
-#                                             so METRICS reads the real-clock run
+#   CLOCK     backend other                   optional; after QUICK, before BACKEND. Order is
+#                                             not what keeps METRICS on the real-clock run:
+#                                             tier_guard.sh puts back every metrics.conf input
+#                                             a shifted run wrote ("Clock shift"), so a unit
+#                                             tier in QUICK (rollcall #81) is safe too
 #   BACKEND   backend other
 #   FRONTEND  frontend other
 #   IMAGE     backend frontend other          fixed; minus .dockerignore and GATE_IMAGE_EXCLUDE_PATHS, plus
