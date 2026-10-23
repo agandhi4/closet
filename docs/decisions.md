@@ -250,3 +250,8 @@ older history lives in `docs/PROJECT_LOG.md`.
 ## 2026-10-21 — `make merge` requires Codex's review of the head (GATE_CODEX_REVIEW=1)
 **Why:** `GATE_MERGE_REQUIRES=codex-review` wants only a success status, whatever commit its text names, so a head Codex never reviewed (failed, missing, or reviewed an older commit) merged on any codex-review success. devkit #189 made the stricter check opt-in; the fleet opts in.
 **Decision:** only `make merge` reads it. A failed, missing or stale Codex review of the head blocks unless the head's codex-review success names the fallback review of that exact commit (`… (Codex at limit) of <sha7>` or `<sha8> passed on Claude self-review`). #417 to #420 already recorded that form.
+
+## 2026-10-23 — Scorecard bounds record each check, not a share
+**Why:** devkit #218 made the scorecard ratchet hold each check by name; the share-only `{"wired": 1.0}` file bounds no check and fails `scorecard_file` until rewritten.
+**Decision:** `scorecard.py . --mode tighten` (the scorecard step of `make metrics-tighten`) rewrote `docs/metrics/scorecard.json` as `{"checks": {<id>: wired}}`; every check the share counted stays wired. Unwired, recorded as backlog: none.
+**Consequence:** ci-metrics now fails a recorded wired check that goes unwired, and a backlog check once wired until `make metrics-tighten` records it.
