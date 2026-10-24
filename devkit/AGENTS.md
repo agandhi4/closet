@@ -45,6 +45,8 @@ is README.md "Architecture". Invariants of the design:
   `devkit_declared_tools`) and linked alone into the toolchain directory, never a second
   resolver and never an interpreter's whole bin/. The gate preflight (`devkit_preflight`) names
   every missing tool in one error.
+- `make merge` runs origin/main's `merge_rules.sh` and plan (`bin/pr_merge.sh` extracts them), never
+  the checkout's: a rule a branch changes governs merges only once it is on main.
 - Every repo's `gate` target is `devkit/bin/gate.sh "$(PR)" $(GATE_ARGS)`. Where gates run is
   per machine (`GATE_REMOTE_HOST` in `~/.config/devkit/gate.env`), never per repo, except a plan's
   literal `GATE_REMOTE=0` for a gate only a Mac can run.
