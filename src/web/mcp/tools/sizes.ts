@@ -1,4 +1,4 @@
-import * as z from 'zod/v4';
+import * as z from 'zod';
 import { inUnit, MEASUREMENTS } from '../../../wardrobe/measurements';
 import { BRAND_MAX } from '../../wardrobe/garment-input';
 import {

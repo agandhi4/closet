@@ -1,4 +1,4 @@
-import * as z from 'zod/v4';
+import * as z from 'zod';
 import { HttpError } from '../../errors';
 import { sharedWardrobesOf } from '../../sharing/access';
 import {

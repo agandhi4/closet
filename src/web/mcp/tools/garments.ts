@@ -1,7 +1,7 @@
 import { buffer } from 'node:stream/consumers';
 import { selectScalars } from '../../../db/select-scalars';
 import { QUANTITY_MAX } from '../../../wardrobe/availability';
-import * as z from 'zod/v4';
+import * as z from 'zod';
 import {
   categoryRole,
   CONDITIONS,
