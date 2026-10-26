@@ -60,11 +60,20 @@ export function tooManyAttempts(ttlInSeconds: number): HttpError {
   );
 }
 
+/**
+ * Every limit's window, in the milliseconds the plugin counts in (it would
+ * parse '1 minute' to the same). A number, and each limit typed by
+ * `satisfies` rather than annotated, so the page audit reads `max` and
+ * `timeWindow` straight off these constants to pace the steps that share
+ * a budget (scripts/audit/budget.ts).
+ */
+const MINUTE_MS = 60_000;
+
 /** Login and registration: per client address, before the body is read. */
-export const SIGN_IN_LIMIT: RateLimitOptions = {
+export const SIGN_IN_LIMIT = {
   max: 5,
-  timeWindow: '1 minute',
-};
+  timeWindow: MINUTE_MS,
+} satisfies RateLimitOptions;
 
 /**
  * Every route that checks the current password: change password, change
@@ -74,12 +83,12 @@ export const SIGN_IN_LIMIT: RateLimitOptions = {
  * plugin's own preHandler) has guaranteed `request.auth`; an anonymous
  * request is answered by the gate and never counted.
  */
-export const ACCOUNT_LIMIT: RateLimitOptions = {
+export const ACCOUNT_LIMIT = {
   max: 5,
-  timeWindow: '1 minute',
+  timeWindow: MINUTE_MS,
   hook: 'preHandler',
   keyGenerator: (request) => `user ${request.auth!.user.id}`,
-};
+} satisfies RateLimitOptions;
 
 /**
  * The routes that fetch a URL the user supplied through the outbound
@@ -92,11 +101,11 @@ export const ACCOUNT_LIMIT: RateLimitOptions = {
  * ACCOUNT_LIMIT: generous for someone adding what they bought, and a
  * ceiling on how hard the server can be made to hammer another site.
  */
-export const LINK_IMPORT_LIMIT: RateLimitOptions = {
+export const LINK_IMPORT_LIMIT = {
   max: 10,
-  timeWindow: '1 minute',
+  timeWindow: MINUTE_MS,
   keyGenerator: (request) => `user ${request.auth!.user.id}`,
-};
+} satisfies RateLimitOptions;
 
 /**
  * The weather's city search (GET /weather/places, src/web/weather): each
@@ -104,12 +113,12 @@ export const LINK_IMPORT_LIMIT: RateLimitOptions = {
  * LINK_IMPORT_LIMIT: room for a few tries at a spelling, and a ceiling on
  * how hard one account can make the server ask a free service.
  */
-export const WEATHER_SEARCH_LIMIT: RateLimitOptions = {
+export const WEATHER_SEARCH_LIMIT = {
   max: 20,
-  timeWindow: '1 minute',
+  timeWindow: MINUTE_MS,
   hook: 'preHandler',
   keyGenerator: (request) => `user ${request.auth!.user.id}`,
-};
+} satisfies RateLimitOptions;
 
 /**
  * The routes that set a location the weather will be fetched for (POST
@@ -118,12 +127,12 @@ export const WEATHER_SEARCH_LIMIT: RateLimitOptions = {
  * a weather_forecast row: per signed-in user, room for a few tries and a
  * ceiling on how many one account can make the server fetch and keep.
  */
-export const WEATHER_LOCATION_LIMIT: RateLimitOptions = {
+export const WEATHER_LOCATION_LIMIT = {
   max: 10,
-  timeWindow: '1 minute',
+  timeWindow: MINUTE_MS,
   hook: 'preHandler',
   keyGenerator: (request) => `user ${request.auth!.user.id}`,
-};
+} satisfies RateLimitOptions;
 
 /**
  * The devices' timing beacon (POST /metrics/vitals, src/web/metrics): per
@@ -132,12 +141,12 @@ export const WEATHER_LOCATION_LIMIT: RateLimitOptions = {
  * busy minute of taps is a handful; this is a ceiling on a device (or a
  * script with a session) filling the histograms.
  */
-export const VITALS_LIMIT: RateLimitOptions = {
+export const VITALS_LIMIT = {
   max: 30,
-  timeWindow: '1 minute',
+  timeWindow: MINUTE_MS,
   hook: 'preHandler',
   keyGenerator: (request) => `user ${request.auth!.user.id}`,
-};
+} satisfies RateLimitOptions;
 
 /**
  * The pages' script errors (POST /errors/client, src/web/metrics/
@@ -146,12 +155,12 @@ export const VITALS_LIMIT: RateLimitOptions = {
  * document and at most five a page; this caps a looping page, or a script
  * with a session, flooding the tracker.
  */
-export const CLIENT_ERROR_LIMIT: RateLimitOptions = {
+export const CLIENT_ERROR_LIMIT = {
   max: 10,
-  timeWindow: '1 minute',
+  timeWindow: MINUTE_MS,
   hook: 'preHandler',
   keyGenerator: (request) => `user ${request.auth!.user.id}`,
-};
+} satisfies RateLimitOptions;
 
 /**
  * /health/ready and its alias /healthz (src/web/health), on ONE
@@ -165,7 +174,7 @@ export const CLIENT_ERROR_LIMIT: RateLimitOptions = {
  */
 export const HEALTH_LIMIT = {
   max: 60,
-  timeWindow: '1 minute',
+  timeWindow: MINUTE_MS,
   keyGenerator: (request: FastifyRequest) => request.ip,
 };
 
@@ -175,12 +184,12 @@ export const HEALTH_LIMIT = {
  * call is a 401 there and never counted). An agent calls tools in bursts;
  * this is room for a busy conversation and a ceiling on a runaway loop.
  */
-export const MCP_LIMIT: RateLimitOptions = {
+export const MCP_LIMIT = {
   max: 120,
-  timeWindow: '1 minute',
+  timeWindow: MINUTE_MS,
   hook: 'preHandler',
   keyGenerator: (request) => `token ${request.accessToken!.tokenId}`,
-};
+} satisfies RateLimitOptions;
 
 /**
  * The MCP tool that imports a link (add_garment_from_link) fetches a
@@ -190,7 +199,7 @@ export const MCP_LIMIT: RateLimitOptions = {
  */
 export const MCP_LINK_IMPORT_LIMIT = {
   max: 10,
-  timeWindow: '1 minute',
+  timeWindow: MINUTE_MS,
   keyGenerator: (request: FastifyRequest) =>
     `user ${request.accessToken!.user.id}`,
 };

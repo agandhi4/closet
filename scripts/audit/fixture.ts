@@ -229,8 +229,9 @@ export interface Fixture {
   /** The JPEG every upload step posts. */
   photo: Buffer;
   /**
-   * Theo's tokens for the MCP steps, one per few tools: /mcp allows 120
-   * calls a minute per token (MCP_LIMIT), and a tool is called 20-odd times.
+   * Theo's MCP_TOKENS tokens for the MCP steps, one per few tools: /mcp
+   * allows 120 calls a minute per token (MCP_LIMIT), and a tool is called
+   * 20-odd times; the walk paces each token's budget (budget.ts).
    */
   mcpTokens: string[];
   /** Every tool /mcp offers (tools/list): the coverage check's list. */
@@ -241,8 +242,11 @@ export interface Fixture {
 /** The origin inject()'s requests are addressed to (Host: localhost:80). */
 const ORIGIN = 'http://localhost';
 const UNSAFE = new Set(['POST', 'DELETE']);
-/** Tokens for the MCP steps; the seed made none, and a user may hold 20. */
-const MCP_TOKENS = 12;
+/**
+ * Tokens for the MCP steps (steps.ts spreads its tools over them, each
+ * token's MCP_LIMIT a budget); the seed made none, and a user may hold 20.
+ */
+export const MCP_TOKENS = 12;
 /** The JMAP stand-in's token (jmap-stub.ts refuses any other); never Fastmail's. */
 const ORDER_MAIL_TOKEN = 'fmu1-page-audit-stand-in';
 /** Items on "From your orders" at the start (seeded, as the poll writes them). */
