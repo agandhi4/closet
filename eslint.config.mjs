@@ -222,7 +222,7 @@ export default tseslint.config(
   },
   {
     // The integration project shares each worker's module graph across spec
-    // files (vitest.config.ts, isolate: false). A module mock outlives its
+    // files (vitest.config.mts, isolate: false). A module mock outlives its
     // file and never reaches a module an earlier file already loaded, so it
     // would pass or fail by which files share the worker. Pass a stand-in
     // through createTestApp's options instead (AppOptions in src/app.ts).
@@ -237,7 +237,7 @@ export default tseslint.config(
             object: 'vi',
             property,
             message:
-              'Integration specs share a module graph per worker (vitest.config.ts): pass a stand-in through createTestApp options.',
+              'Integration specs share a module graph per worker (vitest.config.mts): pass a stand-in through createTestApp options.',
           }),
         ),
       ],

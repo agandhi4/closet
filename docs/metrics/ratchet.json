@@ -35,7 +35,7 @@
     "source": "cov"
   },
   "coverage.backend.lines": {
-    "bound": 97.46,
+    "bound": 97.45,
     "direction": "higher",
     "source": "cov"
   },

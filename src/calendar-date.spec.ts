@@ -18,7 +18,7 @@ import {
 
 /**
  * The plain-date arithmetic the calendar runs on. Runs in America/New_York
- * (the `unit-new-york` project in vitest.config.ts): nothing here may depend
+ * (the `unit-new-york` project in vitest.config.mts): nothing here may depend
  * on the process's zone, and a DST zone is where a hidden local-time
  * dependency shows.
  */
