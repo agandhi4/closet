@@ -215,7 +215,7 @@ npm run test:e2e              # build, then playwright (all browsers; ten scenar
 npm run audit:pages           # every page/action as the demo persona vs docs/perf/ (docs/perf/README.md)
 npm run lighthouse            # lhci autorun
 
-npm run test:all              # every Vitest project in one run (vitest.config.ts); test:cov adds v8 coverage in coverage/
+npm run test:all              # every Vitest project in one run (vitest.config.mts); test:cov adds v8 coverage in coverage/
 npm run typecheck             # tsc: app + tests + scripts, then the service worker (~3 s cold)
 npm run check                 # check:static (format:check, lint:check, typecheck) and test:all in
                               # parallel (~80 s on 16 cores). `precommit` is an alias.

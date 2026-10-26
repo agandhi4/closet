@@ -10,7 +10,7 @@ export default defineConfig({
   // CLOCK group): then the shifted, ticking Date, first in every project's
   // setupFiles so their own run on it (devkit README "Clock shift").
   plugins: [clockShift()],
-  // TypeScript and TSX go through Vite's own esbuild transform, which takes
+  // TypeScript and TSX go through Vite's own Oxc transform (Vite 8), which takes
   // jsx/jsxImportSource (hono/jsx) from tsconfig.json.
   test: {
     // Global, inherited by every project (extends: true). The budget covers
