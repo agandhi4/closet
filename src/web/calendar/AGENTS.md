@@ -17,5 +17,5 @@
 
 ## Gotchas
 
-- **The calendar's unit specs (`src/web/calendar/*.spec.ts`) run in America/New_York through their own project**, `unit-new-york` in `vitest.config.ts` (`env: { TZ }`, `pool: 'forks'`), to prove the date logic ignores the process's zone. Node reloads the zone on Vitest's `process.env` assignment only in a child process, so the project must stay on forks. Each spec first asserts the offset. Another zoned spec gets its own project likewise (named `unit*` to stay under `npm test`).
+- **The calendar's unit specs (`src/web/calendar/*.spec.ts`) run in America/New_York through their own project**, `unit-new-york` in `vitest.config.mts` (`env: { TZ }`, `pool: 'forks'`), to prove the date logic ignores the process's zone. Node reloads the zone on Vitest's `process.env` assignment only in a child process, so the project must stay on forks. Each spec first asserts the offset. Another zoned spec gets its own project likewise (named `unit*` to stay under `npm test`).
 - **`src/calendar-date.ts` keeps one `Intl.DateTimeFormat` per zone and shape** (`perZone`: `todayIn`, `hourIn`, `instantAt`'s offset). Building one is the cost (2.2% of server CPU per call); formatters are stateless. A new zone-aware helper takes a `perZone` formatter.

@@ -362,7 +362,7 @@ export interface Matrix {
  * route-coverage spec (authorization-coverage.spec.ts) holds the app's
  * routes against. A module of its own, never read out of the spec: the
  * integration project shares each worker's module graph across files
- * (vitest.config.ts), and a spec file another file had imported would
+ * (vitest.config.mts), and a spec file another file had imported would
  * collect no tests when its own turn came.
  */
 export interface MatrixGroup {

@@ -17,7 +17,7 @@
     "noImplicitAny": false,
     "strictBindCallApply": false,
     // Views under src/web/ are typed JSX rendered to strings by hono/jsx
-    // (escape by default). The build (tsc) and Vitest (esbuild, which reads
+    // (escape by default). The build (tsc) and Vitest (Vite's Oxc, which reads
     // them from this file) share the two settings.
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx",

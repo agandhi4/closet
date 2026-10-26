@@ -2,7 +2,7 @@
 # Boots a built image as production runs it (`node dist/main.js`, NODE_ENV=production, the PWA on)
 # and checks it serves, so a broken Dockerfile or a runtime dependency that no longer loads blocks the
 # publish instead of reaching the homelab (#181). The unit and integration tiers never boot main.ts
-# or server.ts: this is their test (vitest.config.ts leaves them out of coverage for it).
+# or server.ts: this is their test (vitest.config.mts leaves them out of coverage for it).
 #
 #   ci.yml, publish:     before the image is pushed, with a placeholder model
 #   nightly.yml, cutout: with the real BiRefNet model (MODELS_DIR), plus one real cutout
