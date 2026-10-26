@@ -1,9 +1,11 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { cpus, loadavg } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
 import { Client } from 'pg';
 import sharp from 'sharp';
+import { Budgets } from './audit/budget';
 import { createFixture, type Fixture } from './audit/fixture';
 import {
   type AuditReport,
@@ -123,6 +125,8 @@ interface Walked {
   sql: Record<string, string>;
   explained: { result: StepResult; plans: Explained[] }[];
   failures: string[];
+  /** Spent waiting for the app's rate limits (budget.ts). */
+  waitedMs: number;
 }
 
 /** Each phase in turn; a failing step is reported and the walk goes on. */
@@ -132,7 +136,23 @@ async function walk(
   options: { runs: number; warmup: number; explain: boolean },
   interrupted: AbortSignal,
 ): Promise<Walked> {
-  const walked: Walked = { results: [], sql: {}, explained: [], failures: [] };
+  const walked: Walked = {
+    results: [],
+    sql: {},
+    explained: [],
+    failures: [],
+    waitedMs: 0,
+  };
+  // One for the whole walk: a budget's calls carry over from phase to phase.
+  const budgets = new Budgets({
+    now: () => performance.now(),
+    sleep: (ms) => sleep(ms),
+    onWait: (limit, ms) => {
+      console.log(
+        `  waiting ${(ms / 1000).toFixed(1)} s for the ${limit.key} budget (${limit.max} per ${limit.windowMs / 1000} s)`,
+      );
+    },
+  });
   const explainClient = options.explain
     ? await explainConnection(fixture)
     : undefined;
@@ -142,19 +162,20 @@ async function walk(
       console.log(
         `${phase.name}: ${phase.steps.length} steps${phase.interleave ? ', in rounds' : ''}`,
       );
-      const outcomes = await measurePhase(
+      const outcomes = await measurePhase(phase, {
         fixture,
-        phase,
-        options,
-        walked.sql,
+        defaults: options,
+        sqlTexts: walked.sql,
+        budgets,
         interrupted,
-      );
+      });
       for (const outcome of outcomes) {
         await record(outcome, explainClient, walked);
       }
     }
   } finally {
     await explainClient?.end();
+    walked.waitedMs = budgets.waitedMs;
   }
   return walked;
 }
@@ -304,6 +325,7 @@ async function main(): Promise<void> {
   });
   console.log(
     `\n${walked.results.length} steps in ${((performance.now() - walkStarted) / 1000).toFixed(0)} s; ` +
+      `${(walked.waitedMs / 1000).toFixed(0)} s of it waiting for rate limits; ` +
       `${unwalked.length} route(s) or tool(s) not walked${unwalked.length ? `: ${unwalked.join(', ')}` : ''}.`,
   );
   console.log(
