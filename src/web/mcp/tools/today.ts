@@ -1,4 +1,4 @@
-import * as z from 'zod/v4';
+import * as z from 'zod';
 import { DEFAULT_OCCASION } from '../../../wardrobe/occasions';
 import { ideaName } from '../../gallery/ideas';
 import { todayFor } from '../../today/today';

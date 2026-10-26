@@ -9,6 +9,7 @@ import {
   personalAccessToken,
 } from '../../src/db/schema';
 import { createCapsule } from '../../src/web/capsules/queries';
+import { MAX_TOOL_INPUT_ELEMENTS } from '../../src/web/mcp/routes';
 import { acceptInvite, createInvite } from '../../src/web/sharing/queries';
 import {
   createTestApp,
@@ -315,6 +316,19 @@ describe('the MCP endpoint', () => {
     it('refuses arguments outside the schema', async () => {
       const answer = await callTool(t, token, 'get_garment', { id: 'seven' });
       expect(answer.isError).toBe(true);
+    });
+
+    it('refuses arguments over the element cap before any schema runs', async () => {
+      const answer = await callTool(t, token, 'mark_washed', {
+        garmentIds: Array.from(
+          { length: MAX_TOOL_INPUT_ELEMENTS + 1 },
+          (_, i) => i + 1,
+        ),
+      });
+      expect(answer).toMatchObject({
+        isError: true,
+        value: { error: expect.stringContaining('more than the maximum') },
+      });
     });
   });
 

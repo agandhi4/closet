@@ -17,6 +17,14 @@ import { mcpTools } from './tools';
 
 const BEARER = /^Bearer\s+(\S+)\s*$/i;
 
+// Array elements and object keys one tool call's arguments may hold, checked
+// by the SDK before any schema runs (GHSA-46jr-4wx8-v453: unbounded input
+// exhausted the heap during validation; the SDK leaves the cap off unless
+// set). The largest real call is get_closet_coverage's 40 targets with every
+// colour and material, about 2,000; 10,000 leaves room to grow while a 1 MiB
+// body of tiny elements (hundreds of thousands) is refused.
+export const MAX_TOOL_INPUT_ELEMENTS = 10_000;
+
 // What the client's model reads first: the server, and how to style a
 // wardrobe with the tools (#269, Muse's workflow since #337). The README's
 // "Styling with an agent" is the owner's side of the same workflow; keep
@@ -120,7 +128,10 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
       };
       const server = new McpServer(
         { name: config.appName, version: config.release },
-        { instructions: INSTRUCTIONS },
+        {
+          instructions: INSTRUCTIONS,
+          maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS,
+        },
       );
       registerTools(server, tools, context, {
         logger: mcpLogger,

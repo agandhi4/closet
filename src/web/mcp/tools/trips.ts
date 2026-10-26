@@ -1,4 +1,4 @@
-import * as z from 'zod/v4';
+import * as z from 'zod';
 import { tripPhase } from '../../../wardrobe/packing';
 import { NORMAL_YEARS } from '../../../weather/normals';
 import { todayIn } from '../../../calendar-date';

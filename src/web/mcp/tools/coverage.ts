@@ -1,4 +1,4 @@
-import * as z from 'zod/v4';
+import * as z from 'zod';
 import type { Db } from '../../../db/client';
 import { QUANTITY_MAX } from '../../../wardrobe/availability';
 import {
@@ -91,10 +91,12 @@ export const coverageTools = [
               .describe('A type of the category (t-shirt, jeans, blazer...).'),
             colors: z
               .array(z.enum(GARMENT_COLORS))
+              .max(GARMENT_COLORS.length)
               .optional()
               .describe('A garment needs every one of these.'),
             materials: z
               .array(z.enum(MATERIALS))
+              .max(MATERIALS.length)
               .optional()
               .describe('A garment needs every one of these.'),
             warmth: z
