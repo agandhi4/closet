@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type * as z from 'zod/v4';
+import type * as z from 'zod';
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
 import type { McpEnding, Metrics } from '../../metrics/metrics';

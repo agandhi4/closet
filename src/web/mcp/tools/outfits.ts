@@ -1,4 +1,4 @@
-import * as z from 'zod/v4';
+import * as z from 'zod';
 import { DEFAULT_OCCASION } from '../../../wardrobe/occasions';
 import { scheduleOutfit } from '../../calendar/queries';
 import {

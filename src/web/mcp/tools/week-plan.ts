@@ -1,4 +1,4 @@
-import * as z from 'zod/v4';
+import * as z from 'zod';
 import { hourIn, todayIn } from '../../../calendar-date';
 import { planDays, planMyWeek, weekForecast } from '../../week-plan/plan';
 import { defineTool } from '../tool';

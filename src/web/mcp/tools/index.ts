@@ -1,4 +1,4 @@
-import type * as z from 'zod/v4';
+import type * as z from 'zod';
 import type { ClosetTool } from '../tool';
 import { calendarTools } from './calendar';
 import { capsuleTools } from './capsules';

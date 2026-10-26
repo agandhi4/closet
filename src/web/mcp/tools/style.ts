@@ -1,4 +1,4 @@
-import * as z from 'zod/v4';
+import * as z from 'zod';
 import { selectScalars } from '../../../db/select-scalars';
 import { templateDays, weeklyRhythm } from '../../../wardrobe/week';
 import { styleProfileSql } from '../../style/queries';

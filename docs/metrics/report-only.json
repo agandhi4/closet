@@ -5,9 +5,9 @@
     "size.backend.max_lines": 2298,
     "size.backend.over_600": 15,
     "vuln.backend.critical": 0,
-    "vuln.backend.high": 4,
+    "vuln.backend.high": 0,
     "vuln.backend.packages": 404,
-    "vuln.backend.total": 17
+    "vuln.backend.total": 0
   },
   "schema_version": 2,
   "skipped": [],
