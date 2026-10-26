@@ -33,7 +33,7 @@ Each failing spec is one of two things:
   an app bug does not belong there: the failure stays, and the tracking
   issue says so.
 
-Two quirks the specs absorb rather than skip:
+Three quirks the specs absorb rather than skip:
 
 - **WebKit refuses a fetch while its page is leaving** and logs "Fetch API
   cannot load <url> due to access control checks.", which Playwright's
@@ -45,13 +45,24 @@ Two quirks the specs absorb rather than skip:
   session and it takes every tap. The Safari projects start with it
   dismissed (`INSTALL_DISMISSED` in `playwright.config.ts`, the element's
   own flag); `test/install-dialog.spec.ts (retired 2026-10-13)` covers the dialog in Chromium.
+- **WebKit logs a refused sign-in's 401 twice.** The service worker posts
+  the auth forms itself (`sessionBoundaryHandler`, #239,
+  `src/web/shell/session-caches.md`), so the one 401 is a response to the
+  worker's fetch and to the document load, and WebKit reports both to the
+  page's console; Chromium reports only the document's. `test/auth.spec.ts`
+  asserts that every console error is that line and that there is one, not
+  how many (2026-10-26, #301).
 
 Other differences met on the way: Playwright's WebKit reports a multipart
 body without its files' bytes (`test/photo-downscale.spec.ts (retired 2026-10-13)` reads them off
 the input) and cannot read the clipboard back (`client-behaviors.spec.ts` (retired 2026-10-13)
 checks the link the tap writes); a held answer is released before
 `route.fulfill` returns, since WebKit hands it to the page first
-(`test/autosave.spec.ts (retired 2026-10-13)`).
+(`test/autosave.spec.ts (retired 2026-10-13)`); an htmx request a
+navigation cuts off is an XHR `error` in WebKit, which htmx logs as
+`htmx:sendError` (a console error), where Chromium's is a silent abort, so
+`test/auth.spec.ts` awaits the registration fieldset's inline check before
+it submits (seen on a Mac's WebKit, 7 runs in 8, 2026-10-26).
 
 ## Running it on linux-box
 

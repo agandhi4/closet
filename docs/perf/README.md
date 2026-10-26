@@ -22,10 +22,10 @@ rough, counts exact); every page PR shows its before and after against them.
    Theo.
 3. Walks `scripts/audit/steps.ts`: pages over the seed as it is, then the
    writes, the MCP tools and the jobs. Each step runs 3 times untimed, then
-   20 times timed (fewer where a rate limit allows only so many a minute:
-   the step says so). A write that needs something to act on (a garment to
-   delete, a fresh account to change the password of) makes it first,
-   unmeasured.
+   20 times timed (fewer where a run is costly: the step says so). A step
+   on a rate-limited route waits for room in its budget first (Rate limits,
+   below). A write that needs something to act on (a garment to delete, a
+   fresh account to change the password of) makes it first, unmeasured.
 4. Writes `scripts/results/audit.md` (a table per audit issue) and
    `audit.json` (the numbers, and each step's SQL, for a later diff), plus
    `scripts/results/audit.app.log`, the app's own log of the run (always
@@ -129,6 +129,28 @@ similar load, from the same machine: CI's nightly run
 (`.github/workflows/nightly.yml`) compares against this baseline too, but
 its times are a different machine's; only its counts and bytes compare.
 
+## Rate limits
+
+The walk is one user (Theo) on one address, so it meets the app's rate
+limits (`src/web/security/rate-limit.ts`), and two steps can spend one
+counter: the link import and its photo choice, or the MCP tools
+`add_garment_from_link` and `suggest_garment` (#374: 18 calls on a budget of
+10 a minute, a 429 every night). So:
+
+- **A step that hits a rate-limited route or tool declares it**: `limits`
+  on the step, an entry of `LIMIT` in `steps.ts` (or the MCP helper's
+  per-token one), built by `auditLimit()` from the app's own constant, so
+  `max` and the window cannot drift from the app. One entry per counter
+  the app keeps: steps sharing a counter share the entry.
+- **The walk paces every declared budget** (`scripts/audit/budget.ts`, one
+  tracker for the whole walk, across phases): before each run, warm-up
+  included, it waits until each budget has room, and logs
+  `waiting N s for the <key> budget`. The summary line says how long the
+  walk waited in all.
+- **Never size `runs` to dodge a limit.** `runs` is how many samples a step
+  is worth; a step with a small budget keeps few runs only because each
+  run past the budget costs a wait.
+
 ## What it does not measure
 
 - The browser: layout, script execution, LCP and INP. The devices report
@@ -151,5 +173,7 @@ its times are a different machine's; only its counts and bytes compare.
 - **A killed run leaves its scratch database** (`closet_audit_*`); Ctrl-C
   drops it, and the integration tier's sweep drops a killed one after an
   hour.
-- **Rate limits cap some steps' runs** (link import, weather location and
-  search, the beacons): their `n` is lower, their p95 rougher.
+- **Rate-limited steps keep fewer runs** (link import, weather location and
+  search, the script error beacon, the link-taking MCP tools): their `n`
+  is lower, their p95 rougher, and a walk that needs more of them than a
+  budget allows waits (Rate limits).

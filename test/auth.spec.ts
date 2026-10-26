@@ -1,7 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { E2E_PASSWORD, signUpHeaders } from './support/e2e-session';
+import { pageErrors } from './support/page-errors';
 
 const APP_NAME = process.env.APP_NAME || 'Closet';
+/** The refused login's document load: a 401 is a console error in every browser. */
+const REFUSED_LOGIN =
+  'Failed to load resource: the server responded with a status of 401 (Unauthorized)';
 
 /**
  * The account's whole loop through the real forms: signed out, the root is
@@ -15,10 +19,7 @@ const APP_NAME = process.env.APP_NAME || 'Closet';
 test('register through the form, sign out from Profile, sign back in', async ({
   page,
 }) => {
-  const consoleErrors: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
-  });
+  const errors = pageErrors(page, { console: true });
   // Login and registration are rate limited per address: this browser's
   // posts name a client of their own (signUpHeaders).
   await page.setExtraHTTPHeaders({
@@ -35,6 +36,18 @@ test('register through the form, sign out from Profile, sign back in', async ({
   await page.locator('#email').fill(email);
   await page.locator('#password').fill(E2E_PASSWORD);
   await page.locator('#confirmPassword').fill(E2E_PASSWORD);
+  // Leaving the field runs the inline check (the fieldset's `change`);
+  // its answer awaited, so the submit's navigation never cuts it off,
+  // which WebKit logs as htmx:sendError (docs/testing-webkit.md).
+  const checked = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/auth/validate/register') &&
+      new URLSearchParams(response.request().postData() ?? '').get(
+        'confirmPassword',
+      ) === E2E_PASSWORD,
+  );
+  await page.locator('#confirmPassword').press('Tab');
+  await checked;
   await page.getByRole('button', { name: 'Register' }).click();
   await expect(page).toHaveURL(/\/auth\/profile$/);
   await expect(page.locator('#account')).toContainText(email);
@@ -73,9 +86,14 @@ test('register through the form, sign out from Profile, sign back in', async ({
   await page.getByRole('button', { name: 'Login' }).click();
   await expect(page).toHaveURL(/\/auth\/profile$/);
   await expect(page.locator('#account')).toContainText(email);
-  // The refusal's 401 is the one console error Chromium logs (a document
-  // with an error status); anything else is a page script failing.
-  expect(consoleErrors, consoleErrors.join('\n')).toEqual([
-    'Failed to load resource: the server responded with a status of 401 (Unauthorized)',
-  ]);
+  // The refusal's 401 is the only error the page may log; anything else is
+  // a page script failing. Chromium logs it once. WebKit logs it twice:
+  // the worker posts the login itself (sessionBoundaryHandler), so the one
+  // 401 is seen by the worker's fetch and by the document load, and WebKit
+  // reports both to the page (docs/testing-webkit.md).
+  expect(errors, errors.join('\n')).toContain(REFUSED_LOGIN);
+  expect(
+    errors.filter((error) => error !== REFUSED_LOGIN),
+    errors.join('\n'),
+  ).toEqual([]);
 });

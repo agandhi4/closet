@@ -4,6 +4,7 @@ import {
   type RecordedStatement,
   recordStatements,
 } from '../../test/support/query-recorder';
+import type { AuditLimit, Budgets } from './budget';
 import type { AuditRequest, Fixture } from './fixture';
 import { type StepKind, type StepResult, sqlKey } from './report';
 import { summarizeCount, summarizeTiming } from './stats';
@@ -33,9 +34,20 @@ export interface Step {
   target: string;
   /** The route template an HTTP step reaches, for the coverage check. */
   route?: string;
-  /** Fewer runs where a rate limit allows only so many a minute. */
+  /**
+   * Timed runs, when fewer than the walk's: a costly step, or one whose
+   * budget would make the walk wait for every few runs. Never sized to
+   * dodge a rate limit; that is `limits`.
+   */
   runs?: number;
   warmup?: number;
+  /**
+   * Every app rate limit a run spends (budget.ts, from the constants in
+   * src/web/security/rate-limit.ts). The walk waits for room in each before
+   * every run, warm-up included, so steps sharing a budget never meet a
+   * 429. A step that hits a limited route or tool must declare it.
+   */
+  limits?: readonly AuditLimit[];
   measure: (fixture: Fixture) => Promise<Sample>;
 }
 
@@ -45,6 +57,7 @@ interface StepBase<P> {
   name: string;
   runs?: number;
   warmup?: number;
+  limits?: readonly AuditLimit[];
   /** Per run, unmeasured: what the request needs (a row to delete, a new account). */
   prepare?: (fixture: Fixture) => Promise<P>;
 }
@@ -199,19 +212,28 @@ interface Planned {
   error?: Error;
 }
 
+/** What every phase of one walk shares (scripts/audit-pages.ts builds it once). */
+export interface Walk {
+  fixture: Fixture;
+  defaults: { runs: number; warmup: number };
+  /** Every recorded statement's text by its key, filled as steps finish. */
+  sqlTexts: Record<string, string>;
+  /** The rate limits' spent calls: one tracker for the walk, since a budget spans phases. */
+  budgets: Budgets;
+  /** Stops the walk between runs. */
+  interrupted: AbortSignal;
+}
+
 /**
  * Every step of the phase, warm-up runs first, in rounds when the phase
  * interleaves and one step after another when not. A step that fails is
- * dropped from the later rounds; `interrupted` stops the walk between
- * runs.
+ * dropped from the later rounds.
  */
 export async function measurePhase(
-  fixture: Fixture,
   phase: Phase,
-  defaults: { runs: number; warmup: number },
-  sqlTexts: Record<string, string>,
-  interrupted: AbortSignal,
+  walk: Walk,
 ): Promise<Outcome[]> {
+  const { fixture, defaults, budgets, interrupted } = walk;
   const planned: Planned[] = phase.steps.map((step) => ({
     step,
     warmup: Math.min(step.warmup ?? defaults.warmup, defaults.warmup),
@@ -221,7 +243,9 @@ export async function measurePhase(
   const runOnce = async (entry: Planned, round: number) => {
     if (entry.error || round >= entry.warmup + entry.runs) return;
     try {
-      const sample = await entry.step.measure(fixture);
+      const sample = await budgets.spend(entry.step.limits ?? [], () =>
+        entry.step.measure(fixture),
+      );
       if (round >= entry.warmup) entry.samples.push(sample);
     } catch (error) {
       entry.error = error instanceof Error ? error : new Error(String(error));
@@ -239,7 +263,7 @@ export async function measurePhase(
       }
     }
   }
-  return planned.map((entry) => outcome(entry, sqlTexts));
+  return planned.map((entry) => outcome(entry, walk.sqlTexts));
 }
 
 /** A planned step's outcome: its error, or no samples when interrupted. */

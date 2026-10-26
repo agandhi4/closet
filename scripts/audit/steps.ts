@@ -2,13 +2,25 @@ import { readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { and, desc, eq, isNotNull, ne } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
+import {
+  CLIENT_ERROR_LIMIT,
+  HEALTH_LIMIT,
+  LINK_IMPORT_LIMIT,
+  MCP_LIMIT,
+  MCP_LINK_IMPORT_LIMIT,
+  VITALS_LIMIT,
+  WEATHER_LOCATION_LIMIT,
+  WEATHER_SEARCH_LIMIT,
+} from '../../src/web/security/rate-limit';
 import { createOptionGroup } from '../../src/web/wishlist/decisions';
 import { multipart } from '../../test/support/multipart';
+import { type AuditLimit, auditLimit } from './budget';
 import {
   ACCOUNT_PASSWORD,
   type Actor,
   type AuditRequest,
   type Fixture,
+  MCP_TOKENS,
   PERSONA_PASSWORD,
 } from './fixture';
 import { http, job, type Phase, type Step } from './walk';
@@ -50,6 +62,63 @@ const ROUTE = {
   ideas: 'GET /outfits/ideas',
   createGarment: 'POST /wardrobe',
 } as const;
+
+/**
+ * The app's rate-limit counters the steps spend, one entry per counter
+ * (budget.ts): a route's `config.rateLimit` counts that route alone, a
+ * `createRateLimit` checker every route it guards. Keyed as the app keys
+ * them: Theo for the per-user limits, inject's 127.0.0.1 for HEALTH_LIMIT.
+ * A step on a limited route or tool names its entry in `limits`; the walk
+ * then paces it, alone or beside the steps it shares the counter with.
+ */
+const LIMIT = {
+  health: auditLimit(
+    'health: /health/ready and /healthz (127.0.0.1)',
+    HEALTH_LIMIT,
+  ),
+  linkImport: auditLimit(
+    'link import: the import and its photo choice (Theo)',
+    LINK_IMPORT_LIMIT,
+  ),
+  orderItemAdd: auditLimit(
+    'link import: an order item to the closet (Theo)',
+    LINK_IMPORT_LIMIT,
+  ),
+  mcpLinkImport: auditLimit(
+    'mcp link import: add_garment_from_link and suggest_garment (Theo)',
+    MCP_LINK_IMPORT_LIMIT,
+  ),
+  weatherPlaces: auditLimit(
+    'weather search: GET /weather/places (Theo)',
+    WEATHER_SEARCH_LIMIT,
+  ),
+  tripPlaces: auditLimit(
+    'weather search: GET /trips/:id/places (Theo)',
+    WEATHER_SEARCH_LIMIT,
+  ),
+  weatherHome: auditLimit(
+    'weather location: POST /weather/home (Theo)',
+    WEATHER_LOCATION_LIMIT,
+  ),
+  weatherHere: auditLimit(
+    'weather location: POST /weather/here (Theo)',
+    WEATHER_LOCATION_LIMIT,
+  ),
+  tripDestination: auditLimit(
+    'weather location: POST /trips/:id/destination (Theo)',
+    WEATHER_LOCATION_LIMIT,
+  ),
+  vitals: auditLimit('vitals: POST /metrics/vitals (Theo)', VITALS_LIMIT),
+  clientErrors: auditLimit(
+    'client errors: POST /errors/client (Theo)',
+    CLIENT_ERROR_LIMIT,
+  ),
+} as const;
+
+/** MCP_LIMIT counts per personal access token: the one in `slot` of f.mcpTokens. */
+const mcpTokenLimit = (slot: number): AuditLimit =>
+  auditLimit(`mcp: POST /mcp (token ${slot + 1})`, MCP_LIMIT);
+
 const ADD_PHOTO_URL = '/wardrobe/new/photo';
 /** The name (and MCP note) of the outfits the audit makes. */
 const AUDIT_OUTFIT = 'Audit outfit';
@@ -206,11 +275,14 @@ function mcp<P = undefined>(
     runs?: number;
     warmup?: number;
     label?: string;
+    /** A budget the tool spends besides its token's MCP_LIMIT. */
+    limits?: readonly AuditLimit[];
     prepare?: (f: Fixture) => Promise<P>;
   } = {},
 ): Step {
-  const token = mcpTool++;
-  const { label, ...rest } = options;
+  // A few tools per token: each token's MCP_LIMIT then holds their runs.
+  const token = mcpTool++ % MCP_TOKENS;
+  const { label, limits = [], ...rest } = options;
   return http<P>({
     ...MCP,
     ...rest,
@@ -218,6 +290,7 @@ function mcp<P = undefined>(
     kind: 'mcp',
     route: 'POST /mcp',
     target: `mcp ${name}`,
+    limits: [mcpTokenLimit(token), ...limits],
     request: (f, prepared) => ({
       method: 'POST',
       url: '/mcp',
@@ -225,7 +298,7 @@ function mcp<P = undefined>(
       sameOrigin: false,
       headers: {
         accept: 'application/json, text/event-stream',
-        authorization: `Bearer ${f.mcpTokens[token % f.mcpTokens.length]}`,
+        authorization: `Bearer ${f.mcpTokens[token]}`,
       },
       json: {
         jsonrpc: '2.0',
@@ -1100,8 +1173,27 @@ const pages: Step[] = [
     name: 'Health check',
     kind: 'platform',
     route: 'GET /healthz',
+    // /health/ready's handler and checks since #384: 200 with the checks.
+    limits: [LIMIT.health],
     request: () => get('/healthz', { as: null }),
-    expect: 204,
+    expect: 200,
+  }),
+  http({
+    ...PLATFORM,
+    name: 'Liveness',
+    kind: 'platform',
+    route: 'GET /health/live',
+    request: () => get('/health/live', { as: null }),
+    expect: 200,
+  }),
+  http({
+    ...PLATFORM,
+    name: 'Readiness',
+    kind: 'platform',
+    route: 'GET /health/ready',
+    limits: [LIMIT.health],
+    request: () => get('/health/ready', { as: null }),
+    expect: 200,
   }),
   http({
     ...PLATFORM,
@@ -1485,9 +1577,11 @@ const writes: Step[] = [
     name: 'Import a link',
     kind: 'action',
     route: 'POST /wardrobe/new/from-link',
-    // LINK_IMPORT_LIMIT: 10 a minute between this and the photo choice.
+    // Four runs: past ten a minute between this and the photo choice,
+    // every few more runs is a wait for the budget.
     runs: 4,
     warmup: 1,
+    limits: [LIMIT.linkImport],
     request: (f) => post('/wardrobe/new/from-link', { url: f.productUrl }),
     expect: 200,
   }),
@@ -1498,6 +1592,9 @@ const writes: Step[] = [
     route: 'POST /wardrobe/new/from-link/photo',
     runs: 4,
     warmup: 1,
+    // Past the budget the choice still answers 200 (htmx swaps no 429)
+    // with the refusal, so an unpaced run would time that, not a choice.
+    limits: [LIMIT.linkImport],
     request: (f) =>
       post(
         '/wardrobe/new/from-link/photo',
@@ -2138,9 +2235,9 @@ const writes: Step[] = [
     name: 'Destination search',
     kind: 'fragment',
     route: 'GET /trips/:id/places',
-    // WEATHER_SEARCH_LIMIT: 20 a minute.
     runs: 16,
     warmup: 1,
+    limits: [LIMIT.tripPlaces],
     request: (f) =>
       get(`/trips/${f.ids.tripId}/places?q=brooklyn`, { htmx: true }),
     expect: 200,
@@ -2150,9 +2247,9 @@ const writes: Step[] = [
     name: 'Set the destination',
     kind: 'action',
     route: 'POST /trips/:id/destination',
-    // WEATHER_LOCATION_LIMIT: 10 a minute.
     runs: 8,
     warmup: 1,
+    limits: [LIMIT.tripDestination],
     request: (f) =>
       post(
         `/trips/${f.ids.tripId}/destination`,
@@ -2203,10 +2300,11 @@ const writes: Step[] = [
     name: 'Add an order item to the closet',
     kind: 'action',
     route: 'POST /wardrobe/orders/:id/add',
-    // Its own LINK_IMPORT_LIMIT: 10 a minute. The form opens; nothing is
-    // saved, so the item stays pending for the next run.
+    // The form opens; nothing is saved, so the item stays pending for the
+    // next run.
     runs: 8,
     warmup: 1,
+    limits: [LIMIT.orderItemAdd],
     request: (f) => post(`/wardrobe/orders/${f.orders.addItemId}/add`),
     expect: 200,
   }),
@@ -2637,9 +2735,9 @@ const writes: Step[] = [
     name: 'Weather: city search',
     kind: 'fragment',
     route: 'GET /weather/places',
-    // WEATHER_SEARCH_LIMIT: 20 a minute, shared with nothing else here.
     runs: 16,
     warmup: 1,
+    limits: [LIMIT.weatherPlaces],
     request: () => get('/weather/places?q=brooklyn', { htmx: true }),
     expect: 200,
   }),
@@ -2650,6 +2748,7 @@ const writes: Step[] = [
     route: 'POST /weather/home',
     runs: 8,
     warmup: 1,
+    limits: [LIMIT.weatherHome],
     request: () =>
       post(
         '/weather/home',
@@ -2669,6 +2768,7 @@ const writes: Step[] = [
     route: 'POST /weather/here',
     runs: 8,
     warmup: 1,
+    limits: [LIMIT.weatherHere],
     request: () =>
       post(
         '/weather/here',
@@ -2727,6 +2827,7 @@ const writes: Step[] = [
     route: 'POST /weather/home',
     runs: 1,
     warmup: 0,
+    limits: [LIMIT.weatherHome],
     request: () =>
       post(
         '/weather/home',
@@ -2746,8 +2847,7 @@ const writes: Step[] = [
     name: 'Device timings beacon',
     kind: 'platform',
     route: 'POST /metrics/vitals',
-    // VITALS_LIMIT: 30 a minute.
-    runs: 20,
+    limits: [LIMIT.vitals],
     // sendBeacon's text/plain string (src/web/metrics/beacon.ts).
     request: () => ({
       method: 'POST',
@@ -2773,9 +2873,10 @@ const writes: Step[] = [
     name: 'Script error beacon',
     kind: 'platform',
     route: 'POST /errors/client',
-    // CLIENT_ERROR_LIMIT: 10 a minute. Forwarded to the Bugsink stand-in.
+    // Forwarded to the Bugsink stand-in.
     runs: 8,
     warmup: 1,
+    limits: [LIMIT.clientErrors],
     request: () => ({
       method: 'POST',
       url: '/errors/client',
@@ -2811,7 +2912,7 @@ const tools: Step[] = [
   mcp(
     'add_garment_from_link',
     (f) => ({ url: f.productUrl, destination: 'wishlist' }),
-    { runs: 8, warmup: 1 },
+    { runs: 8, warmup: 1, limits: [LIMIT.mcpLinkImport] },
   ),
   mcp('list_capsules', () => ({})),
   mcp('get_capsule', (f) => ({ id: f.ids.capsuleId })),
@@ -2878,6 +2979,7 @@ const tools: Step[] = [
     {
       runs: 8,
       warmup: 1,
+      limits: [LIMIT.mcpLinkImport],
       prepare: async (f) => {
         const need = await createOptionGroup(f.closet.db, f.theo.id, {
           name: `Audit need ${++auditNeeds}`,
