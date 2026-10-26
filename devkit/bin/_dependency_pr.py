@@ -47,7 +47,7 @@ What counts as a pin change, a fixed list (README "pr_merge.sh"):
   _dependency_pr.py paths
 reads the same changed files on stdin and prints every path they touch, one per line: each
 `filename`, and a rename's or copy's `previous_filename` too (a rename from src/x.py to docs/x.md
-removes code). For bin/pr_merge.sh's docs-only exemption, which classifies them with
+removes code). For bin/merge_rules.sh's docs-only exemption, which classifies them with
 _paths_lib.sh. Exit 2 when stdin is not that, or a path is empty or holds a newline (one line per
 path is the contract: "a.py\nb.md" must never read as two paths).
 """
@@ -76,7 +76,10 @@ MANIFESTS = frozenset({
     "pyproject.toml", "uv.lock",
     "Cargo.toml", "Cargo.lock",
     "go.mod", "go.sum",
-    ".nvmrc", ".python-version", "rust-toolchain.toml",
+    # Toolchain version pins: a version per tool and nothing else, so a bot bump is all pin
+    # (homelab #129, a Node major in .nvmrc alone).
+    ".nvmrc", ".node-version", ".python-version", ".tool-versions", ".ruby-version",
+    "rust-toolchain.toml",
 })  # fmt: skip
 WHOLE_FILE_STATUSES = {"added", "modified", "removed"}
 COMPOSE_FILE = re.compile(r"(^|/)(docker-)?compose[^/]*\.ya?ml$")
