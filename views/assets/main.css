@@ -1,7 +1,13 @@
-/* Used by the npm run build:tailwind script to "compile" tailwind usage into a static, pruned down css output
-that only contains the relivant tailwind code used in the application source. This is to minimize the bundle size
-and response bandwidth/latency. */
-@import "tailwindcss";
+/* `npm run generate:tailwind` compiles this into public/bundle.css, holding only
+   the utilities and daisyUI components the app's markup names. The scan is
+   scoped to the files that carry class names at runtime: src/ (the hono/jsx
+   views and their class helpers) and public/js/ (classList/className in the
+   client modules). Unscoped, Tailwind v4 scans every tracked file, so words in
+   docs/, devkit/ and comments became 44 dead classes, and daisyUI components
+   (drawer, navbar, react-day-picker) nothing renders (docs/decisions.md
+   2026-10-26). */
+@import "tailwindcss" source("../../src");
+@source "../../public/js";
 /* The two webfonts' @font-face rules, built from node_modules by
    `npm run generate:fonts` (views/assets/fonts.css says how). */
 @import "../../public/vendor/fonts/fonts.css";
