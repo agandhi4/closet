@@ -10,6 +10,7 @@
  * toast when the server answers again. Loaded by the layout on every page,
  * with or without a service worker.
  */
+import { singleFlight } from 'single-flight';
 import { showToast } from 'toast';
 
 const HEARTBEAT_MS = 30_000;
@@ -20,7 +21,6 @@ const BACK_ONLINE_TOAST_MS = 3_000;
 /** @type {'online' | 'offline' | 'reconnecting'} */
 let state = 'online';
 let timer = null;
-let inFlight = null;
 
 const strings = () => document.getElementById('app-status')?.dataset ?? {};
 
@@ -150,23 +150,24 @@ async function serverReachable() {
   }
 }
 
-/** One probe at a time; concurrent callers share the result. */
-export function probe(reason) {
-  if (inFlight) return inFlight;
+/**
+ * One probe at a time, and a call made while one is in flight probes once
+ * more after it (single-flight.js): an `offline` event or a failed request is
+ * newer than the probe already running, so it must not take that probe's
+ * answer (#436: the page-load probe's 200 hid an outage for 30 s).
+ */
+export const probe = singleFlight(async (reason) => {
   if (state === 'offline') setState('reconnecting');
-  inFlight = serverReachable().then((reachable) => {
-    inFlight = null;
-    setState(reachable ? 'online' : 'offline');
-    if (document.visibilityState === 'visible') {
-      schedule(reachable ? HEARTBEAT_MS : RETRY_MS);
-    }
-    return reachable;
-  });
   if (reason !== 'timer') {
     console.debug(`[connectivity] probe (${reason})`);
   }
-  return inFlight;
-}
+  const reachable = await serverReachable();
+  setState(reachable ? 'online' : 'offline');
+  if (document.visibilityState === 'visible') {
+    schedule(reachable ? HEARTBEAT_MS : RETRY_MS);
+  }
+  return reachable;
+});
 
 export const getState = () => state;
 
