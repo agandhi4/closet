@@ -250,6 +250,7 @@ older history lives in `docs/PROJECT_LOG.md`.
 ## 2026-10-21 — `make merge` requires Codex's review of the head (GATE_CODEX_REVIEW=1)
 **Why:** `GATE_MERGE_REQUIRES=codex-review` wants only a success status, whatever commit its text names, so a head Codex never reviewed (failed, missing, or reviewed an older commit) merged on any codex-review success. devkit #189 made the stricter check opt-in; the fleet opts in.
 **Decision:** only `make merge` reads it. A failed, missing or stale Codex review of the head blocks unless the head's codex-review success names the fallback review of that exact commit (`… (Codex at limit) of <sha7>` or `<sha8> passed on Claude self-review`). #417 to #420 already recorded that form.
+**Consequence:** every push needs a fresh Codex review (or a fallback naming that push's head) before `make merge`; a codex-review success left from an earlier head no longer carries.
 
 ## 2026-10-23 — Scorecard bounds record each check, not a share
 **Why:** devkit #218 made the scorecard ratchet hold each check by name; the share-only `{"wired": 1.0}` file bounds no check and fails `scorecard_file` until rewritten.
@@ -286,3 +287,8 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Why:** `offline-writes.spec.ts` failed 9–17 runs in 100 in WebKit (#436), for two reasons. `probe()` handed a call made mid-flight the running probe's promise, so an `offline` event during the page-load heartbeat took its 200 and the app stayed online for 30 s (on a phone too, after a failed request). And once the worker controls the page, WebKit sends `/health/live` through it, past `page.route`.
 **Decision:** `probe` is `singleFlight(task)` (`public/js/single-flight.js`): still one probe at a time, but a call while one runs gets one more run after it, shared by every call in that window. The spec runs with `serviceWorkers: 'block'`: it tests `connectivity.js`, which never depends on a worker.
 **Consequence:** an outage seen mid-probe costs one extra HEAD, never the 30 s heartbeat. Locally, both fixes together: 0 in 100 runs under 10 workers, twice; either alone still failed. A spec faking the heartbeat with `page.route` blocks the worker (`docs/testing-webkit.md`).
+
+## 2026-10-27 — jscpd from devkit's pin; `make pr` opens PRs on origin
+**Why:** devkit #235 gave jscpd one pin (5.4.2, run through `bin/npm_tool.sh`) and deprecates a repo's own `node_modules/.bin/jscpd` until 2026-11-25; closet's devDependency 5.4.0 was that legacy path. devkit #255 added `pr_create.sh` and devkit-check warns while a gate target has no `pr` target.
+**Decision:** jscpd leaves package.json and the lock; metrics.conf's `dup` line already had no `--bin`. `pr: ; devkit/bin/pr_create.sh` sits beside `merge`, and docs/workflow.md steps 3 and 6 name `make pr` and `CODEX_FALLBACK=1 make merge`.
+**Consequence:** `duplication.repo.clones` 16 and `jscpd_percent` 0.19 on both pins; devkit-check prints ok with no warning.
