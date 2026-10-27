@@ -39,6 +39,7 @@
     "push": ["public/js/push.js"],
     "freshness": ["public/js/freshness.js"],
     "age-label": ["public/js/age-label.js"],
+    "single-flight": ["public/js/single-flight.js"],
     "select-count": ["public/js/select-count.js"],
     "recap-export": ["public/js/recap-export.js"],
     "pwa-install": ["node_modules/@khmyznikov/pwa-install/dist/pwa-install.bundle.js"]

@@ -33,7 +33,7 @@ Each failing spec is one of two things:
   an app bug does not belong there: the failure stays, and the tracking
   issue says so.
 
-Three quirks the specs absorb rather than skip:
+Four quirks the specs absorb rather than skip:
 
 - **WebKit refuses a fetch while its page is leaving** and logs "Fetch API
   cannot load <url> due to access control checks.", which Playwright's
@@ -52,6 +52,15 @@ Three quirks the specs absorb rather than skip:
   page's console; Chromium reports only the document's. `test/auth.spec.ts`
   asserts that every console error is that line and that there is one, not
   how many (2026-10-26, #301).
+- **WebKit routes a controlled page's fetches past `page.route`.** Once the
+  service worker controls the page, the page's own requests go through the
+  worker even where it answers nothing (`/health/live`, `src-sw.ts`), and
+  Playwright's WebKit routes none of them, so the
+  spec's abort never happens. A spec that fakes the heartbeat with
+  `page.route` and is not about the worker blocks it
+  (`test.use({ serviceWorkers: 'block' })`, `test/offline-writes.spec.ts`);
+  one about the worker skips with the limit above (9 runs in 30 on a Mac's
+  WebKit, 2026-10-26, #436).
 
 Other differences met on the way: Playwright's WebKit reports a multipart
 body without its files' bytes (`test/photo-downscale.spec.ts (retired 2026-10-13)` reads them off

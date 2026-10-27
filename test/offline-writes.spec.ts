@@ -12,7 +12,10 @@ import { pageErrors } from './support/page-errors';
  * PostForms to the marker.
  */
 
-test.use({ viewport: { width: 390, height: 844 } });
+// The worker blocked: once it controls the page, WebKit sends the heartbeat
+// through it and page.route never sees it (docs/testing-webkit.md, #436).
+// connectivity.js runs the same with or without one, so nothing is lost.
+test.use({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
 
 /** Each guarded form's controls: how many, and how many are disabled. */
 function guardedControls(page: Page) {
