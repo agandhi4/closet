@@ -39,7 +39,7 @@ E2E_BUDGET_SECONDS := 180
 # smoke: the container boot and probes took 5 s in PR #415's gate; smoke-image.sh's own bounds
 # (boot 60 s, cutout 240 s) catch a hang, this catches a boot that slowly grew.
 SMOKE_BUDGET_SECONDS := 120
-UNIT_FLOOR := 1527
+UNIT_FLOOR := 1529
 DB_FLOOR := 4472
 E2E_FLOOR := 10
 
