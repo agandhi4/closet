@@ -234,8 +234,14 @@ older history lives in `docs/PROJECT_LOG.md`.
 - **Consequence:** a new chain of five or more operators fails the PR that writes it; the 2 existing drain as their files are touched, then the rule moves into eslint.config.mjs. Metrics 100 SAME, 0 tightened; scorecard wired 24/24.
 
 ## 2026-10-21 — devkit 401c9b7: metrics merge per key, vitest timeouts stretch with load
-- **Why/Decision:** `.gitattributes` routes docs/metrics/*.json through devkit's per-key merge driver (#176; `make install` sets it per clone); vitest.config.ts wraps its 30 s timeouts in `loadScaled` (devkit/lint/vitest.base.mjs, #175), so a gate on a box above its core count stretches them by `DEVKIT_LOAD_SCALE` (cap ×2).
+- **Why:** two PRs that each move a metrics bound conflicted on docs/metrics/*.json (#176), and fixed 30 s vitest timeouts failed gates on a loaded box (#175).
+- **Decision:** `.gitattributes` routes docs/metrics/*.json through devkit's per-key merge driver (#176; `make install` sets it per clone); vitest.config.ts wraps its 30 s timeouts in `loadScaled` (devkit/lint/vitest.base.mjs, #175), so a gate on a box above its core count stretches them by `DEVKIT_LOAD_SCALE` (cap ×2).
 - **Consequence:** `coverage.backend.branches` rebaselined 92.47 to 92.46 (label metrics-rebaseline): an untouched origin/main tree reads 8642/9346 = 92.46 today, file for file the same as this branch. The bound has drifted 92.48, 92.47, 92.46 over three days with no source change, which points at a date-dependent branch in a spec; open, not chased here.
+
+## 2026-10-21 — `make merge` requires Codex's review of the head (GATE_CODEX_REVIEW=1)
+**Why:** `GATE_MERGE_REQUIRES=codex-review` wants only a success status, whatever commit its text names, so a head Codex never reviewed (failed, missing, or reviewed an older commit) merged on any codex-review success. devkit #189 made the stricter check opt-in; the fleet opts in.
+**Decision:** only `make merge` reads it. A failed, missing or stale Codex review of the head blocks unless the head's codex-review success names the fallback review of that exact commit (`… (Codex at limit) of <sha7>` or `<sha8> passed on Claude self-review`). #417 to #420 already recorded that form.
+**Consequence:** every push needs a fresh Codex review (or a fallback naming that push's head) before `make merge`; a codex-review success left from an earlier head no longer carries.
 
 ## 2026-10-22 — Vitest tiers rerun with the clock shifted; coverage no longer moves with the date (devkit 31d9f2a)
 **Why:** devkit #212 added the vitest half of the clock shift. Closet's db tier failed 6 specs at +30d/+365d, and its covered branches read 8643, 8644, 8642 of 9346 at 0, +30d, +365d: the drift the 2026-10-21 entry left open.
@@ -246,10 +252,6 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Why:** owner, 2026-10-22: "the offline guard is ON BY DEFAULT for every PostForm." #417 guarded the four `FormPage` forms; 15 others still posted from a cached copy into the worker's offline page. 14 are now guarded: sign in, register, email, password, account deletion, two token forms, link import, laundry, sharing, the add sheet's two photo forms, cutout retry, bulk select.
 **Decision:** `PostForm` always renders `data-needs-network`; `allowOffline="<reason>"` (rendered `data-allow-offline`) is the only opt-out, and guards.conf `@post-form-offline` refuses one without a 12+ character literal. connectivity.js guards a form's `elements`, so a `form=` control outside it needs no marker: "Add a copy" lost its own, as did laundry's Mark washed inside its form. One opt-out: the styling form, since a guarded form is dimmed whole and its strips must stay usable offline ("choosing still works"); its Save, Shuffle, picks and + Add row carry their own markers (Add row's is new: it sent the rows' inputs, which a guard would have dropped). `expectFullPage` fails any unguarded PostForm on every page; `test/offline-writes.spec.ts` checks the browser.
 **Consequence:** visible: those forms' controls, submit included, are disabled and dimmed while offline. htmx writes outside PostForm that carry no typed input (garment and outfit menu actions, a calendar entry's ×, the invite link, the push test, the inbox's seen mark) stay unguarded; every one holding input already was.
-
-## 2026-10-21 — `make merge` requires Codex's review of the head (GATE_CODEX_REVIEW=1)
-**Why:** `GATE_MERGE_REQUIRES=codex-review` wants only a success status, whatever commit its text names, so a head Codex never reviewed (failed, missing, or reviewed an older commit) merged on any codex-review success. devkit #189 made the stricter check opt-in; the fleet opts in.
-**Decision:** only `make merge` reads it. A failed, missing or stale Codex review of the head blocks unless the head's codex-review success names the fallback review of that exact commit (`… (Codex at limit) of <sha7>` or `<sha8> passed on Claude self-review`). #417 to #420 already recorded that form.
 
 ## 2026-10-23 — Scorecard bounds record each check, not a share
 **Why:** devkit #218 made the scorecard ratchet hold each check by name; the share-only `{"wired": 1.0}` file bounds no check and fails `scorecard_file` until rewritten.
@@ -286,3 +288,8 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Why:** `offline-writes.spec.ts` failed 9–17 runs in 100 in WebKit (#436), for two reasons. `probe()` handed a call made mid-flight the running probe's promise, so an `offline` event during the page-load heartbeat took its 200 and the app stayed online for 30 s (on a phone too, after a failed request). And once the worker controls the page, WebKit sends `/health/live` through it, past `page.route`.
 **Decision:** `probe` is `singleFlight(task)` (`public/js/single-flight.js`): still one probe at a time, but a call while one runs gets one more run after it, shared by every call in that window. The spec runs with `serviceWorkers: 'block'`: it tests `connectivity.js`, which never depends on a worker.
 **Consequence:** an outage seen mid-probe costs one extra HEAD, never the 30 s heartbeat. Locally, both fixes together: 0 in 100 runs under 10 workers, twice; either alone still failed. A spec faking the heartbeat with `page.route` blocks the worker (`docs/testing-webkit.md`).
+
+## 2026-10-27 — jscpd from devkit's pin; `make pr` opens PRs on origin
+**Why:** devkit #235 gave jscpd one pin (5.4.2, run through `bin/npm_tool.sh`) and deprecates a repo's own `node_modules/.bin/jscpd` until 2026-11-25; closet's devDependency 5.4.0 was that legacy path. devkit #255 added `pr_create.sh` and devkit-check warns while a gate target has no `pr` target.
+**Decision:** jscpd leaves package.json and the lock; metrics.conf's `dup` line already had no `--bin`. `pr: ; devkit/bin/pr_create.sh` sits beside `merge`, and docs/workflow.md steps 3 and 6 name `make pr` and `CODEX_FALLBACK=1 make merge`.
+**Consequence:** `duplication.repo.clones` 16 and `jscpd_percent` 0.19 on both pins; devkit-check prints ok with no warning.
