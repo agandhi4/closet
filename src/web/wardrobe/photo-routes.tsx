@@ -10,7 +10,7 @@ import {
 } from '../files/pending-photos';
 import type { WebOptions } from '../plugin';
 import { renderFragment } from '../render';
-import { authorizeGarmentWardrobe, requireGarment } from './garment-access';
+import { garmentGuard, requireGarment } from './garment-access';
 import { GarmentPhotoView } from './garment-page';
 import type { GarmentPhoto } from './queries';
 import { batchEnd } from './draft-redirects';
@@ -49,7 +49,7 @@ async function requireGarmentPhoto(
  * A garment's photo: the add sheet's upload and a draft's Discard, the
  * photo sheet's replace and rotate, the mask editor's save, and the
  * cutout's polling and retry. Every route takes `?ownerId=` for a shared
- * wardrobe (authorizeGarmentWardrobe).
+ * wardrobe (garmentGuard).
  */
 export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
@@ -57,6 +57,7 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   done,
 ) => {
   const { db, logger } = options;
+  const authorize = garmentGuard(db);
   const deps: WardrobeDeps = {
     db,
     photos: options.photos,
@@ -78,12 +79,7 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     PHOTO_ADD_PATH,
     { schema: { querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const userId = sessionUserId(request);
       const room = MAX_DRAFTS_PER_USER - (await draftsHeld(db, userId));
       const staged = await stagePhotoUploads(
@@ -111,12 +107,7 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     DRAFT_DISCARD_PATH,
     { schema: { querystring: OwnerQuery, body: DiscardDraftBody } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const scope = { userId: sessionUserId(request), ownerId: access.ownerId };
       const { photo } = request.body;
       const saved = readIdList(request.body.saved);
@@ -150,12 +141,7 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/cutout',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'view',
-      );
+      const { access, viewOwner } = await authorize(request, 'view');
       const garment = await requireGarment(
         db,
         request.params.id,
@@ -180,12 +166,7 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/cutout/retry',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const { id } = request.params;
       const photo = await requireGarmentPhoto(db, id, access.ownerId);
       const outcome = await recordCutoutEvent(db, photo.fileName, {
@@ -214,12 +195,7 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/photo',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const { id } = request.params;
       await requireGarment(db, id, access.ownerId);
       await replacePhoto(
@@ -251,12 +227,7 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const { id } = request.params;
       const photo = await requireGarmentPhoto(db, id, access.ownerId);
       await rotateGarmentPhoto(
@@ -282,12 +253,7 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/nobg',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access } = await authorize(request, 'manage');
       const { id } = request.params;
       const photo = await requireGarmentPhoto(db, id, access.ownerId);
       const part = await request.file();

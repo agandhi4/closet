@@ -1,11 +1,6 @@
-import type { FastifyRequest } from 'fastify';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
-import {
-  type AuthorizedWardrobe,
-  authorizeWardrobe,
-  type WardrobeNeed,
-} from '../sharing/access';
+import { type WardrobeGuard, wardrobeGuard } from '../sharing/access';
 import { findGarment, type GarmentDetail } from './queries';
 
 const GARMENT_NOT_FOUND = 'Garment not found';
@@ -25,13 +20,8 @@ export function garmentNotFound(): HttpError {
  * Every route that addresses a garment's wardrobe goes through this, so the
  * refusal (and its message) is the same wherever a garment is reached.
  */
-export function authorizeGarmentWardrobe(
-  db: WebOptions['db'],
-  request: FastifyRequest,
-  ownerId: number | '' | undefined,
-  need: WardrobeNeed,
-): Promise<AuthorizedWardrobe> {
-  return authorizeWardrobe(db, request, ownerId, need, GARMENT_NOT_FOUND);
+export function garmentGuard(db: WebOptions['db']): WardrobeGuard {
+  return wardrobeGuard(db, GARMENT_NOT_FOUND);
 }
 
 /** Garment `id` in the wardrobe `ownerId`, or the 404 of an unknown id. */
