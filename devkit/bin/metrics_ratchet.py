@@ -22,7 +22,8 @@ runs before the gate, so it must show what the gate will refuse (finplat #660 le
 regression only from a gate run).
 
 Report-only keys (`vuln.*`, `meta.*`, `coupling.<scope>.fan_in_max`, `duplication.<scope>.jscpd_percent`,
-`size.<scope>.max_lines` and `size.<scope>.over_600`; is_report_only), plus any key its collector
+`size.<scope>.max_lines`, `size.<scope>.over_600`, `images.<scope>.refs` and
+`images.<scope>.unpinned`; is_report_only), plus any key its collector
 declares report-only (a top-level `"report_only": [<its keys>]` list in its output, carried into
 the snapshot by `merge`: ts.mjs declares a Next build's `bundle.<scope>.kb_total`, while a vite
 build's stays gated; Snapshot.is_report_only): collected and printed, never gated, even when a
@@ -187,6 +188,7 @@ DOMAIN_DIRECTIONS = {
     "statements": "lower",
     "size": "lower",
     "vuln": "lower",
+    "images": "lower",
     "allowlist": "lower",
     "lint": "lower",
     "meta": "lower",
@@ -205,11 +207,15 @@ TIER_SOURCE_PREFIX = "tier-"
 # a new advisory, not a code change; fan-in of a hub is architecture, not drift; a duplicated
 # share rises when unduplicated lines are deleted; a file's length alone never justifies a split.
 # `meta` describes the measurement (files a collector's --exclude left out), not the code.
+# Image refs grow with each service; unpinned images are the compose-pinned-image guard's, whose
+# per-service exceptions (the fleet's `:latest` deploy pointers) a count cannot hold.
 REPORT_ONLY_DOMAINS = frozenset({"vuln", "meta"})
 REPORT_ONLY_STATS = frozenset(  # (domain, last key segment)
     {
         ("coupling", "fan_in_max"),
         ("duplication", "jscpd_percent"),
+        ("images", "refs"),
+        ("images", "unpinned"),
         ("size", "max_lines"),
         ("size", "over_600"),
     }
@@ -699,10 +705,75 @@ def _status_line(metric: str, bound: Bound, snapshot: Snapshot, bounds_path: Pat
     return status
 
 
+def _within_main(
+    worse: list[tuple[str, float, float]], base: dict[str, Bound] | None
+) -> list[tuple[str, float, float, float]]:
+    """The WORSE keys whose bound is stricter than main's while the value still meets main's:
+    a bound tightened past what this tree measures, which a merge of two moved bounds settles
+    to (the driver's stricter wins). Raising it to the value loosens nothing against main, so
+    `make metrics-rebaseline KEYS=` fixes it with no label. Each is (metric, value, bound,
+    main's bound)."""
+    out = []
+    for metric, value, bound in worse:
+        main = base.get(metric) if base is not None else None
+        if main is None or main.bound is None:
+            continue
+        if is_better(bound, main.bound, main.direction) and classify(
+            value, main.bound, main.direction
+        ) != "WORSE":
+            out.append((metric, value, bound, main.bound))
+    return out
+
+
 def _rebaseline_command(keys: Iterable[str]) -> str:
     """The command a fix line names: keyed to the WORSE keys, so it moves no other bound."""
     named = ",".join(sorted(keys))
     return f"`make metrics-rebaseline KEYS={named or '<key>[,<key>]'}`"
+
+
+def _worse_failed(
+    worse: list[tuple[str, float, float]],
+    loosened: int,
+    base: dict[str, Bound] | None,
+    rebaseline_ok: bool,
+    bounds_path: Path,
+) -> bool:
+    """check's verdict on the WORSE keys and the bounds looser than main: the fix lines it prints,
+    and whether they fail the run. Three causes, three fixes: under the label a value past its
+    committed bound; a bound stricter than main's that this tree misses (_within_main: a
+    rebaseline with no label); anything else, a regression or an unlabelled loosening."""
+    if worse and rebaseline_ok:
+        # The label admits a looser committed bound, never a value past the committed one.
+        for metric, value, bound_value in worse:
+            _fail(
+                f"metrics-rebaseline: {metric} {_fmt(value)} is past its bound "
+                f"{_fmt(bound_value)}; `make metrics-rebaseline KEYS={metric}` and commit "
+                f"{bounds_path}, or fix the regression"
+            )
+        return True
+    settled = _within_main(worse, base) if not loosened else []
+    if worse and len(settled) == len(worse):
+        for metric, value, bound_value, main_bound in settled:
+            _fail(
+                f"ratchet: {metric} {_fmt(value)} is past this PR's bound {_fmt(bound_value)} but "
+                f"within main's {_fmt(main_bound)}: a bound tightened past this tree, as a merge "
+                "of two moved bounds settles (the stricter wins, measured on neither tree)"
+            )
+        _fail(
+            f"ratchet FAIL: {len(worse)} bound(s) stricter than main's that this tree does not "
+            f"meet; {_rebaseline_command(m for m, _, _ in worse)} and commit {bounds_path} "
+            "(no label: each stays within main's bound)"
+        )
+        return True
+    if worse or (loosened and not rebaseline_ok):
+        _fail(
+            f"ratchet FAIL: {len(worse)} metric(s) worse than their bound, "
+            f"{loosened} bound(s) looser than main; fix them, or, if a tool change "
+            f"moved the numbers, commit the looser {bounds_path} "
+            f"({_rebaseline_command(m for m, _, _ in worse)}) and label the PR metrics-rebaseline"
+        )
+        return True
+    return False
 
 
 def cmd_check(args: argparse.Namespace) -> int:
@@ -770,22 +841,7 @@ def cmd_check(args: argparse.Namespace) -> int:
             f"remove or rename them in {bounds_path} (a renamed key's new name: run {SEED_HINT})"
         )
         failed = True
-    if worse and args.rebaseline_ok:
-        # The label admits a looser committed bound, never a value past the committed one.
-        for metric, value, bound_value in worse:
-            _fail(
-                f"metrics-rebaseline: {metric} {_fmt(value)} is past its bound "
-                f"{_fmt(bound_value)}; `make metrics-rebaseline KEYS={metric}` and commit "
-                f"{bounds_path}, or fix the regression"
-            )
-        failed = True
-    elif worse or (moved["loosened"] and not args.rebaseline_ok):
-        _fail(
-            f"ratchet FAIL: {len(worse)} metric(s) worse than their bound, "
-            f"{moved['loosened']} bound(s) looser than main; fix them, or, if a tool change "
-            f"moved the numbers, commit the looser {bounds_path} "
-            f"({_rebaseline_command(m for m, _, _ in worse)}) and label the PR metrics-rebaseline"
-        )
+    if _worse_failed(worse, moved["loosened"], base, args.rebaseline_ok, bounds_path):
         failed = True
     if unlocked:
         # Not exempted by --rebaseline-ok: the label admits looser bounds, never stale ones.
@@ -1092,6 +1148,10 @@ def cmd_loosened(args: argparse.Namespace) -> int:
 # The driver merges key by key: a key one side changed takes that side, a key both changed to
 # the same value takes it, and a key both changed differently takes the STRICTER bound (the
 # direction's better one; never a silent loosening; the gate then measures the merged tree).
+# GOTCHA: that stricter value is one nobody measured on the merged tree (kitchen #25: base 1,
+# main's labelled rebaseline 7, the PR's own tighten 0 -> 0, and the merged tree measured 1), so
+# the driver prints one `ratchet merge:` line per bound it settled, and check names the cause
+# when such a bound is WORSE yet within main's (_within_main).
 # Installed by hooks_check.sh --fix (the .gitattributes lines and the per-clone driver config);
 # git runs it from the worktree's top level as `merge-driver %O %A %B %P` and reads the result
 # from %A. Exit 1 is a conflict git reports: it leaves %A as ours, and the configured fallback
@@ -1103,9 +1163,11 @@ class MergeConflict(Exception):
     """Two sides changed one key in ways the driver will not choose between."""
 
 
-def _stricter_bound(key: str, ours: object, theirs: object) -> object:
+def _stricter_bound(key: str, base: object, ours: object, theirs: object) -> object:
     """ratchet.json: both sides moved one bound. The tighter one wins; null (not yet seeded)
-    loses to a number; a deletion or a direction change is a conflict."""
+    loses to a number; a deletion or a direction change is a conflict. Prints one `ratchet
+    merge:` line naming the three values (git shows a driver's stderr), because the winner was
+    measured on neither side's tree merged with the other."""
     if ours is _ABSENT or theirs is _ABSENT:
         raise MergeConflict(f"{key}: deleted on one side, changed on the other")
     a, b = parse_bounds({key: ours}, "ours")[key], parse_bounds({key: theirs}, "theirs")[key]
@@ -1113,10 +1175,19 @@ def _stricter_bound(key: str, ours: object, theirs: object) -> object:
         raise MergeConflict(f"{key}: direction {a.direction} on one side, {b.direction} on the other")
     if a.bound is None or b.bound is None:
         return theirs if a.bound is None else ours
-    return theirs if is_better(b.bound, a.bound, a.direction) else ours
+    won = theirs if is_better(b.bound, a.bound, a.direction) else ours
+    was = parse_bounds({key: base}, "base")[key].bound if isinstance(base, dict) else None
+    kept = b.bound if won is theirs else a.bound
+    print(
+        f"ratchet merge: {key} base {_fmt(was)}, one side {_fmt(a.bound)}, the other "
+        f"{_fmt(b.bound)} -> {_fmt(kept)} (the stricter; measured on neither tree merged: run "
+        "make ci-metrics before push, and make metrics-rebaseline KEYS=<key> if it is WORSE)",
+        file=sys.stderr,
+    )
+    return won
 
 
-def _wired_wins(key: str, ours: object, theirs: object) -> object:
+def _wired_wins(key: str, _base: object, ours: object, theirs: object) -> object:
     """scorecard.json: both sides changed one check's entry; wired on either side stays wired
     (an unwired record beats a deletion). Of two share-only files' shares, the higher wins."""
     sides = (ours, theirs)
@@ -1128,14 +1199,14 @@ def _wired_wins(key: str, ours: object, theirs: object) -> object:
     raise MergeConflict(f"{key}: changed on both sides and not a check entry or share on both")
 
 
-def _ours(key: str, ours: object, theirs: object) -> object:
+def _ours(key: str, _base: object, ours: object, theirs: object) -> object:
     """report-only.json: observations, not bounds; the next tighten rewrites them anyway."""
     return theirs if ours is _ABSENT else ours
 
 
 # The three committed files by name: how a key both sides changed is settled, and whether the
 # file's nested objects (report-only's metrics and sources) merge per key or as one value.
-_MERGE_RULES: dict[str, tuple[Callable[[str, object, object], object], bool]] = {
+_MERGE_RULES: dict[str, tuple[Callable[[str, object, object, object], object], bool]] = {
     "ratchet.json": (_stricter_bound, False),
     "scorecard.json": (_wired_wins, True),
     "report-only.json": (_ours, True),
@@ -1143,7 +1214,8 @@ _MERGE_RULES: dict[str, tuple[Callable[[str, object, object], object], bool]] = 
 
 
 def merge_json(
-    base: object, ours: object, theirs: object, both: Callable[[str, object, object], object],
+    base: object, ours: object, theirs: object,
+    both: Callable[[str, object, object, object], object],
     *, nested: bool, path: str = "",
 ) -> object:
     """Per-key three-way merge of two JSON objects against their base."""
@@ -1160,7 +1232,7 @@ def merge_json(
         elif nested and all(isinstance(x, dict) for x in (o, t)):
             value = merge_json(b if isinstance(b, dict) else {}, o, t, both, nested=True, path=name)
         else:
-            value = both(name, o, t)
+            value = both(name, b, o, t)
         if value is not _ABSENT:
             out[key] = value
     return out
