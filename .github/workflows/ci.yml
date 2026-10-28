@@ -3,29 +3,12 @@ name: CI
 # PRs are gated on the Mac / linux-box, not here (owner, 2026-09-28: GitHub Actions limits):
 # `make gate PR=<n>` (devkit/bin/local_gate.sh + scripts/ci/gate_plan.sh) runs the Makefile's
 # ci-* targets on the PR merged into main and posts one `local-gate` status, which branch
-# protection requires with `codex-review`. On main this workflow only publishes the image;
-# the test jobs below stay for a manual cloud run (workflow_dispatch) and call the same make
-# targets as the gate, so the two cannot drift.
-#
-# History: one workflow so publishing can wait for the tests. Until 2026-09-25 the
-# image published from a separate workflow in parallel with CI: a red run
-# still shipped :latest, and the homelab updater deploys :latest.
+# protection requires with `codex-review`. Images ship from linux-box (`make publish`, homelab's
+# devkit-publish@closet.timer; docs/decisions.md 2026-10-28), not from here.
+# What is left is a manual cloud run of the gate's test jobs: they call the same make targets as
+# the gate, so the two cannot drift.
 on:
-  push:
-    branches: [main]
-    # Docs-only commits neither need tests nor a redeploy (a new image rolls
-    # every client's static-asset cache key).
-    # No docs check on main: the gate runs docs-check (ci-quick) on every PR, and
-    # the merge queue merges only the gated head on the gated main.
-    paths-ignore: ["docs/**", "**/*.md", "LICENSE"]
-  # A manual cloud run of the test jobs; on main it also republishes.
   workflow_dispatch:
-
-# Never cancelled: a run cancelled between the push of `latest` and the ship tag would leave
-# production on an image no tag names (devkit workflows_check.sh rule 4).
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -38,7 +21,6 @@ jobs:
   # make target, as on the gate box, not from a services container.
   static:
     name: format, lint, types
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -51,7 +33,6 @@ jobs:
 
   test:
     name: unit + integration
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -67,7 +48,6 @@ jobs:
 
   e2e:
     name: browser (production config)
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -103,98 +83,3 @@ jobs:
             echo ""
             echo "[screenshots-390px]($URL): demo, sparse and fresh on the key pages."
           } >> "$GITHUB_STEP_SUMMARY"
-
-  publish:
-    name: publish image
-    # No `needs`: the tree was gated on its PR by the local gate (the merge queue
-    # merges only a head gated on the current main, so the squash commit's tree is the
-    # gated tree). What the gate never boots is the image itself: it is booted here
-    # before it is pushed (#181). Main only: pushing `latest` is the deploy.
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    concurrency:
-      group: publish-main
-      cancel-in-progress: false
-    permissions:
-      # The ship tag (devkit/bin/ship_tag.sh creates it through the API).
-      contents: write
-      packages: write
-    # The smoke test's empty database.
-    services:
-      postgres:
-        image: postgres:18-alpine # production (pgvault) runs 18
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: Password123
-          POSTGRES_DB: postgres-test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U test -d postgres-test"
-          --health-interval 2s --health-timeout 3s --health-retries 30
-    env:
-      GHCR_REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      # The one version string, the bare 7-char sha (docs/decisions.md 2026-10-13): baked into
-      # the image as APP_VERSION and its OCI version label, and served as /health/ready `version`.
-      # The image TAG keeps its `sha-` prefix (`sha-<7>`, below); the version never has one.
-      - id: version
-        run: echo "app=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
-        with:
-          registry: ${{ env.GHCR_REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
-        with:
-          images: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
-          # `latest` is what the homelab autoupdater polls (hourly): this job moving it is
-          # the deploy. sha-<7> is the rollback target: `sha-` plus APP_VERSION.
-          tags: |
-            type=raw,value=latest
-            type=sha,prefix=sha-,format=short
-          # Its version label would otherwise be `latest`; the Dockerfile's LABEL says the same.
-          labels: |
-            org.opencontainers.image.version=${{ steps.version.outputs.app }}
-      # Built once, into the runner's Docker with every tag, so the image the smoke
-      # test boots is the image pushed: `docker push` sends those exact bytes, where a
-      # second buildx run (even all cache hits) would export a new config and digest.
-      # cache-to here, so a build the smoke test refuses still warms the next one.
-      - id: build
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
-        with:
-          context: .
-          file: Dockerfile
-          build-args: |
-            APP_VERSION=${{ steps.version.outputs.app }}
-          # amd64 only: the sole deploy target is linux-box, and emulated arm64
-          # builds of sharp would turn commit-to-deploy into a 30+ minute wait.
-          platforms: linux/amd64
-          load: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      # Boots it as production does (health and its version, migrations, a page, SIGTERM);
-      # a failure here publishes nothing. docs/deployment.md, CI and publishing.
-      - name: Smoke-test the image
-        env:
-          IMAGE_ID: ${{ steps.build.outputs.imageid }}
-          BOOT_EXPECT_VERSION: ${{ steps.version.outputs.app }}
-          DATABASE_HOST: localhost
-          DATABASE_USER: test
-          DATABASE_PASS: Password123
-          DATABASE_SCHEMA: postgres-test
-        run: scripts/smoke-image.sh "$IMAGE_ID"
-      - name: Push
-        run: docker push --all-tags "$GHCR_REGISTRY/$IMAGE_NAME"
-      # `latest` moved, so this commit shipped: annotated tag ship-<YYYY-MM-DD>-<sha7>
-      # (idempotent; refuses a sha not on main). The autoupdater pulls within the hour.
-      - name: Ship tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: devkit/bin/ship_tag.sh "$GITHUB_REPOSITORY" "$GITHUB_SHA"
