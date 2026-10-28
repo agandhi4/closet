@@ -18,7 +18,7 @@ import { buyFirstNote } from './to-buy';
  * hidden from assistive tech, as the old thumbs' empty alts were: the
  * button's name is the outfit's, and the note says what is to buy.
  */
-export function SavedOutfitButton(props: {
+function SavedOutfitButton(props: {
   outfit: GarmentOutfit;
   note: string | undefined;
 }) {
