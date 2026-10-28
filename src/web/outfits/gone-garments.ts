@@ -100,9 +100,9 @@ export interface NamedGarment {
 
 /**
  * `ownerId`'s garments among `garmentIds`, by id, whatever their status:
- * one statement. goneGarments' read, and create_outfit's (MCP), which
- * takes each slot's category from it and judges the save with goneOf, so
- * refusing costs no second read (#172).
+ * one statement. goneGarments' read, and newOutfitSlots', which takes each
+ * slot's category from it and judges the save with goneOf, so refusing
+ * costs no second read (#172).
  */
 export async function namedGarments(
   db: Queryable,
@@ -224,6 +224,29 @@ export class OutfitGarmentsGone extends HttpError {
     });
     this.name = 'OutfitGarmentsGone';
   }
+}
+
+/**
+ * The slots of a new outfit of `garmentIds` (MCP create_outfit and
+ * suggest_outfit): each its garment's category, as Styling saves them,
+ * read for every garment in one statement (#172: it was one per garment).
+ * A garment not `holdable` (another's, deleted, archived) refuses the
+ * save, named from the same read, as the pages refuse it (#219).
+ */
+export async function newOutfitSlots(
+  db: Queryable,
+  ownerId: number,
+  garmentIds: readonly number[],
+  holdable: Holdable,
+): Promise<{ category: string; garmentId: number }[]> {
+  const garments = await namedGarments(db, ownerId, garmentIds);
+  const gone = goneOf(garments, garmentIds, holdable);
+  if (gone.length > 0) throw new OutfitGarmentsGone(gone);
+  // Nothing gone: every id was read.
+  return garmentIds.map((garmentId) => ({
+    category: garments.get(garmentId)!.category,
+    garmentId,
+  }));
 }
 
 /** The gone garments for a log line: `12 (archived), 14 (not theirs)`. */

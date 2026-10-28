@@ -29,6 +29,7 @@ import {
   type ReminderKind,
 } from '../push/reminders';
 import type { Forecast } from '../weather/forecast';
+import { COORDINATE_DECIMALS } from '../weather/location';
 import type { ClimateNormals } from '../weather/normals';
 import {
   DEFAULT_TEMPERATURE_UNIT,
@@ -1645,6 +1646,22 @@ export const generatorAvoid = pgTable(
   ],
 );
 
+// A stored coordinate (trip, user_weather's home and here, the forecast and
+// normals caches): rounded to COORDINATE_DECIMALS places
+// (src/weather/location.ts), with the integer digits ±90 and ±180 need.
+const latitudeColumn = (name: string) =>
+  numeric(name, {
+    precision: 2 + COORDINATE_DECIMALS,
+    scale: COORDINATE_DECIMALS,
+    mode: 'number',
+  });
+const longitudeColumn = (name: string) =>
+  numeric(name, {
+    precision: 3 + COORDINATE_DECIMALS,
+    scale: COORDINATE_DECIMALS,
+    mode: 'number',
+  });
+
 // A trip (#10; docs/plans/2026-09-26-wardrobe-features.md, section 4): a
 // standalone list of outfits for some days away and the packing list derived
 // from them (owner decision: not a date range over the calendar). Private,
@@ -1662,12 +1679,8 @@ export const trip = pgTable(
     // Trimmed, never blank; bounded by the route (TRIP_NAME_MAX).
     name: text('name').notNull(),
     destination: text('destination'),
-    latitude: numeric('latitude', { precision: 4, scale: 2, mode: 'number' }),
-    longitude: numeric('longitude', {
-      precision: 5,
-      scale: 2,
-      mode: 'number',
-    }),
+    latitude: latitudeColumn('latitude'),
+    longitude: longitudeColumn('longitude'),
     // The first and last day away, both included ('YYYY-MM-DD').
     startsOn: date('starts_on', { mode: 'string' }).notNull(),
     endsOn: date('ends_on', { mode: 'string' }).notNull(),
@@ -1874,26 +1887,10 @@ export const userWeather = pgTable(
   {
     userId: integer('user_id').primaryKey(),
     homeName: text('home_name'),
-    homeLatitude: numeric('home_latitude', {
-      precision: 4,
-      scale: 2,
-      mode: 'number',
-    }),
-    homeLongitude: numeric('home_longitude', {
-      precision: 5,
-      scale: 2,
-      mode: 'number',
-    }),
-    hereLatitude: numeric('here_latitude', {
-      precision: 4,
-      scale: 2,
-      mode: 'number',
-    }),
-    hereLongitude: numeric('here_longitude', {
-      precision: 5,
-      scale: 2,
-      mode: 'number',
-    }),
+    homeLatitude: latitudeColumn('home_latitude'),
+    homeLongitude: longitudeColumn('home_longitude'),
+    hereLatitude: latitudeColumn('here_latitude'),
+    hereLongitude: longitudeColumn('here_longitude'),
     hereLocatedAt: timestamp('here_located_at', { withTimezone: true }),
     // °C added to the feels-like temperature before matching, in half
     // degrees (src/weather/temperature.ts). The default is written as SQL:
@@ -1955,16 +1952,8 @@ export const userWeather = pgTable(
 export const weatherForecast = pgTable(
   'weather_forecast',
   {
-    latitude: numeric('latitude', {
-      precision: 4,
-      scale: 2,
-      mode: 'number',
-    }).notNull(),
-    longitude: numeric('longitude', {
-      precision: 5,
-      scale: 2,
-      mode: 'number',
-    }).notNull(),
+    latitude: latitudeColumn('latitude').notNull(),
+    longitude: longitudeColumn('longitude').notNull(),
     // The last good answer, normalized (src/weather/forecast.ts); null until
     // the location's first fetch succeeds.
     forecast: jsonb('forecast').$type<Forecast>(),
@@ -1998,16 +1987,8 @@ export const weatherForecast = pgTable(
 export const weatherNormals = pgTable(
   'weather_normals',
   {
-    latitude: numeric('latitude', {
-      precision: 4,
-      scale: 2,
-      mode: 'number',
-    }).notNull(),
-    longitude: numeric('longitude', {
-      precision: 5,
-      scale: 2,
-      mode: 'number',
-    }).notNull(),
+    latitude: latitudeColumn('latitude').notNull(),
+    longitude: longitudeColumn('longitude').notNull(),
     // The last good answer; null until the location's first fetch succeeds.
     normals: jsonb('normals').$type<ClimateNormals>(),
     fetchedAt: timestamp('fetched_at', { withTimezone: true }),
