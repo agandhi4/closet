@@ -1,5 +1,4 @@
 import { type Occasion, OCCASIONS } from '../../wardrobe/occasions';
-import { PostForm } from '../auth/form';
 import type { IsoDate } from '../../calendar-date';
 import { dayLabel, occasionLabel, shortDayLabel } from '../date-labels';
 import { t } from '../i18n';
@@ -7,7 +6,7 @@ import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import type { GarmentOutfit } from '../outfits/queries';
-import { SavedOutfitButton } from '../outfits/saved-outfit-button';
+import { SavedOutfitPicker } from '../outfits/saved-outfit-button';
 import type { ViewContext } from '../view-context';
 import type { TripRow } from './queries';
 import { addOutfitUrl, dayAnchor, tripIdeasUrl, tripUrl } from './urls';
@@ -104,33 +103,22 @@ export function AddOutfitPage(props: {
           {t('gallery.PLAN_IDEAS')}
         </a>
 
-        <section>
-          <h2 class="text-xs font-semibold uppercase tracking-wide text-muted mb-2">
-            {day ? dayLabel(day) : t('trips.ANY_DAY')} ·{' '}
-            {t('CALENDAR_PLAN_SAVED')}
-          </h2>
-          {model.outfits.length > 0 ? (
-            <PostForm
-              action={tripUrl(trip.id, '/outfits')}
-              class="flex flex-col gap-2"
-            >
-              <input type="hidden" name="day" value={day ?? ''} />
-              <input type="hidden" name="occasion" value={occasion ?? ''} />
-              {model.outfits.map((outfit) => (
-                <SavedOutfitButton
-                  outfit={outfit}
-                  note={
-                    model.onTrip.has(outfit.id)
-                      ? t('trips.ALREADY_ON_TRIP')
-                      : undefined
-                  }
-                />
-              ))}
-            </PostForm>
-          ) : (
-            <p class="text-sm text-muted">{t('CALENDAR_PLAN_NO_OUTFITS')}</p>
-          )}
-        </section>
+        <SavedOutfitPicker
+          heading={
+            <>
+              {day ? dayLabel(day) : t('trips.ANY_DAY')} ·{' '}
+              {t('CALENDAR_PLAN_SAVED')}
+            </>
+          }
+          action={tripUrl(trip.id, '/outfits')}
+          outfits={model.outfits}
+          noteOf={(outfit) =>
+            model.onTrip.has(outfit.id) ? t('trips.ALREADY_ON_TRIP') : undefined
+          }
+        >
+          <input type="hidden" name="day" value={day ?? ''} />
+          <input type="hidden" name="occasion" value={occasion ?? ''} />
+        </SavedOutfitPicker>
       </main>
       <Dock ctx={ctx} />
     </Layout>

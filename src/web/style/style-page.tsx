@@ -1,10 +1,10 @@
-import type { Child } from 'hono/jsx';
 import { GARMENT_COLORS } from '../../wardrobe/properties';
 import { BUDGET_BANDS, STYLES } from '../../wardrobe/style';
 import type { RhythmEntry } from '../../wardrobe/week';
 import { PostForm } from '../auth/form';
 import { profileSection, STYLE_SECTION_ID } from '../auth/urls';
 import { occasionLabel } from '../date-labels';
+import { ChipGroup } from '../form-field';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
@@ -150,18 +150,6 @@ function HomeCity({ name }: { name: string | null }) {
         </>
       )}
     </p>
-  );
-}
-
-function ChipGroup(props: { label: string; hint?: string; children: Child }) {
-  return (
-    <div role="group" aria-label={props.label} class="flex flex-col">
-      <span class="label">
-        <span class="label-text">{props.label}</span>
-      </span>
-      {props.hint && <p class="text-xs text-muted mb-1">{props.hint}</p>}
-      <div class="flex flex-wrap gap-2">{props.children}</div>
-    </div>
   );
 }
 

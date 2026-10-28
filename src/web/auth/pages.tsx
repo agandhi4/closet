@@ -58,22 +58,34 @@ function AccountShell(props: {
   title: string;
   /** The back arrow (the account's forms go back to Profile). */
   back?: string;
-  ogTitle?: string;
-  ogDescription?: string;
+  /**
+   * A public entry page's (sign in, register) link preview: the og tags
+   * and the schema.org WebPage, both named by `title`.
+   */
+  description?: string;
   children: Child;
 }) {
+  const { description } = props;
+  const preview = description !== undefined;
   return (
     <Layout
       ctx={props.ctx}
       title={props.title}
-      ogTitle={props.ogTitle}
-      ogDescription={props.ogDescription}
+      ogTitle={preview ? props.title : undefined}
+      ogDescription={description}
     >
       <AppBar ctx={props.ctx} title={props.title} back={props.back} />
       {/* Centred while it fits; from the top once it does not, so nothing
           ends up under the fixed app bar, where no scroll reaches it. The
           padding clears the app bar and the dock, as on every other page. */}
       <main class="flex flex-col justify-center-safe items-center min-h-full gap-3 px-4 pt-20 pb-24">
+        {preview && (
+          <WebPageData
+            ctx={props.ctx}
+            name={props.title}
+            description={description}
+          />
+        )}
         {props.children}
       </main>
       <Dock ctx={props.ctx} />
@@ -113,13 +125,7 @@ export function LoginPage(props: {
   const title = t('LOGIN_OG_TITLE', { appName: ctx.appName });
   const description = t('LOGIN_OG_DESC', { appName: ctx.appName });
   return (
-    <AccountShell
-      ctx={ctx}
-      title={title}
-      ogTitle={title}
-      ogDescription={description}
-    >
-      <WebPageData ctx={ctx} name={title} description={description} />
+    <AccountShell ctx={ctx} title={title} description={description}>
       {/* Signed out only: a signed-in visitor opening this page keeps
           their notifications. */}
       {ctx.pwaEnabled && !ctx.user && <PushSignedOut />}
@@ -207,13 +213,7 @@ export function RegisterPage(props: { ctx: ViewContext } & RegisterFormState) {
   const title = t('REGISTER_OG_TITLE', { appName: ctx.appName });
   const description = t('REGISTER_OG_DESC', { appName: ctx.appName });
   return (
-    <AccountShell
-      ctx={ctx}
-      title={title}
-      ogTitle={title}
-      ogDescription={description}
-    >
-      <WebPageData ctx={ctx} name={title} description={description} />
+    <AccountShell ctx={ctx} title={title} description={description}>
       <PostForm action="/auth/register">
         <RegisterFields input={props.input} errors={props.errors} />
       </PostForm>
