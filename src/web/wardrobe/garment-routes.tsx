@@ -1,5 +1,5 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyReply } from 'fastify';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
 import { todayIn } from '../../calendar-date';
@@ -8,6 +8,7 @@ import { HttpError } from '../errors';
 import { pendingPhotoOf } from '../files/pending-photos';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
+import type { WardrobeRequest } from '../sharing/access';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import { viewContext } from '../view-context';
 import { type GoesWithCloset, judgeGoesWithCloset } from '../gallery/ideas';
@@ -16,7 +17,7 @@ import type { GoesWithInputs } from '../gallery/queries';
 import { normalizeCategory } from './garment';
 import { garmentContext } from './garment-context';
 import {
-  authorizeGarmentWardrobe,
+  garmentGuard,
   garmentNotFound,
   requireGarment,
 } from './garment-access';
@@ -77,7 +78,7 @@ const STATUS_REFUSED: Record<Exclude<StatusChange['event'], 'buy'>, string> = {
  * One garment: the new form and its post, the properties fragment, the
  * garment page, the edit and clone forms and their posts, the condition
  * control, archive, restore and delete. Every route takes `?ownerId=` for a
- * shared wardrobe (authorizeGarmentWardrobe). Adding from a link has its
+ * shared wardrobe (garmentGuard). Adding from a link has its
  * own plugin (link-import/routes.tsx) that ends on the new form.
  */
 export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
@@ -86,6 +87,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   done,
 ) => {
   const { db, logger, config } = options;
+  const authorize = garmentGuard(db);
   const deps: WardrobeDeps = {
     db,
     photos: options.photos,
@@ -116,12 +118,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/new',
     { schema: { querystring: NewGarmentQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const { destination, prefill, boughtFor } = await resolveDestination(
         db,
         request.query,
@@ -182,12 +179,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe',
     { schema: { querystring: OwnerQuery, body: GarmentBody } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const { linkPhoto } = request.body;
       const userId = sessionUserId(request);
       const scope = { userId, ownerId: access.ownerId };
@@ -314,12 +306,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     GARMENT_PATH,
     { schema: { params: GarmentParams, querystring: GarmentPageQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'view',
-      );
+      const { access, viewOwner } = await authorize(request, 'view');
       const { id } = request.params;
       const today = todayIn(config.timeZone, new Date());
       const garment = await requireGarment(db, id, access.ownerId);
@@ -377,12 +364,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const { id } = request.params;
       const fields = readCondition(request.body);
       if (!(await setCondition(db, id, access.ownerId, fields))) {
@@ -402,12 +384,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     `${GARMENT_PATH}/edit`,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const garment = await requireGarment(
         db,
         request.params.id,
@@ -445,12 +422,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const { id } = request.params;
       // A MANAGE grantee's post leaves the owner-only fields as stored.
       const form = readGarmentForm(
@@ -492,12 +464,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     `${GARMENT_PATH}/clone`,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'view',
-      );
+      const { access, viewOwner } = await authorize(request, 'view');
       const source = await requireGarment(
         db,
         request.params.id,
@@ -531,12 +498,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
     async (request, reply) => {
       const userId = sessionUserId(request);
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'view',
-      );
+      const { access, viewOwner } = await authorize(request, 'view');
       const source = await requireGarment(
         db,
         request.params.id,
@@ -572,18 +534,12 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
    * the old archive toggle made. Through setGarmentStatus, the one writer.
    */
   async function changeStatus(
-    request: FastifyRequest,
+    request: WardrobeRequest,
     reply: FastifyReply,
-    target: { id: number; ownerId: number | '' | undefined },
+    id: number,
     event: 'archive' | 'restore',
   ): Promise<FastifyReply> {
-    const { access, viewOwner } = await authorizeGarmentWardrobe(
-      db,
-      request,
-      target.ownerId,
-      'own',
-    );
-    const { id } = target;
+    const { access, viewOwner } = await authorize(request, 'own');
     const outcome = await setGarmentStatus(db, id, access.ownerId, { event });
     if (!outcome.ok) {
       if (outcome.reason === 'not-found') throw garmentNotFound();
@@ -600,24 +556,14 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     `${GARMENT_PATH}/archive`,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     (request, reply) =>
-      changeStatus(
-        request,
-        reply,
-        { id: request.params.id, ownerId: request.query.ownerId },
-        'archive',
-      ),
+      changeStatus(request, reply, request.params.id, 'archive'),
   );
 
   app.post(
     `${GARMENT_PATH}/restore`,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     (request, reply) =>
-      changeStatus(
-        request,
-        reply,
-        { id: request.params.id, ownerId: request.query.ownerId },
-        'restore',
-      ),
+      changeStatus(request, reply, request.params.id, 'restore'),
   );
 
   // htmx (hx-delete): owner only. The photo's bytes go after the rows commit.
@@ -626,12 +572,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     GARMENT_PATH,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'own',
-      );
+      const { access } = await authorize(request, 'own');
       const { id } = request.params;
       const deleted = await removeGarment(deps, id, access.ownerId);
       if (!deleted.ok) {

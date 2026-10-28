@@ -36,7 +36,7 @@ import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { IsoDateSchema, OccasionSchema, OwnerQuery, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
-import { authorizeWardrobe } from '../sharing/access';
+import { type WardrobeRequest, wardrobeGuard } from '../sharing/access';
 import { viewContext } from '../view-context';
 import {
   MAX_ROWS,
@@ -485,30 +485,27 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   { db, config, logger, weather },
   done,
 ) => {
+  const authorize = wardrobeGuard(db, 'Wardrobe not found');
+
   /**
    * The wardrobe a request addresses (its own, or one shared with the
    * requester, 404 otherwise), with the capsule it names: the reads check
    * that (reads.ts; a 404 outside it, checkedCapsule).
    */
   async function scopeOf(
-    request: FastifyRequest,
-    query: {
-      ownerId?: number | '';
-      capsule?: number;
-      picks?: string;
-      outfit?: number;
-      for?: string;
-      occasion?: string;
-      replace?: string;
+    request: WardrobeRequest & {
+      query: {
+        capsule?: number;
+        picks?: string;
+        outfit?: number;
+        for?: string;
+        occasion?: string;
+        replace?: string;
+      };
     },
   ): Promise<Scope> {
-    const { access, viewOwner } = await authorizeWardrobe(
-      db,
-      request,
-      query.ownerId,
-      'view',
-      'Wardrobe not found',
-    );
+    const { query } = request;
+    const { access, viewOwner } = await authorize(request, 'view');
     const picksOffered =
       viewOwner === undefined && parseDestination(query).kind === 'none';
     return {
@@ -633,7 +630,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const userId = sessionUserId(request);
       const { query } = request;
       const today = todayIn(config.timeZone, new Date());
-      const scope = await scopeOf(request, query);
+      const scope = await scopeOf(request);
       // A saved outfit is the requester's: over a shared wardrobe, a 404.
       const outfitId = isOther(query.ownerId, userId)
         ? undefined
@@ -730,7 +727,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { query } = request;
       const started = performance.now();
       const today = todayIn(config.timeZone, new Date());
-      const scope = await scopeOf(request, query);
+      const scope = await scopeOf(request);
       const posted = postedStates(query);
       const aim = await aimOf(userId, scope.shared, query, today);
       const seed = parseSeed(query.seed) ?? dailySeed(today);
@@ -784,7 +781,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     { schema: { querystring: RowsQuery } },
     async (request, reply) => {
       const { query } = request;
-      const scope = await scopeOf(request, query);
+      const scope = await scopeOf(request);
       const posted = postedStates(query);
       const reads = await stripsReads(db, scope, {
         checkCapsule: true,
@@ -823,14 +820,8 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     STYLING_GARMENTS_PATH,
     { schema: { querystring: GarmentsQuery } },
     async (request, reply) => {
-      const { role, before, capsule, picks, ownerId } = request.query;
-      const { access, viewOwner } = await authorizeWardrobe(
-        db,
-        request,
-        ownerId,
-        'view',
-        'Wardrobe not found',
-      );
+      const { role, before, capsule, picks } = request.query;
+      const { access, viewOwner } = await authorize(request, 'view');
       const page = await roleGarmentsBefore(db, access.ownerId, role, {
         capsuleId: capsule,
         before,

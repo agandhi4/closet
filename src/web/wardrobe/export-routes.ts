@@ -2,7 +2,7 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { todayIn } from '../../calendar-date';
 import type { WebOptions } from '../plugin';
 import { requestOrigin } from '../security/origin';
-import { authorizeWardrobe } from '../sharing/access';
+import { wardrobeGuard } from '../sharing/access';
 import { EXPORT_FORMATS, wardrobeExport } from './export';
 import { wardrobeExportPath } from '../page-cache';
 import { OwnerQuery } from '../schemas';
@@ -25,18 +25,13 @@ export const exportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   { db, config, logger },
   done,
 ) => {
+  const authorize = wardrobeGuard(db, 'Wardrobe not found');
   for (const format of EXPORT_FORMATS) {
     app.get(
       wardrobeExportPath(format),
       { schema: { querystring: OwnerQuery } },
       async (request, reply) => {
-        const { access } = await authorizeWardrobe(
-          db,
-          request,
-          request.query.ownerId,
-          'own',
-          'Wardrobe not found',
-        );
+        const { access } = await authorize(request, 'own');
         const day = todayIn(config.timeZone, new Date());
         logger.info(`Export (${format}) of wardrobe ${access.ownerId} started`);
         return reply

@@ -1,11 +1,11 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
-import type { FastifyRequest } from 'fastify';
 import { sessionUserId } from '../auth/require-session';
 import { todayIn } from '../../calendar-date';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
+import type { WardrobeRequest } from '../sharing/access';
 import {
-  authorizeGarmentWardrobe,
+  garmentGuard,
   garmentNotFound,
   requireGarment,
 } from './garment-access';
@@ -39,18 +39,10 @@ export const repairRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   { db, config, logger },
   done,
 ) => {
+  const authorize = garmentGuard(db);
   /** The requester's own owned garment `id`, or the refusal (see above). */
-  async function ownGarment(
-    request: FastifyRequest,
-    id: number,
-    ownerId: number | '' | undefined,
-  ) {
-    const { access } = await authorizeGarmentWardrobe(
-      db,
-      request,
-      ownerId,
-      'own',
-    );
+  async function ownGarment(request: WardrobeRequest, id: number) {
+    const { access } = await authorize(request, 'own');
     const garment = await requireGarment(db, id, access.ownerId);
     if (garment.status === 'wishlist') {
       throw new HttpError(409, NOT_OWNED_YET);
@@ -75,7 +67,7 @@ export const repairRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const { id } = request.params;
       const userId = sessionUserId(request);
-      const garment = await ownGarment(request, id, request.query.ownerId);
+      const garment = await ownGarment(request, id);
       const today = todayIn(config.timeZone, new Date());
       const form = readRepairForm(request.body, today);
       if (!form.ok) {
@@ -115,7 +107,7 @@ export const repairRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const { id, repairId } = request.params;
       const userId = sessionUserId(request);
-      await ownGarment(request, id, request.query.ownerId);
+      await ownGarment(request, id);
       if (!(await deleteRepair(db, userId, id, repairId))) {
         throw new HttpError(404, 'Repair not found');
       }

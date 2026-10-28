@@ -154,9 +154,8 @@ export interface AuthorizedWardrobe {
  * (`''` or absent: the requester's own) and throws unless the requester has
  * what the route `need`s: a view (404 without one, `notFound` its message,
  * so the page reads like an unknown id), a MANAGE share or ownership (403),
- * or ownership (403). Every route that takes `?ownerId=` goes through it:
- * the garment routes (src/web/wardrobe) and the capsule routes
- * (src/web/capsules).
+ * or ownership (403). Every route that takes `?ownerId=` goes through it,
+ * a route plugin through its wardrobeGuard.
  */
 export async function authorizeWardrobe(
   db: Db,
@@ -176,6 +175,27 @@ export async function authorizeWardrobe(
   // `?ownerId=<self>` is the own wardrobe (nobody shares with themselves),
   // and its links must not carry the parameter.
   return { access, viewOwner: access.isOwner ? undefined : access.ownerId };
+}
+
+/** A route request addressing a wardrobe by `?ownerId=` (OwnerQuery). */
+export type WardrobeRequest = FastifyRequest & {
+  query: { ownerId?: number | '' };
+};
+
+/** authorizeWardrobe of the wardrobe the request's `?ownerId=` addresses. */
+export type WardrobeGuard = (
+  request: WardrobeRequest,
+  need: WardrobeNeed,
+) => Promise<AuthorizedWardrobe>;
+
+/**
+ * A feature's guard, bound once per plugin with the feature's 404 message
+ * (garmentGuard, the capsule and wishlist plugins), so no route re-declares
+ * the wrapper or relays `request.query.ownerId` by hand.
+ */
+export function wardrobeGuard(db: Db, notFound: string): WardrobeGuard {
+  return (request, need) =>
+    authorizeWardrobe(db, request, request.query.ownerId, need, notFound);
 }
 
 export interface SharedWardrobe {

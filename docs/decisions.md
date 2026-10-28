@@ -293,3 +293,8 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Why:** devkit #235 gave jscpd one pin (5.4.2, run through `bin/npm_tool.sh`) and deprecates a repo's own `node_modules/.bin/jscpd` until 2026-11-25; closet's devDependency 5.4.0 was that legacy path. devkit #255 added `pr_create.sh` and devkit-check warns while a gate target has no `pr` target.
 **Decision:** jscpd leaves package.json and the lock; metrics.conf's `dup` line already had no `--bin`. `pr: ; devkit/bin/pr_create.sh` sits beside `merge`, and docs/workflow.md steps 3 and 6 name `make pr` and `CODEX_FALLBACK=1 make merge`.
 **Consequence:** `duplication.repo.clones` 16 and `jscpd_percent` 0.19 on both pins; devkit-check prints ok with no warning.
+
+## 2026-10-27 — One wardrobe guard per plugin reads `?ownerId=` itself
+**Why:** jscpd's clones held three hand-written `authorizeWardrobe` wrappers (garment-access, capsules, the wishlist inbox) that differed only in their 404 message, and 40 routes relayed `request.query.ownerId` into them by hand (three helpers took it as a parameter only to pass it on).
+**Decision:** `wardrobeGuard(db, notFound)` (`sharing/access.ts`) returns `authorize(request, need)`, which reads the request's `?ownerId=` (`WardrobeRequest`); each plugin binds it once (`garmentGuard(db)` for the garment routes, the capsule, inbox, export and Styling plugins with their own message). `authorizeWardrobe` stays for a caller whose wardrobe is not the query's (the MCP tools' user id). The inbox page and its next page read through one `addressedInbox`.
+**Consequence:** behaviour is unchanged (the authorization matrix specs pass as they were); `duplication.repo.clones` 16 → 12. A new share-aware route calls its plugin's `authorize`, never a wrapper of its own.

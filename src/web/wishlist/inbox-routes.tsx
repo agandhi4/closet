@@ -1,6 +1,6 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
-import { type Static, Type } from '@sinclair/typebox';
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import { Type } from '@sinclair/typebox';
+import type { FastifyReply } from 'fastify';
 import {
   OWNER_DISMISS_REASONS,
   type SuggestionDecision,
@@ -12,11 +12,7 @@ import type { WebOptions } from '../plugin';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import { GarmentParams, OwnerQuery, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
-import {
-  type AuthorizedWardrobe,
-  authorizeWardrobe,
-  type WardrobeNeed,
-} from '../sharing/access';
+import { type WardrobeRequest, wardrobeGuard } from '../sharing/access';
 import { viewContext } from '../view-context';
 import {
   garmentUrl,
@@ -110,28 +106,25 @@ export const inboxRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 ) => {
   const { db, logger } = options;
 
-  function resolve(
-    request: FastifyRequest,
-    ownerId: number | '' | undefined,
-    need: WardrobeNeed,
-  ): Promise<AuthorizedWardrobe> {
-    return authorizeWardrobe(db, request, ownerId, need, NOT_FOUND);
+  const authorize = wardrobeGuard(db, NOT_FOUND);
+
+  /** The addressed wardrobe's inbox: the page's, and its next pages' groups alone. */
+  async function addressedInbox(request: WardrobeRequest, groupsOnly: boolean) {
+    const { access, viewOwner } = await authorize(request, 'view');
+    const inbox = await readInbox(db, {
+      ownerId: access.ownerId,
+      viewerId: sessionUserId(request),
+      isOwner: access.isOwner,
+      groupsOnly,
+    });
+    return { access, viewOwner, inbox };
   }
 
   app.get(
     WISHLIST_PATH,
     { schema: { querystring: InboxQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await resolve(
-        request,
-        request.query.ownerId,
-        'view',
-      );
-      const inbox = await readInbox(db, {
-        ownerId: access.ownerId,
-        viewerId: sessionUserId(request),
-        isOwner: access.isOwner,
-      });
+      const { access, viewOwner, inbox } = await addressedInbox(request, false);
       logger.debug(
         `Inbox of wardrobe ${access.ownerId}: ${inbox.groups.length} needs with options, ${inbox.counted} options counted in ${inbox.searchMs.toFixed(0)}ms`,
       );
@@ -152,22 +145,12 @@ export const inboxRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   // The next page of need cards (the sentinel's `intersect once`): always
-  // a fragment, read like the page's first.
+  // a fragment.
   app.get(
     INBOX_MORE_PATH,
     { schema: { querystring: MoreQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await resolve(
-        request,
-        request.query.ownerId,
-        'view',
-      );
-      const inbox = await readInbox(db, {
-        ownerId: access.ownerId,
-        viewerId: sessionUserId(request),
-        isOwner: access.isOwner,
-        groupsOnly: true,
-      });
+      const { viewOwner, inbox } = await addressedInbox(request, true);
       return renderFragment(
         reply,
         <GroupCards
@@ -197,11 +180,7 @@ export const inboxRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     `${WISHLIST_PATH}/needs/:id`,
     { schema: { params: NeedParams, querystring: NeedQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await resolve(
-        request,
-        request.query.ownerId,
-        'view',
-      );
+      const { access, viewOwner } = await authorize(request, 'view');
       const detail = await readNeed(db, {
         ownerId: access.ownerId,
         groupId: request.params.id,
@@ -234,7 +213,7 @@ export const inboxRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
    * its toast.
    */
   async function decided(
-    request: FastifyRequest & { query: Static<typeof OwnerQuery> },
+    request: WardrobeRequest,
     reply: FastifyReply,
     decision: SuggestionDecision,
     {
@@ -243,7 +222,7 @@ export const inboxRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       toast,
     }: { returnTo: string | undefined; fallback: string; toast: DecisionToast },
   ): Promise<FastifyReply> {
-    const { access } = await resolve(request, request.query.ownerId, 'own');
+    const { access } = await authorize(request, 'own');
     const outcome: DecideOutcome = await decide(db, access.ownerId, decision);
     const subject =
       'garmentId' in decision
@@ -386,7 +365,7 @@ export const inboxRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/returned',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access } = await resolve(request, request.query.ownerId, 'own');
+      const { access } = await authorize(request, 'own');
       const { id } = request.params;
       const outcome = await decide(db, access.ownerId, {
         kind: 'returned',
