@@ -166,16 +166,16 @@ In full: `docs/conventions.md`, `docs/web-layer.md#client-behavior`.
 
 ### Deployment
 
-Production runs on linux-box (the homelab) and merging to `main` deploys it: CI publishes the image and the hourly autoupdater pulls it. The pieces, the production env, the demo login, locked-out recovery, rotating the secret, deploying by hand and what CI publishes: `docs/operations.md`.
+Production runs on linux-box (the homelab) and merging to `main` deploys it: linux-box's `make publish` (never the Mac: arm64) pushes the image and the hourly autoupdater pulls it. The pieces, the production env, the demo login, locked-out recovery, rotating the secret, deploying by hand, publishing: `docs/operations.md`.
 
-- **Release identity: `APP_VERSION` is the bare 7-char sha** (`docs/decisions.md` 2026-10-13), passed once by `ci.yml`'s publish job; `/health/ready` `version`, /about, MCP and the error tracker's release all read it. Only the image *tag* says `sha-<7>`. Compose and `.env` never set it (`make release-check`). **Only that job moves `latest`** (the deploy), then tags `ship-<YYYY-MM-DD>-<sha7>`. No semver or date tags.
+- **Release identity: `APP_VERSION` is the bare 7-char sha** (`docs/decisions.md` 2026-10-13), passed once by the publisher; `/health/ready` `version`, /about, MCP and the error tracker's release all read it. Only the image *tag* says `sha-<7>`. Compose and `.env` never set it (`make release-check`). **Only the publisher moves `latest`** (the deploy), then tags `ship-<YYYY-MM-DD>-<sha7>`. No semver or date tags.
 
 ## Convention deltas
 
 Deviations from `~/.claude/conventions/`, each with its `docs/decisions.md` entry:
 - **Job outcomes add `discarded` and `interrupted`** (the cutout queue), non-alerting; any error or timeout is `failure`. `JOB_OUTCOMES` and `metrics.spec.ts` hold the list (2026-10-13, Observability contract).
 - **Statement budgets come only from `recordQueries` blocks** (`build/statements.json`, `make ci-db`): the most statements each `<METHOD>:<route>` sent there, not every request the suite makes (2026-10-13, Observability contract 2).
-- **No pull-request job in Actions**: the PR gate is the local `local-gate` (`make gate PR=<n>`); `ci.yml` runs on push to `main` and by hand (2026-10-13, PR gate moves in-repo via devkit).
+- **No pull-request job in Actions**: the PR gate is the local `local-gate` (`make gate PR=<n>`); `ci.yml` runs only by hand (2026-10-13, PR gate moves in-repo via devkit).
 - **`nightly.yml` runs on a `schedule:`**: the page audit, Lighthouse, the real cutout model and WebKit, too slow for any PR; nothing in it gates a deploy (2026-10-16, Convention deltas declared).
 - **The image smoke is `scripts/smoke-image.sh`, not devkit's `boot_image.sh`**: it boots on the host network, then runs devkit's `contract_probe.sh` (2026-10-16, Convention deltas declared).
 

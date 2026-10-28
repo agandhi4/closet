@@ -324,7 +324,7 @@ One Node 22 process: plain Fastify 5 serving server-rendered JSX pages with htmx
 
 ## Deploy
 
-This instance runs on the homelab, and merging to `main` deploys it: CI's `publish` job pushes `ghcr.io/agandhi4/closet:latest` and a `ship-<date>-<sha7>` tag, and the hourly autoupdater pulls the image. The pieces, the production env, deploying by hand and recovery are in [docs/operations.md](docs/operations.md).
+This instance runs on the homelab, and merging to `main` deploys it: the homelab's linux-box publisher (`make publish`, every 5 min) pushes `ghcr.io/agandhi4/closet:latest` and a `ship-<date>-<sha7>` tag, and the hourly autoupdater pulls the image. The pieces, the production env, deploying by hand and recovery are in [docs/operations.md](docs/operations.md).
 
 For other self-hosters: deploy to a VPS via [Coolify](https://coolify.io/) or Portainer using the docker-compose above, with local storage. Back up both the Postgres database and `DATA_PATH`, taken close together: the nightly storage reconciliation deletes photos that no database row references.
 

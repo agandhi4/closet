@@ -1,6 +1,7 @@
 # closet's gate plan, sourced by devkit/bin/local_gate.sh (contract in its header). devkit's
 # default plan (devkit/bin/_paths_lib.sh) owns the area groups; closet adds only the rules the
-# fleet table cannot express. Every job is a Makefile target ci.yml also calls.
+# fleet table cannot express. Every job is a Makefile target; the publisher (devkit/bin/publish.sh)
+# runs the image job's two, ci-image then ci-smoke, at main before it pushes.
 #
 #   docs only (*.md, docs/**)          -> docs (docs-check), no npm ci
 #   tooling only (devkit/ guards and   -> deps + quick; + image when devkit's contract probe or
@@ -29,6 +30,9 @@
 GATE_SLUG=agandhi4/closet
 # shellcheck disable=SC2034
 GATE_STATE_NAME=closet-gate
+# What devkit/bin/publish.sh pushes to (read as this literal line, never sourced).
+# shellcheck disable=SC2034
+PUBLISH_IMAGE=ghcr.io/agandhi4/closet
 # make merge (devkit/bin/pr_merge.sh) also requires Codex's status on the head.
 # shellcheck disable=SC2034
 GATE_MERGE_REQUIRES=codex-review
@@ -48,8 +52,8 @@ GATE_JOBS_QUICK="deps ci-deps|quick ci-quick"
 # shellcheck disable=SC2034
 GATE_JOBS_DOCS="docs docs-check"
 # The build, then the image booted on its own throwaway Postgres (scripts/smoke-image.sh:
-# /health/ready names CI_BUILD_VERSION, the observability contract probe): what ci.yml's publish
-# job runs on the bytes it pushes, proved here before the merge.
+# /health/ready names CI_BUILD_VERSION, the observability contract probe): what publish.sh runs at
+# main on the bytes it pushes, proved here before the merge.
 # shellcheck disable=SC2034
 GATE_JOBS_IMAGE="image ci-image ci-smoke CI_IMAGE=$IMAGE CI_BUILD_VERSION=gate-$PR SMOKE_PG_CONTAINER=$SMOKE_PG_CONTAINER"
 # Every app path runs the image (devkit #115 retired the per-area override). These are the app

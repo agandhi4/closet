@@ -1,8 +1,9 @@
-.PHONY: help ci-deps ci-quick ci-guards ci-guards-staged devkit-check-staged ci-lint ci-typecheck secrets-staged ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten metrics-rebaseline screenshots gate pr merge devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check migration-check secrets-check install
+.PHONY: help ci-deps ci-quick ci-guards ci-guards-staged devkit-check-staged ci-lint ci-typecheck secrets-staged ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten metrics-rebaseline screenshots gate pr merge publish devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check migration-check secrets-check install
 
 # Thin callers: the npm scripts in package.json stay the definitions of each check. These
 # targets add only what a clean machine needs around them (a throwaway Postgres, browsers,
-# e2e env), so the PR gate (scripts/ci/gate_plan.sh) and ci.yml run the same thing.
+# e2e env), so the PR gate (scripts/ci/gate_plan.sh), linux-box's publisher (`make publish`) and
+# ci.yml's manual jobs run the same thing.
 # Run `make ci-deps` once first; the other ci-* targets assume node_modules.
 
 # Every recipe line runs on .nvmrc's Node, not PATH's (devkit #166): a hand-run target and the
@@ -18,8 +19,8 @@ PG_CONTAINER ?= $(shell $(PG) name closet-ci-pg)
 # --with-deps on Linux runners (system libraries); ignored on macOS.
 PLAYWRIGHT_FLAGS ?=
 CI_IMAGE ?= closet:ci
-# The image's APP_VERSION (Dockerfile ARG): the gate passes gate-<pr>, ci.yml's publish job
-# builds with the bare 7-char sha itself. ci-smoke asserts /health/ready reports it.
+# The image's APP_VERSION (Dockerfile ARG): the gate passes gate-<pr>, publish.sh the bare 7-char
+# sha of the main it builds. ci-smoke asserts /health/ready reports it.
 CI_BUILD_VERSION ?= dev
 SMOKE_PG_CONTAINER ?= $(shell $(PG) name closet-smoke-pg)
 
@@ -63,6 +64,7 @@ help:
 	@echo "make gate PR=<n>      — the PR gate: these jobs on PR <n> merged into origin/main [GATE_ARGS=--no-post]"
 	@echo "make pr BODY_FILE=<f> — push the branch and open its PR on origin [TITLE=…] [DRAFT=1]"
 	@echo "make merge PR=<n>     — squash-merge, refused unless the head has local-gate and codex-review success"
+	@echo "make publish          — linux-box's timer only: move ghcr.io/agandhi4/closet:latest to a gated main"
 	@echo "make devkit-sync      — pull the latest agandhi4/devkit into devkit/ and record it in .devkit-rev"
 	@echo "make devkit-check     — fail if devkit/ differs from .devkit-rev (part of ci-quick)"
 	@echo "make toolchain-check  — fail if a Dockerfile or workflow disagrees with the Node in .nvmrc (part of ci-quick)"
@@ -156,14 +158,15 @@ ci-e2e:
 screenshots:
 	$(call e2e_server,SEED_SCREENSHOTS=1 npx playwright test test/screenshots.spec.ts --project=chromium,screenshots)
 
-# The image's own boot (health, migrations, SIGTERM) is scripts/smoke-image.sh, run by ci.yml's
-# publish job on the exact bytes it pushes; this target proves the Dockerfile still builds.
+# Build only (devkit-check's publish contract): the image's own boot (health, migrations, SIGTERM)
+# is ci-smoke, which the gate and devkit/bin/publish.sh run next. Plain `docker build` for the
+# host's platform: linux-box (amd64) builds the image it ships.
 ci-image:
 	DOCKER_CALL_TIMEOUT=900 devkit/bin/docker_bounded.sh build --build-arg APP_VERSION=$(CI_BUILD_VERSION) -t $(CI_IMAGE) .
 
-# The publish job's smoke test, locally: CI_IMAGE (build it with ci-image first) on the host
-# network against a throwaway Postgres 18 published on loopback, and /health/ready must name
-# CI_BUILD_VERSION. A random SMOKE_PORT keeps parallel runs off each other.
+# The smoke test the publisher runs on the image it then pushes: CI_IMAGE (built by ci-image) on
+# the host network against a throwaway Postgres 18 published on loopback, and /health/ready must
+# name CI_BUILD_VERSION. A random SMOKE_PORT keeps parallel runs off each other.
 ci-smoke:
 	@port=$$($(PG) up $(SMOKE_PG_CONTAINER) | sed -n 's/^PG_PORT=//p'); \
 	  trap '$(PG) down $(SMOKE_PG_CONTAINER)' EXIT INT TERM; \
@@ -198,6 +201,11 @@ pr: ; devkit/bin/pr_create.sh
 # The only merge path: refuses unless local-gate and codex-review (GATE_MERGE_REQUIRES in
 # scripts/ci/gate_plan.sh) are success on the exact head and main has not moved since the gate.
 merge: ; devkit/bin/pr_merge.sh "$(PR)"
+
+# Run by homelab's devkit-publish@closet.timer on linux-box every 5 min, never by hand on a Mac
+# (it refuses anything but native amd64). devkit README "Publish".
+publish:
+	devkit/bin/publish.sh .
 
 devkit-sync:
 	devkit/bin/devkit-sync.sh

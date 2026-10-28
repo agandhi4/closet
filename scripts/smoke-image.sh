@@ -4,21 +4,22 @@
 # publish instead of reaching the homelab (#181). The unit and integration tiers never boot main.ts
 # or server.ts: this is their test (vitest.config.mts leaves them out of coverage for it).
 #
-#   ci.yml, publish:     before the image is pushed, with a placeholder model
+#   make ci-smoke:       the gate, and linux-box's publisher before it pushes, with a placeholder model
 #   nightly.yml, cutout: with the real BiRefNet model (MODELS_DIR), plus one real cutout
 #
 # Usage: scripts/smoke-image.sh <image>
 # Environment:
 #   DATABASE_HOST, DATABASE_PORT (5432), DATABASE_USER, DATABASE_PASS, DATABASE_SCHEMA
 #       An empty database: the boot must apply the migrations. The container runs on the host's
-#       network, so localhost is the host's (CI's Postgres service, pgvault-dev on linux-box).
+#       network, so localhost is the host's (make ci-smoke's throwaway Postgres, pgvault-dev on
+#       linux-box).
 #   SMOKE_PORT   where the app listens (3000).
 #   MODELS_DIR   a directory holding the verified model (npm run cutout:fetch-model): the app loads it
 #                and an uploaded photo must get its cutout. Unset: a placeholder file stands in, which
 #                the app refuses on its checksum, so the boot never downloads 940 MB.
-#   BOOT_EXPECT_VERSION  the APP_VERSION the image was built with (ci.yml: the 7-char sha; make ci-smoke:
-#                CI_BUILD_VERSION): /health/ready's `version` must equal it, so an image that lost the
-#                build arg (and reports `dev`) never ships. Same name and rule as devkit's
+#   BOOT_EXPECT_VERSION  the APP_VERSION the image was built with (make ci-smoke: CI_BUILD_VERSION,
+#                the publisher's 7-char sha): /health/ready's `version` must equal it, so an image that
+#                lost the build arg (and reports `dev`) never ships. Same name and rule as devkit's
 #                boot_image.sh, which this script does not use (it boots on the host network).
 #
 # Checks, each fatal: the app runs as uid APP_UID; /health/ready answers 2xx (and names
