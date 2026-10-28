@@ -6,6 +6,8 @@ import {
   type InsightGarment,
   type PairRow,
   RANKED_LIMIT,
+  type WornPair,
+  wornPairs,
 } from './insights';
 
 /**
@@ -59,11 +61,7 @@ export interface YearRecap<Photo = unknown> {
   /** The share of the year's wears by garments without a colour. */
   uncolouredWorn: number;
   /** The two pieces worn together on the most days of the year. */
-  pair: {
-    a: InsightGarment<Photo>;
-    b: InsightGarment<Photo>;
-    days: number;
-  } | null;
+  pair: WornPair<Photo> | null;
 }
 
 function byId(a: InsightGarment, b: InsightGarment): number {
@@ -103,12 +101,7 @@ export function yearRecap<Photo>(
 
   const { colours, uncoloured } = colourShares(worn);
 
-  const byIdMap = new Map(garments.map((g) => [g.id, g]));
-  const [pair] = pairRows.flatMap(({ a, b, days }) => {
-    const first = byIdMap.get(a);
-    const second = byIdMap.get(b);
-    return first && second ? [{ a: first, b: second, days }] : [];
-  });
+  const [pair] = wornPairs(pairRows, garments);
 
   return {
     period,

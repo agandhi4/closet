@@ -111,6 +111,30 @@ export interface PairRow {
   days: number;
 }
 
+/** A PairRow named by its two garments. */
+export interface WornPair<Photo> {
+  a: InsightGarment<Photo>;
+  b: InsightGarment<Photo>;
+  days: number;
+}
+
+/**
+ * `pairRows` named by `garments`, in their order (insights' pairs, the
+ * recap's pair); a pair whose garment is not among them (left the closet)
+ * is dropped.
+ */
+export function wornPairs<Photo>(
+  pairRows: PairRow[],
+  garments: InsightGarment<Photo>[],
+): WornPair<Photo>[] {
+  const byIdMap = new Map(garments.map((g) => [g.id, g]));
+  return pairRows.flatMap(({ a, b, days }) => {
+    const first = byIdMap.get(a);
+    const second = byIdMap.get(b);
+    return first && second ? [{ a: first, b: second, days }] : [];
+  });
+}
+
 interface WornShare {
   days: number;
   /** Garments worn in the window. */
@@ -170,7 +194,7 @@ export interface WardrobeInsights<Photo = unknown> {
     priced: number;
     unpriced: number;
   };
-  pairs: { a: InsightGarment<Photo>; b: InsightGarment<Photo>; days: number }[];
+  pairs: WornPair<Photo>[];
   colours: ColourShare[];
   /**
    * Garments without a colour, and their percent of the closet and of the
@@ -431,7 +455,6 @@ export function wardrobeInsights<Photo>(
   unwornDays: UnwornDays,
 ): WardrobeInsights<Photo> {
   const total = garments.length;
-  const byIdMap = new Map(garments.map((g) => [g.id, g]));
 
   const mostWorn = garments
     .filter((g) => g.wearDays > 0)
@@ -453,12 +476,6 @@ export function wardrobeInsights<Photo>(
     )
     .slice(0, RANKED_LIMIT);
 
-  const pairs = pairRows.flatMap(({ a, b, days }) => {
-    const first = byIdMap.get(a);
-    const second = byIdMap.get(b);
-    return first && second ? [{ a: first, b: second, days }] : [];
-  });
-
   return {
     closet: {
       garments: total,
@@ -473,7 +490,7 @@ export function wardrobeInsights<Photo>(
     mostWorn,
     leastWorn,
     cost: costFigures(garments),
-    pairs,
+    pairs: wornPairs(pairRows, garments),
     ...colourShares(garments),
     categories: breakdown(garments, (g) => ({
       group: g.category,

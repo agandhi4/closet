@@ -8,11 +8,7 @@ import {
   replaceRefusal,
 } from '../../calendar/replace';
 import { HttpError } from '../../errors';
-import {
-  goneOf,
-  namedGarments,
-  OutfitGarmentsGone,
-} from '../../outfits/gone-garments';
+import { newOutfitSlots } from '../../outfits/gone-garments';
 import {
   type CreateResult,
   createOutfit,
@@ -113,25 +109,21 @@ export const outfitTools = [
     // createOutfit reuses an outfit of the same garments: a retry creates nothing.
     idempotent: true,
     async run({ garmentIds, name, notes, scheduleDate, occasion }, ctx) {
-      // Each slot is its garment's category, as Styling saves them, read
-      // for every garment in one statement (#172: it was one per garment).
-      // A garment not the caller's (another's, deleted) refuses the save,
-      // named from the same read, as the pages refuse it (#219). A new
-      // outfit holds wishlist items too (#335: incomplete); createOutfit
-      // checks again as it writes, and refuses planning one.
-      const garments = await namedGarments(ctx.db, ctx.userId, garmentIds);
-      const gone = goneOf(garments, garmentIds, 'wardrobe');
-      if (gone.length > 0) throw new OutfitGarmentsGone(gone);
+      // A new outfit holds wishlist items too (#335: incomplete);
+      // createOutfit checks again as it writes, and refuses planning one.
+      const slots = await newOutfitSlots(
+        ctx.db,
+        ctx.userId,
+        garmentIds,
+        'wardrobe',
+      );
       const plan = scheduleDate
         ? { day: scheduleDate, occasion: occasion ?? DEFAULT_OCCASION }
         : undefined;
       const saved = await createOutfit(ctx.db, ctx.userId, {
         name: name || null,
         notes: notes?.trim() ? notes : null,
-        slots: garmentIds.map((garmentId) => ({
-          category: garments.get(garmentId)!.category,
-          garmentId,
-        })),
+        slots,
         plan,
       });
       ctx.webLogger.info(createdMessage(ctx.userId, saved, plan));

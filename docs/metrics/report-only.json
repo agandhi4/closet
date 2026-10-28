@@ -1,8 +1,8 @@
 {
   "metrics": {
     "coupling.backend.fan_in_max": 123,
-    "duplication.repo.jscpd_percent": 0.08,
-    "size.backend.max_lines": 2298,
+    "duplication.repo.jscpd_percent": 0.04,
+    "size.backend.max_lines": 2279,
     "size.backend.over_600": 15,
     "vuln.backend.critical": 0,
     "vuln.backend.high": 0,
