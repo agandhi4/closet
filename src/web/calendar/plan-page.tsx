@@ -1,12 +1,11 @@
 import { type Occasion, OCCASIONS } from '../../wardrobe/occasions';
-import { PostForm } from '../auth/form';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { ideasUrl } from '../gallery/urls';
 import type { GarmentOutfit } from '../outfits/queries';
-import { SavedOutfitButton } from '../outfits/saved-outfit-button';
+import { SavedOutfitPicker } from '../outfits/saved-outfit-button';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import type { IsoDate } from '../../calendar-date';
@@ -67,33 +66,23 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
           </a>
         </div>
 
-        <section>
-          <h2 class="text-xs font-semibold uppercase tracking-wide text-muted mb-2">
-            {t('CALENDAR_PLAN_SAVED')}
-          </h2>
-          {model.outfits.length > 0 ? (
-            <PostForm action="/calendar" class="flex flex-col gap-2">
-              <input type="hidden" name="date" value={model.day} />
-              <input type="hidden" name="occasion" value={model.occasion} />
-              <input type="hidden" name="week" value={model.day} />
-              {changing && (
-                <input
-                  type="hidden"
-                  name="replace"
-                  value={String(changing.entryId)}
-                />
-              )}
-              {model.outfits.map((outfit) => (
-                <SavedOutfitButton
-                  outfit={outfit}
-                  note={plannedNote(model, outfit.id)}
-                />
-              ))}
-            </PostForm>
-          ) : (
-            <p class="text-sm text-muted">{t('CALENDAR_PLAN_NO_OUTFITS')}</p>
+        <SavedOutfitPicker
+          heading={t('CALENDAR_PLAN_SAVED')}
+          action="/calendar"
+          outfits={model.outfits}
+          noteOf={(outfit) => plannedNote(model, outfit.id)}
+        >
+          <input type="hidden" name="date" value={model.day} />
+          <input type="hidden" name="occasion" value={model.occasion} />
+          <input type="hidden" name="week" value={model.day} />
+          {changing && (
+            <input
+              type="hidden"
+              name="replace"
+              value={String(changing.entryId)}
+            />
           )}
-        </section>
+        </SavedOutfitPicker>
       </main>
       <Dock ctx={ctx} />
     </Layout>

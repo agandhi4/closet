@@ -83,3 +83,24 @@ export function FieldMessages(props: { id: string; messages?: string[] }) {
     </div>
   );
 }
+
+/**
+ * A labelled row of chips (checkbox or radio inputs styled as buttons):
+ * the garment form's properties and the style profile. `hint` is a line
+ * between the label and the chips.
+ */
+export function ChipGroup(props: {
+  label: string;
+  hint?: string;
+  children: Child;
+}) {
+  return (
+    <div role="group" aria-label={props.label} class="flex flex-col">
+      <span class="label">
+        <span class="label-text">{props.label}</span>
+      </span>
+      {props.hint && <p class="text-xs text-muted mb-1">{props.hint}</p>}
+      <div class="flex flex-wrap gap-2">{props.children}</div>
+    </div>
+  );
+}

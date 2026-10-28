@@ -1,4 +1,3 @@
-import type { Child } from 'hono/jsx';
 import {
   CARE_BLEACH,
   CARE_DRY,
@@ -18,7 +17,7 @@ import {
   WARMTHS,
 } from '../../wardrobe/properties';
 import { autosaveAttributes } from '../autosave';
-import { FormField, inputAttributes } from '../form-field';
+import { ChipGroup, FormField, inputAttributes } from '../form-field';
 import { t } from '../i18n';
 import { type LabelledProperty, valueLabel } from './labels';
 import type { PropertyFormValues } from './garment-input';
@@ -280,18 +279,6 @@ function CareLabelFields(props: PropertiesProps) {
         </div>
       )}
     </>
-  );
-}
-
-/** A labelled row of chips. */
-function ChipGroup(props: { label: string; children: Child }) {
-  return (
-    <div role="group" aria-label={props.label} class="flex flex-col">
-      <span class="label">
-        <span class="label-text">{props.label}</span>
-      </span>
-      <div class="flex flex-wrap gap-2">{props.children}</div>
-    </div>
   );
 }
 
