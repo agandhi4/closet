@@ -3,7 +3,7 @@ name: Nightly
 # Slow checks that no PR or publish pays for: the page audit (against the
 # committed baseline) and Lighthouse (trend-shaped, used to run on every
 # push), the real background-removal model, too big for the per-merge
-# publish job (#181), and the browser suite in WebKit, the owner's phone's
+# publisher's smoke test (#181), and the browser suite in WebKit, the owner's phone's
 # engine (#179). Nothing here gates a deploy.
 on:
   schedule:
@@ -60,7 +60,7 @@ jobs:
   # The 940 MB BiRefNet model on real photos: cutout-model.spec (the queue, the
   # child process, onnxruntime-node from node_modules), then one cutout in the
   # built image (its own onnxruntime-node and sharp: what a Dependabot bump or
-  # a Dockerfile change breaks, and the publish job's smoke test never loads).
+  # a Dockerfile change breaks, and the publisher's smoke test never loads).
   # ~6 min with the model and the image layers cached; a cold cache adds the
   # download and a full image build.
   cutout-model:
@@ -110,7 +110,8 @@ jobs:
           path: models
           key: birefnet-512-${{ steps.model.outputs.sha256 }}
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-      # main's publish job wrote these layers (type=gha); read-only here.
+      # This job's own layer cache (type=gha): images ship from linux-box since 2026-10-28, so no
+      # other workflow writes it.
       - id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
@@ -122,6 +123,7 @@ jobs:
           load: true
           tags: closet:nightly
           cache-from: type=gha
+          cache-to: type=gha,mode=max
       # The image's own `npm run cutout:fetch-model`: downloads the model on a
       # cache miss, and on a hit re-hashes the restored file against the pin
       # (a mismatch is replaced), so nothing below loads unverified bytes.
