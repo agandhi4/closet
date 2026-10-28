@@ -16,7 +16,7 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/pg-core';
+import { alias, type PgUpdateSetSource } from 'drizzle-orm/pg-core';
 import { randomUUID } from 'node:crypto';
 import type { CutoutStatus } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
@@ -629,19 +629,38 @@ export async function insertGarment(
   return row.id;
 }
 
+/**
+ * The one update of a garment by id within `ownerId`'s wardrobe, for the
+ * writers below that differ only in what they set: false when it is not
+ * there (another's, deleted, unknown).
+ */
+async function updateOwnedGarment(
+  db: Db,
+  id: number,
+  ownerId: number,
+  values: PgUpdateSetSource<typeof garment>,
+): Promise<boolean> {
+  const updated = await db
+    .update(garment)
+    .set(values)
+    .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)))
+    .returning({ id: garment.id });
+  return updated.length > 0;
+}
+
 /** Writes every form field; false when the garment is not in `ownerId`'s wardrobe. */
-export async function updateGarmentFields(
+export function updateGarmentFields(
   db: Db,
   id: number,
   ownerId: number,
   fields: GarmentFields,
 ): Promise<boolean> {
-  const updated = await db
-    .update(garment)
-    .set(storedFields(db, ownerId, fields, id))
-    .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)))
-    .returning({ id: garment.id });
-  return updated.length > 0;
+  return updateOwnedGarment(
+    db,
+    id,
+    ownerId,
+    storedFields(db, ownerId, fields, id),
+  );
 }
 
 /**
@@ -958,34 +977,24 @@ export async function nextToTag(
 }
 
 /** Writes the given properties; false when the garment is not in `ownerId`'s wardrobe. */
-export async function updateGarmentProperties(
+export function updateGarmentProperties(
   db: Db,
   id: number,
   ownerId: number,
   fields: Partial<GarmentPropertyFields & CareLabel>,
 ): Promise<boolean> {
-  const updated = await db
-    .update(garment)
-    .set(fields)
-    .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)))
-    .returning({ id: garment.id });
-  return updated.length > 0;
+  return updateOwnedGarment(db, id, ownerId, fields);
 }
 
 /**
  * The garment page's condition control: sets the condition and its note;
  * false when the garment is not in `ownerId`'s wardrobe.
  */
-export async function setCondition(
+export function setCondition(
   db: Db,
   id: number,
   ownerId: number,
   fields: ConditionFields,
 ): Promise<boolean> {
-  const updated = await db
-    .update(garment)
-    .set(fields)
-    .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)))
-    .returning({ id: garment.id });
-  return updated.length > 0;
+  return updateOwnedGarment(db, id, ownerId, fields);
 }

@@ -8,11 +8,7 @@ import {
   PICK_NOTE_MAX,
 } from '../../../wardrobe/suggestions';
 import { HttpError } from '../../errors';
-import {
-  goneOf,
-  namedGarments,
-  OutfitGarmentsGone,
-} from '../../outfits/gone-garments';
+import { newOutfitSlots } from '../../outfits/gone-garments';
 import { museOutfitsSql } from '../../outfits/proposals';
 import {
   OUTFIT_GARMENTS_MAX,
@@ -410,21 +406,20 @@ export const suggestionTools = [
     // A retry answers the outfit it proposed (alreadyProposed).
     idempotent: true,
     async run({ garmentIds, note, name }, ctx) {
-      // Each slot is its garment's category, read in one statement, as
-      // create_outfit; proposeOutfit judges every garment again as it
-      // writes (an option set aside is refused there).
-      const garments = await namedGarments(ctx.db, ctx.userId, garmentIds);
-      const gone = goneOf(garments, garmentIds, 'wardrobe');
-      if (gone.length > 0) throw new OutfitGarmentsGone(gone);
+      // proposeOutfit judges every garment again as it writes (an option
+      // set aside is refused there).
+      const slots = await newOutfitSlots(
+        ctx.db,
+        ctx.userId,
+        garmentIds,
+        'wardrobe',
+      );
       const proposed = await proposeOutfit(
         ctx.db,
         ctx.userId,
         {
           name: name ?? null,
-          slots: garmentIds.map((garmentId) => ({
-            category: garments.get(garmentId)!.category,
-            garmentId,
-          })),
+          slots,
         },
         { tokenId: ctx.tokenId, note: note ?? null },
       );
