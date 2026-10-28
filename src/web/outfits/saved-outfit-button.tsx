@@ -1,3 +1,5 @@
+import type { Child } from 'hono/jsx';
+import { PostForm } from '../auth/form';
 import { t } from '../i18n';
 import { collagePieces, OutfitCollage } from './collage';
 import type { GarmentOutfit } from './queries';
@@ -43,5 +45,37 @@ export function SavedOutfitButton(props: {
         {note && <span class="text-xs text-muted">{note}</span>}
       </span>
     </button>
+  );
+}
+
+/**
+ * The pickers' "Saved" section (the calendar's plan page, a trip's add
+ * page): the owner's outfits as SavedOutfitButtons of one native PostForm
+ * to `action`, which carries the page's hidden fields (`children`), or
+ * the line saying there are none.
+ */
+export function SavedOutfitPicker(props: {
+  heading: Child;
+  action: string;
+  outfits: GarmentOutfit[];
+  noteOf: (outfit: GarmentOutfit) => string | undefined;
+  children: Child;
+}) {
+  return (
+    <section>
+      <h2 class="text-xs font-semibold uppercase tracking-wide text-muted mb-2">
+        {props.heading}
+      </h2>
+      {props.outfits.length > 0 ? (
+        <PostForm action={props.action} class="flex flex-col gap-2">
+          {props.children}
+          {props.outfits.map((outfit) => (
+            <SavedOutfitButton outfit={outfit} note={props.noteOf(outfit)} />
+          ))}
+        </PostForm>
+      ) : (
+        <p class="text-sm text-muted">{t('CALENDAR_PLAN_NO_OUTFITS')}</p>
+      )}
+    </section>
   );
 }
