@@ -6,7 +6,7 @@ import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { renderFragment } from '../render';
 import { GarmentParams, OwnerQuery } from '../schemas';
-import { authorizeGarmentWardrobe, garmentNotFound } from './garment-access';
+import { garmentGuard, garmentNotFound } from './garment-access';
 import { LookalikesContent } from './lookalike-region';
 import { addCopies, closetLookalikes, LookalikesQuery } from './lookalikes';
 import { garmentUrl, readIdList } from './urls';
@@ -22,6 +22,7 @@ export const lookalikeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   { db, logger },
   done,
 ) => {
+  const authorize = garmentGuard(db);
   // The region's contents for the form's current fields: a read, always a
   // fragment. The dismissed list is navigation state (malformed ids are
   // dropped); a field past the form's caps is a 400 like the form's own.
@@ -30,12 +31,7 @@ export const lookalikeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     { schema: { querystring: LookalikesQuery } },
     async (request, reply) => {
       const { query } = request;
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const dismissed = readIdList(query.lookalikesDismissed);
       const matches = await closetLookalikes(
         db,
@@ -70,12 +66,7 @@ export const lookalikeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const { id } = request.params;
       const userId = sessionUserId(request);
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const outcome = await addCopies(db, access.ownerId, id, 1);
       if (!outcome.ok) {
         logger.info(

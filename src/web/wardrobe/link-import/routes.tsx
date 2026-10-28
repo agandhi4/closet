@@ -7,7 +7,7 @@ import type { WebOptions } from '../../plugin';
 import { renderFragment, renderPage } from '../../render';
 import { loggableUrl } from '../../loggable-url';
 import { LINK_IMPORT_LIMIT, tooManyAttempts } from '../../security/rate-limit';
-import { authorizeGarmentWardrobe } from '../garment-access';
+import { garmentGuard } from '../garment-access';
 import { viewContext } from '../../view-context';
 import { resolveDestination } from '../destination';
 import { renderGarmentForm } from '../render-form';
@@ -68,6 +68,7 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   done,
 ) => {
   const { db, logger, photos, fetcher } = options;
+  const authorize = garmentGuard(db);
   const importDeps = { db, fetcher, photos, logger };
   // ONE counter for both routes that fetch: the import and its photo
   // choice spend the same LINK_IMPORT_LIMIT. Never a route's
@@ -125,12 +126,7 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     LINK_IMPORT_PATH,
     { schema: { querystring: LinkQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const { destination } = await resolveDestination(
         db,
         request.query,
@@ -169,12 +165,7 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const retryAfter = await linkImportRetryAfter(request);
       if (retryAfter !== undefined) throw tooManyAttempts(retryAfter);
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const { destination } = await resolveDestination(
         db,
         request.query,
@@ -233,12 +224,7 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       }
       // The pending photo is the fetching user's, not the wardrobe's; the
       // wardrobe is still checked, so only someone who may add to it fetches.
-      const { access } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access } = await authorize(request, 'manage');
       const url = request.body.url?.trim();
       let photo: string | undefined;
       if (url) {

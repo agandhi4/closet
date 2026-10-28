@@ -11,7 +11,7 @@ import { renderPage } from '../render';
 import type { AuthorizedWardrobe } from '../sharing/access';
 import { viewContext } from '../view-context';
 import {
-  authorizeGarmentWardrobe,
+  garmentGuard,
   garmentNotFound,
   requireGarment,
 } from '../wardrobe/garment-access';
@@ -82,6 +82,7 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   done,
 ) => {
   const { db, logger, config } = options;
+  const authorize = garmentGuard(db);
   /** The replaced garment to offer for the archive: still in the closet, and the requester its owner. */
   async function archivable(
     garment: GarmentDetail,
@@ -114,12 +115,7 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/bought',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const authorized = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const authorized = await authorize(request, 'manage');
       const { access, viewOwner } = authorized;
       const garment = await requireGarment(
         db,
@@ -156,12 +152,7 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const authorized = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const authorized = await authorize(request, 'manage');
       const { access, viewOwner } = authorized;
       const archiveReplaced = archiveAsked(request.body, access.isOwner);
       const { id } = request.params;

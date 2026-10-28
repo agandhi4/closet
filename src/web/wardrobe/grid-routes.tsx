@@ -17,7 +17,7 @@ import type { WardrobeAccess } from '../sharing/access';
 import { viewContext } from '../view-context';
 import { normalizeCategory, normalizeSize } from './garment';
 import {
-  authorizeGarmentWardrobe,
+  garmentGuard,
   garmentNotFound,
   requireGarment,
 } from './garment-access';
@@ -179,7 +179,7 @@ function gridContextParts(answer: {
 /**
  * The grid and the modes that work on it: GET /wardrobe (with its fragment),
  * its "load more" tiles, select mode's bulk edit and tagging mode. Every
- * route takes `?ownerId=` for a shared wardrobe (authorizeGarmentWardrobe).
+ * route takes `?ownerId=` for a shared wardrobe (garmentGuard).
  */
 export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
@@ -187,6 +187,7 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   done,
 ) => {
   const { db, logger } = options;
+  const authorize = garmentGuard(db);
 
   /** The tagging card for the garment after `before` (the first without). */
   async function tagCardModel(
@@ -208,12 +209,7 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     { schema: { querystring: GridQuery } },
     async (request, reply) => {
       const userId = sessionUserId(request);
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'view',
-      );
+      const { access, viewOwner } = await authorize(request, 'view');
       const search = gridSearch(request.query, access.isOwner);
       const filters = gridFilters(search);
       const pick = access.canManage ? request.query.pick : undefined;
@@ -271,12 +267,7 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/tiles',
     { schema: { querystring: TilesQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'view',
-      );
+      const { access, viewOwner } = await authorize(request, 'view');
       // The capsule filter needs no lookup here: it matches nothing outside
       // the capsule's own wardrobe (inCapsule), and the page that started
       // the scroll already refused a foreign one. Neither does the picker:
@@ -314,12 +305,7 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/bulk',
     { schema: { querystring: GridQuery, body: BulkBody } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const ids = request.body.ids ?? [];
       const change = readBulkChange(request.body);
       const result =
@@ -349,12 +335,7 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     TAG_PATH,
     { schema: { querystring: TagQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const model = await tagCardModel(
         access.ownerId,
         viewOwner,
@@ -381,12 +362,7 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       schema: { params: GarmentParams, querystring: OwnerQuery, body: TagBody },
     },
     async (request, reply) => {
-      const { access, viewOwner } = await authorizeGarmentWardrobe(
-        db,
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const { id } = request.params;
       const { next, ...tags } = request.body;
       const garment = await requireGarment(db, id, access.ownerId);

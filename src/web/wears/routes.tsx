@@ -9,12 +9,9 @@ import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { GarmentParams, OwnerQuery, RowId } from '../schemas';
-import { sharedWardrobesOf } from '../sharing/access';
+import { sharedWardrobesOf, type WardrobeRequest } from '../sharing/access';
 import { viewContext } from '../view-context';
-import {
-  authorizeGarmentWardrobe,
-  garmentNotFound,
-} from '../wardrobe/garment-access';
+import { garmentGuard, garmentNotFound } from '../wardrobe/garment-access';
 import { findGarment } from '../wardrobe/queries';
 import { garmentUrl, LAUNDRY_PATH } from '../wardrobe/urls';
 import { CARE_NOTE_MAX } from '../wardrobe/garment-input';
@@ -68,19 +65,12 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   { db, config, logger },
   done,
 ) => {
+  const authorize = garmentGuard(db);
   const today = () => todayIn(config.timeZone, new Date());
 
   /** The requester's own wardrobe, or the refusal (see above). */
-  async function ownWardrobe(
-    request: FastifyRequest,
-    ownerId: number | '' | undefined,
-  ): Promise<number> {
-    const { access } = await authorizeGarmentWardrobe(
-      db,
-      request,
-      ownerId,
-      'own',
-    );
+  async function ownWardrobe(request: WardrobeRequest): Promise<number> {
+    const { access } = await authorize(request, 'own');
     return access.ownerId;
   }
 
@@ -137,7 +127,7 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
     async (request, reply) => {
       const { id } = request.params;
-      const ownerId = await ownWardrobe(request, request.query.ownerId);
+      const ownerId = await ownWardrobe(request);
       const worn = request.body.worn === '1';
       const day = today();
       const outcome = await setWoreToday(db, {
@@ -159,7 +149,7 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
       const { id } = request.params;
-      const ownerId = await ownWardrobe(request, request.query.ownerId);
+      const ownerId = await ownWardrobe(request);
       const day = today();
       const washed = await markWashed(db, ownerId, [id], day);
       if (washed.length === 0) throw await refusalOf(id, ownerId);
@@ -179,7 +169,7 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
     async (request, reply) => {
       const { id } = request.params;
-      const ownerId = await ownWardrobe(request, request.query.ownerId);
+      const ownerId = await ownWardrobe(request);
       const { away, awayNote } = request.body;
       const saved = await setAway(
         db,

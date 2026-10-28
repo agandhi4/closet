@@ -1,5 +1,5 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyReply } from 'fastify';
 import { selectScalars } from '../../db/select-scalars';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
@@ -7,11 +7,9 @@ import { unchecked } from '../checklist';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import {
-  type AuthorizedWardrobe,
-  authorizeWardrobe,
   sharedWardrobesSql,
   toSharedWardrobe,
-  type WardrobeNeed,
+  wardrobeGuard,
 } from '../sharing/access';
 import { viewContext } from '../view-context';
 import { CLOSET_FILTERS, gridCount, gridPage } from '../wardrobe/queries';
@@ -50,7 +48,7 @@ const CAPSULE_ROUTE = '/capsules/:id';
 /**
  * /capsules (plan section 2; owner decision on #8): capsules are part of
  * the wardrobe, so every route takes `?ownerId=` and resolves it through
- * authorizeWardrobe like the garment routes. A VIEW grantee lists and opens
+ * wardrobeGuard like the garment routes. A VIEW grantee lists and opens
  * the grantor's capsules (and filters the grid by one), a MANAGE grantee
  * also changes their membership (the picker, the garment page's toggles),
  * and only the owner creates, renames and deletes them. A capsule outside
@@ -64,13 +62,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 ) => {
   const { db, logger } = options;
 
-  function resolve(
-    request: FastifyRequest,
-    ownerId: number | '' | undefined,
-    need: WardrobeNeed,
-  ): Promise<AuthorizedWardrobe> {
-    return authorizeWardrobe(db, request, ownerId, need, CAPSULE_NOT_FOUND);
-  }
+  const authorize = wardrobeGuard(db, CAPSULE_NOT_FOUND);
 
   async function requireCapsule(
     id: number,
@@ -123,11 +115,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/capsules',
     { schema: { querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await resolve(
-        request,
-        request.query.ownerId,
-        'view',
-      );
+      const { access, viewOwner } = await authorize(request, 'view');
       // The cards and the switcher: one statement (#170; it was four).
       const row = await selectScalars(db, {
         ...capsuleListSql(access.ownerId),
@@ -153,7 +141,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/capsules/new',
     { schema: { querystring: OwnerQuery } },
     async (request, reply) => {
-      await resolve(request, request.query.ownerId, 'own');
+      await authorize(request, 'own');
       return renderForm(reply, { values: { name: '', notes: '' } });
     },
   );
@@ -162,7 +150,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/capsules',
     { schema: { querystring: OwnerQuery, body: CapsuleBody } },
     async (request, reply) => {
-      const { access } = await resolve(request, request.query.ownerId, 'own');
+      const { access } = await authorize(request, 'own');
       const form = readCapsuleForm(request.body);
       if (!form.ok) return refuseForm(reply, form);
       const id = await createCapsule(db, access.ownerId, form.fields);
@@ -178,11 +166,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     CAPSULE_ROUTE,
     { schema: { params: CapsuleParams, querystring: CapsulePageQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await resolve(
-        request,
-        request.query.ownerId,
-        'view',
-      );
+      const { access, viewOwner } = await authorize(request, 'view');
       // All three at once (one round trip, not two): the members' reads
       // need no lookup first, since inCapsule matches nothing outside the
       // capsule's own wardrobe, and a capsule not found is a 404 whatever
@@ -220,7 +204,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/capsules/:id/edit',
     { schema: { params: CapsuleParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access } = await resolve(request, request.query.ownerId, 'own');
+      const { access } = await authorize(request, 'own');
       const capsule = await requireCapsule(request.params.id, access.ownerId);
       return renderForm(reply, {
         capsuleId: capsule.id,
@@ -240,7 +224,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const { access } = await resolve(request, request.query.ownerId, 'own');
+      const { access } = await authorize(request, 'own');
       const { id } = request.params;
       await requireCapsule(id, access.ownerId);
       const form = readCapsuleForm(request.body);
@@ -260,7 +244,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     CAPSULE_ROUTE,
     { schema: { params: CapsuleParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access } = await resolve(request, request.query.ownerId, 'own');
+      const { access } = await authorize(request, 'own');
       const { id } = request.params;
       if (!(await deleteCapsule(db, id, access.ownerId))) {
         throw capsuleNotFound();
@@ -286,11 +270,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const { access, viewOwner } = await resolve(
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access, viewOwner } = await authorize(request, 'manage');
       const { id } = request.params;
       const { ids, shown } = request.body ?? {};
       const { added, removed, capsules } = await changeMembership(
@@ -329,11 +309,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const { access } = await resolve(
-        request,
-        request.query.ownerId,
-        'manage',
-      );
+      const { access } = await authorize(request, 'manage');
       const { id } = request.params;
       const { capsuleIds, shown } = request.body ?? {};
       const result = await changeMembership(db, access.ownerId, {
