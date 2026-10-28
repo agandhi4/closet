@@ -91,7 +91,7 @@ export interface GoneGarment {
 }
 
 /** An owner's garment as a save judges it: what it may hold, and the slot it fills. */
-export interface NamedGarment {
+interface NamedGarment {
   id: number;
   name: string | null;
   category: string;
@@ -104,7 +104,7 @@ export interface NamedGarment {
  * slot's category from it and judges the save with goneOf, so refusing
  * costs no second read (#172).
  */
-export async function namedGarments(
+async function namedGarments(
   db: Queryable,
   ownerId: number,
   garmentIds: readonly number[],
@@ -142,7 +142,7 @@ export async function goneGarments(
 }
 
 /** goneGarments over garments already read (namedGarments). */
-export function goneOf(
+function goneOf(
   found: ReadonlyMap<number, NamedGarment>,
   garmentIds: readonly number[],
   holdable: Holdable,
