@@ -12,7 +12,7 @@ Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` 
 - **Image**: runs as `node` (uid/gid 1000), never root; it writes only `DATA_PATH` and `MODELS_PATH`, host mounts that must be writable by uid 1000 (`docs/operations.md#permissions`; `/health/ready`'s `storage` check, the boot refuses an unwritable `DATA_PATH`). A new runtime write path gets a `chown` in the Dockerfile and a row there.
 - **Views**: server-rendered typed JSX (`hono/jsx` to strings, no Hono server) in `src/web/`, htmx 2, a few modules in `public/js/`. Not a SPA; no JSON API for the UI.
 - **CSS**: Tailwind v4 + daisyUI (`views/assets/main.css` to `public/bundle.css`; `views/assets/AGENTS.md`).
-- **Data**: PostgreSQL 18 only (production, pgvault-dev, and the throwaway containers the gate and CI test on). **Drizzle ORM owns the schema, the migrations and every query** (`src/db/schema.ts`, `drizzle/`, applied at boot).
+- **Data**: PostgreSQL 18 only (production, pgvault-dev, and the throwaway containers check_tree and CI test on). **Drizzle ORM owns the schema, the migrations and every query** (`src/db/schema.ts`, `drizzle/`, applied at boot).
 - **Auth**: a JWT in an httpOnly `access_token` cookie, into `req.auth` per request; `/mcp` takes personal access tokens. Every route that changes or hands out a credential asks for the current password (`src/web/auth/AGENTS.md`).
 - **PWA**: Workbox `injectManifest` over `views/assets/src-sw.ts` (to `public/sw.js`), Web Push via `web-push` + VAPID; gated by `PWA_ENABLED`.
 - **Images**: `sharp`, `heic-decode`; background removal on the server only (BiRefNet, `onnxruntime-node`, a child process). Storage: local disk under `DATA_PATH`, the only backend.
@@ -175,7 +175,7 @@ Production runs on linux-box (the homelab) and merging to `main` deploys it: lin
 Deviations from `~/.claude/conventions/`, each with its `docs/decisions.md` entry:
 - **Job outcomes add `discarded` and `interrupted`** (the cutout queue), non-alerting; any error or timeout is `failure`. `JOB_OUTCOMES` and `metrics.spec.ts` hold the list (2026-10-13, Observability contract).
 - **Statement budgets come only from `recordQueries` blocks** (`build/statements.json`, `make ci-db`): the most statements each `<METHOD>:<route>` sent there, not every request the suite makes (2026-10-13, Observability contract 2).
-- **No pull-request job in Actions**: the PR gate is the local `local-gate` (`make gate PR=<n>`); `ci.yml` runs only by hand (2026-10-13, PR gate moves in-repo via devkit).
+- **No pull-request job in Actions and no pre-merge gate**: a PR merges on review rounds (`@codex review`, or `make review PR=<n>`), and main is proven at deploy by linux-box's check_tree (devkit 2026-11-02); `ci.yml` runs only by hand.
 - **`nightly.yml` runs on a `schedule:`**: the page audit, Lighthouse, the real cutout model and WebKit, too slow for any PR; nothing in it gates a deploy (2026-10-16, Convention deltas declared).
 - **The image smoke is `scripts/smoke-image.sh`, not devkit's `boot_image.sh`**: it boots on the host network, then runs devkit's `contract_probe.sh` (2026-10-16, Convention deltas declared).
 
@@ -219,8 +219,8 @@ npm run test:all              # every Vitest project in one run (vitest.config.m
 npm run typecheck             # tsc: app + tests + scripts, then the service worker (~3 s cold)
 npm run check                 # check:static (format:check, lint:check, typecheck) and test:all in
                               # parallel (~80 s on 16 cores). `precommit` is an alias.
-                              # The gate runs the halves as two jobs: `make ci-quick` and `make ci-db`.
-npm run verify:push           # build + Chromium Playwright against the fresh build (the gate: make ci-e2e)
+                              # The plan runs the halves as two jobs: `make ci-quick` and `make ci-db`.
+npm run verify:push           # build + Chromium Playwright against the fresh build (the plan: make ci-e2e)
 npm run precommit:full        # check + verify:push + page audit + lighthouse (minutes)
 
 # Git hooks (.githooks/, devkit's templates): `make install` once per checkout or worktree sets
@@ -231,17 +231,18 @@ npx drizzle-kit generate --name <what-changed>   # a schema change: see Changing
 
 docker build --build-arg APP_VERSION=dev -t closet .   # or: make ci-image ci-smoke CI_BUILD_VERSION=<v>
 
-# The gate's jobs (Makefile, thin callers of the npm scripts; ci.yml calls the same targets).
+# The plan's jobs (Makefile, thin callers of the npm scripts; ci.yml calls the same targets).
 # Each brings its own throwaway Postgres 18 container, so none needs pgvault-dev.
 make ci-deps ci-quick         # npm ci; ci-guards, secrets-check, ci-lint, ci-typecheck
 make ci-unit | ci-db | ci-e2e # unit projects; test:cov on Postgres 18; build + chromium (PWA on, random PORT).
                               # Each holds its budget (60/110/180 s) and floor; `make screenshots` the persona shots
-make ci-metrics               # the metrics ratchet, the gate's last job: scripts/ci/metrics.conf vs docs/metrics/ratchet.json
+make ci-metrics               # the metrics ratchet, the plan's last job: scripts/ci/metrics.conf vs docs/metrics/ratchet.json
 make metrics-tighten          # lock improved numbers into docs/metrics/ratchet.json (commit it in the same PR)
-make gate PR=<n>              # the PR gate (devkit/bin/local_gate.sh, scripts/ci/gate_plan.sh); GATE_ARGS=--no-post
+make review PR=<n>            # one local review round (when Codex is out of budget)
+make merge PR=<n>             # squash-merge once the review rounds allow it
 ```
 
-The gate classifies paths with devkit's fleet table: docs-only runs docs-check alone, and a devkit-only change (a sync) is tooling, so it runs `deps`, `quick` and `metrics` and no test tier.
+`scripts/ci/gate_plan.sh` is the plan: linux-box's publisher runs every job of it on main (`devkit/bin/check_tree.sh`, at most once per 3 h window) before it ships; a red main files a `main-red` issue.
 
 Builds, test suites, and `npm ci` go through a `build:build-runner` subagent, never inline.
 
@@ -262,10 +263,10 @@ Planned contract items still missing (`docs/decisions.md` 2026-10-16, Convention
 - **Tests are budgeted and lean** (owner directive 2026-10-13; `test/AGENTS.md`): `make ci-unit` ≤ 60 s, `ci-db` ≤ 110 s (integration workers share their module graph: no `vi.mock` there), `ci-e2e` ≤ 180 s, each with a collected-count floor, both enforced by the Makefile. A test earns its place: it fails for a plausible regression in our code, proves what no kept test proves, is hermetic, and runs at the cheapest tier that can prove it. Behavior assertions go in `test/integration/` (the real app in-process); Playwright holds ten critical-path scenarios for what only a browser shows, and a new one replaces one.
 - **Metrics only ratchet** (`make ci-metrics`; complexity, dead code, import cycles, duplication, coverage lines and branches): a PR that improves a number runs `make metrics-tighten` and commits the bounds; loosening one needs the `metrics-rebaseline` label. Coverage is read from `make ci-db`'s report; vitest has no thresholds (`docs/decisions.md` 2026-10-16).
 - Every feature is still verified in a browser as an installed PWA on a phone-width viewport before it is called done. Type checks and tests verify code, not the app.
-- **Changes land through pull requests** (owner decision, 2026-09-26). `main` is protected: `local-gate` and `codex-review` must pass. Not strict (2026-10-13, `docs/decisions.md`): the gate tests the PR merged into the current `main`, and `make merge` refuses unless `local-gate` and `codex-review` pass on the exact head and `main` has not moved since, which catches parallel branches that each pass alone (duplicate migration numbers, conflicting edits). Squash merges only: one PR is one commit on `main`, and merged branches are deleted.
-- **The flow per issue slice** (in full: `docs/workflow.md`): a branch `<issue>-<slug>` (own worktree when agents run in parallel); the fast loop locally; a PR linking its issue; `make gate PR=<n>` posts `local-gate`; Codex's go-ahead posts `codex-review` (every push needs a new `wait`; every thread answered and resolved; docs-only PRs skip it; at Codex's limit an adversarial Claude review stands in); then `make merge PR=<n>` squash-merges the gated head. Merging publishes, then deploys. The owner may stop any PR.
+- **Changes land through pull requests** (owner decision, 2026-09-26). No pre-merge gate (devkit 2026-11-02): `make merge` decides on review rounds, at most the plan's `DEVKIT_REVIEW_ROUNDS` (3). Below the cap P0/P1 findings block, at the cap only P0 does; the rest are filed as issues at the merge. Parallel branches that each pass alone (duplicate migration numbers) show on main, at check_tree, and are fixed forward. Squash merges only: one PR is one commit on `main`, and merged branches are deleted.
+- **The flow per issue slice** (in full: `docs/workflow.md`): a branch `<issue>-<slug>` (own worktree when agents run in parallel); the fast loop locally; a PR linking its issue; a review round (`@codex review`, or `make review PR=<n>` at Codex's limit; docs-only PRs owe none), its P0/P1 findings answered once; then `make merge PR=<n>` squash-merges the head. Merging publishes, then deploys. The owner may stop any PR.
 - **Phone-width checks** still happen before a feature is called done: Playwright at 390 px, run locally in the one worktree that is not racing another for `:3000`, or from CI's uploaded artifacts.
-- **Migrations and parallel branches:** two branches that each generate `NNNN` collide in `drizzle/meta/_journal.json`. The later branch rebases on `main`, deletes its migration and snapshot, and regenerates (`npx drizzle-kit generate`); the drift test in the gate proves the result. Never hand-merge a journal.
+- **Migrations and parallel branches:** two branches that each generate `NNNN` collide in `drizzle/meta/_journal.json`. The later branch rebases on `main`, deletes its migration and snapshot, and regenerates (`npx drizzle-kit generate`); the drift test (ci-db) proves the result. Never hand-merge a journal.
 - pre-commit runs guards, staged secrets and lint; pre-push typecheck and unit; never bypass either with `--no-verify`. If a hook fails, fix and create a new commit, never amend.
 - Commit messages: concise, why over what.
 - When a new pattern or gotcha lands, write it in its area's `AGENTS.md` (the area index; this file only for what every change needs) in the same commit, and add a dated `docs/decisions.md` entry for the decision behind it in the same change.
