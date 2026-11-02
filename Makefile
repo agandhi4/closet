@@ -1,4 +1,4 @@
-.PHONY: help ci-deps ci-quick ci-guards ci-guards-staged devkit-check-staged ci-lint ci-typecheck secrets-staged ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten metrics-rebaseline screenshots gate pr merge publish devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check migration-check secrets-check install
+.PHONY: help ci-deps ci-quick ci-guards ci-guards-staged devkit-check-staged ci-lint ci-typecheck secrets-staged ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten metrics-rebaseline screenshots gate pr merge review publish devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check migration-check secrets-check install
 
 # Thin callers: the npm scripts in package.json stay the definitions of each check. These
 # targets add only what a clean machine needs around them (a throwaway Postgres, browsers,
@@ -63,7 +63,8 @@ help:
 	@echo "make metrics-rebaseline KEYS=<key>[,<key>] — loosen only those bounds; commit it and label the PR metrics-rebaseline"
 	@echo "make gate PR=<n>      — the PR gate: these jobs on PR <n> merged into origin/main [GATE_ARGS=--no-post]"
 	@echo "make pr BODY_FILE=<f> — push the branch and open its PR on origin [TITLE=…] [DRAFT=1]"
-	@echo "make merge PR=<n>     — squash-merge, refused unless the head has local-gate and codex-review success"
+	@echo "make review PR=<n>    — one local review round: claude -p over PR <n>'s diff, its record posted"
+	@echo "make merge PR=<n>     — squash-merge PR <n> once its review rounds allow it and codex-review is success"
 	@echo "make publish          — linux-box's timer only: move ghcr.io/agandhi4/closet:latest to a gated main"
 	@echo "make devkit-sync      — pull the latest agandhi4/devkit into devkit/ and record it in .devkit-rev"
 	@echo "make devkit-check     — fail if devkit/ differs from .devkit-rev (part of ci-quick)"
@@ -198,9 +199,12 @@ gate:
 
 pr: ; devkit/bin/pr_create.sh
 
-# The only merge path: refuses unless local-gate and codex-review (GATE_MERGE_REQUIRES in
-# scripts/ci/gate_plan.sh) are success on the exact head and main has not moved since the gate.
+# The only merge path: squash-merges once the PR's review rounds allow it (Codex's, or
+# `make review`'s; DEVKIT_REVIEW_ROUNDS, devkit/bin/merge_rules.sh) and GATE_MERGE_REQUIRES
+# (scripts/ci/gate_plan.sh) is success; never `gh pr merge` by hand.
 merge: ; devkit/bin/pr_merge.sh "$(PR)"
+
+review: ; devkit/bin/pr_review.sh "$(PR)"
 
 # Run by homelab's devkit-publish@closet.timer on linux-box every 5 min, never by hand on a Mac
 # (it refuses anything but native amd64). devkit README "Publish".
