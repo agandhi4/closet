@@ -187,11 +187,11 @@ npm run test            # Vitest unit tests (test:watch to rerun on change)
 npm run test:int        # Vitest integration tests (real app in-process, scratch Postgres database per file)
 npm run test:all        # both Vitest tiers in one run
 npm run test:e2e        # build, then Playwright end-to-end (ten critical-path scenarios; make screenshots for the shots)
-npm run test:cov        # both Vitest tiers with v8 coverage (coverage/); the gate's metrics ratchet holds lines and branches
+npm run test:cov        # both Vitest tiers with v8 coverage (coverage/); the plan's metrics ratchet holds lines and branches
 npm run audit:pages     # every page and action measured as the demo persona, see below
 npm run generate:icons  # regenerate public/assets/icon.png, icon-192.png, icon-512.png and favicon.ico from icon.svg
 npm run check           # format, lint, types, unit + integration in parallel (check:static is the first three)
-npm run verify:push     # build + Chromium Playwright (PRs are verified by the gate's e2e job)
+npm run verify:push     # build + Chromium Playwright (main is verified by the plan's e2e job at deploy)
 npm run maintenance:reconcile [-- --dry-run] [--force]
                         # one storage reconciliation pass (needs `npm run build`; see below)
 npm run user:set-password -- <email>
@@ -324,7 +324,7 @@ One Node 22 process: plain Fastify 5 serving server-rendered JSX pages with htmx
 
 ## Deploy
 
-This instance runs on the homelab, and merging to `main` deploys it: the homelab's linux-box publisher (`make publish`, every 5 min) pushes `ghcr.io/agandhi4/closet:latest` and a `ship-<date>-<sha7>` tag, and the hourly autoupdater pulls the image. The pieces, the production env, deploying by hand and recovery are in [docs/operations.md](docs/operations.md).
+This instance runs on the homelab, and merging to `main` deploys it: the homelab's linux-box publisher (`make publish`, at most once per 3 h, once main's checks pass) pushes `ghcr.io/agandhi4/closet:latest` and a `ship-<date>-<sha7>` tag, and the hourly autoupdater pulls the image. The pieces, the production env, deploying by hand and recovery are in [docs/operations.md](docs/operations.md).
 
 For other self-hosters: deploy to a VPS via [Coolify](https://coolify.io/) or Portainer using the docker-compose above, with local storage. Back up both the Postgres database and `DATA_PATH`, taken close together: the nightly storage reconciliation deletes photos that no database row references.
 

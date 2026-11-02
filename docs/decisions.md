@@ -311,3 +311,12 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Why:** the owner chose one fleet publisher on linux-box, closet and redlib included although their public Actions still work (local-publish-design.md Q1, 2026-10-27); devkit #273 built it. ci.yml's `publish` job was a second mover of `latest`, with no registry prune (GHCR held 100+ closet versions).
 **Decision:** devkit 2720daa; `PUBLISH_IMAGE=ghcr.io/agandhi4/closet` and `publish:` (homelab `devkit-publish@closet.timer`). `ci-image` was already build-only and the gate's `image` job already runs `ci-smoke`, so the publisher runs the gate's two targets. ci.yml keeps only its `workflow_dispatch` test jobs (a public repo's Actions still run; no quick-check existed); nightly.yml now writes its own gha layer cache, which the publish job used to.
 **Consequence:** a merge that changes an image input reaches `latest` within 5 min plus the build and the deploy at the next `*:40`; a merge the gate's image job would skip (docs, `GATE_IMAGE_EXCLUDE_PATHS`) publishes nothing. Each publish prunes GHCR to the 10 newest `sha-*` images, so the first one deletes the backlog. Branch protection is unchanged (`local-gate`, `codex-review` are statuses, not workflow jobs).
+
+## 2026-11-02 — Docs describe review rounds and the main check, not the retired gate
+**Why:** devkit retired the pre-merge gate (2026-11-02), but AGENTS.md, docs/workflow.md,
+docs/operations.md and the Makefile still described `make gate` and `local-gate`, and the `gate`
+target called the deleted `devkit/bin/local_gate.sh`, so `make gate` failed.
+**Decision:** a PR merges on review rounds (`@codex review` or `make review`, cap 3); main is
+proven at deploy by check_tree on linux-box (≤ once per 3 h, red files `main-red`). `make gate`
+runs devkit's stub; `GATE_STATE_NAME` is gone (unread).
+**Consequence:** a merge-order clash (duplicate migration numbers) now shows on main and is fixed forward.
