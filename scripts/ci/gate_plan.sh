@@ -1,7 +1,8 @@
-# closet's gate plan, sourced by devkit/bin/local_gate.sh (contract in its header). devkit's
-# default plan (devkit/bin/_paths_lib.sh) owns the area groups; closet adds only the rules the
-# fleet table cannot express. Every job is a Makefile target; the publisher (devkit/bin/publish.sh)
-# runs the image job's two, ci-image then ci-smoke, at main before it pushes.
+# closet's plan, sourced by devkit/bin/check_tree.sh, which linux-box's publisher
+# (devkit/bin/publish.sh) runs on main at most once per 3 h window: every job on a clean
+# worktree, and only a green commit ships (a red one files `main-red`). No pre-merge gate (devkit
+# 2026-11-02). devkit's default plan (devkit/bin/_paths_lib.sh) owns the area groups; closet adds
+# only the rules the fleet table cannot express. Every job is a Makefile target.
 #
 #   docs only (*.md, docs/**)          -> docs (docs-check), no npm ci
 #   tooling only (devkit/ guards and   -> deps + quick; + image when devkit's contract probe or
@@ -9,7 +10,7 @@
 #   anything else ("other": closet's      -> deps + quick, then closet's own rules
 #     src/ and test/ lie outside the       (gate_plan_extra), per path:
 #     fleet's backend/frontend dirs)
-#       LICENSE, .github/**             -> nothing more (Actions files; no gate job reads them)
+#       LICENSE, .github/**             -> nothing more (Actions files; no plan job reads them)
 #       docs/metrics/ratchet.json,      -> + db (the cov collector reads its coverage report)
 #         scripts/ci/metrics.conf
 #       test/integration/**             -> + db
@@ -25,22 +26,19 @@
 # fleet's "other", and an area group would run both tiers for a Playwright-only or .github-only
 # change. Order: deps, quick, image, db, e2e, metrics (the default plan runs its groups, then the
 # extra, then METRICS).
-# Public repo: GATE_ALLOW_FORKS stays at the skeleton's 0, so a fork PR never runs here.
 # shellcheck disable=SC2034  # read by the sourcing skeleton and devkit_default_gate_plan
 GATE_SLUG=agandhi4/closet
-# shellcheck disable=SC2034
-GATE_STATE_NAME=closet-gate
 # What devkit/bin/publish.sh pushes to (read as this literal line, never sourced).
 # shellcheck disable=SC2034
 PUBLISH_IMAGE=ghcr.io/agandhi4/closet
 # How main ships, and so what proves it (devkit README "Deploy kinds").
 # shellcheck disable=SC2034
 DEPLOY_KINDS=image
-# make merge (devkit/bin/pr_merge.sh) also requires Codex's status on the head.
+# make merge (devkit/bin/pr_merge.sh) posts the review round as this status on the head before
+# merging (devkit/bin/merge_rules.sh header); never post it by hand.
 # shellcheck disable=SC2034
 GATE_MERGE_REQUIRES=codex-review
-# make merge also refuses a head Codex did not review (failed, missing, stale) unless that
-# codex-review status names the head's fallback review; the status alone names no commit.
+# The scorecard's codex_review track reads this line; make merge decides on review rounds alone.
 # shellcheck disable=SC2034
 GATE_CODEX_REVIEW=1
 

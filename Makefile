@@ -7,11 +7,11 @@
 # Run `make ci-deps` once first; the other ci-* targets assume node_modules.
 
 # Every recipe line runs on .nvmrc's Node, not PATH's (devkit #166): a hand-run target and the
-# gate read the same toolchain.
+# check_tree read the same toolchain.
 SHELL := devkit/bin/toolchain_shell.sh
 
 PG := devkit/bin/throwaway_pg.sh
-# One container name per caller; the gate passes closet-gate-pg-<pr> and removes it on exit.
+# One container name per caller; check_tree passes closet-gate-pg-<run> and removes it on exit.
 # A hand run's name carries its worktree (`throwaway_pg.sh name`, devkit #162), so two
 # worktrees never share one; Docker picks the port. ci-db and ci-e2e each bring it up fresh
 # and take it down, so they never share data.
@@ -19,7 +19,7 @@ PG_CONTAINER ?= $(shell $(PG) name closet-ci-pg)
 # --with-deps on Linux runners (system libraries); ignored on macOS.
 PLAYWRIGHT_FLAGS ?=
 CI_IMAGE ?= closet:ci
-# The image's APP_VERSION (Dockerfile ARG): the gate passes gate-<pr>, publish.sh the bare 7-char
+# The image's APP_VERSION (Dockerfile ARG): check_tree passes gate-<run>, publish.sh the bare 7-char
 # sha of the main it builds. ci-smoke asserts /health/ready reports it.
 CI_BUILD_VERSION ?= dev
 SMOKE_PG_CONTAINER ?= $(shell $(PG) name closet-smoke-pg)
@@ -57,15 +57,15 @@ help:
 	@echo "make screenshots      — the 390 px persona screenshots (test/screenshots.spec.ts) into screenshots/, same server as ci-e2e"
 	@echo "make ci-image         — docker build of the production image (CI_IMAGE=$(CI_IMAGE), CI_BUILD_VERSION=$(CI_BUILD_VERSION))"
 	@echo "make ci-smoke         — boot CI_IMAGE on a throwaway Postgres 18 (scripts/smoke-image.sh); /health/ready must report CI_BUILD_VERSION"
-	@echo "make ci-metrics       — the metrics ratchet: scripts/ci/metrics.conf's collectors against docs/metrics/ratchet.json (the gate's last job)"
+	@echo "make ci-metrics       — the metrics ratchet: scripts/ci/metrics.conf's collectors against docs/metrics/ratchet.json (the plan's last job)"
 	@echo "make metrics-snapshot — run the collectors; build/metrics.json is the report"
 	@echo "make metrics-tighten  — lock in improved numbers; commit docs/metrics/ratchet.json in the same PR"
 	@echo "make metrics-rebaseline KEYS=<key>[,<key>] — loosen only those bounds; commit it and label the PR metrics-rebaseline"
-	@echo "make gate PR=<n>      — the PR gate: these jobs on PR <n> merged into origin/main [GATE_ARGS=--no-post]"
+	@echo "make gate             — retired (devkit 2026-11-02): prints the review/merge path below"
 	@echo "make pr BODY_FILE=<f> — push the branch and open its PR on origin [TITLE=…] [DRAFT=1]"
 	@echo "make review PR=<n>    — one local review round: claude -p over PR <n>'s diff, its record posted"
-	@echo "make merge PR=<n>     — squash-merge PR <n> once its review rounds allow it and codex-review is success"
-	@echo "make publish          — linux-box's timer only: move ghcr.io/agandhi4/closet:latest to a gated main"
+	@echo "make merge PR=<n>     — squash-merge PR <n> once its review rounds allow it"
+	@echo "make publish          — linux-box's timer only: move ghcr.io/agandhi4/closet:latest to the newest green main"
 	@echo "make devkit-sync      — pull the latest agandhi4/devkit into devkit/ and record it in .devkit-rev"
 	@echo "make devkit-check     — fail if devkit/ differs from .devkit-rev (part of ci-quick)"
 	@echo "make toolchain-check  — fail if a Dockerfile or workflow disagrees with the Node in .nvmrc (part of ci-quick)"
@@ -83,7 +83,7 @@ help:
 ci-deps:
 	npm ci --no-audit --no-fund
 
-# The union of the parts below; the gate and ci.yml run it whole, the hooks in two halves
+# The union of the parts below; check_tree and ci.yml run it whole, the hooks in two halves
 # (scripts/ci/hooks.conf), so a part added here must be added to a hook too.
 ci-quick: ci-guards secrets-check ci-lint ci-typecheck
 
@@ -112,7 +112,7 @@ ci-unit:
 
 # The whole suite, not only the integration project: coverage is measured over both tiers, and
 # coverage/coverage-summary.json is what the metrics ratchet's `cov` collector reads
-# (scripts/ci/metrics.conf, job:db), so splitting the run would change the gated number.
+# (scripts/ci/metrics.conf, job:db), so splitting the run would change the ratcheted number.
 # Each spec file clones the migrated template inside this container (migrations once per run;
 # test/support/scratch-database.ts reads TEST_DATABASE_URL). STATEMENTS_OUT: the statement
 # counts the specs pin (recordQueries; test/support/statement-budgets.ts), which the `statements`
@@ -129,7 +129,7 @@ ci-db:
 # needs an https: SITE_URL as its VAPID subject (nothing is fetched from it) and a key pair,
 # generated per run unless the caller passes one. A random PORT keeps parallel worktrees off
 # :3000, where Playwright would otherwise reuse whatever server listens. The Playwright run
-# alone is budgeted (the build is the job budget's, devkit local_gate.sh). $(1) is the
+# alone is budgeted (the build is outside the budget). $(1) is the
 # Playwright command, $(2) the target's name for the log line; `screenshots` reuses it.
 define e2e_server
 	devkit/bin/playwright_browsers.sh $(PLAYWRIGHT_FLAGS) chromium
@@ -160,7 +160,7 @@ screenshots:
 	$(call e2e_server,SEED_SCREENSHOTS=1 npx playwright test test/screenshots.spec.ts --project=chromium,screenshots)
 
 # Build only (devkit-check's publish contract): the image's own boot (health, migrations, SIGTERM)
-# is ci-smoke, which the gate and devkit/bin/publish.sh run next. Plain `docker build` for the
+# is ci-smoke, which check_tree and devkit/bin/publish.sh run next. Plain `docker build` for the
 # host's platform: linux-box (amd64) builds the image it ships.
 ci-image:
 	DOCKER_CALL_TIMEOUT=900 devkit/bin/docker_bounded.sh build --build-arg APP_VERSION=$(CI_BUILD_VERSION) -t $(CI_IMAGE) .
@@ -193,20 +193,21 @@ metrics-tighten:
 metrics-rebaseline:
 	devkit/bin/metrics_collect.sh rebaseline
 
+# Retired (devkit 2026-11-02: no pre-merge gate). devkit/bin/gate.sh only prints the merge path
+# (make review, then make merge); the target stays so an old runbook's `make gate` cannot fail.
 gate:
-	@test -n "$(PR)" || { echo "usage: make gate PR=<number> [GATE_ARGS=--no-post]" >&2; exit 2; }
-	devkit/bin/local_gate.sh "$(PR)" $(GATE_ARGS)
+	@devkit/bin/gate.sh
 
 pr: ; devkit/bin/pr_create.sh
 
 # The only merge path: squash-merges once the PR's review rounds allow it (Codex's, or
-# `make review`'s; DEVKIT_REVIEW_ROUNDS, devkit/bin/merge_rules.sh) and GATE_MERGE_REQUIRES
-# (scripts/ci/gate_plan.sh) is success; never `gh pr merge` by hand.
+# `make review`'s; DEVKIT_REVIEW_ROUNDS, devkit/bin/merge_rules.sh), posting the codex-review
+# status GATE_MERGE_REQUIRES names (scripts/ci/gate_plan.sh) itself; never `gh pr merge` by hand.
 merge: ; devkit/bin/pr_merge.sh "$(PR)"
 
 review: ; devkit/bin/pr_review.sh "$(PR)"
 
-# Run by homelab's devkit-publish@closet.timer on linux-box every 5 min, never by hand on a Mac
+# Run by homelab's devkit-publish@closet.timer on linux-box (check_tree at most once per 3 h window), never by hand on a Mac
 # (it refuses anything but native amd64). devkit README "Publish".
 publish:
 	devkit/bin/publish.sh .
@@ -260,7 +261,7 @@ migration-check:
 secrets-check:
 	devkit/bin/secrets_check.sh .
 
-# pre-commit's half: only the staged paths. The gate's ci-quick still scans the whole tree.
+# pre-commit's half: only the staged paths. check_tree's ci-quick still scans the whole tree.
 secrets-staged:
 	devkit/bin/secrets_check.sh --staged .
 
