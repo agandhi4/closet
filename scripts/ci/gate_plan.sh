@@ -33,6 +33,9 @@ GATE_STATE_NAME=closet-gate
 # What devkit/bin/publish.sh pushes to (read as this literal line, never sourced).
 # shellcheck disable=SC2034
 PUBLISH_IMAGE=ghcr.io/agandhi4/closet
+# How main ships, and so what proves it (devkit README "Deploy kinds").
+# shellcheck disable=SC2034
+DEPLOY_KINDS=image
 # make merge (devkit/bin/pr_merge.sh) also requires Codex's status on the head.
 # shellcheck disable=SC2034
 GATE_MERGE_REQUIRES=codex-review
