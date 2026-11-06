@@ -7,6 +7,7 @@ Self-hosted digital wardrobe for the household: catalog garments (photo with bac
 ## Stack
 
 Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` (hypermedia principles only; the Jinja2/FastAPI specifics do not apply)
+Capabilities: pwa, push, scheduled-jobs
 
 - **Runtime**: Node 22 (`.nvmrc`), TypeScript, plain **Fastify 5** (no framework on top), built by `tsc` to `dist/`.
 - **Image**: runs as `node` (uid/gid 1000), never root; it writes only `DATA_PATH` and `MODELS_PATH`, host mounts that must be writable by uid 1000 (`docs/operations.md#permissions`; `/health/ready`'s `storage` check, the boot refuses an unwritable `DATA_PATH`). A new runtime write path gets a `chown` in the Dockerfile and a row there.
@@ -98,7 +99,7 @@ Each area's detail lives in an `AGENTS.md` beside its code, with `CLAUDE.md` a s
 | Tests | `test/AGENTS.md` | the integration harness, Playwright's server, Vitest traps |
 | Deployment (not auto-loaded) | `docs/operations.md` | production, its env, recovery, CI publishing |
 
-`src/web/weather/AGENTS.md` and `src/web/push/AGENTS.md` only point to Weather's and Web Push's docs. `make docs-check` (in `ci-quick`) holds every doc to AGENTS.md real + CLAUDE.md symlink, this file to 30 KB and each area doc to 16 KB (devkit), and this index to the docs on disk (`scripts/ci/docs_rules.sh`).
+`src/web/weather/AGENTS.md` and `src/web/push/AGENTS.md` only point to Weather's and Web Push's docs. `make docs-check` (`ci-quick`) holds this index to the docs on disk (`scripts/ci/docs_rules.sh`); the size caps and symlink rule are devkit's.
 
 ### Routes
 
