@@ -320,3 +320,8 @@ target called the deleted `devkit/bin/local_gate.sh`, so `make gate` failed.
 proven at deploy by check_tree on linux-box (≤ once per 3 h, red files `main-red`). `make gate`
 runs devkit's stub; `GATE_STATE_NAME` is gone (unread).
 **Consequence:** a merge-order clash (duplicate migration numbers) now shows on main and is fixed forward.
+
+## 2026-11-09 — .claude/settings.json denies the five tools no lane can use
+Why: claude-kit measured (2026-11-09) that a session's first API call is re-read on every later call, and that the Artifact, ArtifactComments and ArtifactData schemas cost 11.4k tokens, SendFeedback 2.0k and AskUserQuestion 1.7k of it; a whole-tool `permissions.deny` drops the schema from every session and lane in the repo.
+Decision: the deny list follows claude-kit's `templates/project-settings.json` (claude-kit #67). No plugin skill or agent uses these tools, and an unattended lane cannot answer a question or publish a page.
+Consequence: interactive sessions here lose the artifact publish flow and the question prompt; removing a line from this file brings one back (deny beats allow, so `settings.local.json` cannot).
