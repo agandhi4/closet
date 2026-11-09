@@ -14,9 +14,6 @@
   },
   "permissions": {
     "allow": [
-      "Bash(make pr)",
-      "Bash(make review)",
-      "Bash(make install)",
       "Bash(make ci-quick)",
       "Bash(make ci-lint)",
       "Bash(make ci-unit)",
@@ -25,9 +22,7 @@
       "Bash(make metrics-snapshot)",
       "Bash(make metrics-tighten)",
       "Bash(make scorecard)",
-      "Bash(make help)",
-      "Bash(git diff *)",
-      "Bash(git log *)"
+      "Bash(make help)"
     ],
     "deny": ["Read(.env*)"]
   }

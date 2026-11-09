@@ -84,5 +84,5 @@ node_modules/
 /scripts/results/
 
 # Agent tooling (worktrees are full checkouts)
-.claude/*
-!.claude/settings.json
+**/.claude/*
+!/.claude/settings.json
