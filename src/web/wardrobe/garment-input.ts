@@ -444,9 +444,10 @@ export function formValues(body: GarmentBody): GarmentFormValues {
  * What the garment form posts when it shows `values` (formValues'
  * inverse), every marker set: for a writer that has form values but no
  * browser, so its garment goes through readGarmentForm like any other
- * (the MCP tool add_garment_from_link, which saves a link import's
- * prefilled form). The caller's values stay bounded by GarmentBody's
- * caps; readGarmentForm judges the rest.
+ * (the MCP tools add_garment_from_link, which saves a link import's
+ * prefilled form, and update_garment, which saves the stored garment's
+ * edit form with its changes). The caller's values stay bounded by
+ * GarmentBody's caps; readGarmentForm judges the rest.
  */
 export function formPost(values: GarmentFormValues): GarmentBody {
   const { properties, care } = values;
@@ -745,7 +746,7 @@ function readFabricWeight(
  * materials are a set, null for none. The weight is the only field a
  * person types, so the only one with a message.
  */
-export function readProperties(
+function readProperties(
   values: PropertyFormValues,
   category: string,
 ): { ok: true; fields: GarmentPropertyFields } | { ok: false; error: string } {
@@ -777,7 +778,7 @@ export function readProperties(
  * recategorising drops it. Only the form's own chips post these (the
  * schema), so there is nothing to message.
  */
-export function readCareLabel(
+function readCareLabel(
   values: PropertyFormValues,
   category: string,
 ): CareLabel {

@@ -18,6 +18,12 @@ export const ownerIdInput = rowId()
 /** A calendar day, 'YYYY-MM-DD' (a real date, like the routes' IsoDateSchema). */
 export const isoDate = () => z.iso.date();
 
+/**
+ * A price in US dollars, as the tools take it: numeric(10, 2) holds 8
+ * digits before the point. Posted to the form's readPrice as `toFixed(2)`.
+ */
+export const priceInput = () => z.number().nonnegative().max(99_999_999);
+
 /** A calendar entry's occasion (src/wardrobe/occasions.ts); all day when omitted. */
 export const occasionInput = z
   .enum(OCCASIONS)

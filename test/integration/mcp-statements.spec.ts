@@ -265,6 +265,7 @@ describe('MCP statements per tool (#172)', () => {
   // (the token's read included). Before #172 in the comment where it changed.
   let needs = 0;
   let products = 0;
+  let warmths = 0;
   /** A product page of its own: suggest_garment refuses a link twice. */
   const product = () => {
     const path = `/products/pick-${++products}`;
@@ -280,7 +281,13 @@ describe('MCP statements per tool (#172)', () => {
     ['get_wardrobe', () => ({ ownerId: ids.dana }), 3],
     ['get_garment', () => ({ id: ids.garment }), 3], // 5
     ['get_garment_photo', () => ({ id: ids.garment }), 3],
-    ['update_garment', () => ({ id: ids.other, warmth: 3 }), 5], // 7
+    // The garment, its one update (only what changed: each call a new
+    // warmth, or the repeat would write nothing), the answer's context.
+    [
+      'update_garment',
+      () => ({ id: ids.other, warmth: (++warmths % 5) + 1 }),
+      4, // 7; 5 until #372 read the garment back
+    ],
     ['add_garment_copy', () => ({ id: ids.copies, copies: 1 }), 7], // 9
     ['list_wishlist', () => ({}), 2],
     [

@@ -589,10 +589,10 @@ function replacementOf(
 }
 
 /** The fields as stored, the replaced garment through replacementOf. */
-function storedFields(
+function storedFields<Fields extends Partial<GarmentFields>>(
   db: Queryable,
   ownerId: number,
-  { replacesGarmentId, ...fields }: GarmentFields,
+  { replacesGarmentId, ...fields }: Fields,
   selfId?: number,
 ) {
   return {
@@ -648,12 +648,16 @@ async function updateOwnedGarment(
   return updated.length > 0;
 }
 
-/** Writes every form field; false when the garment is not in `ownerId`'s wardrobe. */
+/**
+ * Writes the given form fields (the edit form's post: every one;
+ * update_garment's: only those that changed); false when the garment is
+ * not in `ownerId`'s wardrobe. At least one field.
+ */
 export function updateGarmentFields(
   db: Db,
   id: number,
   ownerId: number,
-  fields: GarmentFields,
+  fields: Partial<GarmentFields>,
 ): Promise<boolean> {
   return updateOwnedGarment(
     db,
