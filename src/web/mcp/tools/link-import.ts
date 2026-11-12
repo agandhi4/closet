@@ -8,8 +8,10 @@ import {
   REFUSALS,
 } from '../../wardrobe/link-import/import';
 import { importedForm } from '../../wardrobe/link-import/prefill';
+import type { FieldErrors } from '../../auth/validation';
 import {
   formPost,
+  type GarmentField,
   type GarmentFields,
   type GarmentFormValues,
   readGarmentForm,
@@ -25,6 +27,17 @@ import {
 import type { EntryStatus } from '../../../wardrobe/status';
 import type { WardrobeAccess } from '../../sharing/access';
 import type { ToolContext } from '../tool';
+
+/**
+ * A garment form readGarmentForm refused, as a tool's 400: each field with
+ * the messages the form would show under it. Also update_garment's.
+ */
+export function refusedForm(errors: FieldErrors<GarmentField>): HttpError {
+  const messages = Object.entries(errors).map(
+    ([field, fieldErrors]) => `${field}: ${fieldErrors?.join(' ')}`,
+  );
+  return new HttpError(400, messages.join('; '));
+}
 
 /** What the caller may say instead of the page. */
 export interface LinkOverrides {
@@ -103,10 +116,7 @@ export async function addGarmentFromLink(
     if (photo) {
       await discardPendingPhoto(deps, photo, { userId: ctx.userId, ownerId });
     }
-    const messages = Object.entries(read.errors).map(
-      ([field, errors]) => `${field}: ${errors?.join(' ')}`,
-    );
-    throw new HttpError(400, messages.join('; '));
+    throw refusedForm(read.errors);
   }
   let id: number | undefined;
   try {

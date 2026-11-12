@@ -33,7 +33,7 @@ import {
   type SetAsideRow,
 } from '../../wishlist/inbox';
 import { defineTool, type ToolContext } from '../tool';
-import { rowId } from './common';
+import { priceInput, rowId } from './common';
 import { addGarmentFromLink } from './link-import';
 
 /**
@@ -299,10 +299,7 @@ export const suggestionTools = [
         .describe(
           'Your place for it among the need’s options: 1 is your pick.',
         ),
-      price: z
-        .number()
-        .nonnegative()
-        .max(99_999_999)
+      price: priceInput()
         .optional()
         .describe(
           'The listed price in US dollars, when the page gets it wrong.',

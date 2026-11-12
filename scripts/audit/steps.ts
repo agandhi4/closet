@@ -266,6 +266,7 @@ function mcpRefusal(body: string): string | undefined {
 let mcpCall = 0;
 let mcpTool = 0;
 let auditNeeds = 0;
+let auditWarmths = 0;
 
 /** One tool, called as Claude Code calls it: a token, JSON-RPC, no cookie or Origin. */
 function mcp<P = undefined>(
@@ -2903,7 +2904,11 @@ const tools: Step[] = [
   mcp('get_wardrobe', () => ({})),
   mcp('get_garment', (f) => ({ id: f.ids.garmentId })),
   mcp('get_garment_photo', (f) => ({ id: f.ids.garmentId })),
-  mcp('update_garment', (f) => ({ id: f.ids.otherGarmentId, warmth: 3 })),
+  // A new warmth each run: a repeat changes nothing, so writes nothing.
+  mcp('update_garment', (f) => ({
+    id: f.ids.otherGarmentId,
+    warmth: (++auditWarmths % 5) + 1,
+  })),
   // A garment of its own each run: one holds at most 30 copies.
   mcp('add_garment_copy', (_f, id: number) => ({ id, copies: 1 }), {
     prepare: (f) => newGarment(f, 'Audit copies'),

@@ -9,11 +9,13 @@ import {
   personalAccessToken,
 } from '../../src/db/schema';
 import { createCapsule } from '../../src/web/capsules/queries';
+import { t as text } from '../../src/web/i18n';
 import { MAX_TOOL_INPUT_ELEMENTS } from '../../src/web/mcp/routes';
 import { acceptInvite, createInvite } from '../../src/web/sharing/queries';
 import {
   createTestApp,
   type TestApp,
+  recordQueries,
   TEST_PASSWORD,
   uniqueClient,
   userIdOf,
@@ -400,6 +402,8 @@ describe('the MCP endpoint', () => {
         waterResistant: true,
         materials: ['leather'],
         sleeve: 'long',
+        // A clear of what the role lacks is no ignore.
+        fit: null,
         condition: 'needs_repair',
         conditionNote: 'Heel worn down',
       });
@@ -438,6 +442,232 @@ describe('the MCP endpoint', () => {
         type: 'shirt',
         formality: 4,
         sleeve: 'long',
+      });
+    });
+
+    // #372: the garment's own fields through the form's reader. What is
+    // not given stays as stored; above all the product link, which the
+    // form posts beside the price (product=1).
+    it('update_garment edits the garment’s own fields, null clearing, the rest as stored', async () => {
+      const { id } = await addGarment('Linen Shirt', {
+        category: 'tops',
+        type: 'shirt',
+        warmth: '2',
+        color: 'white',
+        size: 'M',
+        brand: 'Acme',
+        notes: 'Soft',
+        product: '1',
+        sourceUrl: 'https://shop.example/linen',
+        price: '80',
+      });
+      // What a save most easily wipes: the weight (the form shows ounces),
+      // the materials, the condition's note, a bought item's replaced garment.
+      await t.db
+        .update(garment)
+        .set({
+          fabricWeight: 203,
+          materials: ['linen'],
+          condition: 'needs_repair',
+          conditionNote: 'Frayed cuff',
+          replacesGarmentId: garments.tee.id,
+        })
+        .where(eq(garment.id, id));
+      const row = async () => {
+        const [stored] = await t.db
+          .select({
+            name: garment.name,
+            category: garment.category,
+            colors: garment.colors,
+            size: garment.size,
+            brand: garment.brand,
+            notes: garment.notes,
+            price: garment.price,
+            acquiredOn: garment.acquiredOn,
+            sourceUrl: garment.sourceUrl,
+            type: garment.type,
+            warmth: garment.warmth,
+            fabricWeight: garment.fabricWeight,
+            materials: garment.materials,
+            condition: garment.condition,
+            conditionNote: garment.conditionNote,
+            replacesGarmentId: garment.replacesGarmentId,
+          })
+          .from(garment)
+          .where(eq(garment.id, id));
+        return stored;
+      };
+      const kept = {
+        category: 'tops',
+        sourceUrl: 'https://shop.example/linen',
+        type: 'shirt',
+        warmth: 2,
+        fabricWeight: 203,
+        materials: ['linen'],
+        condition: 'needs_repair',
+        replacesGarmentId: garments.tee.id,
+      };
+
+      await tool(t, token, 'update_garment', { id, name: 'Linen Overshirt' });
+      const renamed = {
+        ...kept,
+        name: 'Linen Overshirt',
+        colors: ['white'],
+        size: 'Medium',
+        brand: 'Acme',
+        notes: 'Soft',
+        price: '80.00',
+        acquiredOn: null,
+        conditionNote: 'Frayed cuff',
+      };
+      expect(await row()).toEqual(renamed);
+      // A repeat, and the condition sent again without its note, write
+      // nothing: the note stays.
+      const repeat = await recordQueries(async () => {
+        await tool(t, token, 'update_garment', {
+          id,
+          name: 'Linen Overshirt',
+          condition: 'needs_repair',
+        });
+      });
+      expect(
+        repeat.sql.filter((sql) => /^update "garment"/i.test(sql)),
+      ).toEqual([]);
+      expect(await row()).toEqual(renamed);
+      // A note alone changes the note of a garment with a problem.
+      await tool(t, token, 'update_garment', {
+        id,
+        conditionNote: 'Both cuffs frayed',
+      });
+
+      const updated = await tool<{ garment: Record<string, unknown> }>(
+        t,
+        token,
+        'update_garment',
+        {
+          id,
+          colors: ['blue', 'green'],
+          size: 'xl',
+          brand: 'Uniqlo',
+          notes: 'Runs large',
+          price: 49.9,
+          acquiredOn: '2026-03-01',
+        },
+      );
+      const edited = {
+        ...kept,
+        name: 'Linen Overshirt',
+        colors: ['green', 'blue'],
+        size: 'X-Large',
+        brand: 'Uniqlo',
+        notes: 'Runs large',
+        price: '49.90',
+        acquiredOn: '2026-03-01',
+        conditionNote: 'Both cuffs frayed',
+      };
+      expect(await row()).toEqual(edited);
+      // The answer is what was stored.
+      expect(updated.garment).toMatchObject({
+        name: 'Linen Overshirt',
+        colors: ['green', 'blue'],
+        size: 'X-Large',
+        price: '49.90',
+        sourceUrl: 'https://shop.example/linen',
+      });
+
+      for (const refused of [
+        { colors: ['mint'] },
+        { category: ' ' },
+        { acquiredOn: '2026-02-30' },
+        { price: -1 },
+        // Never rounded to 20.00.
+        { price: 19.999 },
+      ]) {
+        const answer = await callTool(t, token, 'update_garment', {
+          id,
+          name: 'Refused',
+          ...refused,
+        });
+        expect(answer.isError, JSON.stringify(refused)).toBe(true);
+      }
+      expect(
+        (await callTool(t, token, 'update_garment', { id, category: '' })).value
+          .error,
+      ).toBe(`category: ${text('validation.CATEGORY_REQUIRED')}`);
+      expect(await row()).toEqual(edited);
+
+      await tool(t, token, 'update_garment', {
+        id,
+        name: null,
+        colors: [],
+        size: null,
+        brand: null,
+        notes: null,
+        price: null,
+        acquiredOn: null,
+        conditionNote: null,
+      });
+      expect(await row()).toEqual({
+        ...kept,
+        name: null,
+        colors: null,
+        size: null,
+        brand: null,
+        notes: null,
+        price: null,
+        acquiredOn: null,
+        conditionNote: null,
+      });
+    });
+
+    it('update_garment on a new category drops what its role lacks, naming it', async () => {
+      const { id } = await addGarment('Camp Tee', {
+        category: 'tops',
+        type: 't-shirt',
+        warmth: '2',
+        fit: 'slim',
+        sleeve: 'short',
+        careLabel: '1',
+        careWash: 'cold',
+      });
+      // A type is judged against the new category.
+      expect(
+        (
+          await callTool(t, token, 'update_garment', {
+            id,
+            category: 'bottoms',
+            type: 't-shirt',
+          })
+        ).value.error,
+      ).toMatch(/not a type of bottoms/);
+      const updated = await tool<{
+        garment: Record<string, unknown>;
+        ignored: string[];
+      }>(t, token, 'update_garment', { id, category: 'Footwear' });
+      // Shoes have warmth, but no fit, sleeve or care label, and no t-shirt.
+      expect(updated.ignored).toEqual(['type', 'fit', 'sleeve', 'careWash']);
+      const [row] = await t.db
+        .select({
+          category: garment.category,
+          type: garment.type,
+          warmth: garment.warmth,
+          fit: garment.fit,
+          sleeve: garment.sleeve,
+          careWash: garment.careWash,
+        })
+        .from(garment)
+        .where(eq(garment.id, id));
+      expect(row).toEqual({
+        category: 'footwear',
+        type: null,
+        warmth: 2,
+        fit: null,
+        sleeve: null,
+        careWash: null,
+      });
+      expect(updated.garment).toMatchObject({
+        category: 'footwear',
+        role: 'footwear',
       });
     });
 
@@ -847,13 +1077,14 @@ describe('the MCP endpoint', () => {
         id: garments.tee.id,
         ownerId: t.owner.id,
         warmth: 5,
+        name: 'Viewed',
       });
       expect(refused).toEqual({ isError: true, value: { error: 'Forbidden' } });
       const [row] = await t.db
-        .select({ warmth: garment.warmth })
+        .select({ warmth: garment.warmth, name: garment.name })
         .from(garment)
         .where(eq(garment.id, garments.tee.id));
-      expect(row.warmth).toBe(2);
+      expect(row).toEqual({ warmth: 2, name: 'White Tee' });
     });
 
     it('VIEW cannot needs-wash filter a shared wardrobe (it reads the owner’s wears)', async () => {
@@ -865,16 +1096,34 @@ describe('the MCP endpoint', () => {
     });
 
     it('MANAGE writes the garments but not the wears', async () => {
+      // The wash limit is the owner's record (FormAudience): a grantee's
+      // save through the form's reader leaves it as stored.
+      await t.db
+        .update(garment)
+        .set({ washAfterWears: 5 })
+        .where(eq(garment.id, garments.jeans.id));
       await tool(t, manager.token, 'update_garment', {
         id: garments.jeans.id,
         ownerId: t.owner.id,
         fit: 'slim',
+        brand: 'Levi’s',
+        size: '32',
       });
       const [row] = await t.db
-        .select({ fit: garment.fit })
+        .select({
+          fit: garment.fit,
+          brand: garment.brand,
+          size: garment.size,
+          washAfterWears: garment.washAfterWears,
+        })
         .from(garment)
         .where(eq(garment.id, garments.jeans.id));
-      expect(row.fit).toBe('slim');
+      expect(row).toEqual({
+        fit: 'slim',
+        brand: 'Levi’s',
+        size: '32',
+        washAfterWears: 5,
+      });
       for (const [name, args] of [
         ['mark_worn', { garmentId: garments.jeans.id, ownerId: t.owner.id }],
         [
