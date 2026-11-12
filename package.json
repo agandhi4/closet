@@ -31,6 +31,7 @@
     "start:prod": "node dist/main.js",
     "start:test": "node -r ts-node/register/transpile-only test/support/test-server.ts",
     "maintenance:reconcile": "node dist/maintenance/reconcile.cli.js",
+    "maintenance:retrim-thumbs": "node dist/maintenance/retrim-thumbs.cli.js",
     "user:set-password": "node dist/maintenance/set-password.cli.js",
     "push:revoke-all": "node dist/maintenance/revoke-push.cli.js",
     "cutout:fetch-model": "node dist/cutout/fetch-model.cli.js",

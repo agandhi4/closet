@@ -92,6 +92,81 @@ const png = (size: number) =>
     .png()
     .toBuffer();
 
+/**
+ * A transparent `size` square cutout: an opaque `block` where given, and a
+ * `haze` alpha everywhere else (the soft background a model leaves).
+ */
+const cutout = (
+  size: number,
+  {
+    block,
+    haze = 0,
+  }: {
+    block?: { left: number; top: number; width: number; height: number };
+    haze?: number;
+  } = {},
+) =>
+  sharp({
+    create: {
+      width: size,
+      height: size,
+      channels: 4,
+      background: { r: 90, g: 90, b: 90, alpha: haze / 255 },
+    },
+  })
+    .composite(
+      block
+        ? [
+            {
+              input: {
+                create: {
+                  width: block.width,
+                  height: block.height,
+                  channels: 4,
+                  background: { r: 20, g: 40, b: 90, alpha: 1 },
+                },
+              },
+              left: block.left,
+              top: block.top,
+            },
+          ]
+        : [],
+    )
+    .png()
+    .toBuffer();
+
+/** A cutout an opaque original's thumb cannot be mistaken for: a band across its top. */
+const strip = () =>
+  cutout(300, { block: { left: 0, top: 0, width: 300, height: 100 } });
+
+/** The size of a WebP and the box of its pixels at least half opaque. */
+const opaqueBox = async (image: Buffer) => {
+  const { data, info } = await sharp(image)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (let y = 0; y < info.height; y++) {
+    for (let x = 0; x < info.width; x++) {
+      if (data[(y * info.width + x) * 4 + 3] >= 128) {
+        xs.push(x);
+        ys.push(y);
+      }
+    }
+  }
+  return {
+    width: info.width,
+    height: info.height,
+    box: {
+      left: Math.min(...xs),
+      top: Math.min(...ys),
+      right: Math.max(...xs) + 1,
+      bottom: Math.max(...ys) + 1,
+    },
+  };
+};
+
 const collect = async (stream: Readable) => {
   const chunks: Buffer[] = [];
   for await (const chunk of stream) chunks.push(chunk as Buffer);
@@ -199,9 +274,10 @@ describe('Photos.getVariant', () => {
   it('derives the thumb from the cutout when one exists', async () => {
     const photos = build();
     await put('a.webp', await png(1000));
-    await put('a-nobg.webp', await png(300));
+    await put('a-nobg.webp', await strip());
     const out = await collect(await photos.getVariant(A, 'thumb'));
-    expect((await sharp(out).metadata()).width).toBe(300);
+    // The cutout's transparency, which the opaque original has none of.
+    expect((await opaqueBox(out)).box.top).toBeGreaterThan(0);
   });
 
   it('is a 404 when the original is missing', async () => {
@@ -229,17 +305,15 @@ describe('Photos.saveEditedCutout', () => {
     });
 
     await expect(
-      photos.saveEditedCutout(Readable.from(await png(300)), 'a.webp'),
+      photos.saveEditedCutout(Readable.from(await strip()), 'a.webp'),
     ).resolves.toMatchObject({ fileName: 'a.webp', version: 2 });
     const key = writtenKey();
     expect(key).toMatch(/^[0-9a-f]{12}$/);
-    expect(
-      (
-        await sharp(
-          await stored(variantFileName('a.webp', 'thumb', key)),
-        ).metadata()
-      ).width,
-    ).toBe(300);
+    // From the cutout: transparent above the strip, as the original is not.
+    const thumb = await opaqueBox(
+      await stored(variantFileName('a.webp', 'thumb', key)),
+    );
+    expect(thumb.box.top).toBeGreaterThan(0);
     expect(stores).toHaveLength(2);
   });
 
@@ -376,16 +450,94 @@ describe('Photos.saveEditedCutout', () => {
   });
 });
 
+describe('Photos.rederiveCutoutThumb', () => {
+  // The retrim read key k1, then an edit swapped the row to k2 and deleted
+  // k1's set: the photo is not missing a cutout.
+  it('is a stale refusal, not a missing cutout, when a swap moved the key', async () => {
+    const photos = build();
+    findKeyMock.mockResolvedValue('0000000000b2');
+    await expect(
+      photos.rederiveCutoutThumb(
+        { fileName: 'a.webp', variantKey: '0000000000a1' },
+        { dryRun: false },
+      ),
+    ).resolves.toEqual({ result: 'refused', reason: 'stale' });
+    findKeyMock.mockResolvedValue('0000000000a1');
+    await expect(
+      photos.rederiveCutoutThumb(
+        { fileName: 'a.webp', variantKey: '0000000000a1' },
+        { dryRun: false },
+      ),
+    ).resolves.toEqual({ result: 'no-cutout' });
+    expect(stores).toEqual([]);
+  });
+});
+
 describe('Photos.regenerateThumb', () => {
-  it('builds the thumb from the cutout when both exist', async () => {
+  /** The thumb regenerateThumb makes beside an original and this cutout. */
+  const thumbOf = async (nobg: Buffer) => {
     const photos = build();
     await put('a.webp', await png(1000));
-    await put('a-nobg.webp', await png(300));
+    await put('a-nobg.webp', nobg);
+    const before = stores.length;
     await photos.regenerateThumb(A);
-    expect((await sharp(await stored('a-thumb.webp')).metadata()).width).toBe(
-      300,
+    expect(stores.slice(before)).toEqual(['a-thumb.webp']);
+    return opaqueBox(await stored('a-thumb.webp'));
+  };
+
+  // A 200x300 garment low and left in a 1000 px frame: 5% of 300 around it
+  // makes a 230x330 box, squared to 330 and scaled by 400/330.
+  const garment = { left: 100, top: 600, width: 200, height: 300 };
+
+  it("trims a cutout's thumb to the garment, centred on a square", async () => {
+    const { width, height, box } = await thumbOf(
+      await cutout(1000, { block: garment }),
     );
-    expect(stores.filter((name) => name === 'a-thumb.webp')).toHaveLength(1);
+    expect([width, height]).toEqual([400, 400]);
+    expect(box.bottom - box.top).toBeCloseTo((300 * 400) / 330, -1);
+    expect(box.right - box.left).toBeCloseTo((200 * 400) / 330, -1);
+    expect((box.left + box.right) / 2).toBeCloseTo(200, -1);
+    expect((box.top + box.bottom) / 2).toBeCloseTo(200, -1);
+  });
+
+  it("ignores the model's faint haze when it finds the garment", async () => {
+    const clean = await thumbOf(await cutout(1000, { block: garment }));
+    const hazy = await thumbOf(
+      await cutout(1000, { block: garment, haze: 20 }),
+    );
+    expect(hazy.box).toEqual(clean.box);
+  });
+
+  it('keeps the whole frame when the cutout shows (almost) nothing', async () => {
+    // A 10 px speck is no garment: shown where it is, not blown up.
+    const speck = await thumbOf(
+      await cutout(1000, {
+        block: { left: 500, top: 500, width: 10, height: 10 },
+      }),
+    );
+    expect([speck.width, speck.height]).toEqual([400, 400]);
+    expect(speck.box.left).toBeCloseTo(200, -1);
+    expect(speck.box.right - speck.box.left).toBeLessThanOrEqual(6);
+    // An empty mask: the whole, transparent frame.
+    const empty = await thumbOf(await cutout(1000));
+    expect([empty.width, empty.height]).toEqual([400, 400]);
+  });
+
+  it("makes an original's thumb whole, never trimmed or squared", async () => {
+    const photos = build();
+    await put(
+      'a.webp',
+      await sharp({
+        create: { width: 1000, height: 600, channels: 3, background: '#fff' },
+      })
+        .webp()
+        .toBuffer(),
+    );
+    await photos.regenerateThumb(A);
+    expect(await sharp(await stored('a-thumb.webp')).metadata()).toMatchObject({
+      width: 400,
+      height: 240,
+    });
   });
 });
 
@@ -404,7 +556,7 @@ describe('Photos.copy', () => {
   it('copies the original and the cutout under a new name, with a new thumb', async () => {
     const photos = build();
     await put('a.webp', await png(1000));
-    await put('a-nobg.webp', await png(300));
+    await put('a-nobg.webp', await strip());
 
     const row = await photos.copy({ fileName: 'a.webp', variantKey: null }, 7);
 
@@ -418,9 +570,10 @@ describe('Photos.copy', () => {
     expect(
       (await stored(`${base}-nobg.webp`)).equals(await stored('a-nobg.webp')),
     ).toBe(true);
+    // Made from the cutout: transparent above the strip.
     expect(
-      (await sharp(await stored(`${base}-thumb.webp`)).metadata()).width,
-    ).toBe(300);
+      (await opaqueBox(await stored(`${base}-thumb.webp`))).box.top,
+    ).toBeGreaterThan(0);
   });
 
   it('copies the cutout the source row points at, unkeyed', async () => {

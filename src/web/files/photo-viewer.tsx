@@ -28,8 +28,10 @@ export interface ViewerPhoto {
 
 /**
  * A set's photos, in a `<template>` so nothing is fetched until the viewer
- * opens (the large image loads then; the thumb the page already holds shows
- * first and is what an offline viewer falls back to).
+ * opens (the large image loads then). The thumb the page already holds is
+ * `data-fallback`, shown only when the large image cannot load (offline),
+ * never as a placeholder before it: a cutout's thumb is trimmed to the
+ * garment (#373), so the swap would shrink it.
  */
 export function PhotoSet(props: {
   id: string;
@@ -40,7 +42,7 @@ export function PhotoSet(props: {
       {props.photos.map(({ photo, alt, variant = 'nobg' }) => (
         <img
           src={imageUrl(photo, variant)}
-          data-thumb={imageUrl(photo, 'thumb')}
+          data-fallback={imageUrl(photo, 'thumb')}
           alt={alt}
         />
       ))}

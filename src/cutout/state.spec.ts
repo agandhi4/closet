@@ -310,6 +310,58 @@ describe('cutout state machine', () => {
     );
   });
 
+  describe('rederive', () => {
+    const KEYED = ['ready', 'edited'] as const;
+
+    it.each(KEYED)(
+      'moves a %s cutout to a new key and version, keeping its status',
+      (status) => {
+        expect(
+          transition(at(status, { variantKey: '0123456789ab' }), {
+            type: 'rederive',
+            fromKey: '0123456789ab',
+            variantKey: KEY,
+          }),
+        ).toEqual({
+          ok: true,
+          queued: false,
+          state: {
+            status,
+            version: 4,
+            attempts: 1,
+            jobVersion: null,
+            worker: null,
+            variantKey: KEY,
+          },
+        });
+      },
+    );
+
+    it('is stale once the row points at another cutout (a mask saved meanwhile)', () => {
+      expect(
+        transition(at('edited', { variantKey: '0123456789ab' }), {
+          type: 'rederive',
+          fromKey: null,
+          variantKey: KEY,
+        }),
+      ).toEqual({ ok: false, reason: 'stale' });
+    });
+
+    it.each(
+      refusedFrom({ type: 'rederive', fromKey: null, variantKey: KEY }, [
+        ...KEYED,
+      ]),
+    )(
+      'is refused from %s (only those statuses take a key)',
+      (status, event) => {
+        expect(transition(at(status), event)).toEqual({
+          ok: false,
+          reason: 'not-allowed',
+        });
+      },
+    );
+  });
+
   // A selfie is never queued, so never claimed: no event, the lease's
   // start and release included, applies to it (file_cutout_lease_check
   // also allows a lease only on a pending row).
@@ -321,6 +373,7 @@ describe('cutout state machine', () => {
     { type: 'succeed', jobVersion: 3, variantKey: KEY },
     { type: 'fail', jobVersion: 3 },
     { type: 'edit', variantKey: KEY },
+    { type: 'rederive', fromKey: null, variantKey: KEY },
   ])('leaves an unwanted cutout alone: $type', (event) => {
     expect(transition(at('unwanted'), event)).toEqual({
       ok: false,

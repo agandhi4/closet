@@ -194,6 +194,9 @@ npm run check           # format, lint, types, unit + integration in parallel (c
 npm run verify:push     # build + Chromium Playwright (main is verified by the plan's e2e job at deploy)
 npm run maintenance:reconcile [-- --dry-run] [--force]
                         # one storage reconciliation pass (needs `npm run build`; see below)
+npm run maintenance:retrim-thumbs [-- --dry-run]
+                        # trim every cutout's thumb to its garment, once after upgrading past #373
+                        # (needs `npm run build`; on the NAS: docker exec closet npm run ...)
 npm run user:set-password -- <email>
                         # set a locked-out user's password (needs `npm run build`; see below)
 npm run cutout:fetch-model
