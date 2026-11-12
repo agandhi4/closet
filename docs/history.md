@@ -4,7 +4,7 @@ Read on demand (not auto-loaded). What the stack used to be and when it changed,
 
 ## The fork
 
-Hard fork of Libre Closet (Lazztech, AGPL-3.0). The repo `agandhi4/closet` was detached from the fork network on 2026-09-28: no upstream remote, no merges. The upstream MVP design doc and entity model are kept in `docs/DESIGN.md`.
+Hard fork of Libre Closet (Lazztech, AGPL-3.0). The repo (now `kashhq/closet`) was detached from the fork network on 2026-09-28: no upstream remote, no merges. The upstream MVP design doc and entity model are kept in `docs/DESIGN.md`.
 
 ## The platform migration (finished 2026-09-26)
 
