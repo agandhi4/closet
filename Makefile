@@ -65,7 +65,7 @@ help:
 	@echo "make pr BODY_FILE=<f> — push the branch and open its PR on origin [TITLE=…] [DRAFT=1]"
 	@echo "make review PR=<n>    — one local review round: claude -p over PR <n>'s diff, its record posted"
 	@echo "make merge PR=<n>     — squash-merge PR <n> once its review rounds allow it"
-	@echo "make publish          — linux-box's timer only: move ghcr.io/agandhi4/closet:latest to the newest green main"
+	@echo "make publish          — linux-box's timer only: move ghcr.io/kashhq/closet:latest to the newest green main"
 	@echo "make devkit-sync      — pull the latest kashhq/devkit into devkit/ and record it in .devkit-rev"
 	@echo "make devkit-check     — fail if devkit/ differs from .devkit-rev (part of ci-quick)"
 	@echo "make toolchain-check  — fail if a Dockerfile or workflow disagrees with the Node in .nvmrc (part of ci-quick)"

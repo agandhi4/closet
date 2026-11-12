@@ -26,5 +26,5 @@ Closet is a self-hosted fork of Libre Closet (AGPL-3.0). It runs as a server-ren
 ## Links
 
 - Repository: https://github.com/kashhq/closet
-- Container: ghcr.io/agandhi4/closet
+- Container: ghcr.io/kashhq/closet
 - Upstream: https://github.com/lazztech/libre-closet
