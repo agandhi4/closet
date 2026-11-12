@@ -1233,7 +1233,7 @@ async function cutoutThumb(cutout: Buffer): Promise<Buffer> {
 }
 
 /** A rectangle of an image's pixels, as sharp's extract() takes it. */
-export interface PixelBox {
+interface PixelBox {
   left: number;
   top: number;
   width: number;
@@ -1248,7 +1248,7 @@ export interface PixelBox {
  * frame: the thumb then keeps the whole frame. `rgba` is 4 bytes a pixel,
  * row by row.
  */
-export function contentBox(
+function contentBox(
   rgba: Buffer,
   width: number,
   height: number,
