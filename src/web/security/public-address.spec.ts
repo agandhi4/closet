@@ -27,10 +27,10 @@ describe('isPublicAddress', () => {
     ['RFC 1918', '10.255.255.255'],
     ['RFC 1918', '172.16.0.1'],
     ['RFC 1918', '172.31.255.254'],
-    ['RFC 1918', '192.168.1.20'],
-    ['CGNAT / Tailscale', '100.64.0.1'],
-    ['CGNAT / Tailscale', '100.100.100.100'],
-    ['CGNAT / Tailscale', '100.127.255.255'],
+    ['RFC 1918', '192.168.1.20'], // topology example
+    ['CGNAT / Tailscale', '100.64.0.1'], // topology example
+    ['CGNAT / Tailscale', '100.100.100.100'], // topology example
+    ['CGNAT / Tailscale', '100.127.255.255'], // topology example
     ['loopback', '127.0.0.1'],
     ['loopback', '127.1.2.3'],
     ['link-local (cloud metadata)', '169.254.169.254'],
@@ -65,7 +65,7 @@ describe('isPublicAddress', () => {
     ['IPv4-mapped RFC 1918', '::ffff:10.0.0.1'],
     ['IPv4-mapped RFC 1918, hex form', '::ffff:c0a8:8ad'],
     ['IPv4-mapped link-local', '::ffff:169.254.169.254'],
-    ['IPv4-mapped CGNAT', '::ffff:100.64.0.1'],
+    ['IPv4-mapped CGNAT', '::ffff:100.64.0.1'], // topology example
     ['IPv4-mapped, long form', '0:0:0:0:0:ffff:7f00:1'],
     ['NAT64 of loopback', '64:ff9b::7f00:1'],
     ['NAT64 of RFC 1918', '64:ff9b::10.0.0.1'],

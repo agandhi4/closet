@@ -167,7 +167,7 @@ In full: `docs/conventions.md`, `docs/web-layer.md#client-behavior`.
 
 ### Deployment
 
-Production runs on the homelab and merging to `main` deploys it: the publisher host's `make publish` (never the Mac: arm64) pushes the image and the hourly autoupdater pulls it. The env, the demo login, locked-out recovery, rotating the secret, publishing: `docs/operations.md`. Production's topology: homelab's `stacks/closet/README.md` only (docs-check).
+Production runs on the homelab and merging to `main` deploys it: the publisher host's `make publish` (never the Mac: arm64) pushes the image and the hourly autoupdater pulls it. The env, the demo login, locked-out recovery, rotating the secret, publishing: `docs/operations.md`. Production's topology: homelab's `stacks/closet/README.md` only (`make devkit-check` refuses it here).
 
 - **Release identity: `APP_VERSION` is the bare 7-char sha** (`docs/decisions.md` 2026-10-13), passed once by the publisher; `/health/ready` `version`, /about, MCP and the error tracker's release all read it. Only the image *tag* says `sha-<7>`. Compose and `.env` never set it (`make release-check`). **Only the publisher moves `latest`** (the deploy), then tags `ship-<YYYY-MM-DD>-<sha7>`. No semver or date tags.
 

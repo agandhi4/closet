@@ -10,7 +10,7 @@ This document is intended for the maintaining team to use to document decisions.
 
 The fork becomes **Closet**, a private household app: rebranded (single upstream attribution kept per AGPL), marketing/privacy/terms pages removed, one account for now with registration locked.
 
-Deployment decisions: pgvault Postgres over SQLite (nightly dumps, shared triage tooling); an HTTPS hostname is the canonical URL because the PWA needs a secure context, `http://closet.box` is the plain twin; the image publishes on every push to `main` and the homelab autoupdater deploys it, so pushing `main` is deploying.
+Deployment decisions: pgvault Postgres over SQLite (nightly dumps, shared triage tooling); an HTTPS hostname is the canonical URL because the PWA needs a secure context, an `http://` hostname is the plain twin; the image publishes on every push to `main` and the homelab autoupdater deploys it, so pushing `main` is deploying.
 
 Performance program (audit, then six phases, all shipped the same day): image asset model with thumbnails and immutable versioned URLs; one session resolution per request; an in-process integration test tier run on SQLite and Postgres in CI; cache-first PWA shell and lazy model loading; indexes on every relation with concurrent Postgres backfill and transactional writes; boilerplate removal and a 54% smaller image; nightly storage reconciliation, HEIC support and safe user deletion. Grid image payload went from 28.6 MB uncached to 1.3 MB cached. Two production bugs found on the way: `garment.color` had become a smallint on Postgres, and an undecodable upload could crash the process.
 
@@ -26,7 +26,7 @@ Decisions by the owner:
 - **Login always required; email reset replaced** by an in-app change password and a `user:set-password` recovery command.
 - **English only. Sharing kept** (deprioritised). **Web Push kept** and repaired; what it is for is still open.
 - **Platform:** Drizzle replaces MikroORM, plain Fastify replaces NestJS, typed JSX (hono/jsx, escape by default) replaces Handlebars, Vitest replaces Jest; done feature by feature with the tests as the parity proof. Drizzle became the only migration authority by recording a baseline on production's MikroORM-built database.
-- **Background removal on the server** (BiRefNet 512, MIT), and the whole stack **moved from the NAS to linux-box** because the NAS CPU has no AVX. Photos stay on the NAS over NFS; the database stays on pgvault.
+- **Background removal on the server** (BiRefNet 512, MIT), and the whole stack **moved from the NAS to the production host** because the NAS CPU has no AVX. Photos stay on the NAS over NFS; the database stays on pgvault.
 - **Backups** are a separate homelab effort (they were found failing silently).
 
 Gate: publishing waits for CI; pre-commit runs format, lint, types and both test tiers; pre-push runs the browser suite in production configuration; 800+ tests including an authorization matrix, a schema-drift test and a native-post guard.

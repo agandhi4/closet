@@ -62,7 +62,7 @@
 #
 # Compat, until 2026-11-09 (two weeks of nightly devkit syncs; then delete _slot_legacy): a gate or
 # tier vendored before this file holds a flock on $GATE_LOCK or $GATE_LOCK.<n> (default
-# /tmp/linux-box-local-gate.lock, also the merge queues' and linux-box's) for its whole run. Each
+# the shared legacy lock path below, also the merge queues' and the publisher host's) for its whole run. Each
 # held one counts SLOT_LEGACY_COST units here, labelled `<its holder line's first word> (older
 # devkit)`. The older copy does not see this pool, so until its repo syncs it can still start
 # beside a full one.
@@ -72,7 +72,7 @@ readonly SLOT_LEGACY_COST=2
 slot_pool_init() { # <who>
   local n
   SLOT_DIR=${DEVKIT_SLOT_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/devkit/gate-slots}
-  SLOT_LEGACY_LOCK=${GATE_LOCK:-/tmp/linux-box-local-gate.lock}
+  SLOT_LEGACY_LOCK=${GATE_LOCK:-/tmp/linux-box-local-gate.lock}  # homelab shares the path: rename it only with homelab # topology example
   n=$(devkit_ncpu)
   SLOT_CAPACITY=${GATE_CAPACITY:-$(( (${n:-1} + 1) / 2 ))}
   [[ "$SLOT_CAPACITY" =~ ^[1-9][0-9]*$ ]] \
