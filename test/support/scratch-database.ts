@@ -111,7 +111,7 @@ function databaseEnv(url: URL, name: string): Record<string, string> {
 }
 
 // C collation, from template0 (template1 carries the server's): the ordering
-// assertions were validated on linux-box's pgvault-dev (C), while CI's stock
+// assertions were validated on the production host's pgvault-dev (C), while CI's stock
 // postgres image is en_US.utf8 and sorts "mauve" before "Teal". The pin makes
 // every server agree.
 const EMPTY_DATABASE = `template template0 locale_provider libc lc_collate 'C' lc_ctype 'C' encoding 'UTF8'`;

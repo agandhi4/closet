@@ -1,9 +1,9 @@
 name: CI
 
-# PRs are gated on the Mac / linux-box, not here (owner, 2026-09-28: GitHub Actions limits):
+# PRs are gated on the Mac / the production host, not here (owner, 2026-09-28: GitHub Actions limits):
 # `make gate PR=<n>` (devkit/bin/local_gate.sh + scripts/ci/gate_plan.sh) runs the Makefile's
 # ci-* targets on the PR merged into main and posts one `local-gate` status, which branch
-# protection requires with `codex-review`. Images ship from linux-box (`make publish`, homelab's
+# protection requires with `codex-review`. Images ship from the publisher host (`make publish`, homelab's
 # devkit-publish@closet.timer; docs/decisions.md 2026-10-28), not from here.
 # What is left is a manual cloud run of the gate's test jobs: they call the same make targets as
 # the gate, so the two cannot drift.

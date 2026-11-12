@@ -9,7 +9,7 @@ import { runSeed } from './seed';
  * src/seed/seed.ts and AGENTS.md, Seed personas. Like the maintenance CLIs
  * it refuses a database behind the build (start the server first) and
  * builds its own Photos. Exit status 0 done, 1 refused, 2 usage. Reads
- * dist/, so `npm run build` first when developing. On linux-box:
+ * dist/, so `npm run build` first when developing. In production:
  * `docker exec closet npm run seed -- --persona demo`.
  */
 runCli('Seed', ({ config, logger, db }) =>

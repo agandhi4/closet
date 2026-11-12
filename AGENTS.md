@@ -1,6 +1,6 @@
 # Closet
 
-Self-hosted digital wardrobe for the household: catalog garments (photo with background removal, category, brand, size, color), compose outfits, plan them on a calendar, and share a wardrobe with another user. Hard fork of Libre Closet (AGPL-3.0; no upstream remote or merges). Deployed on the homelab as `closet.box`. Stack and file detail: `docs/architecture.md`; what it used to be: `docs/history.md`.
+Self-hosted digital wardrobe for the household: catalog garments (photo with background removal, category, brand, size, color), compose outfits, plan them on a calendar, and share a wardrobe with another user. Hard fork of Libre Closet (AGPL-3.0; no upstream remote or merges). Deployed on the homelab. Stack and file detail: `docs/architecture.md`; what it used to be: `docs/history.md`.
 
 **The primary interface is the installed PWA on phones.** Every feature must work as an installed, offline-tolerant app first and as a desktop web page second.
 
@@ -152,7 +152,7 @@ In full: `docs/conventions.md`, `docs/web-layer.md#client-behavior`.
 - **daisyUI semantic tokens, no hardcoded colors** (ESLint: palette classes, `chip-N`, colours in `style`). Muted text is `text-muted`; `text-faint` never for text; ESLint refuses `text-base-content/0`–`/69`; no `opacity-*` on text.
 - **No runtime CDN imports**: client packages from `public/modules/` (`CLIENT_MODULES`) or `public/vendor/`; zero external requests (`delivery.spec.ts`).
 - **Postgres in every tier**; no second driver for test speed.
-- **Cookies stay `Secure`-less** (`.box` is HTTP over Tailscale: `secure: true` breaks login); `SameSite=Lax` must stay (CSRF).
+- **Cookies stay `Secure`-less** (the HTTP twin has no TLS: `secure: true` breaks login); `SameSite=Lax` must stay (CSRF).
 - **Offline-first per `frontend-pwa.md`**: cached reads show freshness; unreachable writes are disabled with a reason, never dropped; heartbeat, not `navigator.onLine`.
 - **"Today" is `todayIn(APP_TIMEZONE, now)`** in app and tests (`t.today()`, `householdToday()`): a UTC date is tomorrow on a New York evening. ESLint's `no-restricted-syntax` refuses `toISOString().slice/substring/split` and `toLocaleDateString`; a new consumer gets a row in `test/integration/today.spec.ts`.
 
@@ -167,7 +167,7 @@ In full: `docs/conventions.md`, `docs/web-layer.md#client-behavior`.
 
 ### Deployment
 
-Production runs on linux-box (the homelab) and merging to `main` deploys it: linux-box's `make publish` (never the Mac: arm64) pushes the image and the hourly autoupdater pulls it. The env, the demo login, locked-out recovery, rotating the secret, publishing: `docs/operations.md`. Production's topology: homelab's `stacks/closet/README.md` only (docs-check).
+Production runs on the homelab and merging to `main` deploys it: the publisher host's `make publish` (never the Mac: arm64) pushes the image and the hourly autoupdater pulls it. The env, the demo login, locked-out recovery, rotating the secret, publishing: `docs/operations.md`. Production's topology: homelab's `stacks/closet/README.md` only (docs-check).
 
 - **Release identity: `APP_VERSION` is the bare 7-char sha** (`docs/decisions.md` 2026-10-13), passed once by the publisher; `/health/ready` `version`, /about, MCP and the error tracker's release all read it. Only the image *tag* says `sha-<7>`. Compose and `.env` never set it (`make release-check`). **Only the publisher moves `latest`** (the deploy), then tags `ship-<YYYY-MM-DD>-<sha7>`. No semver or date tags.
 
@@ -176,7 +176,7 @@ Production runs on linux-box (the homelab) and merging to `main` deploys it: lin
 Deviations from `~/.claude/conventions/`, each with its `docs/decisions.md` entry:
 - **Job outcomes add `discarded` and `interrupted`** (the cutout queue), non-alerting; any error or timeout is `failure`. `JOB_OUTCOMES` and `metrics.spec.ts` hold the list (2026-10-13, Observability contract).
 - **Statement budgets come only from `recordQueries` blocks** (`build/statements.json`, `make ci-db`): the most statements each `<METHOD>:<route>` sent there, not every request the suite makes (2026-10-13, Observability contract 2).
-- **No pull-request job in Actions and no pre-merge gate**: a PR merges on review rounds (`@codex review`, or `make review PR=<n>`), and main is proven at deploy by linux-box's check_tree (devkit 2026-11-02); `ci.yml` runs only by hand.
+- **No pull-request job in Actions and no pre-merge gate**: a PR merges on review rounds (`@codex review`, or `make review PR=<n>`), and main is proven at deploy by the publisher's check_tree (devkit 2026-11-02); `ci.yml` runs only by hand.
 - **`nightly.yml` runs on a `schedule:`**: the page audit, Lighthouse, the real cutout model and WebKit, too slow for any PR; nothing in it gates a deploy (2026-10-16, Convention deltas declared).
 - **The image smoke is `scripts/smoke-image.sh`, not devkit's `boot_image.sh`**: it boots on the host network, then runs devkit's `contract_probe.sh` (2026-10-16, Convention deltas declared).
 
@@ -192,7 +192,7 @@ npm run start:prod            # node dist/main.js (the image runs `node dist/mai
                               # downloads the 940 MB model into MODELS_PATH (./models) on its first boot
 npm run start:test            # the build with background removal stubbed (test/support/test-server.ts): what
                               # Playwright and Lighthouse start; never downloads the model
-# The CLIs run from dist/ (build first) and never migrate; their flags, and how to run them on linux-box:
+# The CLIs run from dist/ (build first) and never migrate; their flags, and how to run them in production:
 npm run maintenance:reconcile # src/maintenance/AGENTS.md, like user:set-password and push:revoke-all
 npm run seed                  # src/seed/AGENTS.md
 npm run cutout:fetch-model    # src/cutout/AGENTS.md
@@ -243,7 +243,7 @@ make review PR=<n>            # one local review round (when Codex is out of bud
 make merge PR=<n>             # squash-merge once the review rounds allow it
 ```
 
-`scripts/ci/gate_plan.sh` is the plan: linux-box's publisher runs every job of it on main (`devkit/bin/check_tree.sh`, at most once per 3 h window) before it ships; a red main files a `main-red` issue.
+`scripts/ci/gate_plan.sh` is the plan: the publisher host runs every job of it on main (`devkit/bin/check_tree.sh`, at most once per 3 h window) before it ships; a red main files a `main-red` issue.
 
 Builds, test suites, and `npm ci` go through a `build:build-runner` subagent, never inline.
 

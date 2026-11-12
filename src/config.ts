@@ -148,7 +148,7 @@ const ConfigSchema = Type.Object({
   // and pages load no timing script.
   METRICS_ENABLED: Type.Boolean({ default: false }),
   // Error tracking (#117): the Sentry-compatible DSN of the homelab's
-  // Bugsink project (`http://<key>@bug.box/<project id>`), as finplat's.
+  // Bugsink project (`http://<key>@<tracker host>/<project id>`), as finplat's.
   // Empty or unset: off, nothing captured or sent, no /errors/client and no
   // error script on pages (src/metrics/error-tracker.ts). Empty counts as
   // unset so a compose file's `${SENTRY_DSN:-}` never fails the boot.

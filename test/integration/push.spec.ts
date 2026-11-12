@@ -149,7 +149,7 @@ describe('web push (PWA_ENABLED=true)', () => {
     it.each([
       'https://127.0.0.1:5432/x',
       'https://pgvault/x',
-      'https://nas.box/admin',
+      'https://nas.example/admin',
       'https://fcm.googleapis.com.evil.example/x',
     ])(
       'refuses an endpoint outside the push services: %s',
