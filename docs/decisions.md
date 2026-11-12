@@ -325,3 +325,9 @@ runs devkit's stub; `GATE_STATE_NAME` is gone (unread).
 Why: claude-kit measured (2026-11-09) that a session's first API call is re-read on every later call, and that the Artifact, ArtifactComments and ArtifactData schemas cost 11.4k tokens, SendFeedback 2.0k and AskUserQuestion 1.7k of it; a whole-tool `permissions.deny` drops the schema from every session and lane in the repo.
 Decision: the deny list follows claude-kit's `templates/project-settings.json` (claude-kit #67). No plugin skill or agent uses these tools, and an unattended lane cannot answer a question or publish a page.
 Consequence: interactive sessions here lose the artifact publish flow and the question prompt; removing a line from this file brings one back (deny beats allow, so `settings.local.json` cannot).
+
+## 2026-11-11 — CHANGELOG and the upstream Copilot files retired
+
+**Why:** `CHANGELOG.md` had not moved since 2026-09-26 and claimed semver, which the 2026-10-13 release identity retired; `.github/agents/TDD.agent.md` and `.github/prompts/boilerplate.prompt.md` (upstream Copilot config) told agents to write to it and to prefer `_hyperscript`, which `expectFullPage` refuses.
+**Decision:** all three are deleted (#374). What ships is the squash title on `main` and its `ship-<date>-<sha7>` tag; the rules the prompt held that we keep are in AGENTS.md's Project rules.
+**Consequence:** no changelog to keep; a Copilot or VS Code agent no longer reads rules that contradict AGENTS.md. History cited as "CHANGELOG Unreleased" (`docs/PROJECT_LOG.md`, the 2026-09 reports) is in git before this commit.
