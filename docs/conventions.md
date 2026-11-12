@@ -16,7 +16,7 @@ Use the pino child the module was given (`logger.child({ logger })` in `createAp
 
 ## Conventions
 
-The root's Conventions are upstream rules we keep (from `.github/prompts/boilerplate.prompt.md`), plus ours. The ones with more to say than the root's line:
+The root's Conventions are the upstream rules we kept (once `.github/prompts/boilerplate.prompt.md`, deleted 2026-11-11), plus ours. The ones with more to say than the root's line:
 
 - **One database: Postgres.** Every tier (integration, Playwright, page audit, CI) runs on Postgres. Do not reintroduce a second driver for test speed: the scratch-database harness is as fast as in-memory SQLite was.
 - **Cookies stay `Secure`-less.** The `.box` name is HTTP by design (Tailscale encrypts). Adding `secure: true` to `setSessionCookie` (`src/web/auth/session.ts`) makes login silently never stick over `http://closet.box`. `SameSite=Lax` is set and must stay (CSRF). If a secure cookie is ever wanted it must be driven by a `COOKIE_SECURE` env var defaulting to false.
