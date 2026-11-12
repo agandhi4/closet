@@ -45,13 +45,13 @@ done < <(grep -oE '`[A-Za-z0-9_./-]+/(AGENTS|CLAUDE)\.md`' AGENTS.md | tr -d '`'
 # or tailnet suffix, the owner's public domain, and a tailnet hostname (2026-11-12, "Tailnet
 # hostnames are role words"), specs included: a fixture host is `nas.example`. A bare `<name>.box`
 # is refused in Markdown and after `://`, `@` or a backtick elsewhere, since thumb.box is also a
-# property access; a named host needs a left boundary so debug.box is not one. The dated history
-# (decisions.md, PROJECT_LOG.md, docs/reports/, docs/audits/) is exempt from the hostnames only
-# (devkit-check scans it). devkit/ is vendored: a hit there is fixed in devkit and synced. No `\b`: git
+# property access; a named host needs a left boundary so debug.box is not one. docs/reports/ and
+# docs/audits/ are exempt from the hostnames only, as in devkit-check; decisions.md and PROJECT_LOG.md
+# are not, since they are edited docs-only (#481 reworded them). devkit/ is vendored: a hit there is fixed in devkit and synced. No `\b`: git
 # grep on macOS has no GNU regex extensions. This file is skipped: it quotes the patterns.
 # devkit-check scans this file too, so the quoted host pattern carries its exemption comment.
 closet_hosts='linux-box|((^|[^a-z0-9_.-])(nas|bug|closet|redlib)|(://|@|`)[a-z0-9.-]+)\.box([^a-z0-9_]|$)' # topology example
-closet_history=(':!docs/decisions.md' ':!docs/PROJECT_LOG.md' ':!docs/reports' ':!docs/audits')
+closet_history=(':!docs/reports' ':!docs/audits')
 while IFS= read -r closet_leak; do
   docs_fail "public tree names homelab topology: $closet_leak (move it to homelab stacks/closet/README.md)"
 done < <({
