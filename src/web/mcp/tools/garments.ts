@@ -4,6 +4,7 @@ import { QUANTITY_MAX } from '../../../wardrobe/availability';
 import * as z from 'zod';
 import {
   categoryRole,
+  type Condition,
   CONDITIONS,
   FITS,
   FORMALITIES,
@@ -39,21 +40,26 @@ import {
   garmentSummaries,
   gridCount,
   type GridFilters,
-  setCondition,
-  updateGarmentProperties,
+  updateGarmentFields,
 } from '../../wardrobe/queries';
 import { GRID_PAGE_SIZE } from '../../wardrobe/grid-page-size';
 import { addCopies, closetLookalikes } from '../../wardrobe/lookalikes';
 import { repairLogSql } from '../../wardrobe/repairs';
 import {
+  BRAND_MAX,
   CATEGORY_MAX,
-  NAME_MAX,
   CARE_NOTE_MAX,
+  type FormAudience,
+  formPost,
+  type GarmentFields,
+  type GarmentFormValues,
+  NAME_MAX,
+  orEmpty,
   type PropertyFormValues,
-  readCareLabel,
-  readCondition,
-  readProperties,
-  storedPropertyValues,
+  readGarmentForm,
+  SIZE_MAX,
+  storedFormValues,
+  TEXT_MAX,
   withCarePresets,
   withPresets,
 } from '../../wardrobe/garment-input';
@@ -69,9 +75,9 @@ import {
   type ToolContext,
   wardrobeFor,
 } from '../tool';
-import { ownerIdInput, rowId } from './common';
+import { centsPriceInput, isoDate, ownerIdInput, rowId } from './common';
 import { garmentNotFound } from '../../wardrobe/garment-access';
-import { addGarmentFromLink } from './link-import';
+import { addGarmentFromLink, refusedForm } from './link-import';
 
 /** A search or capsule hit, as the tools answer it. */
 export function summaryOut(garment: GarmentSummary) {
@@ -254,6 +260,45 @@ type PropertyChanges = {
   [K in keyof typeof PropertyInput]?: z.output<(typeof PropertyInput)[K]>;
 };
 
+/**
+ * update_garment's own fields (#372), the garment form's text fields:
+ * absent leaves a value as stored, null clears it. A garment always has a
+ * category, so it is never null; a blank one is the form's refusal.
+ */
+const OwnFieldInput = {
+  name: property(z.string().max(NAME_MAX), 'The name.'),
+  category: z
+    .string()
+    .max(CATEGORY_MAX)
+    .optional()
+    .describe(
+      'tops, bottoms, dresses, outerwear, footwear, accessories, bags, other, or a custom one. A new role drops the properties and care label it does not have, and a type not of the new category (each named in `ignored`); nothing is preset, and a `type` given with it is checked against the new category.',
+    ),
+  colors: z
+    .array(z.enum(GARMENT_COLORS))
+    .max(GARMENT_COLORS.length)
+    .optional()
+    .describe('The whole set of colours; [] clears them.'),
+  size: property(
+    z.string().max(SIZE_MAX),
+    'The size as on the label (XL is stored as X-Large).',
+  ),
+  brand: property(z.string().max(BRAND_MAX), 'The brand.'),
+  notes: property(z.string().max(TEXT_MAX), 'Free notes.'),
+  price: property(
+    centsPriceInput(),
+    'What one copy cost, in US dollars (at most two decimals).',
+  ),
+  acquiredOn: property(
+    isoDate(),
+    'When it was bought or received, YYYY-MM-DD.',
+  ),
+};
+
+type GarmentChanges = PropertyChanges & {
+  [K in keyof typeof OwnFieldInput]?: z.output<(typeof OwnFieldInput)[K]>;
+} & { condition?: Condition; conditionNote?: string | null };
+
 /** The input's property names as the garment model names them. */
 const PROPERTY_OF: Record<keyof typeof PropertyInput, GarmentProperty> = {
   type: 'type',
@@ -274,16 +319,95 @@ const PROPERTY_OF: Record<keyof typeof PropertyInput, GarmentProperty> = {
 };
 
 /**
- * The stored properties with the changes, through the form's own readers:
- * a new type first brings its presets (withPresets, as the form's type
- * chip), new materials the care label's (withCarePresets, as the form's
- * material chips), then the explicit values win, then readProperties and
- * readCareLabel store what the garment's role has. Returns the fields and
- * the names the role ignored.
+ * update_garment as the garment form's own save: the edit form's values
+ * for the stored garment (storedFormValues, for the caller's audience, so a
+ * MANAGE grantee's call leaves the owner-only wash limit as stored), the
+ * changes made to them, then formPost and readGarmentForm, as
+ * add_garment_from_link saves. A refused form is the tool's 400 with the
+ * form's messages. Answers only the fields whose stored value changes
+ * (nothing else is written: what the caller left out stays as stored) and
+ * the property names `ignored`.
  */
-function changedProperties(garment: GarmentDetail, changes: PropertyChanges) {
-  const { category } = garment;
-  let values: PropertyFormValues = storedPropertyValues(garment);
+function garmentUpdate(
+  garment: GarmentDetail,
+  changes: GarmentChanges,
+  audience: FormAudience,
+) {
+  const values = changedValues(garment, changes, audience);
+  const read = readGarmentForm(formPost(values), audience);
+  if (!read.ok) throw refusedForm(read.errors);
+  return {
+    fields: changedFields(garment, read.fields),
+    ignored: ignoredProperties(garment, read.fields, changes),
+  };
+}
+
+/** The stored garment's form values with the changes; null clears a field. */
+function changedValues(
+  garment: GarmentDetail,
+  changes: GarmentChanges,
+  audience: FormAudience,
+): GarmentFormValues {
+  const stored = storedFormValues(garment, audience);
+  const category =
+    changes.category === undefined
+      ? stored.category
+      : normalizeCategory(changes.category);
+  const text = (change: string | null | undefined, kept: string) =>
+    change === undefined ? kept : (change ?? '');
+  return {
+    ...stored,
+    name: text(changes.name, stored.name),
+    category,
+    brand: text(changes.brand, stored.brand),
+    colors: changes.colors ?? stored.colors,
+    size: text(changes.size, stored.size),
+    notes: text(changes.notes, stored.notes),
+    price: text(
+      typeof changes.price === 'number'
+        ? changes.price.toFixed(2)
+        : changes.price,
+      stored.price,
+    ),
+    dateAquired: text(changes.acquiredOn, stored.dateAquired),
+    properties: changedProperties(
+      garment,
+      stored.properties,
+      category,
+      changes,
+    ),
+    // Each as stored unless given; the reader keeps the note only with a
+    // problem (readCondition), so `good` clears it.
+    care: {
+      ...stored.care,
+      ...(changes.condition !== undefined && { condition: changes.condition }),
+      ...(changes.conditionNote !== undefined && {
+        conditionNote: changes.conditionNote ?? '',
+      }),
+    },
+  };
+}
+
+/**
+ * The stored properties with the changes, for a garment of `category` (the
+ * new one, if it changes): a new type first brings its presets
+ * (withPresets, as the form's type chip), new materials the care label's
+ * (withCarePresets, as the form's material chips), then the explicit
+ * values win. A new category alone presets nothing.
+ */
+function changedProperties(
+  garment: GarmentDetail,
+  stored: PropertyFormValues,
+  category: string,
+  changes: PropertyChanges,
+): PropertyFormValues {
+  // The weight in grams as stored: the form shows ounces to one decimal,
+  // which need not read back to the same grams.
+  let values: PropertyFormValues = {
+    ...stored,
+    fabricWeight: orEmpty(garment.fabricWeight?.toString()),
+    fabricWeightUnit: 'gsm',
+  };
   if (changes.type !== undefined) {
     values = withPresets(
       {
@@ -299,19 +423,76 @@ function changedProperties(garment: GarmentDetail, changes: PropertyChanges) {
       category,
     );
   }
-  const changed = { ...values, ...explicitValues(changes) };
-  const read = readProperties(changed, category);
-  if (!read.ok) throw new HttpError(400, read.error);
-  const ignored = (Object.keys(changes) as (keyof PropertyChanges)[]).filter(
-    (name) =>
-      changes[name] !== undefined &&
-      name !== 'type' &&
-      !propertyApplies(PROPERTY_OF[name], category),
+  return { ...values, ...explicitValues(changes) };
+}
+
+/**
+ * The read fields whose value differs from the stored garment's: the one
+ * update writes these alone. The stored replaced garment is posted back as
+ * it is, so it is never among them.
+ */
+function changedFields(
+  stored: GarmentDetail,
+  read: GarmentFields,
+): Partial<GarmentFields> {
+  const changed: Partial<GarmentFields> = {};
+  for (const key of Object.keys(read) as (keyof GarmentFields)[]) {
+    if (!sameValue(stored[key], read[key])) {
+      Object.assign(changed, { [key]: read[key] });
+    }
+  }
+  return changed;
+}
+
+/** Sets (colours, materials) by their members, in order; the rest by value. */
+function sameValue(stored: unknown, read: unknown): boolean {
+  if (Array.isArray(stored) && Array.isArray(read)) {
+    return (
+      stored.length === read.length &&
+      stored.every((value, i) => value === read[i])
+    );
+  }
+  return stored === read;
+}
+
+/**
+ * The property names the save did not keep: a value given (not a clear:
+ * null, false, no materials) that the garment's role (the new one, if the
+ * category changes) does not have; or, not given, set before and dropped
+ * by a new category, whose role does not have it or whose types do not
+ * include the stored type. A type given that is not of the category was
+ * refused before (checkedType).
+ */
+function ignoredProperties(
+  garment: GarmentDetail,
+  read: GarmentFields,
+  changes: PropertyChanges,
+): (keyof PropertyChanges)[] {
+  return (Object.keys(PROPERTY_OF) as (keyof PropertyChanges)[]).filter(
+    (name) => {
+      const property = PROPERTY_OF[name];
+      if (property === 'type') {
+        return (
+          changes.type === undefined && garment.type !== null && !read.type
+        );
+      }
+      return (
+        !propertyApplies(property, read.category) &&
+        hasValue(
+          changes[name] === undefined ? garment[property] : changes[name],
+        )
+      );
+    },
   );
-  return {
-    fields: { ...read.fields, ...readCareLabel(changed, category) },
-    ignored,
-  };
+}
+
+/** A property value that is set: not null, not false, not an empty set. */
+function hasValue(value: unknown): boolean {
+  return (
+    value !== null &&
+    value !== false &&
+    !(Array.isArray(value) && value.length === 0)
+  );
 }
 
 /** The single-choice properties, posted as text like the form's chips. */
@@ -589,10 +770,11 @@ export const garmentTools = [
     name: 'update_garment',
     title: 'Update a garment',
     description:
-      "WRITES: changes a garment's properties, care label and condition; anything not given stays as stored. Properties the garment's role does not have (a sleeve on shoes) are ignored and named in the answer. Needs your own wardrobe or a MANAGE share. Does not archive or delete.",
+      "WRITES: changes a garment's own fields (name, category, colours, size, brand, notes, price, acquiredOn), its properties, care label and condition, with the garment form's rules; anything not given stays as stored, and null clears a field (category: never). The condition note stays as stored unless given, is kept only while the condition is a problem (good clears it), and null clears it. A refused value (a blank category, a bad date) changes nothing. A value for a property the garment's role does not have (a sleeve on shoes), and a stored one a new category's role does not have, are not kept and are named in `ignored`; clearing one (null, false) is not. Needs your own wardrobe or a MANAGE share. Does not archive or delete.",
     input: z.object({
       id: rowId(),
       ownerId: ownerIdInput,
+      ...OwnFieldInput,
       ...PropertyInput,
       condition: z
         .enum(CONDITIONS)
@@ -601,37 +783,36 @@ export const garmentTools = [
       conditionNote: z
         .string()
         .max(CARE_NOTE_MAX)
+        .nullable()
         .optional()
-        .describe('What is wrong (kept only with a problem).'),
+        .describe(
+          'What is wrong: kept only while the condition is needs_repair or replace_soon. Absent keeps the stored note; null clears it.',
+        ),
     }),
     writes: true,
     idempotent: true,
-    async run(args, ctx) {
-      const { id, ownerId, condition, conditionNote, ...changes } = args;
+    async run({ id, ownerId, ...changes }, ctx) {
       const access = await wardrobeFor(ctx, ownerId, 'manage');
       const garment = await garmentIn(ctx, id, access.ownerId);
-      const { fields, ignored } = changedProperties(garment, changes);
-      const changed = Object.values(changes).some((v) => v !== undefined);
-      if (changed) {
-        await updateGarmentProperties(ctx.db, id, access.ownerId, fields);
-      }
-      if (condition !== undefined) {
-        await setCondition(
-          ctx.db,
-          id,
-          access.ownerId,
-          readCondition({ condition, conditionNote }),
-        );
+      const { fields, ignored } = garmentUpdate(garment, changes, {
+        owner: access.isOwner,
+      });
+      if (
+        Object.keys(fields).length > 0 &&
+        !(await updateGarmentFields(ctx.db, id, access.ownerId, fields))
+      ) {
+        throw garmentNotFound();
       }
       ctx.webLogger.info(
-        `Garment ${id} updated by user ${ctx.userId} (MCP): ${[
-          ...Object.keys(changes).filter(
-            (name) => changes[name as keyof typeof changes] !== undefined,
-          ),
-          ...(condition === undefined ? [] : ['condition']),
-        ].join(', ')}`,
+        `Garment ${id} updated by user ${ctx.userId} (MCP): ${Object.keys(
+          changes,
+        )
+          .filter((name) => changes[name as keyof typeof changes] !== undefined)
+          .join(', ')}`,
       );
-      const saved = await garmentIn(ctx, id, access.ownerId);
+      // Every written value is stored as given, so the answer is the
+      // garment read before with them, not a second read (#372).
+      const saved: GarmentDetail = { ...garment, ...fields };
       return {
         garment: await garmentOut(ctx, saved, access.ownerId, access.isOwner),
         ignored,
@@ -736,8 +917,8 @@ export const garmentTools = [
       name: z.string().max(NAME_MAX).optional(),
       category: z.string().max(CATEGORY_MAX).optional(),
       type: z.string().max(40).optional(),
-      size: z.string().max(40).optional(),
-      notes: z.string().max(4000).optional(),
+      size: z.string().max(SIZE_MAX).optional(),
+      notes: z.string().max(TEXT_MAX).optional(),
     }),
     writes: true,
     idempotent: false,
