@@ -450,6 +450,29 @@ describe('Photos.saveEditedCutout', () => {
   });
 });
 
+describe('Photos.rederiveCutoutThumb', () => {
+  // The retrim read key k1, then an edit swapped the row to k2 and deleted
+  // k1's set: the photo is not missing a cutout.
+  it('is a stale refusal, not a missing cutout, when a swap moved the key', async () => {
+    const photos = build();
+    findKeyMock.mockResolvedValue('0000000000b2');
+    await expect(
+      photos.rederiveCutoutThumb(
+        { fileName: 'a.webp', variantKey: '0000000000a1' },
+        { dryRun: false },
+      ),
+    ).resolves.toEqual({ result: 'refused', reason: 'stale' });
+    findKeyMock.mockResolvedValue('0000000000a1');
+    await expect(
+      photos.rederiveCutoutThumb(
+        { fileName: 'a.webp', variantKey: '0000000000a1' },
+        { dryRun: false },
+      ),
+    ).resolves.toEqual({ result: 'no-cutout' });
+    expect(stores).toEqual([]);
+  });
+});
+
 describe('Photos.regenerateThumb', () => {
   /** The thumb regenerateThumb makes beside an original and this cutout. */
   const thumbOf = async (nobg: Buffer) => {

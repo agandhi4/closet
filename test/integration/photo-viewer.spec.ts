@@ -57,6 +57,14 @@ describe('the photo viewer markup', () => {
     const set = setOf(html, 'garment-photos');
     expect(set.length).toBeGreaterThanOrEqual(1);
     expect(set.at(-1)).not.toMatch(/-(nobg|thumb)/);
+    // The thumb is only the offline fallback, never a placeholder the large
+    // image replaces: a cutout's is trimmed (#373), so the garment would
+    // shrink on the swap.
+    const template = html.slice(
+      html.indexOf('<template data-photo-set="garment-photos">'),
+    );
+    expect(template).toMatch(/<img src="[^"]+" data-fallback="\/file\/thumb\//);
+    expect(template).not.toContain('data-thumb=');
     expect(triggers(html, 'garment-photos')).toHaveLength(1);
     expect(set).toContain(triggers(html, 'garment-photos')[0]);
     expect(html).toContain('aria-label="Enlarge photo of Boots"');

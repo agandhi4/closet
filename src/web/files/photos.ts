@@ -590,7 +590,15 @@ export class Photos {
     const nobg = await this.storage.get(
       variantFileName(fileName, 'nobg', variantKey),
     );
-    if (!nobg) return { result: 'no-cutout' };
+    if (!nobg) {
+      // A swap since the caller read the key deleted that set: the photo's
+      // new cutout came with its own (trimmed) thumb, so nothing is
+      // missing; the machine would refuse it as stale too.
+      const current = (await findVariantKey(this.db, fileName)) ?? null;
+      return current === variantKey
+        ? { result: 'no-cutout' }
+        : { result: 'refused', reason: 'stale' };
+    }
     const files = await cutoutFiles(await buffer(nobg));
     const stored = await this.storage.get(
       variantFileName(fileName, 'thumb', variantKey),
@@ -1155,7 +1163,10 @@ export type ThumbRederivation =
   | { result: 'due' }
   /** Stored under a new key; the row is at `version`. */
   | { result: 'rederived'; version: number }
-  /** The machine refused the swap (an edit landed meanwhile, the row is gone); nothing kept. */
+  /**
+   * The machine refused the swap, or the key read is no longer the row's
+   * (an edit landed meanwhile, the row is gone); nothing kept.
+   */
   | { result: 'refused'; reason: 'not-allowed' | 'stale' | 'gone' };
 
 /** A cutout's set: its bytes and the thumb they derive (one rule for every writer). */

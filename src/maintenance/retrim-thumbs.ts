@@ -12,6 +12,13 @@ const BATCH_SIZE = 100;
 export interface RetrimOptions {
   /** Count what would change without storing or swapping anything. */
   dryRun?: boolean;
+  /**
+   * Stops the run between photos, never inside one: a photo cut off between
+   * storing its new set and the swap would leave a set newer than its row's,
+   * which reconciliation keeps (a restore's signature) and warns about
+   * nightly.
+   */
+  stop?: AbortSignal;
 }
 
 /** What the run did, photo by photo; each photo is counted once. */
@@ -32,6 +39,8 @@ interface RetrimCounts {
 
 export interface RetrimReport extends RetrimCounts {
   dryRun: boolean;
+  /** `stop` ended the run before every photo was seen; a second run finishes it. */
+  stopped: boolean;
   /** Photos with a ready or edited cutout. */
   photos: number;
   durationMs: number;
@@ -67,13 +76,14 @@ interface CutoutPhoto extends StoredPhoto {
  */
 export async function retrimCutoutThumbs(
   deps: RetrimDeps,
-  { dryRun = false }: RetrimOptions = {},
+  { dryRun = false, stop }: RetrimOptions = {},
 ): Promise<RetrimReport> {
   const { db, logger } = deps;
   const startedAt = Date.now();
   logger.info(`Thumb retrim started${dryRun ? ' (dry run)' : ''}`);
   const report: RetrimReport = {
     dryRun,
+    stopped: false,
     photos: 0,
     retrimmed: 0,
     due: 0,
@@ -84,18 +94,21 @@ export async function retrimCutoutThumbs(
     durationMs: 0,
   };
 
-  let afterId = 0;
-  for (;;) {
-    const batch = await cutoutPhotos(db, afterId);
-    if (batch.length === 0) break;
-    afterId = batch[batch.length - 1].id;
-    for (const photo of batch) {
-      report.photos++;
-      report[await retrimPhoto(deps, photo, dryRun)]++;
+  for await (const photo of cutoutPhotos(db)) {
+    if (stop?.aborted) {
+      report.stopped = true;
+      break;
     }
+    report.photos++;
+    report[await retrimPhoto(deps, photo, dryRun)]++;
   }
 
   report.durationMs = Date.now() - startedAt;
+  if (report.stopped) {
+    logger.warn(
+      `Thumb retrim stopped by a signal after ${report.photos} photos; run it again to finish`,
+    );
+  }
   logger.info(
     `Thumb retrim finished${dryRun ? ' (dry run)' : ''} in ${report.durationMs}ms: ${report.photos} photos with a cutout, ${dryRun ? `${report.due} due` : `${report.retrimmed} retrimmed`}, ${report.current} current, ${report.missingCutouts} missing a cutout, ${report.refused} refused, ${report.failed} failed`,
   );
@@ -128,22 +141,28 @@ async function retrimPhoto(
   return COUNTED_AS[done.result];
 }
 
-// The next batch of photos whose thumb derives from a cutout, after
-// `afterId`. Keyed by id, which a swap never moves.
-function cutoutPhotos(db: Db, afterId: number): Promise<CutoutPhoto[]> {
-  return db
-    .select({
-      id: file.id,
-      fileName: file.fileName,
-      variantKey: file.variantKey,
-    })
-    .from(file)
-    .where(
-      and(
-        gt(file.id, afterId),
-        inArray(file.cutoutStatus, ['ready', 'edited']),
-      ),
-    )
-    .orderBy(asc(file.id))
-    .limit(BATCH_SIZE);
+// Every photo whose thumb derives from a cutout, read BATCH_SIZE at a time
+// in id order (a swap never moves an id), a batch only when the last is done.
+async function* cutoutPhotos(db: Db): AsyncGenerator<CutoutPhoto> {
+  let afterId = 0;
+  for (;;) {
+    const batch = await db
+      .select({
+        id: file.id,
+        fileName: file.fileName,
+        variantKey: file.variantKey,
+      })
+      .from(file)
+      .where(
+        and(
+          gt(file.id, afterId),
+          inArray(file.cutoutStatus, ['ready', 'edited']),
+        ),
+      )
+      .orderBy(asc(file.id))
+      .limit(BATCH_SIZE);
+    if (batch.length === 0) return;
+    yield* batch;
+    afterId = batch[batch.length - 1].id;
+  }
 }

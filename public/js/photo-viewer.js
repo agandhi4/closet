@@ -10,13 +10,15 @@
  * keyboard arrows between slides (the row itself is native scroll-snap, so a
  * swipe needs no code), the zoom toggle (click on a mouse, double tap on
  * touch; pinch on the slide, below), swipe down to close, and loading each
- * slide's large image over the thumb the page already holds. Focus moving in
- * and Esc are showModal's; focus going back is restored here, as WebKit does
- * not focus a tapped button for the dialog to return to.
+ * slide's large image. Focus moving in and Esc are showModal's; focus going
+ * back is restored here, as WebKit does not focus a tapped button for the
+ * dialog to return to.
  *
- * Offline: the slide starts as the thumb (cached with the page) and only
- * swaps to the large image once it loads, so a cutout never viewed stays on
- * its thumb, as the garment page does (offline-warm.md).
+ * A slide stays empty until its large image has loaded, and shows the
+ * thumb (`data-fallback`, cached with the page) only when it cannot load
+ * (offline). The thumb is no placeholder: a cutout's is trimmed to the
+ * garment (#373) while the large cutout keeps the photo's frame, so
+ * swapping one for the other would shrink the garment in front of the user.
  */
 
 const DOUBLE_TAP_MS = 350;
@@ -48,25 +50,32 @@ function buildSlide(source) {
   slide.className = 'photo-viewer-slide';
   const img = document.createElement('img');
   img.alt = source.alt;
-  img.src = source.dataset.thumb;
+  img.hidden = true;
   img.draggable = false;
   slide.append(img);
   slide.dataset.large = source.getAttribute('src');
+  // data-thumb: a page cached before #373 names the fallback so.
+  slide.dataset.fallback = source.dataset.fallback ?? source.dataset.thumb;
   return slide;
 }
 
+function show(slide, src) {
+  const img = slide.querySelector('img');
+  img.src = src;
+  img.hidden = false;
+}
+
 /**
- * Swap a slide's thumb for the large image once that loads; keep the thumb
- * when it can't (offline), and say so rather than offer to zoom into it.
+ * Show a slide's large image once it loads; the thumb when it can't
+ * (offline), saying so rather than offering to zoom into it.
  */
 function loadLarge(slide, dialog) {
   if (!slide || 'requested' in slide.dataset) return;
   slide.dataset.requested = '';
   const probe = new Image();
-  probe.onload = () => {
-    slide.querySelector('img').src = slide.dataset.large;
-  };
+  probe.onload = () => show(slide, slide.dataset.large);
   probe.onerror = () => {
+    show(slide, slide.dataset.fallback);
     slide.dataset.thumbOnly = '';
     if (dialog.open && slides[index] === slide) {
       if (isZoomed()) setZoom(dialog, 1);
@@ -113,9 +122,14 @@ function isZoomed() {
   return zoom > 1;
 }
 
+/** Only the large image zooms: not a slide still loading, nor the thumb. */
+function zoomable(slide) {
+  return !slide.querySelector('img').hidden && !('thumbOnly' in slide.dataset);
+}
+
 /** The button/double-tap toggle: fitted to 2x and back. */
 function toggleZoom(dialog, point) {
-  if ('thumbOnly' in slides[index].dataset) return;
+  if (!zoomable(slides[index])) return;
   setZoom(dialog, isZoomed() ? 1 : 2, point);
 }
 
@@ -346,7 +360,7 @@ const onSlide = (event) =>
 document.addEventListener('pointerdown', (event) => {
   if (event.pointerType !== 'touch' || !onSlide(event)) return;
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-  if (pointers.size === 2 && !('thumbOnly' in slides[index].dataset)) {
+  if (pointers.size === 2 && zoomable(slides[index])) {
     pinch = { start: distance(), zoom };
   }
 });
