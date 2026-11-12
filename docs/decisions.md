@@ -331,3 +331,9 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Why:** `CHANGELOG.md` had not moved since 2026-09-26 and claimed semver, which the 2026-10-13 release identity retired; `.github/agents/TDD.agent.md` and `.github/prompts/boilerplate.prompt.md` (upstream Copilot config) told agents to write to it and to prefer `_hyperscript`, which `expectFullPage` refuses.
 **Decision:** all three are deleted (#374). What ships is the squash title on `main` and its `ship-<date>-<sha7>` tag; the rules the prompt held that we keep are in AGENTS.md's Project rules.
 **Consequence:** no changelog to keep; a Copilot or VS Code agent no longer reads rules that contradict AGENTS.md. History cited as "CHANGELOG Unreleased" (`docs/PROJECT_LOG.md`, the 2026-09 reports) is in git before this commit.
+
+## 2026-11-12 — The repos moved to the kashhq organisation; the image did not
+
+**Why:** closet, devkit, claude-kit and homelab were transferred from `agandhi4` to `kashhq`; GitHub redirects reads, but devkit-check compares `GATE_SLUG` with the live slug and refused every commit, and `gh api` does not follow a redirect on a write.
+**Decision:** every repository reference names `kashhq/...` (the gate slug, Renovate's preset, the claude-kit plugin source, the public `llms.txt` links). `PUBLISH_IMAGE` and the docs keep `ghcr.io/agandhi4/closet`: a container package does not move with its repo, and production's autoupdater pulls that name.
+**Consequence:** moving the image to `ghcr.io/kashhq/closet` is its own change, made with homelab's compose in the same step. Dated history (`docs/history.md`, reports) keeps the old name.

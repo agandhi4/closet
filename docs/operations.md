@@ -1,6 +1,6 @@
 # Deployment
 
-Runs as the `closet` stack on **linux-box** (the homelab compute host; `agandhi4/homelab`, deployed checkout `/docker`), moved from the NAS on 2026-09-26 because server-side background removal needs AVX (the NAS's Celeron J4125 has none). Runbook and rollback: the homelab repo's `docs/closet-move-to-linux-box.md`.
+Runs as the `closet` stack on **linux-box** (the homelab compute host; `kashhq/homelab`, deployed checkout `/docker`), moved from the NAS on 2026-09-26 because server-side background removal needs AVX (the NAS's Celeron J4125 has none). Runbook and rollback: the homelab repo's `docs/closet-move-to-linux-box.md`.
 
 | Piece                | Value                                                                                                                                                                                                                                                                                                                          |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
