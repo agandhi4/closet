@@ -288,4 +288,4 @@ Production has run this code since `64b126d`. Check the production `app.log` for
 
 ## 9. Teardown
 
-All `node dist/main` processes started here were stopped (`pgrep -af dist/main` came back empty). The `closet-perf-pg` container was removed, the seeded data directories were deleted, and the worktree was removed with `git worktree remove --force`. The repo at `/home/user/projects/closet` was not modified.
+All `node dist/main` processes started here were stopped (`pgrep -af dist/main` came back empty). The `closet-perf-pg` container was removed, the seeded data directories were deleted, and the worktree was removed with `git worktree remove --force`. The repo at the closet checkout was not modified.
