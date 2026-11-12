@@ -43,7 +43,7 @@ docker run -d \
   -e ACCESS_TOKEN_SECRET="$(openssl rand -hex 32)" \
   -e DATABASE_HOST=<postgres host> -e DATABASE_SCHEMA=closet \
   -e DATABASE_USER=closet -e DATABASE_PASS=<password> \
-  ghcr.io/agandhi4/closet:latest
+  ghcr.io/kashhq/closet:latest
 ```
 
 It needs a PostgreSQL database and a session signing secret of at least 32
@@ -64,5 +64,5 @@ characters. See the README for docker-compose and environment variable options.
 ## Links
 
 - Repository: https://github.com/kashhq/closet
-- Container: ghcr.io/agandhi4/closet
+- Container: ghcr.io/kashhq/closet
 - Upstream: https://github.com/lazztech/libre-closet

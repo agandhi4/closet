@@ -337,3 +337,9 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Why:** closet, devkit, claude-kit and homelab were transferred from `agandhi4` to `kashhq`; GitHub redirects reads, but devkit-check compares `GATE_SLUG` with the live slug and refused every commit, and `gh api` does not follow a redirect on a write.
 **Decision:** every repository reference names `kashhq/...` (the gate slug, Renovate's preset, the claude-kit plugin source, the public `llms.txt` links). `PUBLISH_IMAGE` and the docs keep `ghcr.io/agandhi4/closet`: a container package does not move with its repo, and production's autoupdater pulls that name.
 **Consequence:** moving the image to `ghcr.io/kashhq/closet` is its own change, made with homelab's compose in the same step. Dated history (`docs/history.md`, reports) keeps the old name.
+
+## 2026-11-12 — Repo links, slug and image name moved to the renamed account kashhq
+
+**Why:** the account was renamed agandhi4 → kashhq on 2026-11-12; the container namespace does not redirect (pulls of `ghcr.io/agandhi4/*` fail), and git redirects only until the old name is reused (devkit #469).
+**Decision:** this is the image step the entry above deferred: `PUBLISH_IMAGE`, the compose snippets and every live link name kashhq. This log, `docs/history.md` and the dated reports keep the old name where they record the past; the vendored `devkit/` follows through devkit-sync.
+**Consequence:** the next publish pushes to `ghcr.io/kashhq/closet`; homelab's stacks pull it from there (homelab PR of the same day). Until that PR lands, production holds its running image, since the old name has failed since the rename.

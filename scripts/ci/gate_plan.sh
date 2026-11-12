@@ -30,7 +30,7 @@
 GATE_SLUG=kashhq/closet
 # What devkit/bin/publish.sh pushes to (read as this literal line, never sourced).
 # shellcheck disable=SC2034
-PUBLISH_IMAGE=ghcr.io/agandhi4/closet
+PUBLISH_IMAGE=ghcr.io/kashhq/closet
 # How main ships, and so what proves it (devkit README "Deploy kinds").
 # shellcheck disable=SC2034
 DEPLOY_KINDS=image
