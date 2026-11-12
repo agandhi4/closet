@@ -1,6 +1,6 @@
 # Deployment
 
-What applies to any install: the env, permissions, health, recovery and publishing. The owner's production (the production host in the homelab, its hosts, paths, DNS, proxies and the public MCP host) is documented in the private homelab repo, `stacks/closet/README.md`, never here: this repo is public (2026-11-12, "Homelab topology lives in the homelab repo"; `make docs-check` and `make devkit-check` refuse it).
+What applies to any install: the env, permissions, health, recovery and publishing. The owner's production (the production host in the homelab, its hosts, paths, DNS, proxies and the public MCP host) is documented in the private homelab repo, `stacks/closet/README.md`, never here: this repo is public (2026-11-12, "Homelab topology lives in the homelab repo"; devkit's docs-check and devkit-check refuse it).
 
 | Piece | Value |
 | --- | --- |

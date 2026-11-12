@@ -46,12 +46,13 @@
 #
 # Also, in a public repo (the plan's one literal `GATE_PUBLIC=1` line) and in a devkit checkout
 # (is_devkit_checkout: its tree is vendored into the public ones): no tracked file outside devkit/,
-# docs/reports/ and docs/audits/ names homelab topology (DEVKIT_TOPOLOGY_PATTERNS: host names, NAS
-# volume paths, home directories, private and tailnet addresses, dynamic-DNS and VPS names). A
-# public repo may be forked; the topology lives in the homelab repo (owner, 2026-11-12). It fails,
-# never warns. A line that must show one (a doc's example, a test's private address) ends with a
-# `topology example` comment (`# topology example`, `// topology example`, ...). In a
-# devkit checkout it is the only check that runs: the others judge a consumer's vendored tree.
+# docs/reports/ and docs/audits/ names homelab topology (_topology_lib.sh's generic shapes: .box
+# and -box hosts, NAS volume paths, home directories, private and tailnet addresses, dynamic-DNS
+# suffixes; the lib and this file too). A public repo may be forked; the topology lives in the
+# homelab repo (owner, 2026-11-12). It fails, never warns. A line that must show one (a doc's
+# example, a test's private address) ends with a `topology example` comment. docs_check.sh runs
+# the same rules in a public repo (a docs-only commit runs it alone). In a devkit checkout it is
+# the only check that runs: the others judge a consumer's vendored tree.
 #
 # Also (a WARNING, exit 0): an alternative of the plan's GATE_IMAGE_EXCLUDE_PATHS whose every
 # tracked path the root .dockerignore already excludes. The gate reads .dockerignore itself
@@ -113,9 +114,9 @@
 # CHANGELOG.md) is prose, never an import, and dated history may name what was retired: it is
 # never scanned. Why (2026-10-26): closet reworded a past decisions.md entry just to silence it.
 #
-# Also, the publish contract (bin/publish.sh, which linux-box's timer runs as `make publish`): a
-# plan's PUBLISH_IMAGE is one literal line `PUBLISH_IMAGE=ghcr.io/<owner>/<name>` (publish.sh
-# reads it without sourcing the plan). With it, the Makefile has `publish` running
+# Also, the publish contract (bin/publish.sh, which the publisher host's timer runs as
+# `make publish`): a plan's PUBLISH_IMAGE is one literal line `PUBLISH_IMAGE=ghcr.io/<owner>/<name>`
+# (publish.sh reads it without sourcing the plan). With it, the Makefile has `publish` running
 # devkit/bin/publish.sh, `ci-image` that only builds (no ci-smoke, ci-e2e or boot_image.sh in its
 # rule: the publisher runs `ci-image ci-smoke`, never Playwright) and `ci-smoke`, and the plan runs
 # ci-smoke as a gate job. A publish rule with no PUBLISH_IMAGE fails too: it would refuse every
@@ -149,6 +150,8 @@ esac
 . "$(dirname "${BASH_SOURCE[0]}")/_gh_repo_lib.sh"
 # shellcheck source=bin/_gitattributes_lib.sh  # merge_drivers_heal
 . "$(dirname "${BASH_SOURCE[0]}")/_gitattributes_lib.sh"
+# shellcheck source=bin/_topology_lib.sh  # topology_hits: check_public_topology's rules
+. "$(dirname "${BASH_SOURCE[0]}")/_topology_lib.sh"
 ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
 HERE=$(dirname "${BASH_SOURCE[0]}")
@@ -455,45 +458,15 @@ check_retired_owner() {
   echo "  decisions.md, docs/reports/ and docs/audits/ may keep it; a line that must spell it ends with: # retired name" >&2
   [[ "$today" < "$RETIRED_OWNER_FAILS_FROM" ]] || exit 1
 }
-# Homelab topology a public repo must never name (check_public_topology), one grep -E alternative
-# per whitespace-separated word, matched without case. POSIX ERE only, no `\b`: git grep's regex
-# on macOS has none, so a host name's or an address's ends are spelled as classes (an address
-# inside a longer dotted number, 2100.70.1.2 or a version, is none). A bare `<word>.box` is also a
-# property access (thumb.box, hls.js's t.box(: closet's and redlib's trees), so a .box host
-# counts when it is one of the fleet's names after a boundary (not `debug.box`), or any name after
-# `://`, `@` or a backtick (a URL, an ssh target, a code span). The env override is for the
-# tests, as DEVKIT_RETIRED_OWNERS is.
-DEVKIT_TOPOLOGY_PATTERNS=${DEVKIT_TOPOLOGY_PATTERNS:-'linux-box
-  (^|[^a-z0-9_.-])(nas|bug|reddit|closet|redlib|pi)\.box([^a-z0-9_-]|$)
-  (://|@|`)[a-z0-9.-]+\.box([^a-z0-9_-]|$) /volume[0-9]+/ /(home|Users)/aakash \.dedyn\.io
-  \.duckdns\.org \.ts\.net (^|[^0-9.])192\.168\.[0-9]+\.[0-9]+
-  (^|[^0-9.])100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]+\.[0-9]+ racknerd kashhq\.com'}
 # A devkit checkout, as scorecard.py's is_devkit_checkout sees it: VENDOR_PATHS at the top. A
 # consumer has devkit/VENDOR_PATHS, never its own.
 is_devkit_checkout() { [ -f VENDOR_PATHS ]; }
-# The exemption: a line ending `topology example` in its language's comment (`#`, `//`, `--`,
-# `<!-- … -->`, `/* … */`), so a test's private-address fixture in TS or SQL can carry it too.
-readonly TOPOLOGY_EXAMPLE='(#|//|--|<!--|/\*) *topology example *(-->|\*/)? *$'
 check_public_topology() {
-  local hits words alternation='' word
+  local hits
   if ! is_devkit_checkout; then
     [ "$(gate_plan_literal <(printf '%s\n' "$plan_src") GATE_PUBLIC)" = 1 ] || return 0
   fi
-  read -ra words <<<"$(printf '%s' "$DEVKIT_TOPOLOGY_PATTERNS" | tr '\n' ' ')"
-  [ "${#words[@]}" -gt 0 ] || return 0
-  for word in "${words[@]}"; do alternation+="${alternation:+|}($word)"; done
-  local grep_args=(-I -n -i -E "$alternation")
-  [ "$STAGED" = 0 ] || grep_args=(--cached "${grep_args[@]}")
-  # git grep is 1 on no match and more on its own failure (a pattern this platform's regex
-  # rejects, a bad override): that must fail the guard, never read as a clean tree.
-  local rc=0
-  hits=$(git grep "${grep_args[@]}" -- . ':!devkit/' ':!docs/reports/' ':!docs/audits/' \
-    ':!bin/devkit-check.sh') || rc=$?
-  if [ "$rc" -gt 1 ]; then
-    echo "devkit-check: the topology check could not run (git grep exit $rc above; DEVKIT_TOPOLOGY_PATTERNS must be POSIX ERE)" >&2
-    exit 1
-  fi
-  hits=$(grep -vE "$TOPOLOGY_EXAMPLE" <<<"$hits" || true)
+  hits=$(topology_hits devkit-check "$STAGED") || exit 1
   [ -n "$hits" ] || return 0
   echo "devkit-check: homelab topology in a public tree (it lives in the homelab repo; name the role: the publisher host, the NAS):" >&2
   printf '  %s\n' "${hits//$'\n'/$'\n'  }" >&2
