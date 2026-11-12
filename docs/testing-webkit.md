@@ -73,9 +73,9 @@ navigation cuts off is an XHR `error` in WebKit, which htmx logs as
 `test/auth.spec.ts` awaits the registration fieldset's inline check before
 it submits (seen on a Mac's WebKit, 7 runs in 8, 2026-10-26).
 
-## Running it on linux-box
+## Running it on the production host
 
-Playwright's WebKit needs system libraries linux-box does not have (and
+Playwright's WebKit needs system libraries the production host does not have (and
 `install-deps` needs root), so the browser runs in Playwright's own image,
 whose tag must match `@playwright/test` in `package-lock.json`, against a
 `start:test` server on the host:

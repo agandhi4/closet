@@ -11,7 +11,7 @@ export const REPORT_VERSION = 1;
 
 /**
  * A time change counts only past both: relative to the baseline's p50, and
- * absolute. Two runs of one build on linux-box, shared with other agents'
+ * absolute. Two runs of one build on the production host, shared with other agents'
  * test runs, disagree by 35% and 2.5 ms at their 90th percentile; past both,
  * 3 steps of 274 (docs/perf/README.md, Noise).
  */
@@ -261,12 +261,17 @@ export function isChanged(delta: StepDelta): boolean {
   return (
     delta.presence !== 'both' ||
     delta.timeChanged ||
-    delta.statements !== null ||
-    delta.rows !== null ||
-    delta.bytes !== null ||
-    delta.addedSql.length > 0 ||
-    delta.removedSql.length > 0
+    countsChanged(delta) ||
+    sqlChanged(delta)
   );
+}
+
+function countsChanged(delta: StepDelta): boolean {
+  return [delta.statements, delta.rows, delta.bytes].some((c) => c !== null);
+}
+
+function sqlChanged(delta: StepDelta): boolean {
+  return delta.addedSql.length + delta.removedSql.length > 0;
 }
 
 function signed(value: number, format: (n: number) => string): string {

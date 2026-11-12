@@ -24,7 +24,7 @@
 echo Closet-demo-1 | npm run seed -- --persona all --password-stdin [--reset | --remove] [--anchor YYYY-MM-DD] [--token]
                               # the seed personas (see Seed personas), from dist/ (build first; the server
                               # must have migrated the database). Without --password-stdin a random password
-                              # is printed once. On linux-box: docker exec closet npm run seed -- --persona demo
+                              # is printed once. In production: docker exec closet npm run seed -- --persona demo
                               # --share-with <owner email>
 ```
 

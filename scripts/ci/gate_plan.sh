@@ -1,4 +1,4 @@
-# closet's plan, sourced by devkit/bin/check_tree.sh, which linux-box's publisher
+# closet's plan, sourced by devkit/bin/check_tree.sh, which the publisher
 # (devkit/bin/publish.sh) runs on main at most once per 3 h window: every job on a clean
 # worktree, and only a green commit ships (a red one files `main-red`). No pre-merge gate (devkit
 # 2026-11-02). devkit's default plan (devkit/bin/_paths_lib.sh) owns the area groups; closet adds

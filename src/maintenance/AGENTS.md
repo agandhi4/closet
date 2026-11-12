@@ -22,14 +22,14 @@
 
 ```
 npm run maintenance:reconcile [-- --dry-run] [--force]
-                              # one storage reconciliation pass from dist/ (build first). On linux-box:
+                              # one storage reconciliation pass from dist/ (build first). In production:
                               # docker exec closet npm run maintenance:reconcile. Exits 3 when the
                               # guard refused; --force deletes anyway (dry-run first). Like set-password it
                               # never migrates: a database behind the build is refused (start the server first)
 npm run user:set-password -- <email>
                               # sets a locked-out user's password (read without echo, or piped
                               # stdin), signs out their sessions, revokes their access tokens and
-                              # push subscriptions. On linux-box:
+                              # push subscriptions. In production:
                               # docker exec -it closet npm run user:set-password -- <email>
 npm run push:revoke-all       # removes every account's push subscriptions: the step after rotating
                               # ACCESS_TOKEN_SECRET (Deployment). docker exec closet npm run push:revoke-all

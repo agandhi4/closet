@@ -2,7 +2,7 @@
 
 # Thin callers: the npm scripts in package.json stay the definitions of each check. These
 # targets add only what a clean machine needs around them (a throwaway Postgres, browsers,
-# e2e env), so the PR gate (scripts/ci/gate_plan.sh), linux-box's publisher (`make publish`) and
+# e2e env), so the PR gate (scripts/ci/gate_plan.sh), the publisher host (`make publish`) and
 # ci.yml's manual jobs run the same thing.
 # Run `make ci-deps` once first; the other ci-* targets assume node_modules.
 
@@ -65,7 +65,7 @@ help:
 	@echo "make pr BODY_FILE=<f> — push the branch and open its PR on origin [TITLE=…] [DRAFT=1]"
 	@echo "make review PR=<n>    — one local review round: claude -p over PR <n>'s diff, its record posted"
 	@echo "make merge PR=<n>     — squash-merge PR <n> once its review rounds allow it"
-	@echo "make publish          — linux-box's timer only: move ghcr.io/kashhq/closet:latest to the newest green main"
+	@echo "make publish          — the publisher host's timer only: move ghcr.io/kashhq/closet:latest to the newest green main"
 	@echo "make devkit-sync      — pull the latest kashhq/devkit into devkit/ and record it in .devkit-rev"
 	@echo "make devkit-check     — fail if devkit/ differs from .devkit-rev (part of ci-quick)"
 	@echo "make toolchain-check  — fail if a Dockerfile or workflow disagrees with the Node in .nvmrc (part of ci-quick)"
@@ -161,7 +161,7 @@ screenshots:
 
 # Build only (devkit-check's publish contract): the image's own boot (health, migrations, SIGTERM)
 # is ci-smoke, which check_tree and devkit/bin/publish.sh run next. Plain `docker build` for the
-# host's platform: linux-box (amd64) builds the image it ships.
+# host's platform: the publisher host (amd64) builds the image it ships.
 ci-image:
 	DOCKER_CALL_TIMEOUT=900 devkit/bin/docker_bounded.sh build --build-arg APP_VERSION=$(CI_BUILD_VERSION) -t $(CI_IMAGE) .
 
@@ -207,7 +207,7 @@ merge: ; devkit/bin/pr_merge.sh "$(PR)"
 
 review: ; devkit/bin/pr_review.sh "$(PR)"
 
-# Run by homelab's devkit-publish@closet.timer on linux-box (check_tree at most once per 3 h window), never by hand on a Mac
+# Run by homelab's devkit-publish@closet.timer on the publisher host (check_tree at most once per 3 h window), never by hand on a Mac
 # (it refuses anything but native amd64). devkit README "Publish".
 publish:
 	devkit/bin/publish.sh .

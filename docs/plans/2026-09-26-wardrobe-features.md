@@ -75,7 +75,7 @@ form, prefilled, for review. Nothing is saved until the form is posted.
   in any app sends its link straight to this flow. iOS does not support share targets for web apps;
   there it is copy the link, then paste.
 
-**Outbound fetch is an SSRF surface, and linux-box can reach the NAS, pgvault and the router.**
+**Outbound fetch is an SSRF surface, and the production host can reach the NAS, pgvault and the router.**
 Push's guard is an allow-list of push services and does not fit arbitrary retailer hosts. A new
 `src/web/security/outbound-fetch.ts` is the only way the server fetches a user-supplied URL:
 

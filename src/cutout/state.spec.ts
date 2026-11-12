@@ -9,7 +9,7 @@ import {
   transition,
 } from './state';
 
-const WORKER = 'linux-box:1:0a1b2c3d';
+const WORKER = 'worker-host:1:0a1b2c3d';
 const KEY = 'a1b2c3d4e5f6';
 
 const at = (

@@ -40,9 +40,20 @@ done < <(grep -oE '`[A-Za-z0-9_./-]+/(AGENTS|CLAUDE)\.md`' AGENTS.md | tr -d '`'
 # repo"): this repo is public and forked, and production's addresses, paths and hostnames belong in
 # homelab's stacks/closet/README.md. Refused: a 192.168/16 address outside a spec (an SSRF spec
 # needs one; a docs example uses 192.0.2.0/24), a NAS volume or the owner's home path, a dynamic-DNS
-# or tailnet suffix, and the owner's public domain. devkit/ is vendored: a hit there is fixed in
-# devkit and synced. This file is skipped: it quotes the patterns.
+# or tailnet suffix, the owner's public domain, and a tailnet hostname (2026-11-12, "Tailnet
+# hostnames are role words"), specs included: a fixture host is `nas.example`. A bare `<name>.box`
+# is refused in Markdown and after `://`, `@` or a backtick elsewhere, since `thumb.box` is also a
+# property access; a named host needs a left boundary so `debug.box` is not one. The dated history
+# (decisions.md, PROJECT_LOG.md, docs/reports/, docs/audits/) is exempt from the hostnames only: it
+# is not rewritten. devkit/ is vendored: a hit there is fixed in devkit and synced. No `\b`: git
+# grep on macOS has no GNU regex extensions. This file is skipped: it quotes the patterns.
+closet_history=(':!docs/decisions.md' ':!docs/PROJECT_LOG.md' ':!docs/reports' ':!docs/audits')
 while IFS= read -r closet_leak; do
   docs_fail "public tree names homelab topology: $closet_leak (move it to homelab stacks/closet/README.md)"
-done < <(git grep -nIoE '192\.168\.[0-9]+\.[0-9]+|\.dedyn\.io|\.duckdns\.org|\.ts\.net|kashhq\.com|/volume[0-9]+/|/(home|Users)/aakash' \
-  -- . ':!devkit' ':!*.spec.ts' ':!scripts/ci/docs_rules.sh' | cut -d: -f1,2)
+done < <({
+  git grep -nIoE '192\.168\.[0-9]+\.[0-9]+|\.dedyn\.io|\.duckdns\.org|\.ts\.net|kashhq\.com|/volume[0-9]+/|/(home|Users)/aakash' \
+    -- . ':!devkit' ':!*.spec.ts' ':!scripts/ci/docs_rules.sh'
+  git grep -nIoiE 'linux-box|((^|[^a-z0-9_.-])(nas|bug|closet|redlib)|(://|@|`)[a-z0-9.-]+)\.box([^a-z0-9_]|$)' \
+    -- . ':!devkit' ':!scripts/ci/docs_rules.sh' "${closet_history[@]}"
+  git grep -nIoiE '[a-z0-9-]+\.box([^a-z0-9_]|$)' -- '*.md' ':!devkit' "${closet_history[@]}"
+} | cut -d: -f1,2 | sort -u)
