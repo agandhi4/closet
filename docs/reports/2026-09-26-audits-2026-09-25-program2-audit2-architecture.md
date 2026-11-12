@@ -1,6 +1,6 @@
 # Closet: architecture and simplification audit (2026-09-25, second pass)
 
-Read-only pass over `/home/aakash/projects/closet` at `6a5e64f`. It does not repeat what already shipped: the SSE chat demo, the file-gallery routes, landing/privacy/terms, the single-session resolution, `resolveAccess`, image variants, indexes, transactional writes and storage reconciliation. Line numbers are from the working tree.
+Read-only pass over the closet checkout at `6a5e64f`. It does not repeat what already shipped: the SSE chat demo, the file-gallery routes, landing/privacy/terms, the single-session resolution, `resolveAccess`, image variants, indexes, transactional writes and storage reconciliation. Line numbers are from the working tree.
 
 Every "zero callers" claim was checked with grep across `src/`, `views/`, `public/js/`, `test/` and `scripts/`. `npx tsc --noEmit --incremental false` ran without writing any files (see A4).
 
@@ -110,7 +110,7 @@ A suggested order is at the end.
 
 **Options**
 - **(a) Recommended: real login protection only.** Use `ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 10 }])`, drop the global `APP_GUARD`, and put `@UseGuards(ThrottlerGuard)` on `postLogin` (and the change-password POST from A2). Add one integration spec asserting a 429 on the sixth bad login. That needs `app.inject` with `remoteAddress`, or `X-Forwarded-For` from a trusted proxy.
-- **(b) Delete the throttler.** Remove `@nestjs/throttler`, the guard provider and the decorators, and say so in CLAUDE.md. Defensible only if the HTTPS name is tailnet-only. That is not verifiable from the repo: a DSM reverse-proxy rule exists for `closet.kashhq.dedyn.io`, so confirm whether port 443 is forwarded from the WAN.
+- **(b) Delete the throttler.** Remove `@nestjs/throttler`, the guard provider and the decorators, and say so in CLAUDE.md. Defensible only if the HTTPS name is tailnet-only. That is not verifiable from the repo: a DSM reverse-proxy rule exists for `<host>`, so confirm whether port 443 is forwarded from the WAN.
 
 ---
 

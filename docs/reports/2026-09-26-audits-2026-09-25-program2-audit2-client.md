@@ -1,6 +1,6 @@
 # Closet client-side performance audit, pass 2 (phone-perceived)
 
-Date: 2026-09-25. Tree: `/home/aakash/projects/closet`, read-only (no builds run in the repo). Baseline: CLAUDE.md,
+Date: 2026-09-25. Tree: the closet checkout, read-only (no builds run in the repo). Baseline: CLAUDE.md,
 `docs/audits/2026-09-25/audit-frontend.md`, `audit-remeasure.md`. This pass leaves out what already shipped:
 thumbnails, immutable `?v=` statics, the SW precache and SWR assets, NetworkFirst pages with a 3 s timeout, the lazy model,
 the wardrobe fragment, the update toast and the heartbeat. It covers what a thumb on a phone still waits for.

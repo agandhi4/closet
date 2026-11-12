@@ -1,6 +1,6 @@
 # Closet: correctness and security audit (2026-09-25, pass 2)
 
-Scope: /home/aakash/projects/closet, read-only static trace from every controller route to the data source. Nothing was built, run, or sent to production.
+Scope: <checkout>, read-only static trace from every controller route to the data source. Nothing was built, run, or sent to production.
 Labels: **CONFIRMED** means the code path was traced end to end, with library behaviour checked in node_modules where it mattered. **PLAUSIBLE** means the logic points to a defect I could not fully prove statically.
 
 Note: `docs/audits/2026-09-25/audit-request.md` describes an older revision. The triple JWT verification, the duplicated ownership checks and the loopback-only trustProxy it lists are already fixed: `AuthContextService` runs once per request, `WardrobeShareService.resolveAccess` is the single ownership check, and `TRUSTED_PROXIES` is configurable. Those items are not repeated here.
@@ -14,7 +14,7 @@ Note: `docs/audits/2026-09-25/audit-request.md` describes an older revision. The
 - `DATA_PATH` also holds `app.log` (`src/app.module.ts:54-65`). Under SQLite, the default driver, it also holds `sqlite3.db`, `-wal` and `-shm` (`app.module.ts:119-121`).
 - pino-http's default request serializer logs every request header. The local `data/app.log` has 1634 lines containing `"cookie":"access_token=eyJ..."`.
 - `/file/` is a static prefix (`src/static-prefixes.ts:340`). No guard applies, and the Caddy route exposes it on the public hostname.
-- **Scenario:** an anonymous user runs `curl https://closet.kashhq.dedyn.io/file/app.log`, collects every household member's `access_token` (365-day JWTs, `auth.module.ts:231`), sets the cookie and gets full account access. Changing the password is the only way to revoke a token, and there is no in-app password change (see H4). On a SQLite deployment, `/file/sqlite3.db` also returns every bcrypt hash and all data.
+- **Scenario:** an anonymous user runs `curl https://<host>/file/app.log`, collects every household member's `access_token` (365-day JWTs, `auth.module.ts:231`), sets the cookie and gets full account access. Changing the password is the only way to revoke a token, and there is no in-app password change (see H4). On a SQLite deployment, `/file/sqlite3.db` also returns every bcrypt hash and all data.
 - **Fix:**
   1. Serve only names that match `STORED_NAME` from `src/file/image-variant.ts:192` (`<uuid>(-nobg|-thumb)?.webp`). Reuse `parseStoredName` in `FileController.sendVariant` instead of the loose regex.
   2. Move photos to their own subdirectory (`DATA_PATH/photos`) so the storage root never shares a directory with the log or the database.
@@ -62,7 +62,7 @@ Note: `docs/audits/2026-09-25/audit-request.md` describes an older revision. The
   - `GET /auth/logout`.
 - `DELETE` routes are safe because they need a preflight.
 - **Fix:**
-  - Set `sameSite: 'lax'` on both `setCookie` calls and on `clearCookie`. dedyn.io is on the Public Suffix List, so other deSEC hosts count as cross-site. This does not conflict with the no-`Secure` rule.
+  - Set `sameSite: 'lax'` on both `setCookie` calls and on `clearCookie`. the canonical host's parent domain is on the Public Suffix List, so its other hosts count as cross-site. This does not conflict with the no-`Secure` rule.
   - Also reject state-changing requests whose `Origin`/`Sec-Fetch-Site` is cross-site, in the preHandler, or require `HX-Request` on htmx-only routes.
   - Require the current password on `update-email`.
 

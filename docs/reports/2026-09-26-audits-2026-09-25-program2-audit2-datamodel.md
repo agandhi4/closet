@@ -2,7 +2,7 @@
 
 Date: 2026-09-25. Scope: every entity in `src/dal/entity/`, both migration trees, both snapshots, and every service that queries them. Read-only; no build, no production access. Nothing below repeats the shipped items in `docs/audits/2026-09-25/audit-data.md` (FK indexes, the CONCURRENTLY backfill, DISTINCT filters, transactional photo writes, single session lookup). Where the shipped index set has a flaw, it is listed as new.
 
-All paths are relative to `/home/aakash/projects/closet`.
+All paths are relative to the closet checkout.
 
 ---
 
