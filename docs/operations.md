@@ -6,7 +6,7 @@ Runs as the `closet` stack on **linux-box** (the homelab compute host; `kashhq/h
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | URL (canonical, PWA) | `https://closet.kashhq.dedyn.io` (private: Pi-hole/tailnet split DNS only, no public records)                                                                                                                                                                                                                                  |
 | URL (HTTP twin)      | `http://closet.box` (no service worker or push here; secure context required)                                                                                                                                                                                                                                                  |
-| Image                | `ghcr.io/agandhi4/closet:latest`, amd64, published by linux-box's `make publish` (≤ once per 3 h) once main is green and the image boots (smoke test), when a merge to `main` changes an image input                                                                                                                           |
+| Image                | `ghcr.io/kashhq/closet:latest`, amd64, published by linux-box's `make publish` (≤ once per 3 h) once main is green and the image boots (smoke test), when a merge to `main` changes an image input                                                                                                                           |
 | Container            | port 3000, uid 1000 (Permissions), `mem_limit 5g` (the model child's native memory is outside Node's heap)                                                                                                                                                                                                                                             |
 | Database             | pgvault Postgres on the NAS, `closet_db` / `closet_user`, reached over the LAN at `192.168.8.173:5433`                                                                                                                                                                                                                         |
 | Photos               | `DATA_PATH` → the NAS shared folder `closet` (`/volume1/closet`), NFS-mounted on linux-box at `/mnt/closet` (fstab automount, same options as Immich's library)                                                                                                                                                                |
@@ -61,7 +61,7 @@ The boot log says `Order mail: on (Fastmail, every 5 min, N trusted senders)`; e
 
 **Rotating the secret.** Set a new `ACCESS_TOKEN_SECRET` (`openssl rand -hex 32`) in `closet.env`, redeploy (`./deploy.sh up linux-box closet`), then `docker exec closet npm run push:revoke-all`: the rotation signed everyone out, and a device left closed would otherwise keep receiving its account's reminders until it next opened the app (the login page drops its browser subscription then). After the restart, not before: a session still open re-sends its subscription on its next page. Everyone signs in again and re-enables notifications and reminders on the profile. Personal access tokens are unaffected (Request security, Session revocation).
 
-Deploy now (instead of waiting for the hourly timer): on linux-box, `docker pull ghcr.io/agandhi4/closet:latest && cd /docker && git pull --ff-only && ./deploy.sh up linux-box closet` (`up` does not pull images). Data fixes go through pgvault (read freely, write only when asked, inside a transaction).
+Deploy now (instead of waiting for the hourly timer): on linux-box, `docker pull ghcr.io/kashhq/closet:latest && cd /docker && git pull --ff-only && ./deploy.sh up linux-box closet` (`up` does not pull images). Data fixes go through pgvault (read freely, write only when asked, inside a transaction).
 
 ## Permissions
 
@@ -79,7 +79,7 @@ sudo chown -R 1000:1000 /srv/docker/closet/models
 # homelab docs/closet-move-to-linux-box.md), so uid 1000 already writes it and a chown there is
 # refused or ignored. Prove both as uid 1000 with the image itself:
 docker run --rm --user 1000:1000 -v /mnt/closet:/d -v /srv/docker/closet/models:/m --entrypoint sh \
-  ghcr.io/agandhi4/closet:latest -c 'for d in /d /m; do touch $d/.probe && rm $d/.probe || exit 1; done; echo writable'
+  ghcr.io/kashhq/closet:latest -c 'for d in /d /m; do touch $d/.probe && rm $d/.probe || exit 1; done; echo writable'
 ```
 
 If `/mnt/closet` fails that probe, the DSM rule is not squashing: restore "Map all users to admin", or with "No mapping" run `sudo chown -R 1000:1000 /mnt/closet` from linux-box.
