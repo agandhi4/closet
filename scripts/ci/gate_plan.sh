@@ -28,6 +28,9 @@
 # extra, then METRICS).
 # shellcheck disable=SC2034  # read by the sourcing skeleton and devkit_default_gate_plan
 GATE_SLUG=kashhq/closet
+# Public and forked: devkit-check's check_public_topology refuses homelab topology (devkit 2026-11-12).
+# shellcheck disable=SC2034
+GATE_PUBLIC=1
 # What devkit/bin/publish.sh pushes to (read as this literal line, never sourced).
 # shellcheck disable=SC2034
 PUBLISH_IMAGE=ghcr.io/kashhq/closet

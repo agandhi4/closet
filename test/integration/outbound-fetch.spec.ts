@@ -290,8 +290,8 @@ describe('outbound fetch (SSRF guard)', () => {
   describe('refuses before connecting', () => {
     it.each([
       ['a loopback name', 'internal.test', PRIVATE_IP],
-      ['an RFC 1918 name', 'nas.test', '192.168.1.20'],
-      ['a Tailscale name', 'tailnet.test', '100.100.1.1'],
+      ['an RFC 1918 name', 'nas.test', '192.168.1.20'], // topology example
+      ['a Tailscale name', 'tailnet.test', '100.100.1.1'], // topology example
       ['a cloud metadata name', 'metadata.test', '169.254.169.254'],
       ['an IPv6 loopback name', 'v6.test', '::1'],
       ['an IPv4-mapped loopback name', 'mapped.test', '::ffff:127.0.0.1'],
