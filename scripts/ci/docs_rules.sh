@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# closet's extra docs rule, sourced by devkit/bin/docs_check.sh after its standard checks (pair
+# closet's extra docs rules, sourced by devkit/bin/docs_check.sh after its standard checks (pair
 # shape, size caps, decisions log, retired tools); contract in that script's header. Uses its
 # $agents_files (every tracked AGENTS.md, root first-class) and docs_fail.
 #
@@ -35,3 +35,14 @@ fi
 while IFS= read -r closet_named; do
   [ -e "$closet_named" ] || docs_fail "AGENTS.md names $closet_named, which does not exist"
 done < <(grep -oE '`[A-Za-z0-9_./-]+/(AGENTS|CLAUDE)\.md`' AGENTS.md | tr -d '`' | sort -u)
+
+# The public tree names no homelab topology (2026-11-12, "Homelab topology lives in the homelab
+# repo"): this repo is public and forked, and production's addresses, paths and hostnames belong in
+# homelab's stacks/closet/README.md. Refused: a 192.168/16 address outside a spec (an SSRF spec
+# needs one; a docs example uses 192.0.2.0/24), a NAS volume or the owner's home path, a dynamic-DNS
+# or tailnet suffix, and the owner's public domain. devkit/ is vendored: a hit there is fixed in
+# devkit and synced. This file is skipped: it quotes the patterns.
+while IFS= read -r closet_leak; do
+  docs_fail "public tree names homelab topology: $closet_leak (move it to homelab stacks/closet/README.md)"
+done < <(git grep -nIoE '192\.168\.[0-9]+\.[0-9]+|\.dedyn\.io|\.duckdns\.org|\.ts\.net|kashhq\.com|/volume[0-9]+/|/(home|Users)/aakash' \
+  -- . ':!devkit' ':!*.spec.ts' ':!scripts/ci/docs_rules.sh' | cut -d: -f1,2)
