@@ -27,7 +27,7 @@
 # change. Order: deps, quick, image, db, e2e, metrics (the default plan runs its groups, then the
 # extra, then METRICS).
 # shellcheck disable=SC2034  # read by the sourcing skeleton and devkit_default_gate_plan
-GATE_SLUG=agandhi4/closet
+GATE_SLUG=kashhq/closet
 # What devkit/bin/publish.sh pushes to (read as this literal line, never sourced).
 # shellcheck disable=SC2034
 PUBLISH_IMAGE=ghcr.io/agandhi4/closet
