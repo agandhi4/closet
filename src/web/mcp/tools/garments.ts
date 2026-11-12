@@ -75,7 +75,7 @@ import {
   type ToolContext,
   wardrobeFor,
 } from '../tool';
-import { isoDate, ownerIdInput, priceInput, rowId } from './common';
+import { centsPriceInput, isoDate, ownerIdInput, rowId } from './common';
 import { garmentNotFound } from '../../wardrobe/garment-access';
 import { addGarmentFromLink, refusedForm } from './link-import';
 
@@ -286,7 +286,7 @@ const OwnFieldInput = {
   brand: property(z.string().max(BRAND_MAX), 'The brand.'),
   notes: property(z.string().max(TEXT_MAX), 'Free notes.'),
   price: property(
-    priceInput(),
+    centsPriceInput(),
     'What one copy cost, in US dollars (at most two decimals).',
   ),
   acquiredOn: property(
@@ -297,7 +297,7 @@ const OwnFieldInput = {
 
 type GarmentChanges = PropertyChanges & {
   [K in keyof typeof OwnFieldInput]?: z.output<(typeof OwnFieldInput)[K]>;
-} & { condition?: Condition; conditionNote?: string };
+} & { condition?: Condition; conditionNote?: string | null };
 
 /** The input's property names as the garment model names them. */
 const PROPERTY_OF: Record<keyof typeof PropertyInput, GarmentProperty> = {
@@ -376,16 +376,15 @@ function changedValues(
       category,
       changes,
     ),
-    // The note goes with the condition it describes, as the garment
-    // page's control posts them; a note alone changes nothing.
-    care:
-      changes.condition === undefined
-        ? stored.care
-        : {
-            ...stored.care,
-            condition: changes.condition,
-            conditionNote: changes.conditionNote ?? '',
-          },
+    // Each as stored unless given; the reader keeps the note only with a
+    // problem (readCondition), so `good` clears it.
+    care: {
+      ...stored.care,
+      ...(changes.condition !== undefined && { condition: changes.condition }),
+      ...(changes.conditionNote !== undefined && {
+        conditionNote: changes.conditionNote ?? '',
+      }),
+    },
   };
 }
 
@@ -457,11 +456,12 @@ function sameValue(stored: unknown, read: unknown): boolean {
 }
 
 /**
- * The property names the save did not keep: given, but the garment's role
- * (the new one, if the category changes) does not have them; or set before
- * and dropped by a new category, whose role does not have them or whose
- * types do not include the stored type. A type given that is not of the
- * category was refused before (checkedType).
+ * The property names the save did not keep: a value given (not a clear:
+ * null, false, no materials) that the garment's role (the new one, if the
+ * category changes) does not have; or, not given, set before and dropped
+ * by a new category, whose role does not have it or whose types do not
+ * include the stored type. A type given that is not of the category was
+ * refused before (checkedType).
  */
 function ignoredProperties(
   garment: GarmentDetail,
@@ -478,13 +478,15 @@ function ignoredProperties(
       }
       return (
         !propertyApplies(property, read.category) &&
-        (changes[name] !== undefined || hasValue(garment[property]))
+        hasValue(
+          changes[name] === undefined ? garment[property] : changes[name],
+        )
       );
     },
   );
 }
 
-/** A stored property that is set: not null, not false, not an empty set. */
+/** A property value that is set: not null, not false, not an empty set. */
 function hasValue(value: unknown): boolean {
   return (
     value !== null &&
@@ -768,7 +770,7 @@ export const garmentTools = [
     name: 'update_garment',
     title: 'Update a garment',
     description:
-      "WRITES: changes a garment's own fields (name, category, colours, size, brand, notes, price, acquiredOn), its properties, care label and condition, with the garment form's rules; anything not given stays as stored, and null clears a field (category: never). A refused value (a blank category, a bad date) changes nothing. Properties the garment's role does not have (a sleeve on shoes), and those a new category's role does not have, are not kept and are named in `ignored`. Needs your own wardrobe or a MANAGE share. Does not archive or delete.",
+      "WRITES: changes a garment's own fields (name, category, colours, size, brand, notes, price, acquiredOn), its properties, care label and condition, with the garment form's rules; anything not given stays as stored, and null clears a field (category: never). The condition note stays as stored unless given, is kept only while the condition is a problem (good clears it), and null clears it. A refused value (a blank category, a bad date) changes nothing. A value for a property the garment's role does not have (a sleeve on shoes), and a stored one a new category's role does not have, are not kept and are named in `ignored`; clearing one (null, false) is not. Needs your own wardrobe or a MANAGE share. Does not archive or delete.",
     input: z.object({
       id: rowId(),
       ownerId: ownerIdInput,
@@ -781,8 +783,11 @@ export const garmentTools = [
       conditionNote: z
         .string()
         .max(CARE_NOTE_MAX)
+        .nullable()
         .optional()
-        .describe('What is wrong (kept only with a problem).'),
+        .describe(
+          'What is wrong: kept only while the condition is needs_repair or replace_soon. Absent keeps the stored note; null clears it.',
+        ),
     }),
     writes: true,
     idempotent: true,

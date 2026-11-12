@@ -15,6 +15,7 @@ import { acceptInvite, createInvite } from '../../src/web/sharing/queries';
 import {
   createTestApp,
   type TestApp,
+  recordQueries,
   TEST_PASSWORD,
   uniqueClient,
   userIdOf,
@@ -401,6 +402,8 @@ describe('the MCP endpoint', () => {
         waterResistant: true,
         materials: ['leather'],
         sleeve: 'long',
+        // A clear of what the role lacks is no ignore.
+        fit: null,
         condition: 'needs_repair',
         conditionNote: 'Heel worn down',
       });
@@ -458,6 +461,18 @@ describe('the MCP endpoint', () => {
         sourceUrl: 'https://shop.example/linen',
         price: '80',
       });
+      // What a save most easily wipes: the weight (the form shows ounces),
+      // the materials, the condition's note, a bought item's replaced garment.
+      await t.db
+        .update(garment)
+        .set({
+          fabricWeight: 203,
+          materials: ['linen'],
+          condition: 'needs_repair',
+          conditionNote: 'Frayed cuff',
+          replacesGarmentId: garments.tee.id,
+        })
+        .where(eq(garment.id, id));
       const row = async () => {
         const [stored] = await t.db
           .select({
@@ -472,6 +487,11 @@ describe('the MCP endpoint', () => {
             sourceUrl: garment.sourceUrl,
             type: garment.type,
             warmth: garment.warmth,
+            fabricWeight: garment.fabricWeight,
+            materials: garment.materials,
+            condition: garment.condition,
+            conditionNote: garment.conditionNote,
+            replacesGarmentId: garment.replacesGarmentId,
           })
           .from(garment)
           .where(eq(garment.id, id));
@@ -482,10 +502,14 @@ describe('the MCP endpoint', () => {
         sourceUrl: 'https://shop.example/linen',
         type: 'shirt',
         warmth: 2,
+        fabricWeight: 203,
+        materials: ['linen'],
+        condition: 'needs_repair',
+        replacesGarmentId: garments.tee.id,
       };
 
       await tool(t, token, 'update_garment', { id, name: 'Linen Overshirt' });
-      expect(await row()).toEqual({
+      const renamed = {
         ...kept,
         name: 'Linen Overshirt',
         colors: ['white'],
@@ -494,6 +518,26 @@ describe('the MCP endpoint', () => {
         notes: 'Soft',
         price: '80.00',
         acquiredOn: null,
+        conditionNote: 'Frayed cuff',
+      };
+      expect(await row()).toEqual(renamed);
+      // A repeat, and the condition sent again without its note, write
+      // nothing: the note stays.
+      const repeat = await recordQueries(async () => {
+        await tool(t, token, 'update_garment', {
+          id,
+          name: 'Linen Overshirt',
+          condition: 'needs_repair',
+        });
+      });
+      expect(
+        repeat.sql.filter((sql) => /^update "garment"/i.test(sql)),
+      ).toEqual([]);
+      expect(await row()).toEqual(renamed);
+      // A note alone changes the note of a garment with a problem.
+      await tool(t, token, 'update_garment', {
+        id,
+        conditionNote: 'Both cuffs frayed',
       });
 
       const updated = await tool<{ garment: Record<string, unknown> }>(
@@ -519,6 +563,7 @@ describe('the MCP endpoint', () => {
         notes: 'Runs large',
         price: '49.90',
         acquiredOn: '2026-03-01',
+        conditionNote: 'Both cuffs frayed',
       };
       expect(await row()).toEqual(edited);
       // The answer is what was stored.
@@ -535,6 +580,8 @@ describe('the MCP endpoint', () => {
         { category: ' ' },
         { acquiredOn: '2026-02-30' },
         { price: -1 },
+        // Never rounded to 20.00.
+        { price: 19.999 },
       ]) {
         const answer = await callTool(t, token, 'update_garment', {
           id,
@@ -558,6 +605,7 @@ describe('the MCP endpoint', () => {
         notes: null,
         price: null,
         acquiredOn: null,
+        conditionNote: null,
       });
       expect(await row()).toEqual({
         ...kept,
@@ -568,6 +616,7 @@ describe('the MCP endpoint', () => {
         notes: null,
         price: null,
         acquiredOn: null,
+        conditionNote: null,
       });
     });
 
