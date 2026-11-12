@@ -142,7 +142,7 @@ export function createSessionResolver(deps: {
 /**
  * The session cookie. httpOnly (no script reads it), SameSite=Lax (not sent
  * on cross-site POSTs; the same-origin hook is the other half of the CSRF
- * defence), and deliberately not Secure: `http://closet.box` is plain HTTP
+ * defence), and deliberately not Secure: the HTTP twin is plain HTTP
  * by design, and a Secure cookie would never be stored there (AGENTS.md,
  * Conventions). Max-Age is in seconds (@fastify/cookie passes it through as
  * the attribute) and matches the token's own expiry.
@@ -190,7 +190,7 @@ export function startSession(
  * sign-out navigations, an auth POST answered with X-Session-Ended, and the
  * signed-out page a revoked session lands on). Cookies are untouched, so a
  * cookie set on the same answer (startSession) survives it. Ignored outside
- * a secure context (`http://closet.box`) and before Safari 17.
+ * a secure context (the HTTP twin) and before Safari 17.
  */
 function clearHttpCache(reply: FastifyReply): void {
   reply.header('Clear-Site-Data', '"cache"');

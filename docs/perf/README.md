@@ -93,7 +93,7 @@ npm run audit:pages -- --out docs/perf/baseline
 
 ## Noise
 
-Measured on linux-box (Ryzen 7 8845HS, 16 threads, pgvault-dev on Postgres
+Measured on the production host (Ryzen 7 8845HS, 16 threads, pgvault-dev on Postgres
 18) on 2026-09-28, with two runs of the same build one after the other
 (the baseline, then `--compare` against it), while other agents' test runs
 shared the box (load average 5 to 15). The change of each step's p50 from

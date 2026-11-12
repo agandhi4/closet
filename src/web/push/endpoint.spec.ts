@@ -18,7 +18,7 @@ describe('isPushServiceEndpoint', () => {
     'https://localhost/push',
     'https://10.0.0.5/push',
     'https://pgvault/push',
-    'https://nas.box/push',
+    'https://nas.example/push',
     'http://fcm.googleapis.com/fcm/send/abc',
     'https://fcm.googleapis.com:8443/fcm/send/abc',
     'https://user:pass@fcm.googleapis.com/fcm/send/abc',

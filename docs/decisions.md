@@ -358,3 +358,8 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Why:** the repo is public and forked. `docs/operations.md` named pgvault's LAN address, the NAS volume paths, the Pi-hole and Caddy files, the private URL and the public MCP host's chain; the September reports carried the owner's home paths.
 **Decision:** production's topology moved to homelab's `stacks/closet/README.md` (private); `operations.md` keeps what holds for any install, with placeholders. The reports were scrubbed, not deleted: code cites them. `docs_rules.sh` (docs-check) refuses a 192.168/16 address outside a spec, NAS volume and home paths, dynamic-DNS and tailnet suffixes and the owner's domain; `devkit/` is exempt (fixed in devkit, then synced).
 **Consequence:** git history still holds all of it (no credentials ever did); a history rewrite stays an owner decision. A production change edits the homelab README.
+
+## 2026-11-12 — Tailnet hostnames are role words
+**Why:** after #477 the public tree still named the homelab's tailnet hosts (the publisher, the NAS, the error tracker, the HTTP twin) in docs, comments and spec fixtures.
+**Decision:** they are role words ("the production host", "the publisher host", "the error tracker", "the HTTP twin"); a fixture host is `<role>.example` (reserved, never resolves). The real names live in homelab's `stacks/closet/README.md`. `docs_rules.sh`'s topology rule now also refuses them, specs included; the dated history files are exempt from the hostnames since they are not rewritten.
+**Consequence:** a bare `<name>.box` is refused only in Markdown or URL/backtick context, since code has `.box` properties. The rule avoids `\b`: macOS git grep lacks it and matched nothing.

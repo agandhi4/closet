@@ -169,13 +169,17 @@ describe('loadConfig', () => {
   it('takes a Sentry DSN, treats an empty one as unset and refuses anything else', () => {
     expect(load({}).SENTRY_DSN).toBe('');
     expect(load({ SENTRY_DSN: '' }).SENTRY_DSN).toBe('');
-    expect(load({ SENTRY_DSN: 'http://abc123@bug.box/3' }).SENTRY_DSN).toBe(
-      'http://abc123@bug.box/3',
-    );
+    expect(
+      load({ SENTRY_DSN: 'http://abc123@tracker.example/3' }).SENTRY_DSN,
+    ).toBe('http://abc123@tracker.example/3');
     expect(
       load({ SENTRY_DSN: 'https://abc@sentry.example/prefix/12' }).SENTRY_DSN,
     ).toBe('https://abc@sentry.example/prefix/12');
-    for (const bad of ['bug.box/3', 'http://bug.box/3', 'http://k@bug.box/']) {
+    for (const bad of [
+      'tracker.example/3',
+      'http://tracker.example/3',
+      'http://k@tracker.example/',
+    ]) {
       const problems = problemsOf({ ...REQUIRED, SENTRY_DSN: bad });
       expect(problems).toHaveLength(1);
       expect(problems[0]).toMatch(/^SENTRY_DSN: /);
