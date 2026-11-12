@@ -163,6 +163,38 @@ describe('garment properties', () => {
       });
     });
 
+    it('keeps an untouched weight’s grams; a changed one converts (#472)', async () => {
+      // 202 gsm shows as 6.0 oz, and ozToGsm(6) is 203: an edit of the
+      // name alone must not move it.
+      const id = await create({
+        ...TEE,
+        fabricWeight: '202',
+        fabricWeightUnit: 'gsm',
+      });
+      const form = await t.inject({
+        method: 'GET',
+        url: `/wardrobe/${id}/edit`,
+      });
+      expect(form.body).toMatch(/name="fabricWeight"[^>]*value="6"/);
+      expect(form.body).toMatch(/name="presetWeight" value="202"/);
+      const edit = (fabricWeight: string) =>
+        post(`/wardrobe/${id}`, {
+          ...TEE,
+          name: 'Renamed tee',
+          fabricWeight,
+          presetCategory: 'tops',
+          presetType: 't-shirt',
+          presetWeight: '202',
+        });
+      expect((await edit('6')).statusCode).toBe(302);
+      expect(await row(id)).toMatchObject({
+        name: 'Renamed tee',
+        fabricWeight: 202,
+      });
+      await edit('6.5');
+      expect((await row(id)).fabricWeight).toBe(220);
+    });
+
     it('clears properties a current form sends empty', async () => {
       const id = await create(TEE);
       await post(`/wardrobe/${id}`, {
@@ -291,6 +323,19 @@ describe('garment properties', () => {
       });
       expect(res.body).toMatch(/name="warmth" value="3"[^>]*checked/);
       expect(res.body).toMatch(/name="presetWeight" value="203"/);
+    });
+
+    it('keeps the shown weight’s grams through a type change (#472)', async () => {
+      const res = await fragment({
+        category: 'tops',
+        type: 'sweater',
+        fabricWeight: '6',
+        fabricWeightUnit: 'oz',
+        presetCategory: 'tops',
+        presetType: 't-shirt',
+        presetWeight: '202',
+      });
+      expect(res.body).toMatch(/name="presetWeight" value="202"/);
     });
 
     it('keeps a warmth the user chose', async () => {

@@ -708,13 +708,33 @@ function asText(
 }
 
 /**
- * A typed weight in grams per square metre: null when empty, a message
- * when it is not a number or outside FABRIC_WEIGHT_GSM (named in the unit
- * the person typed).
+ * A posted weight's grams. `shownGsm` is the hidden `presetWeight`: the
+ * grams behind the weight the form showed. Ounces are shown to 0.1 (about
+ * 3.4 gsm), so 202 gsm shows as 6.0 oz and `ozToGsm(6)` is 203: ounces that
+ * still read as `shownGsm` keep it, or every save and every properties
+ * fragment would move a weight nobody touched (#472).
+ */
+function postedGsm(
+  value: number,
+  unit: FabricWeightUnit,
+  shownGsm: string,
+): number {
+  if (unit === 'gsm') return Math.round(value);
+  const shown = Number(shownGsm);
+  const untouched =
+    shownGsm !== '' && Number.isInteger(shown) && gsmToOz(shown) === value;
+  return untouched ? shown : ozToGsm(value);
+}
+
+/**
+ * A typed weight in grams per square metre (through `postedGsm`): null when
+ * empty, a message when it is not a number or outside FABRIC_WEIGHT_GSM
+ * (named in the unit the person typed).
  */
 function readFabricWeight(
   posted: string,
   unit: FabricWeightUnit,
+  shownGsm: string,
 ): { gsm: number | null } | { error: string } {
   const typed = posted.trim();
   if (!typed) return { gsm: null };
@@ -722,7 +742,7 @@ function readFabricWeight(
   if (!Number.isFinite(value) || value <= 0) {
     return { error: t('validation.FABRIC_WEIGHT_NUMBER') };
   }
-  const gsm = unit === 'gsm' ? Math.round(value) : ozToGsm(value);
+  const gsm = postedGsm(value, unit, shownGsm);
   if (gsm < FABRIC_WEIGHT_GSM.min || gsm > FABRIC_WEIGHT_GSM.max) {
     const [min, max] =
       unit === 'gsm'
@@ -750,7 +770,11 @@ function readProperties(
   values: PropertyFormValues,
   category: string,
 ): { ok: true; fields: GarmentPropertyFields } | { ok: false; error: string } {
-  const weight = readFabricWeight(values.fabricWeight, values.fabricWeightUnit);
+  const weight = readFabricWeight(
+    values.fabricWeight,
+    values.fabricWeightUnit,
+    values.preset.weight,
+  );
   if ('error' in weight) return { ok: false, error: weight.error };
   /** `value` when the category's role has `property`, else not set. */
   const only = <T>(property: GarmentProperty, value: T | null): T | null =>
@@ -840,7 +864,11 @@ export function withPresets(
   category: string,
 ): PropertyFormValues {
   const type = findType(category, values.type)?.value ?? null;
-  const weight = readFabricWeight(values.fabricWeight, values.fabricWeightUnit);
+  const weight = readFabricWeight(
+    values.fabricWeight,
+    values.fabricWeightUnit,
+    values.preset.weight,
+  );
   const gsm = 'gsm' in weight ? weight.gsm : null;
   const next = applyPresets(
     {
