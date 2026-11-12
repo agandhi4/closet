@@ -36,6 +36,23 @@
 # the sync that brings the rule breaks no consumer's ci-quick. DEVKIT_CHECK_TODAY overrides
 # today (tests). The docs set, hooks, Renovate and the gate plan have their own checks.
 #
+# Also: no tracked file outside devkit/, docs/decisions.md, docs/reports/ and docs/audits/ names
+# a retired GitHub owner (DEVKIT_RETIRED_OWNERS; agandhi4 became kashhq on 2026-11-12). A slug,
+# an image, a marketplace source or a link under the old name rests on GitHub's redirect, which
+# the container registry lacks and which lapses when the name is reused. A line that must spell
+# it (a LaunchAgent label a leftover plist still carries) ends with `# retired name`. A warning
+# before RETIRED_OWNER_FAILS_FROM, a failure from it (the baseline_file scheme), so the sync that
+# brings the rule breaks no consumer whose own rename PR is still open.
+#
+# Also, in a public repo (the plan's one literal `GATE_PUBLIC=1` line) and in a devkit checkout
+# (is_devkit_checkout: its tree is vendored into the public ones): no tracked file outside devkit/,
+# docs/reports/ and docs/audits/ names homelab topology (DEVKIT_TOPOLOGY_PATTERNS: host names, NAS
+# volume paths, home directories, private and tailnet addresses, dynamic-DNS and VPS names). A
+# public repo may be forked; the topology lives in the homelab repo (owner, 2026-11-12). It fails,
+# never warns. A line that must show one (a doc's example, a test's private address) ends with a
+# `topology example` comment (`# topology example`, `// topology example`, ...). In a
+# devkit checkout it is the only check that runs: the others judge a consumer's vendored tree.
+#
 # Also (a WARNING, exit 0): an alternative of the plan's GATE_IMAGE_EXCLUDE_PATHS whose every
 # tracked path the root .dockerignore already excludes. The gate reads .dockerignore itself
 # (_dockerignore.py), so such an alternative is a hand copy that drifts (redlib #23, locus #133).
@@ -136,6 +153,17 @@ ROOT=$(git rev-parse --show-toplevel)
 cd "$ROOT"
 HERE=$(dirname "${BASH_SOURCE[0]}")
 warn() { echo "devkit-check: WARNING: $*" >&2; }
+# Former GitHub owners of these repos (space-separated, compared without case as GitHub does):
+# check_retired_owner fails a file naming one, check_clone_config only warns on an origin still
+# pointing at one. The env override is for the tests, whose fixtures then never spell the real
+# name.
+DEVKIT_RETIRED_OWNERS=${DEVKIT_RETIRED_OWNERS:-agandhi4}
+readonly RETIRED_OWNER_FAILS_FROM=2026-11-19
+retired_owner() { # <owner>: is it a retired one
+  local owner
+  owner=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  [[ " $(printf '%s' "$DEVKIT_RETIRED_OWNERS" | tr '[:upper:]' '[:lower:]') " == *" $owner "* ]]
+}
 # warn_each <prefix> <suffix>: one warning per non-empty stdin line, between the two.
 warn_each() {
   local line
@@ -174,7 +202,7 @@ check_vendored_tree() {
   }
   if [ "$actual" != "$expected" ]; then
     echo "devkit-check: devkit/ (tree ${actual:0:7}) differs from the vendored ${expected:0:7}." >&2
-    echo "  Change it upstream in agandhi4/devkit, then run: make devkit-sync" >&2
+    echo "  Change it upstream in kashhq/devkit, then run: make devkit-sync" >&2
     exit 1
   fi
   if manifest=$(git show :devkit/VENDOR_PATHS 2>/dev/null); then
@@ -201,7 +229,7 @@ check_swift_format() {
     fi
     if [ "$(git rev-parse ":$copy")" != "$base_blob" ]; then
       echo "devkit-check: $copy differs from devkit/lint/swift-format.json (swift-format has no extends; the repo file is a copy)." >&2
-      echo "  Restore it: cp devkit/lint/swift-format.json $copy   A rule change goes upstream in agandhi4/devkit." >&2
+      echo "  Restore it: cp devkit/lint/swift-format.json $copy   A rule change goes upstream in kashhq/devkit." >&2
       copies=$((copies + 1))
     fi
   done <<<"$(swift_format_copies)"
@@ -269,6 +297,7 @@ check_plan() {
   plan_literal_setting "$plan" GATE_CODE_PATHS '[A-Za-z0-9._/-]+(,[A-Za-z0-9._/-]+)*' \
     'GATE_CODE_PATHS=<prefix>[,<prefix>...], unquoted (plugins/,templates/)'
   plan_literal_setting "$plan" GATE_KIT 1 'GATE_KIT=1, in a kit repo only'
+  plan_literal_setting "$plan" GATE_PUBLIC 1 'GATE_PUBLIC=1, in a public repo only'
   plan_image_excludes "$plan"
 }
 # check_publish_contract: the header's publish contract.
@@ -302,10 +331,21 @@ check_clone_config() {
   origin=$(origin_slug .) || return 0
   gh_default_heal . devkit-check || warn "cannot make origin gh's default repo (git above)"
   plan_slug=$(gate_plan_literal <(printf '%s\n' "$plan_src") GATE_SLUG)
-  if [ -n "$plan_slug" ] && ! slug_same "$plan_slug" "$origin"; then
-    echo "devkit-check: scripts/ci/gate_plan.sh: GATE_SLUG=$plan_slug is not origin's repo ($origin); the gate and make merge act on GATE_SLUG, so set it to origin's" >&2
-    exit 1
+  [ -n "$plan_slug" ] && ! slug_same "$plan_slug" "$origin" || return 0
+  # Offline, so no GitHub answer here (merge_rules' same_repo asks it): a checkout whose origin
+  # still names a retired owner of the plan's repo is stale, and a plan still naming one on a
+  # repointed checkout is the rename PR not yet merged; neither is a wrong plan (2026-11-12).
+  if slug_same "${plan_slug#*/}" "${origin#*/}"; then
+    if retired_owner "${origin%%/*}"; then
+      warn "origin still names the retired owner ${origin%%/*}; run: git remote set-url origin https://github.com/$plan_slug.git"
+      return 0
+    elif retired_owner "${plan_slug%%/*}"; then
+      warn "scripts/ci/gate_plan.sh still names the retired owner ${plan_slug%%/*}; set GATE_SLUG=$origin"
+      return 0
+    fi
   fi
+  echo "devkit-check: scripts/ci/gate_plan.sh: GATE_SLUG=$plan_slug is not origin's repo ($origin); the gate and make merge act on GATE_SLUG, so set it to origin's" >&2
+  exit 1
 }
 # baseline_file <path> <the command that creates it> <why>: the header's warn-then-fail rule. The
 # index under --staged, else the working tree, as the plan is read.
@@ -395,6 +435,71 @@ check_merge_path() {
   warn_each "AGENTS.md:" ": the Workflow section opens PRs with gh pr create; say make pr BODY_FILE=<file> (gh's default in a fork is its parent)" \
     <<<"$(workflow_gh_lines create <<<"$agents_src")"
 }
+check_retired_owner() {
+  # Whole names only: GitHub names are letters, digits and hyphens, so `agandhi42` is not one.
+  # The list is split on whitespace, so a stray space never becomes an empty alternative.
+  local hits owners today=${DEVKIT_CHECK_TODAY:-$(date +%F)}
+  read -ra owners <<<"$DEVKIT_RETIRED_OWNERS"
+  [ "${#owners[@]}" -gt 0 ] || return 0
+  local grep_args=(-niE "(^|[^A-Za-z0-9-])($(IFS='|'; printf '%s' "${owners[*]}"))([^A-Za-z0-9-]|$)")
+  [ "$STAGED" = 0 ] || grep_args=(--cached "${grep_args[@]}")
+  hits=$(git grep "${grep_args[@]}" -- . ':!devkit/' ':!docs/decisions.md' ':!docs/reports/' \
+    ':!docs/audits/' ':!bin/devkit-check.sh' | grep -v '# retired name$' || true)
+  [ -n "$hits" ] || return 0
+  if [[ "$today" < "$RETIRED_OWNER_FAILS_FROM" ]]; then
+    warn "a retired GitHub owner ($DEVKIT_RETIRED_OWNERS) is named; the account is kashhq (fails from $RETIRED_OWNER_FAILS_FROM):"
+  else
+    echo "devkit-check: a retired GitHub owner ($DEVKIT_RETIRED_OWNERS) is named; the account is kashhq (2026-11-12):" >&2
+  fi
+  printf '  %s\n' "${hits//$'\n'/$'\n'  }" >&2
+  echo "  decisions.md, docs/reports/ and docs/audits/ may keep it; a line that must spell it ends with: # retired name" >&2
+  [[ "$today" < "$RETIRED_OWNER_FAILS_FROM" ]] || exit 1
+}
+# Homelab topology a public repo must never name (check_public_topology), one grep -E alternative
+# per whitespace-separated word, matched without case. POSIX ERE only, no `\b`: git grep's regex
+# on macOS has none, so a host name's or an address's ends are spelled as classes (an address
+# inside a longer dotted number, 2100.70.1.2 or a version, is none). A bare `<word>.box` is also a
+# property access (thumb.box, hls.js's t.box(: closet's and redlib's trees), so a .box host
+# counts when it is one of the fleet's names after a boundary (not `debug.box`), or any name after
+# `://`, `@` or a backtick (a URL, an ssh target, a code span). The env override is for the
+# tests, as DEVKIT_RETIRED_OWNERS is.
+DEVKIT_TOPOLOGY_PATTERNS=${DEVKIT_TOPOLOGY_PATTERNS:-'linux-box
+  (^|[^a-z0-9_.-])(nas|bug|reddit|closet|redlib|pi)\.box([^a-z0-9_-]|$)
+  (://|@|`)[a-z0-9.-]+\.box([^a-z0-9_-]|$) /volume[0-9]+/ /(home|Users)/aakash \.dedyn\.io
+  \.duckdns\.org \.ts\.net (^|[^0-9.])192\.168\.[0-9]+\.[0-9]+
+  (^|[^0-9.])100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]+\.[0-9]+ racknerd kashhq\.com'}
+# A devkit checkout, as scorecard.py's is_devkit_checkout sees it: VENDOR_PATHS at the top. A
+# consumer has devkit/VENDOR_PATHS, never its own.
+is_devkit_checkout() { [ -f VENDOR_PATHS ]; }
+# The exemption: a line ending `topology example` in its language's comment (`#`, `//`, `--`,
+# `<!-- … -->`, `/* … */`), so a test's private-address fixture in TS or SQL can carry it too.
+readonly TOPOLOGY_EXAMPLE='(#|//|--|<!--|/\*) *topology example *(-->|\*/)? *$'
+check_public_topology() {
+  local hits words alternation='' word
+  if ! is_devkit_checkout; then
+    [ "$(gate_plan_literal <(printf '%s\n' "$plan_src") GATE_PUBLIC)" = 1 ] || return 0
+  fi
+  read -ra words <<<"$(printf '%s' "$DEVKIT_TOPOLOGY_PATTERNS" | tr '\n' ' ')"
+  [ "${#words[@]}" -gt 0 ] || return 0
+  for word in "${words[@]}"; do alternation+="${alternation:+|}($word)"; done
+  local grep_args=(-I -n -i -E "$alternation")
+  [ "$STAGED" = 0 ] || grep_args=(--cached "${grep_args[@]}")
+  # git grep is 1 on no match and more on its own failure (a pattern this platform's regex
+  # rejects, a bad override): that must fail the guard, never read as a clean tree.
+  local rc=0
+  hits=$(git grep "${grep_args[@]}" -- . ':!devkit/' ':!docs/reports/' ':!docs/audits/' \
+    ':!bin/devkit-check.sh') || rc=$?
+  if [ "$rc" -gt 1 ]; then
+    echo "devkit-check: the topology check could not run (git grep exit $rc above; DEVKIT_TOPOLOGY_PATTERNS must be POSIX ERE)" >&2
+    exit 1
+  fi
+  hits=$(grep -vE "$TOPOLOGY_EXAMPLE" <<<"$hits" || true)
+  [ -n "$hits" ] || return 0
+  echo "devkit-check: homelab topology in a public tree (it lives in the homelab repo; name the role: the publisher host, the NAS):" >&2
+  printf '  %s\n' "${hits//$'\n'/$'\n'  }" >&2
+  echo "  docs/reports/ and docs/audits/ may keep it; a line that must show one (a test's fixture) ends with the comment: topology example" >&2
+  exit 1
+}
 check_audits() {
   local renovate_args=(audit)
   [ "$STAGED" = 0 ] || renovate_args+=(--staged)
@@ -479,6 +584,13 @@ check_deprecated_exports() {
   done <<<"$(git show :devkit/lint/exports.txt 2>/dev/null | grep -v '^#' || true)"
 }
 
+# A devkit checkout has no vendored tree, plan or Makefile contract to judge: the topology check
+# alone (header), which devkit's own self-check and docs-check run.
+if is_devkit_checkout; then
+  check_public_topology
+  echo "devkit-check: ok (a devkit checkout: the topology check alone)"
+  exit 0
+fi
 # The header's checks, in its order; a failing one exits 1 with its message, a warning prints.
 check_vendored_tree
 check_swift_format
@@ -489,6 +601,8 @@ check_baselines
 check_tsbuildinfo
 check_makefile_recipes
 check_merge_path
+check_retired_owner
+check_public_topology
 check_audits
 check_tailwind
 check_deprecated_exports

@@ -80,7 +80,7 @@ Push's guard is an allow-list of push services and does not fit arbitrary retail
 `src/web/security/outbound-fetch.ts` is the only way the server fetches a user-supplied URL:
 
 - http(s) only, default ports.
-- Resolve the name and refuse loopback, private, link-local, CGNAT/Tailscale (100.64.0.0/10) and
+- Resolve the name and refuse loopback, private, link-local, CGNAT/Tailscale (100.64.0.0/10) and <!-- topology example -->
   IPv6 unique-local addresses. Then connect to **the address that was checked** (a pinned lookup),
   so DNS rebinding cannot swap it afterwards.
 - Follow at most 3 redirects, each re-checked the same way.

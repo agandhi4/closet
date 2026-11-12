@@ -86,7 +86,7 @@ older history lives in `docs/PROJECT_LOG.md`.
 
 **Why:** delivery.md / observability.md want non-root images, and closet's ran as root. Its two runtime directories are host mounts that keep the host's ownership, so a non-root image on a root-owned one is Orbit's port-80 outage class: the Mac smoke passes, production breaks. Measured against the code, a root-owned DATA_PATH already crashed the boot (a bare EACCES from opening app.log), while a root-owned MODELS_PATH would have read `up` and failed only the model download.
 **Decision:** `USER node` (node:22-slim's uid/gid 1000) after chowning only `/app/data` and `/app/models`, the process's only runtime writes (HOME `/home/node` is already its own). `src/storage-probe.ts` (a real create + unlink, not mode bits: the data share is NFS squashed to the NAS admin) feeds a required `storage` check on `/health/ready` (cached 5 s) and main.ts's refusal of an unwritable DATA_PATH, both naming the chown. The smoke boots on Docker volumes (a macOS bind mount lets every uid write) and proves uid 1000, then a root-owned data volume (boot refused) and a root-owned models volume (503, `storage` down).
-**Consequence:** deploy ORDER: closet autodeploys `latest` from main, so the owner chowns linux-box's `/srv/docker/closet/models` to 1000:1000 and proves both directories writable as uid 1000 (`docs/operations.md#permissions`) BEFORE this merges; then `docker exec closet id -u` is 1000 and an upload works. homelab's compose comment "The image runs as root" changes with it.
+**Consequence:** deploy ORDER: closet autodeploys `latest` from main, so the owner chowns the production host's `/srv/docker/closet/models` to 1000:1000 and proves both directories writable as uid 1000 (`docs/operations.md#permissions`) BEFORE this merges; then `docker exec closet id -u` is 1000 and an upload works. homelab's compose comment "The image runs as root" changes with it.
 ## 2026-10-16 — Metrics ratchet: ci-metrics on devkit's collectors; coverage stays in vitest for now
 
 **Why:** owner decision C4 puts closet's static numbers and coverage under devkit's ratchet (devkit f756b39), so a PR can only leave them as good as `main`.
@@ -307,8 +307,8 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Decision:** `latitudeColumn`/`longitudeColumn` in `schema.ts` derive precision and scale from `COORDINATE_DECIMALS` (drizzle-kit generate: no schema changes); `newOutfitSlots` in `outfits/gone-garments.ts` (one read, the #219 refusal, the slots); `wornPairs` in `wardrobe/insights.ts`; a private `updateOwnedGarment` under `updateGarmentFields`, `updateGarmentProperties` and `setCondition`, which keep their typed field sets.
 **Consequence:** behaviour unchanged; `duplication.repo.clones` 8 → 4. Left as coincidental: `push_reminder`/`week_replan` (two claim tables of different owners), the calendar's two upserts (different conflict rules and answers, one statement each), the trip's two packing posts (different writers and answers), and `get_garment`/`get_garment_photo`'s one-line preamble.
 
-## 2026-10-28 — Images ship from linux-box's publisher; ci.yml's publish job deleted (devkit #273)
-**Why:** the owner chose one fleet publisher on linux-box, closet and redlib included although their public Actions still work (local-publish-design.md Q1, 2026-10-27); devkit #273 built it. ci.yml's `publish` job was a second mover of `latest`, with no registry prune (GHCR held 100+ closet versions).
+## 2026-10-28 — Images ship from the publisher host; ci.yml's publish job deleted (devkit #273)
+**Why:** the owner chose one fleet publisher on the publisher host, closet and redlib included although their public Actions still work (local-publish-design.md Q1, 2026-10-27); devkit #273 built it. ci.yml's `publish` job was a second mover of `latest`, with no registry prune (GHCR held 100+ closet versions).
 **Decision:** devkit 2720daa; `PUBLISH_IMAGE=ghcr.io/agandhi4/closet` and `publish:` (homelab `devkit-publish@closet.timer`). `ci-image` was already build-only and the gate's `image` job already runs `ci-smoke`, so the publisher runs the gate's two targets. ci.yml keeps only its `workflow_dispatch` test jobs (a public repo's Actions still run; no quick-check existed); nightly.yml now writes its own gha layer cache, which the publish job used to.
 **Consequence:** a merge that changes an image input reaches `latest` within 5 min plus the build and the deploy at the next `*:40`; a merge the gate's image job would skip (docs, `GATE_IMAGE_EXCLUDE_PATHS`) publishes nothing. Each publish prunes GHCR to the 10 newest `sha-*` images, so the first one deletes the backlog. Branch protection is unchanged (`local-gate`, `codex-review` are statuses, not workflow jobs).
 
@@ -317,7 +317,7 @@ older history lives in `docs/PROJECT_LOG.md`.
 docs/operations.md and the Makefile still described `make gate` and `local-gate`, and the `gate`
 target called the deleted `devkit/bin/local_gate.sh`, so `make gate` failed.
 **Decision:** a PR merges on review rounds (`@codex review` or `make review`, cap 3); main is
-proven at deploy by check_tree on linux-box (≤ once per 3 h, red files `main-red`). `make gate`
+proven at deploy by check_tree on the publisher host (≤ once per 3 h, red files `main-red`). `make gate`
 runs devkit's stub; `GATE_STATE_NAME` is gone (unread).
 **Consequence:** a merge-order clash (duplicate migration numbers) now shows on main and is fixed forward.
 
@@ -363,3 +363,8 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Why:** after #477 the public tree still named the homelab's tailnet hosts (the publisher, the NAS, the error tracker, the HTTP twin) in docs, comments and spec fixtures.
 **Decision:** they are role words ("the production host", "the publisher host", "the error tracker", "the HTTP twin"); a fixture host is `<role>.example` (reserved, never resolves). The real names live in homelab's `stacks/closet/README.md`. `docs_rules.sh`'s topology rule now also refuses them, specs included; the dated history files are exempt from the hostnames since they are not rewritten.
 **Consequence:** a bare `<name>.box` is refused only in Markdown or URL/backtick context, since code has `.box` properties. The rule avoids `\b`: macOS git grep lacks it and matched nothing.
+
+## 2026-11-12 — The topology guard is devkit's (`GATE_PUBLIC=1`)
+**Why:** devkit #477 added `check_public_topology` to devkit-check for its public consumers; closet's own `docs_rules.sh` rule (#477, #479 here) duplicated it.
+**Decision:** `gate_plan.sh` sets `GATE_PUBLIC=1` and the local rule is gone. The check scans the dated history too, so the hostnames in decisions.md and PROJECT_LOG.md became role words in place (no entry moved or re-dated). The SSRF specs' private and CGNAT addresses are generic range examples, so each such line ends `// topology example`.
+**Consequence:** a new pattern is added in devkit and synced, never here. devkit's patterns refuse no generic `<name>.box` in Markdown, which the local rule did; the fleet's names stay covered.
