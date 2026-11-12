@@ -3,13 +3,15 @@ import { randomBytes } from 'node:crypto';
 // Every stored photo is a set of WebP files sharing one base name:
 //   original  <uuid>.webp                the upload, 1080px inside, q90
 //   nobg      <uuid>-nobg[-<key>].webp   background-removed cutout, same size, q90
-//   thumb     <uuid>-thumb[-<key>].webp  400px inside, q80, derived from nobg if present
+//   thumb     <uuid>-thumb[-<key>].webp  400px inside, q80; from the nobg if present,
+//                                        trimmed to the garment and squared (cutoutThumb)
 // Only the original has a `file` row; the others are derived on disk and
 // addressed through variantFileName. The original never changes. A cutout
 // written onto an existing row (Photos.writeCutout: a mask edit, a server
-// job) is stored as a nobg and thumb under a fresh variant key before the
-// row's transaction, which then points `file.variant_key` at them; bytes
-// written before their row exists (an upload, a copy, the seed) have none.
+// job, the thumb backfill) is stored as a nobg and thumb under a fresh
+// variant key before the row's transaction, which then points
+// `file.variant_key` at them; bytes written before their row exists (an
+// upload, a copy, the seed) have none.
 // Used by Photos, the /file routes, reconciliation and imageUrl().
 const IMAGE_VARIANTS = ['original', 'nobg', 'thumb'] as const;
 

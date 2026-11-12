@@ -237,9 +237,10 @@ describe('POST /wardrobe/:id/photo/rotate', () => {
     expect(await dimensions(await variantPath(t, after, 'nobg'))).toEqual([
       400, 600,
     ]);
-    // The thumb comes from the turned cutout.
+    // The thumb comes from the turned cutout: squared (cutoutThumb), where
+    // the original's would be 267x400.
     expect(await dimensions(await variantPath(t, after, 'thumb'))).toEqual([
-      267, 400,
+      400, 400,
     ]);
     expect(t.logs.messages('info', 'Web')).toContain(
       `Garment ${id} photo rotated right by user ${t.owner.id}, its edited cutout with it`,
