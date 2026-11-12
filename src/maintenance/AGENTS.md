@@ -14,7 +14,8 @@
                        pool, exit status), reconcile.cli.ts (`npm run maintenance:reconcile`),
                        set-password.cli.ts (`npm run user:set-password -- <email>`): the locked-out recovery,
                        revoke-push.cli.ts (`npm run push:revoke-all`): every push subscription, after
-                       a secret rotation
+                       a secret rotation, retrim-thumbs.ts + .cli.ts (`npm run maintenance:retrim-thumbs`):
+                       the #373 backfill of cutouts' trimmed thumbs
 ```
 
 ## Commands
@@ -32,6 +33,13 @@ npm run user:set-password -- <email>
                               # docker exec -it closet npm run user:set-password -- <email>
 npm run push:revoke-all       # removes every account's push subscriptions: the step after rotating
                               # ACCESS_TOKEN_SECRET (Deployment). docker exec closet npm run push:revoke-all
+npm run maintenance:retrim-thumbs [-- --dry-run]
+                              # gives every photo with a ready or edited cutout its thumb trimmed to the
+                              # garment (#373), under a new variant key (the `rederive` event) so caches
+                              # miss; the set it replaced is deleted by the swap. Idempotent (a thumb already
+                              # trimmed is `current`); exits 1 when any photo failed (warn lines name them;
+                              # run again). One read per 100 photos, then 4 statements per photo retrimmed.
+                              # Once after the deploy: docker exec closet npm run maintenance:retrim-thumbs
 ```
 
 ## Statements per run

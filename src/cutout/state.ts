@@ -12,6 +12,8 @@
  *                      │  └─release (the job ended without a result: lease freed)
  *                      └──retry── failed
  *   any but unwanted ──edit──▶ edited   (the user saved a mask: always wins)
+ *   ready, edited ──rederive──▶ itself  (the same cutout, its thumb made
+ *                                        again under a new key: a backfill)
  *   unwanted                            (terminal: no event applies, so
  *                                        never queued, claimed or leased)
  *
@@ -39,10 +41,10 @@
  * and still on the photo version the job started for: a result for a
  * replaced, edited or requeued photo is discarded, never written.
  *
- * The two events that bring new cutout bytes (succeed, edit) carry the
- * variant key those bytes were already stored under (Photos.writeCutout,
- * #141), and the new version always comes with it: a version is never
- * bumped without pointing at the bytes it names.
+ * The three events that bring new cutout files (succeed, edit, rederive)
+ * carry the variant key those files were already stored under
+ * (Photos.writeCutout, #141), and the new version always comes with it: a
+ * version is never bumped without pointing at the files it names.
  */
 
 export const CUTOUT_STATUSES = [
@@ -100,7 +102,15 @@ export type CutoutEvent =
   | { type: 'succeed'; jobVersion: number; variantKey: string }
   | { type: 'fail'; jobVersion: number }
   /** The user saved a mask in the mask editor, stored under `variantKey`. */
-  | { type: 'edit'; variantKey: string };
+  | { type: 'edit'; variantKey: string }
+  /**
+   * The cutout under `fromKey`, copied unchanged under `variantKey` with
+   * its thumb made again (#373: the retrim-thumbs backfill). A new key, not
+   * a rewrite in place: a keyed file is served immutable, so only a new URL
+   * reaches browsers and the app's image cache. Refused (stale) once the
+   * row has moved off `fromKey`: a mask saved meanwhile must win.
+   */
+  | { type: 'rederive'; fromKey: string | null; variantKey: string };
 
 type CutoutEventType = CutoutEvent['type'];
 
@@ -116,8 +126,9 @@ export type Transition =
       /**
        * not-allowed: the status does not take this event (a result for a
        * row that is no longer pending, a retry of a ready cutout).
-       * stale: a job result for another photo version than the row's, or
-       * a release from a worker whose lease lapsed and was taken since.
+       * stale: a job result for another photo version than the row's, a
+       * release from a worker whose lease lapsed and was taken since, or a
+       * rederive of a cutout the row no longer points at.
        */
       reason: 'not-allowed' | 'stale';
     };
@@ -131,6 +142,8 @@ const ACCEPTED_FROM: Record<CutoutEventType, readonly CutoutStatus[]> = {
   succeed: ['pending'],
   fail: ['pending'],
   edit: CUTOUT_STATUSES.filter((status) => status !== 'unwanted'),
+  // The statuses whose cutout a row may key (file_variant_key_check).
+  rederive: ['ready', 'edited'],
 };
 
 /** The state after `event`, or why the event does not apply. Pure. */
@@ -138,21 +151,32 @@ export function transition(state: CutoutState, event: CutoutEvent): Transition {
   if (!ACCEPTED_FROM[event.type].includes(state.status)) {
     return { ok: false, reason: 'not-allowed' };
   }
-  if (
-    (event.type === 'succeed' || event.type === 'fail') &&
-    (state.jobVersion !== event.jobVersion ||
-      state.version !== event.jobVersion)
-  ) {
-    return { ok: false, reason: 'stale' };
-  }
-  if (event.type === 'release' && state.worker !== event.worker) {
-    return { ok: false, reason: 'stale' };
-  }
+  if (isStale(state, event)) return { ok: false, reason: 'stale' };
   return {
     ok: true,
     state: nextState(state, event),
     queued: event.type === 'request' || event.type === 'retry',
   };
+}
+
+// An event meant for the row as it was, not as it is: a job result for
+// another photo version, a release by a worker whose lease was taken since,
+// a rederive of a cutout the row no longer points at.
+function isStale(state: CutoutState, event: CutoutEvent): boolean {
+  switch (event.type) {
+    case 'succeed':
+    case 'fail':
+      return (
+        state.jobVersion !== event.jobVersion ||
+        state.version !== event.jobVersion
+      );
+    case 'release':
+      return state.worker !== event.worker;
+    case 'rederive':
+      return state.variantKey !== event.fromKey;
+    default:
+      return false;
+  }
 }
 
 // The accepted event's effect on the row. Only start sets a lease; every
@@ -191,6 +215,15 @@ function nextState(state: CutoutState, event: CutoutEvent): CutoutState {
         ...state,
         ...noJob,
         status: 'edited',
+        version: state.version + 1,
+        variantKey: event.variantKey,
+      };
+    case 'rederive':
+      // The status stays: a ready cutout is still the model's, an edited
+      // one still the user's.
+      return {
+        ...state,
+        ...noJob,
         version: state.version + 1,
         variantKey: event.variantKey,
       };

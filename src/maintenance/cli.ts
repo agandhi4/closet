@@ -18,12 +18,13 @@ export interface CliContext {
 
 /**
  * The frame of a maintenance command (reconcile.cli.ts,
- * set-password.cli.ts, revoke-push.cli.ts): the server's configuration and logger, a database
- * this build's migrations have fully reached (the CLIs never migrate; see
- * requireCurrentSchema), the command, then the pool closed. The command
- * resolves to the exit status; anything it throws is exit status 1 with the
- * reason as a fatal line (the boot logger's: the failure may be the
- * configuration the command's own logger needs). Runs from dist/ in the production image with the
+ * set-password.cli.ts, revoke-push.cli.ts, retrim-thumbs.cli.ts): the
+ * server's configuration and logger, a database this build's migrations
+ * have fully reached (the CLIs never migrate; see requireCurrentSchema), the
+ * command, then the pool closed. The command resolves to the exit status;
+ * anything it throws is exit status 1 with the reason as a fatal line (the
+ * boot logger's: the failure may be the configuration the command's own
+ * logger needs). Runs from dist/ in the production image with the
  * container's own environment (`docker exec closet npm run ...`).
  */
 export function runCli(

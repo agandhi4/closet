@@ -2,6 +2,7 @@ import type { MultipartFile } from '@fastify/multipart';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
+import { buffer } from 'node:stream/consumers';
 import { pipeline } from 'node:stream/promises';
 import sharp, { type OutputInfo, type Sharp } from 'sharp';
 import type { Config } from '../../config';
@@ -44,6 +45,22 @@ const IMAGE_MAX_PX = 1080;
 const IMAGE_QUALITY = 90;
 const THUMB_MAX_PX = 400;
 const THUMB_QUALITY = 80;
+// A cutout's thumb is trimmed to the garment (cutoutThumb, contentBox, #373).
+// The visible pixels are those above this alpha: BiRefNet's mask is soft,
+// leaving a faint haze (shadows, floor texture, a few percent opaque) that
+// is invisible on the plinth but spread over the frame, and would hold the
+// box open to its edges. ~9% is above that haze and below any edge worth
+// keeping: an antialiased garment edge ramps through it within a pixel.
+const CUTOUT_ALPHA_THRESHOLD = 24;
+// The room left around the garment on every side, as a share of the box's
+// longer side: enough that a tile never cuts a sleeve at its edge.
+const CUTOUT_MARGIN = 0.05;
+// A box smaller than this share of the frame is not a garment (a model
+// that found nothing leaves a speck or two above the threshold); its thumb
+// keeps the whole frame, as every thumb did before the trim, rather than
+// blowing a speck up to the tile.
+const MIN_CONTENT_FRACTION = 0.005;
+const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };
 // Link import's photo choices (preview): small enough that six inline as
 // data: URLs keep the page light.
 const PREVIEW_MAX_PX = 240;
@@ -503,7 +520,7 @@ export class Photos {
     const outcome = await this.writeCutout(
       originalFileName,
       (variantKey) => ({ type: 'edit', variantKey }),
-      bytes,
+      await cutoutFiles(bytes),
     );
     if (!outcome.ok) {
       this.logger.warn(
@@ -551,8 +568,47 @@ export class Photos {
     return this.writeCutout(
       fileName,
       (variantKey) => ({ type: 'succeed', jobVersion, variantKey }),
-      bytes,
+      await cutoutFiles(bytes),
     );
+  }
+
+  /**
+   * The retrim-thumbs backfill's step for one photo (#373,
+   * src/maintenance/retrim-thumbs.ts): the thumb the photo's cutout derives
+   * today (cutoutThumb), stored with a byte-for-byte copy of that cutout
+   * under a new variant key the row then points at (the `rederive` event).
+   * Never in place: thumbs are served immutable and the app caches them,
+   * so only a new URL replaces an old thumb on a phone. `current` when the
+   * stored thumb already is that thumb (an idempotent second run), `due`
+   * for one a dry run would replace; a dry run stores nothing.
+   */
+  async rederiveCutoutThumb(
+    photo: StoredPhoto,
+    { dryRun }: { dryRun: boolean },
+  ): Promise<ThumbRederivation> {
+    const { fileName, variantKey } = photo;
+    const nobg = await this.storage.get(
+      variantFileName(fileName, 'nobg', variantKey),
+    );
+    if (!nobg) return { result: 'no-cutout' };
+    const files = await cutoutFiles(await buffer(nobg));
+    const stored = await this.storage.get(
+      variantFileName(fileName, 'thumb', variantKey),
+    );
+    // sharp's encoder is deterministic for one libvips: equal bytes are the
+    // same thumb.
+    if (stored && (await buffer(stored)).equals(files.thumb)) {
+      return { result: 'current' };
+    }
+    if (dryRun) return { result: 'due' };
+    const outcome = await this.writeCutout(
+      fileName,
+      (key) => ({ type: 'rederive', fromKey: variantKey, variantKey: key }),
+      files,
+    );
+    return outcome.ok
+      ? { result: 'rederived', version: outcome.state.version }
+      : { result: 'refused', reason: outcome.reason };
   }
 
   // The original's pixels with the mask, stretched back to their size, as
@@ -607,7 +663,7 @@ export class Photos {
    * Stores cutout bytes for an existing photo and points its row at them,
    * only if the state machine accepts the event (src/cutout/state.ts).
    * Every writer of an existing photo's cutout (the mask editor, the server
-   * job) comes through here.
+   * job, the thumb backfill) comes through here.
    *
    * The nobg and its thumb are written first, under a fresh variant key and
    * outside any transaction; the transaction only locks the row, asks the
@@ -625,12 +681,12 @@ export class Photos {
   private async writeCutout(
     originalFileName: string,
     eventFor: (variantKey: string) => CutoutEvent,
-    bytes: Buffer,
+    files: CutoutFiles,
   ): Promise<CutoutOutcome> {
     const variantKey = newVariantKey();
     const written: StoredPhoto = { fileName: originalFileName, variantKey };
     const event = eventFor(variantKey);
-    await this.storeCutoutFiles(written, bytes);
+    await this.storeCutoutFiles(written, files);
 
     // What the transaction decided: settleFailedSwap needs it when the
     // COMMIT landed but its answer was lost.
@@ -680,22 +736,21 @@ export class Photos {
     );
   }
 
-  // The nobg and its thumb under `written`'s key, the thumb made from the
-  // bytes in hand; neither is left behind if either fails.
+  // The nobg and its thumb under `written`'s key; neither is left behind
+  // if either fails.
   private async storeCutoutFiles(
     written: StoredPhoto,
-    bytes: Buffer,
+    { nobg, thumb }: CutoutFiles,
   ): Promise<void> {
     const { fileName, variantKey } = written;
     try {
       await this.storage.store(
         variantFileName(fileName, 'nobg', variantKey),
-        Readable.from(bytes),
+        Readable.from(nobg),
       );
-      await this.transcode(
-        Readable.from(bytes),
-        thumbTransformer(),
+      await this.storage.store(
         variantFileName(fileName, 'thumb', variantKey),
+        Readable.from(thumb),
       );
     } catch (error) {
       // Rethrown: the route's error handler or the cutout job logs it.
@@ -814,7 +869,10 @@ export class Photos {
     );
   }
 
-  /** Rewrites the set's thumb from its cutout if present, else from the original. */
+  /**
+   * Rewrites the set's thumb from its cutout if present (trimmed to the
+   * garment: cutoutThumb), else from the original (whole).
+   */
   regenerateThumb(photo: StoredPhoto): Promise<void> {
     const thumbName = variantFileName(
       photo.fileName,
@@ -907,7 +965,7 @@ export class Photos {
         bottom: 20,
         left: 20,
         right: 0,
-        background: { r: 0, g: 0, b: 0, alpha: 0 },
+        background: TRANSPARENT,
       })
       .composite([
         {
@@ -1030,11 +1088,20 @@ export class Photos {
     { fileName, variantKey }: StoredPhoto,
     thumbName: string,
   ): Promise<void> {
-    const source =
-      (await this.storage.get(variantFileName(fileName, 'nobg', variantKey))) ??
-      (await this.getOrNotFound(fileName));
     const startedAt = Date.now();
-    await this.transcode(source, thumbTransformer(), thumbName);
+    const cutout = await this.storage.get(
+      variantFileName(fileName, 'nobg', variantKey),
+    );
+    if (cutout) {
+      const thumb = await cutoutThumb(await buffer(cutout));
+      await this.storage.store(thumbName, Readable.from(thumb));
+    } else {
+      await this.transcode(
+        await this.getOrNotFound(fileName),
+        thumbOf(decoder()),
+        thumbName,
+      );
+    }
     this.logger.debug(`Wrote ${thumbName} in ${Date.now() - startedAt}ms`);
   }
 
@@ -1072,6 +1139,30 @@ interface Swap {
   outcome: Transition;
 }
 
+/** A cutout set's two files, encoded and ready to store (writeCutout). */
+interface CutoutFiles {
+  nobg: Buffer;
+  thumb: Buffer;
+}
+
+/** What rederiveCutoutThumb did for one photo (the retrim-thumbs backfill). */
+export type ThumbRederivation =
+  /** The row's nobg is not in storage: nothing to derive from. */
+  | { result: 'no-cutout' }
+  /** The stored thumb already is the one the cutout derives. */
+  | { result: 'current' }
+  /** A dry run: the thumb would be replaced. */
+  | { result: 'due' }
+  /** Stored under a new key; the row is at `version`. */
+  | { result: 'rederived'; version: number }
+  /** The machine refused the swap (an edit landed meanwhile, the row is gone); nothing kept. */
+  | { result: 'refused'; reason: 'not-allowed' | 'stale' | 'gone' };
+
+/** A cutout's set: its bytes and the thumb they derive (one rule for every writer). */
+async function cutoutFiles(nobg: Buffer): Promise<CutoutFiles> {
+  return { nobg, thumb: await cutoutThumb(nobg) };
+}
+
 // The stored original's size and encoding (storeImage), and an edited
 // cutout's (saveEditedCutout), over a decoder().
 function originalTransformer(decoded: Sharp): Sharp {
@@ -1083,14 +1174,105 @@ function originalTransformer(decoded: Sharp): Sharp {
     .webp({ quality: IMAGE_QUALITY });
 }
 
-// Every thumb, from the cutout when there is one (writeThumb, writeCutout).
-function thumbTransformer(): Sharp {
-  return decoder()
+// The thumb of the whole image: an original's (writeThumb without a
+// cutout), and a cutout's when contentBox finds no garment in it.
+function thumbOf(decoded: Sharp): Sharp {
+  return decoded
     .resize(THUMB_MAX_PX, THUMB_MAX_PX, {
       fit: sharp.fit.inside,
       withoutEnlargement: true,
     })
     .webp({ quality: THUMB_QUALITY });
+}
+
+/**
+ * A cutout's thumb, trimmed to the garment (#373): its contentBox, centred
+ * on a transparent square, at THUMB_MAX_PX, so every garment fills its tile
+ * whatever the photo's framing. Every thumb made from a cutout comes
+ * through here (writeThumb, cutoutFiles), so none differs by its path. Only
+ * the thumb is trimmed: the stored cutout keeps the original's frame,
+ * which the mask editor relies on (it pads the original the same way to
+ * paint it back; public/js/mask-editor.js). The trimmed square is resized
+ * to exactly THUMB_MAX_PX, enlarging a small garment on purpose: a tile
+ * draws it at that size anyway, and every tile then carries the same
+ * resolution.
+ */
+async function cutoutThumb(cutout: Buffer): Promise<Buffer> {
+  const { data, info } = await sharp(cutout, {
+    limitInputPixels: MAX_INPUT_PIXELS,
+  })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const { width, height } = info;
+  const box = contentBox(data, width, height);
+  if (!box) return thumbOf(rawImage(data, width, height, 4)).toBuffer();
+  const { side, padding } = squarePadding(box.width, box.height);
+  // Cropped and padded, then read back before the resize: within one
+  // pipeline sharp resizes before it extends.
+  const square = await rawImage(data, width, height, 4)
+    .extract(box)
+    .extend(padding)
+    .raw()
+    .toBuffer();
+  return rawImage(square, side, side, 4)
+    .resize(THUMB_MAX_PX, THUMB_MAX_PX)
+    .webp({ quality: THUMB_QUALITY })
+    .toBuffer();
+}
+
+/** A rectangle of an image's pixels, as sharp's extract() takes it. */
+export interface PixelBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Where a cutout's garment is in its frame: the bounding box of the pixels
+ * whose alpha is above CUTOUT_ALPHA_THRESHOLD, grown by CUTOUT_MARGIN of
+ * its longer side on every side and clamped to the frame. Undefined when
+ * nothing is visible or the box is under MIN_CONTENT_FRACTION of the
+ * frame: the thumb then keeps the whole frame. `rgba` is 4 bytes a pixel,
+ * row by row.
+ */
+export function contentBox(
+  rgba: Buffer,
+  width: number,
+  height: number,
+): PixelBox | undefined {
+  let left = width;
+  let right = -1;
+  let top = height;
+  let bottom = -1;
+  for (let y = 0; y < height; y++) {
+    const row = y * width * 4;
+    for (let x = 0; x < width; x++) {
+      if (rgba[row + x * 4 + 3] <= CUTOUT_ALPHA_THRESHOLD) continue;
+      left = Math.min(left, x);
+      right = Math.max(right, x);
+      top = Math.min(top, y);
+      bottom = y;
+    }
+  }
+  const boxWidth = right - left + 1;
+  const boxHeight = bottom - top + 1;
+  if (
+    right < 0 ||
+    boxWidth * boxHeight < MIN_CONTENT_FRACTION * width * height
+  ) {
+    return undefined;
+  }
+  const margin = Math.round(CUTOUT_MARGIN * Math.max(boxWidth, boxHeight));
+  const x0 = Math.max(0, left - margin);
+  const y0 = Math.max(0, top - margin);
+  return {
+    left: x0,
+    top: y0,
+    width: Math.min(width, right + 1 + margin) - x0,
+    height: Math.min(height, bottom + 1 + margin) - y0,
+  };
 }
 
 // Bytes Photos cannot read as any image: a 400.
@@ -1141,19 +1323,29 @@ function squareCutout(
   width: number,
   height: number,
 ): Promise<Buffer> {
+  return rawImage(rgba, width, height, 4)
+    .extend(squarePadding(width, height).padding)
+    .webp({ quality: IMAGE_QUALITY })
+    .toBuffer();
+}
+
+// The transparent extend() centring a width x height image on a square
+// (the odd pixel goes right and below): the stored cutout's and the
+// trimmed thumb's; the mask editor's squarePadBlob pads the same way.
+function squarePadding(width: number, height: number) {
   const side = Math.max(width, height);
   const left = Math.floor((side - width) / 2);
   const top = Math.floor((side - height) / 2);
-  return rawImage(rgba, width, height, 4)
-    .extend({
+  return {
+    side,
+    padding: {
       left,
       right: side - width - left,
       top,
       bottom: side - height - top,
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    })
-    .webp({ quality: IMAGE_QUALITY })
-    .toBuffer();
+      background: TRANSPARENT,
+    },
+  };
 }
 
 function newPhotoRow(fileName: string, userId: number): NewPhotoRow {
