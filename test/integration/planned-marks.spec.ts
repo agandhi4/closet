@@ -285,12 +285,19 @@ describe('planned outfits: unavailable pieces', () => {
       .select({ id: outfitCalendar.id })
       .from(outfitCalendar)
       .where(eq(outfitCalendar.outfitId, outfitId));
+    /** The daytime row's element, found by `data-occasion` alone, whole. */
     const row = (html: string) => {
-      // Up to the next row, or the end of the day's column.
-      const open = '<div class="flex flex-col gap-1 py-2" data-occasion=';
-      const start = html.indexOf(`${open}"daytime"`);
-      const next = html.indexOf(open, start + 1);
-      return html.slice(start, next === -1 ? undefined : next);
+      const start = /<div class="[^"]*" data-occasion="daytime"/.exec(
+        html,
+      )!.index;
+      const tags = /<(\/?)div\b/g;
+      tags.lastIndex = start;
+      let depth = 0;
+      for (const tag of html.matchAll(tags)) {
+        depth += tag[1] ? -1 : 1;
+        if (depth === 0) return html.slice(start, tag.index + '</div>'.length);
+      }
+      throw new Error('unclosed row');
     };
     const toggle = async (worn: '1' | '0') => {
       const res = await t.inject({

@@ -152,8 +152,9 @@ const SIZES = {
     feet: 'h-6',
     side: 'h-5',
   },
-  // The calendar month's cell: `thumb` on a phone (about 48 px wide), growing
-  // with the cell at lg (about 170 px).
+  // The calendar's: `thumb` on a phone (a month cell about 48 px wide, a week
+  // row's 64 px), growing at lg with the month's cell (about 170 px) and the
+  // week grid's column (130 to 175 px, #467).
   cell: {
     box: 'rounded-field p-1.5 gap-1 lg:p-3 lg:gap-2',
     column: '',

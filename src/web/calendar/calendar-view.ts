@@ -1,4 +1,8 @@
-import { compareOccasions, type Occasion } from '../../wardrobe/occasions';
+import {
+  compareOccasions,
+  type Occasion,
+  OCCASIONS,
+} from '../../wardrobe/occasions';
 import { FORECAST_DAYS } from '../../weather/forecast';
 import type { PlannedBy, TemplateSlot } from '../../wardrobe/week';
 import { emptySlots } from '../../wardrobe/week-planner';
@@ -100,6 +104,13 @@ export interface CalendarDayView {
 
 export interface CalendarView {
   days: CalendarDayView[];
+  /**
+   * The rows of the desktop week grid (#467), in occasion order: every
+   * occasion of the week template (any weekday) and any an entry of the
+   * week is for. Built from the same rows as the days, so the page stays
+   * byte-stable; a phone ignores it (the cells are `contents` there).
+   */
+  weekOccasions: Occasion[];
   /** The Sundays of the weeks before and after, for ‹ and ›. */
   prevWeek: IsoDate;
   nextWeek: IsoDate;
@@ -170,6 +181,16 @@ export function buildCalendarView(input: {
           .map((slot) => slot.occasion),
         looks: looks.filter((look) => look.day === date),
       }),
+    ),
+    weekOccasions: OCCASIONS.filter(
+      (occasion) =>
+        template.some((slot) => slot.occasion === occasion) ||
+        entries.some(
+          (entry) =>
+            entry.occasion === occasion &&
+            entry.day >= weekStart &&
+            entry.day <= dates[6],
+        ),
     ),
     prevWeek: addDays(weekStart, -7),
     nextWeek: addDays(weekStart, 7),
