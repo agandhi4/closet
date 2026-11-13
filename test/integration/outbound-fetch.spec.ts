@@ -4,7 +4,12 @@ import {
   type RequestListener,
   type Server,
 } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { createServer as createHttpsServer } from 'node:https';
+import {
+  type AddressInfo,
+  createServer as createTcpServer,
+  type Socket,
+} from 'node:net';
 import {
   createServer as createTlsServer,
   type Server as TlsServer,
@@ -22,6 +27,11 @@ import {
   type ResolvedAddress,
 } from '../../src/web/security/outbound-fetch';
 import { captureLogs } from '../support/log-capture';
+import {
+  selfSignedCertificate,
+  type TestCertificate,
+} from '../support/tls-certificate';
+import { startLinkSites } from './link-sites';
 
 /**
  * The SSRF guard against real sockets. Everything listens on loopback, which
@@ -66,6 +76,42 @@ async function listen(
     hits.push({ path: req.url ?? '', headers: req.headers });
     handler(req, res);
   });
+  return started(server, host, port, hits);
+}
+
+interface TlsTestServer extends TestServer {
+  server: Server;
+  /** Resets (TCP RST) the latest connection under its TLS. */
+  reset(): void;
+}
+
+/** An HTTPS server on 127.0.0.2 presenting `certificate`. */
+async function listenTls(
+  certificate: TestCertificate,
+  handler: RequestListener,
+): Promise<TlsTestServer> {
+  const hits: Hit[] = [];
+  let latest: Socket | undefined;
+  const server: Server = createHttpsServer(certificate, (req, res) => {
+    hits.push({ path: req.url ?? '', headers: req.headers });
+    handler(req, res);
+  });
+  server.on('connection', (socket: Socket) => {
+    latest = socket;
+  });
+  return {
+    ...(await started(server, PUBLIC_IP, 0, hits)),
+    server,
+    reset: () => latest?.resetAndDestroy(),
+  };
+}
+
+async function started(
+  server: Server,
+  host: string,
+  port: number,
+  hits: Hit[],
+): Promise<TestServer> {
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, resolve);
@@ -816,6 +862,188 @@ describe('outbound fetch (SSRF guard)', () => {
       expect(PUBLIC_DESTINATIONS.allowsPort(443, 'https:')).toBe(true);
       expect(PUBLIC_DESTINATIONS.allowsPort(8080, 'http:')).toBe(false);
       expect(PUBLIC_DESTINATIONS.allowsPort(443, 'http:')).toBe(false);
+    });
+  });
+
+  // #496a: the fetcher dials the checked address itself (outbound-dial.ts)
+  // and speaks HTTP/1.1 on that socket, over TLS when the URL says https.
+  describe('connections', () => {
+    const serveTls = async (
+      certificate: TestCertificate,
+      handler: RequestListener,
+    ) => {
+      const server = await listenTls(certificate, handler);
+      servers.push(server);
+      return server;
+    };
+
+    it('verifies TLS against the name, which is SNI and Host, resolving it once per hop', async () => {
+      const sites = await startLinkSites();
+      try {
+        sites.serve('/start', {
+          status: 302,
+          type: 'text/html',
+          body: '',
+          headers: { location: sites.secureUrl('/tee') },
+        });
+        sites.serve('/tee', {
+          type: 'text/html; charset=utf-8',
+          body: '<title>Tee</title>',
+        });
+        // A second lookup of either name would answer the private address.
+        const rebinding = (call: number) =>
+          call === 1 ? PUBLIC_IP : PRIVATE_IP;
+        const dns = scriptedResolver({
+          'shop.test': rebinding,
+          'www.shop.test': rebinding,
+        });
+        const fetcher = createOutboundFetcher({
+          logger: captureLogs().logger,
+          ...sites.outboundFetch,
+          resolve: dns.resolve,
+        });
+
+        const start = sites.secureUrl('/start', 'www.shop.test');
+        const page = await fetcher.fetch(start, { accept: ['html'] });
+
+        expect(page.body.toString()).toBe('<title>Tee</title>');
+        expect(page.redirects).toBe(1);
+        const port = new URL(start).port;
+        expect(sites.requests).toEqual([
+          {
+            path: '/start',
+            host: `www.shop.test:${port}`,
+            servername: 'www.shop.test',
+          },
+          { path: '/tee', host: `shop.test:${port}`, servername: 'shop.test' },
+        ]);
+        expect(dns.calls).toEqual(['www.shop.test', 'shop.test']);
+      } finally {
+        await sites.close();
+      }
+    });
+
+    it.each([
+      [
+        'an untrusted self-signed certificate',
+        selfSignedCertificate(['shop.test']),
+        false,
+        'DEPTH_ZERO_SELF_SIGNED_CERT',
+      ],
+      [
+        'a trusted certificate for another name',
+        selfSignedCertificate(['elsewhere.test']),
+        true,
+        'ERR_TLS_CERT_ALTNAME_INVALID',
+      ],
+    ] as const)(
+      'refuses %s before sending anything, logging the code alone',
+      async (_label, certificate, trusted, code) => {
+        const shop = await serveTls(certificate, html('<title>Tee</title>'));
+        const { logger, logs } = captureLogs();
+        const fetcher = createOutboundFetcher({
+          logger,
+          resolve: scriptedResolver({ 'shop.test': PUBLIC_IP }).resolve,
+          destinations: TEST_INTERNET,
+          // Untrusted: the production roots, as no `tls` option gives.
+          ...(trusted && { tls: { ca: [certificate.cert] } }),
+        });
+
+        await expectRefused(
+          fetcher.fetch(`https://shop.test:${shop.port}/`, {
+            accept: ['html'],
+          }),
+          'network',
+        );
+
+        expect(shop.hits).toEqual([]);
+        expect(logs.messages('warn')).toEqual([
+          expect.stringMatching(
+            new RegExp(
+              `^Outbound fetch refused \\(network\\): shop\\.test after \\d+ ms \\(${code}\\)$`,
+            ),
+          ),
+        ]);
+      },
+    );
+
+    it('refuses a connection reset after the handshake or mid-response, and stays up', async () => {
+      const certificate = selfSignedCertificate(['shop.test']);
+      const afterHandshake = await serveTls(certificate, html('never'));
+      afterHandshake.server.on('secureConnection', () =>
+        afterHandshake.reset(),
+      );
+      const midResponse = await serveTls(certificate, (_req, res) => {
+        res.writeHead(200, { 'content-type': 'text/html' });
+        res.write('<title>Te', () => midResponse.reset());
+      });
+      const fetcher = createOutboundFetcher({
+        logger: captureLogs().logger,
+        resolve: scriptedResolver({ 'shop.test': PUBLIC_IP }).resolve,
+        destinations: TEST_INTERNET,
+        tls: { ca: [certificate.cert] },
+      });
+
+      for (const { port } of [afterHandshake, midResponse]) {
+        await expectRefused(
+          fetcher.fetch(`https://shop.test:${port}/`, { accept: ['html'] }),
+          'network',
+        );
+      }
+      expect(midResponse.hits).toHaveLength(1);
+    });
+
+    it('gives up on a stalled TLS handshake and closes its socket', async () => {
+      // Reads the ClientHello and never says a word back. Reading is what
+      // lets it see the client's FIN: an unread socket never ends.
+      let closed = false;
+      const silent = createTcpServer((socket) => {
+        socket.resume();
+        socket.on('close', () => {
+          closed = true;
+        });
+      });
+      await new Promise<void>((resolve) =>
+        silent.listen(0, PUBLIC_IP, resolve),
+      );
+      const { port } = silent.address() as AddressInfo;
+      const fetcher = createOutboundFetcher({
+        logger: captureLogs().logger,
+        resolve: scriptedResolver({ 'shop.test': PUBLIC_IP }).resolve,
+        destinations: TEST_INTERNET,
+        timeoutMs: 300,
+      });
+
+      try {
+        const started = Date.now();
+        await expectRefused(
+          fetcher.fetch(`https://shop.test:${port}/`, { accept: ['html'] }),
+          'timeout',
+        );
+        expect(Date.now() - started).toBeLessThan(2000);
+        await expect.poll(() => closed).toBe(true);
+      } finally {
+        await new Promise<void>((resolve) => silent.close(() => resolve()));
+      }
+    });
+
+    it('skips a 1xx informational answer for the response after it', async () => {
+      const shop = await serve(PUBLIC_IP, (_req, res) => {
+        res.writeEarlyHints({ link: '</style.css>; rel=preload' }, () => {
+          html('<title>Tee</title>')(_req, res);
+        });
+      });
+      const fetcher = createOutboundFetcher({
+        logger: captureLogs().logger,
+        resolve: scriptedResolver({ 'shop.test': PUBLIC_IP }).resolve,
+        destinations: TEST_INTERNET,
+      });
+
+      const page = await fetcher.fetch(`http://shop.test:${shop.port}/`, {
+        accept: ['html'],
+      });
+
+      expect(page.body.toString()).toBe('<title>Tee</title>');
     });
   });
 });
