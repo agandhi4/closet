@@ -10272,7 +10272,8 @@
                                   "torsoWarmthWithoutLayer",
                                   "legsAndFeetWarmth",
                                   "needsLayer",
-                                  "needsWaterResistance"
+                                  "needsWaterResistance",
+                                  "takeUmbrella"
                                 ],
                                 "properties": {
                                   "occasion": {
@@ -10375,7 +10376,11 @@
                                     "type": "boolean"
                                   },
                                   "needsWaterResistance": {
-                                    "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                    "description": "Rain is likely in the hours and too cool to leave to an umbrella: a water-resistant layer, footwear or accessory",
+                                    "type": "boolean"
+                                  },
+                                  "takeUmbrella": {
+                                    "description": "Rain is likely in warm hours: an umbrella answers it, not the outfit",
                                     "type": "boolean"
                                   }
                                 }
@@ -10958,6 +10963,7 @@
                               "feelsLikeC",
                               "needsLayer",
                               "needsWaterResistance",
+                              "takeUmbrella",
                               "typical"
                             ],
                             "properties": {
@@ -10982,6 +10988,11 @@
                                 "type": "boolean"
                               },
                               "needsWaterResistance": {
+                                "description": "Rain the umbrella does not answer: each idea is judged on a water-resistant layer, footwear or accessory",
+                                "type": "boolean"
+                              },
+                              "takeUmbrella": {
+                                "description": "Rain is likely and an umbrella answers it (warm hours, or a water-resistant accessory in the closet): advice for the day, no idea is judged on it",
                                 "type": "boolean"
                               },
                               "typical": {
@@ -14166,7 +14177,8 @@
                               "torsoWarmthWithoutLayer",
                               "legsAndFeetWarmth",
                               "needsLayer",
-                              "needsWaterResistance"
+                              "needsWaterResistance",
+                              "takeUmbrella"
                             ],
                             "properties": {
                               "occasion": {
@@ -14269,7 +14281,11 @@
                                 "type": "boolean"
                               },
                               "needsWaterResistance": {
-                                "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                "description": "Rain is likely in the hours and too cool to leave to an umbrella: a water-resistant layer, footwear or accessory",
+                                "type": "boolean"
+                              },
+                              "takeUmbrella": {
+                                "description": "Rain is likely in warm hours: an umbrella answers it, not the outfit",
                                 "type": "boolean"
                               }
                             }
@@ -14364,7 +14380,8 @@
                               "torsoWarmthWithoutLayer",
                               "legsAndFeetWarmth",
                               "needsLayer",
-                              "needsWaterResistance"
+                              "needsWaterResistance",
+                              "takeUmbrella"
                             ],
                             "properties": {
                               "occasion": {
@@ -14467,7 +14484,11 @@
                                 "type": "boolean"
                               },
                               "needsWaterResistance": {
-                                "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                "description": "Rain is likely in the hours and too cool to leave to an umbrella: a water-resistant layer, footwear or accessory",
+                                "type": "boolean"
+                              },
+                              "takeUmbrella": {
+                                "description": "Rain is likely in warm hours: an umbrella answers it, not the outfit",
                                 "type": "boolean"
                               }
                             }
@@ -18741,6 +18762,7 @@
                         "feelsLikeC",
                         "needsLayer",
                         "needsWaterResistance",
+                        "takeUmbrella",
                         "typical"
                       ],
                       "properties": {
@@ -18765,6 +18787,11 @@
                           "type": "boolean"
                         },
                         "needsWaterResistance": {
+                          "description": "Rain the umbrella does not answer: each idea is judged on a water-resistant layer, footwear or accessory",
+                          "type": "boolean"
+                        },
+                        "takeUmbrella": {
+                          "description": "Rain is likely and an umbrella answers it (warm hours, or a water-resistant accessory in the closet): advice for the day, no idea is judged on it",
                           "type": "boolean"
                         },
                         "typical": {
@@ -30309,7 +30336,8 @@
                               "torsoWarmthWithoutLayer",
                               "legsAndFeetWarmth",
                               "needsLayer",
-                              "needsWaterResistance"
+                              "needsWaterResistance",
+                              "takeUmbrella"
                             ],
                             "properties": {
                               "occasion": {
@@ -30412,7 +30440,11 @@
                                 "type": "boolean"
                               },
                               "needsWaterResistance": {
-                                "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                "description": "Rain is likely in the hours and too cool to leave to an umbrella: a water-resistant layer, footwear or accessory",
+                                "type": "boolean"
+                              },
+                              "takeUmbrella": {
+                                "description": "Rain is likely in warm hours: an umbrella answers it, not the outfit",
                                 "type": "boolean"
                               }
                             }

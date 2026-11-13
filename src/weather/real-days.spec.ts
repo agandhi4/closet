@@ -14,7 +14,7 @@ import { assessOutfit, matchGarment, weatherNeeds } from './match';
 
 /**
  * Whether the ideas are wearable on real days (#645): the demo closet
- * (Theo's bible, as the seed writes it) through the generator on four real
+ * (Theo's bible, as the seed writes it) through the generator on five real
  * New York days, one per season. match.spec.ts pins each rule on its own;
  * this pins what the rules add up to over a real closet, which is where a
  * miscalibrated rule shows (one pair of jeans in every January idea, no
@@ -23,7 +23,8 @@ import { assessOutfit, matchGarment, weatherNeeds } from './match';
  * The days: Open-Meteo's archive (ERA5) hourly apparent temperature at
  * Central Park (40.78,-73.97) in America/New_York, 2025, each the month's
  * median daytime feels-like among its dry days (October's the one nearest
- * 15 °C). Rain is #648's question, so every day is dry.
+ * 15 °C), dry; and one rainy July day (#648), 2025-07-14, the day of
+ * that summer's flash floods, with its hourly precipitation too.
  */
 
 const HOURLY_FEELS_LIKE: Record<string, readonly number[]> = {
@@ -42,6 +43,11 @@ const HOURLY_FEELS_LIKE: Record<string, readonly number[]> = {
     24.8, 24.1, 23.4, 23.0, 22.8, 23.0, 23.9, 25.6, 28.2, 30.2, 32.3, 33.9,
     35.0, 35.1, 34.4, 33.5, 32.7, 32.6, 32.4, 31.5, 30.1, 30.5, 29.7, 29.4,
   ],
+  // 81 to 97 °F with thunderstorms from 13:00: a hot rainy day.
+  '2025-07-14': [
+    27.5, 27.3, 27.3, 27.6, 27.8, 27.7, 28.1, 29.5, 31.3, 31.3, 32.6, 35.5,
+    36.0, 31.9, 31.9, 31.0, 33.3, 29.9, 28.2, 29.1, 29.3, 29.2, 28.5, 27.9,
+  ],
   // 51 to 64 °F, about 15 °C across the day.
   '2025-10-01': [
     14.4, 13.2, 11.8, 10.8, 9.9, 9.4, 8.9, 9.9, 10.7, 12.2, 14.0, 15.7, 16.8,
@@ -49,20 +55,39 @@ const HOURLY_FEELS_LIKE: Record<string, readonly number[]> = {
   ],
 };
 
+/** The archive's hourly precipitation (mm) on the rainy days. */
+const HOURLY_PRECIPITATION: Record<string, readonly number[]> = {
+  '2025-07-14': [
+    0.0, 0.0, 0.6, 0.1, 0.0, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 2.4, 1.4,
+    3.8, 0.3, 6.1, 2.5, 0.2, 2.1, 1.0, 1.4, 1.1,
+  ],
+};
+
+/**
+ * The archive records what fell, not a chance: an hour that had a wet
+ * hour's rain (0.5 mm or more) reads as a forecast certain of it, the rest
+ * as dry.
+ */
+const WET_HOUR_MM = 0.5;
+
 function realDay(day: IsoDate): DayForecast {
   const feels = HOURLY_FEELS_LIKE[day];
+  const rain = HOURLY_PRECIPITATION[day];
+  const chance = (hour: number) =>
+    rain && rain[hour] >= WET_HOUR_MM ? 100 : 0;
+  const code = rain ? 61 : 1;
   return {
     day,
-    code: 1,
+    code,
     // Not read by the matching: the hours' own extremes.
     high: Math.max(...feels),
     low: Math.min(...feels),
-    precipitationChance: 0,
+    precipitationChance: Math.max(...feels.map((_, hour) => chance(hour))),
     hours: feels.map((feelsLike, hour) => ({
       hour,
       feelsLike,
-      precipitationChance: 0,
-      code: 1,
+      precipitationChance: chance(hour),
+      code: chance(hour) > 0 ? 61 : 1,
     })),
   };
 }
@@ -71,6 +96,7 @@ const JANUARY = realDay('2025-01-27');
 const APRIL = realDay('2025-04-14');
 const JULY = realDay('2025-07-06');
 const OCTOBER = realDay('2025-10-01');
+const JULY_RAIN = realDay('2025-07-14');
 
 interface DemoGarment extends IdeaGarment {
   name: string;
@@ -234,6 +260,16 @@ describe('the ideas on real New York days (#645)', () => {
         expect(shoes.length).toBeGreaterThan(0);
         expect(shoes.filter((g) => g.weather.warmth >= 4)).toEqual([]);
       }
+    });
+
+    it('on a rainy day varies the tops and wants no shell (#648)', () => {
+      const ideas = fittingIdeas(JULY_RAIN, 'all-day');
+      const tops = distinct(ideas, 'top');
+      expect(tops.size, [...tops].join(', ')).toBeGreaterThanOrEqual(3);
+      expect(ideas.length).toBe(SEEDS.length * PAGE);
+      expect(distinct(ideas, 'layer')).toEqual(new Set());
+      const needs = weatherNeeds(JULY_RAIN, 'all-day', 0)!;
+      expect(needs).toMatchObject({ rain: true, umbrella: true, layer: false });
     });
 
     it('calls suede boots with shorts too warm for the feet', () => {

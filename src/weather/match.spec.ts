@@ -7,9 +7,11 @@ import {
   limbTarget,
   type MatchGarment,
   matchGarment,
+  SHELL_CEILING,
   torsoTarget,
   type WeatherNeeds,
   weatherNeeds,
+  withRainGear,
 } from './match';
 
 /**
@@ -168,6 +170,16 @@ describe('weather matching', () => {
       expect(assessOutfit(needs(JULY, 'work'), [TEE, JEANS]).fits).toBe(true);
     });
 
+    it('leaves rain in the heat to the umbrella: no outfit misses it (#648)', () => {
+      const allDay = needs(day(25, 33, [14, 15]), 'all-day');
+      expect(allDay).toMatchObject({ rain: true, umbrella: true });
+      expect(assessOutfit(allDay, [TEE, SHORTS, SANDALS]).fits).toBe(true);
+      // Up to SHELL_CEILING at the warmest hour, the outfit keeps it off.
+      const mild = needs(day(14, SHELL_CEILING, [14, 15]), 'all-day');
+      expect(mild.feelsLike.max).toBe(SHELL_CEILING);
+      expect(mild.umbrella).toBe(false);
+    });
+
     it('dresses a morning workout for the morning', () => {
       const workout = needs(JULY, 'workout');
       expect(workout.window).toEqual({ from: 6, to: 9 });
@@ -219,7 +231,7 @@ describe('weather matching', () => {
   describe('autumn rain (October, 9 to 17 °C, rain from 16:00)', () => {
     it('asks for water resistance when the rain falls inside the window', () => {
       const work = needs(OCTOBER_RAIN, 'work');
-      expect(work.rain).toBe(true);
+      expect(work).toMatchObject({ rain: true, umbrella: false });
       expect(
         assessOutfit(work, [TEE, JACKET, JEANS, SNEAKERS]).problems,
       ).toEqual(['needs-water-resistance']);
@@ -234,6 +246,26 @@ describe('weather matching', () => {
 
     it('does not ask for it when the rain is outside the window', () => {
       expect(needs(OCTOBER_RAIN, 'workout').rain).toBe(false);
+    });
+
+    it('still asks for it with a shell in the closet and no rain accessory (#648)', () => {
+      const closet = [TEE, SWEATER, RAIN_JACKET, JEANS, g('bag', 1, true)];
+      const work = withRainGear(needs(OCTOBER_RAIN, 'work'), closet);
+      expect(work.umbrella).toBe(false);
+      expect(
+        assessOutfit(work, [TEE, JACKET, JEANS, SNEAKERS]).problems,
+      ).toEqual(['needs-water-resistance']);
+    });
+
+    it('leaves it to the umbrella when the closet has a water-resistant accessory', () => {
+      const work = withRainGear(needs(OCTOBER_RAIN, 'work'), [
+        RAIN_JACKET,
+        g('accessory', 1, true),
+      ]);
+      expect(work.umbrella).toBe(true);
+      expect(assessOutfit(work, [TEE, JACKET, JEANS, SNEAKERS]).fits).toBe(
+        true,
+      );
     });
 
     it('does not count a water-resistant bag', () => {

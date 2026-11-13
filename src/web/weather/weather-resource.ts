@@ -8,7 +8,11 @@ import {
   forecastDay,
   rainFrom,
 } from '../../weather/forecast';
-import { type WeatherNeeds, weatherNeeds } from '../../weather/match';
+import {
+  needsWaterResistance,
+  type WeatherNeeds,
+  weatherNeeds,
+} from '../../weather/match';
 import { OFFSET_LIMIT, TEMPERATURE_UNITS } from '../../weather/temperature';
 import { literals, withoutNulls } from '../api/resource';
 import { IsoDateSchema } from '../schemas';
@@ -41,7 +45,8 @@ function outfitNeeds(needs: WeatherNeeds) {
     torsoWarmthWithoutLayer: needs.torsoWithoutLayer,
     legsAndFeetWarmth: needs.limbs,
     needsLayer: needs.layer,
-    needsWaterResistance: needs.rain,
+    needsWaterResistance: needsWaterResistance(needs),
+    takeUmbrella: needs.umbrella,
   };
 }
 
@@ -128,7 +133,11 @@ const OutfitNeeds = Type.Object(
     }),
     needsWaterResistance: Type.Boolean({
       description:
-        'Rain is likely in the hours: a water-resistant layer, footwear or accessory',
+        'Rain is likely in the hours and too cool to leave to an umbrella: a water-resistant layer, footwear or accessory',
+    }),
+    takeUmbrella: Type.Boolean({
+      description:
+        'Rain is likely in warm hours: an umbrella answers it, not the outfit',
     }),
   },
   {

@@ -2,6 +2,7 @@ import * as z from 'zod';
 import { DEFAULT_OCCASION, OCCASION_HINTS } from '../../../wardrobe/occasions';
 import { todayIn } from '../../../calendar-date';
 import { OUTFIT_COUNT_CAP } from '../../../wardrobe/goes-with';
+import { needsWaterResistance } from '../../../weather/match';
 import {
   dailySeed,
   goesWithCloset,
@@ -115,7 +116,8 @@ export const galleryTools = [
                 max: round1(needs.feelsLike.max),
               },
               needsLayer: needs.layer,
-              needsWaterResistance: needs.rain,
+              needsWaterResistance: needsWaterResistance(needs),
+              takeUmbrella: needs.umbrella,
             }
           : null,
         ideas: result.ideas.map((idea) => ({

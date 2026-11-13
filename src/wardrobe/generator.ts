@@ -69,7 +69,7 @@ import {
  */
 
 /** Bump to reshuffle every seed's ideas on purpose. */
-const GENERATOR_VERSION = 3;
+const GENERATOR_VERSION = 4;
 
 /** Draws per page request: bounds the work on a closet with few combinations. */
 export const MAX_DRAWS = 2000;
