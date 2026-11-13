@@ -254,7 +254,7 @@ function DayBlock(props: {
 /** Worn today (undo), wearable today (mark it), or nothing (null). */
 function tripWornControl(model: TripPageModel, outfit: TripOutfitView) {
   const tripId = model.trip.id;
-  const wornEntry = model.wornToday.get(outfit.outfitId);
+  const wornEntry = model.wornToday.get(outfit.id);
   if (wornEntry !== undefined) {
     return (
       <WornControl

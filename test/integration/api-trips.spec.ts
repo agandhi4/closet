@@ -425,11 +425,12 @@ describe('trip outfits', () => {
         ),
       );
     expect(entries).toEqual([{ id: entryId, worn: true }]);
-    expect(
-      (await api('GET', `/trips/${tripId}`)).json<{
-        days: { outfits: { wornTodayEntryId?: number }[] }[];
-      }>().days[0].outfits[0].wornTodayEntryId,
-    ).toBe(entryId);
+    // Only today's copy reports the entry, not the same outfit tomorrow.
+    const { days } = (await api('GET', `/trips/${tripId}`)).json<{
+      days: { outfits: { wornTodayEntryId?: number | null }[] }[];
+    }>();
+    expect(days[0].outfits[0].wornTodayEntryId).toBe(entryId);
+    expect(days[1].outfits[0].wornTodayEntryId ?? null).toBeNull();
     expectProblem(
       await api('POST', `/trips/${tripId}/outfits/${tomorrows.id}/wears`),
       409,

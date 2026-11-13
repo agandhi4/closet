@@ -730,6 +730,7 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 **Why:** the inbox sorts needs by what every option unlocks, which no page of it knows; the page's decisions are six posts with a `returnTo` and a toast; and the plan's `PUT`/`DELETE /capsules/{id}/members/{garmentId}` is one pair per call, where the one writer (`changeMembership`), the picker and `set_capsule_membership` take a set.
 **Decision:** `GET /wishlist` answers the inbox's sections as one resource (no pagination). A pick's decisions are one `POST /garments/{id}/decisions` (`event`, as `/outfits/{id}/reactions`), a need's one `POST /wishlist/needs/{id}/decisions`; Returned and "Bought it" are their own sub-resources. Membership is `PATCH /capsules/{id}/members` and `PATCH /garments/{id}/capsules` with `{ add, remove }`, set-state. "Bought a different one" rides `POST /garments` (`boughtForNeedId`). Goes-with takes `?ownerId=` only to refuse a share (403).
 **Consequence:** #194 has no `pending` line. Every route costs its page twin's statements but `GET /capsules/{id}` (−2: no garments, they are `GET /garments?capsuleId=`) and `PUT /capsules/{id}` (−1: the capsule is read only for a refused form). A client re-reads the inbox after a decision.
+
 ## 2026-11-13 — The API's ideas, pick, clashes and selfies: Shuffle is a read, a pick goes where it says (#193c)
 
 **Why:** Styling's Save is four writes in one form (a pick, an entry's Change, Include picks' slot write, an edit), its Shuffle a GET of the rows, and the gallery's pick takes a `for=` of a day, a trip or an entry to replace; a twin shaped like either page would carry its form state into the contract.
@@ -753,3 +754,9 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 **Why:** a client paints a page of 50 thumbnails with one `GET /api/v1/look-photos/*` each; on `API_LIMIT`'s 120 a minute per token that 429s its own JSON calls. An exemption would leave the bytes uncounted.
 **Decision:** a route marked `config: { apiPhotoBytes: true }` counts on `API_PHOTO_LIMIT` (600 a minute per token: a 50-item page twice a minute with headroom, and immutable bytes mean a caching client stays far below), picked by the API plugin's preHandler, never a path regex. Neither budget counts a 401. The refused photo's 404 is `no-store`, as the page's.
 **Consequence:** `servePrivatePhoto` plus this flag is the one way an API route serves private image bytes; #579 (selfies) reuses both.
+
+## 2026-11-13 — A trip outfit is worn today by its own copy, not its outfit (#573)
+
+**Why:** `tripModel.wornToday` was keyed by outfit id, so an outfit on several trip days (or also on "Any day") showed every copy "Worn" once today's was worn, on the page and as the API's `wornTodayEntryId`. A calendar entry is per (owner, day, outfit) and carries no trip outfit, so the copy is derived.
+**Decision:** `readTrip` keys the map by the trip outfit's id, and only for a copy `wearableToday` (today's or "Any day"); the page and `toTripOutfit` look up `outfit.id`.
+**Consequence:** a copy of another day is never worn. An "Any day" copy of an outfit also on today still shares today's entry (one entry per outfit per day), so both show worn.
