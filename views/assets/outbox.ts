@@ -117,8 +117,9 @@ interface DrainResult {
 
 const DRAIN_LOCK = 'closet-outbox-drain';
 // The posts that leave the account on this device: its queue drains first.
+const SIGN_OUT = '/auth/logout';
 const LEAVES_ACCOUNT: ReadonlySet<string> = new Set([
-  '/auth/logout',
+  SIGN_OUT,
   '/auth/delete-account',
 ]);
 // Sign-out and deletion wait this long for the queue to drain, then asks about the rest.
@@ -969,11 +970,18 @@ function schedule(reason: string): Promise<void> {
  * Sign-out and account deletion drain first (online by definition), for at
  * most SIGN_OUT_DRAIN_MS so a slow link never strands the tap; what is left,
  * failed, unreachable or still in flight, is named in a confirm and
- * discarded (owner decision 2, 2026-11-13). A deleted account's queued
- * writes could never sync, so deletion asks the same. False when the person
- * keeps them: nothing is posted.
+ * discarded (owner decision 2, 2026-11-13). False when the person keeps
+ * them: nothing is posted.
+ *
+ * A deletion drains but never asks or discards: its own confirm and password
+ * check come after this hold and may refuse, which must leave the queue
+ * alone. What a deleted account leaves queued is deleted unsent by the next
+ * page of another account (claimForAccount).
  */
-async function drainBeforeLeaving(account: string): Promise<boolean> {
+async function drainBeforeLeaving(
+  account: string,
+  discardLeftovers: boolean,
+): Promise<boolean> {
   if ((await recordsOf(account)).length === 0) return true;
   let waited: ReturnType<typeof setTimeout> | undefined;
   const drained = await Promise.race([
@@ -989,7 +997,7 @@ async function drainBeforeLeaving(account: string): Promise<boolean> {
     );
   }
   const left = await recordsOf(account);
-  if (left.length === 0) return true;
+  if (left.length === 0 || !discardLeftovers) return true;
   if (!confirm(counted('Discard', left.length))) return false;
   await remove(left);
   console.info(
@@ -1007,13 +1015,9 @@ document.addEventListener(
   (event) => {
     const form = event.target;
     const account = pageAccount();
-    if (
-      !(form instanceof HTMLFormElement) ||
-      !LEAVES_ACCOUNT.has(form.getAttribute('action') ?? '') ||
-      !account
-    ) {
-      return;
-    }
+    if (!(form instanceof HTMLFormElement) || !account) return;
+    const action = form.getAttribute('action') ?? '';
+    if (!LEAVES_ACCOUNT.has(action)) return;
     if (released.delete(form)) return;
     // Held while the store is read: what is queued is known only there.
     event.preventDefault();
@@ -1021,7 +1025,7 @@ document.addEventListener(
     if (deciding.has(form)) return;
     deciding.add(form);
     const submitter = event.submitter;
-    void drainBeforeLeaving(account)
+    void drainBeforeLeaving(account, action === SIGN_OUT)
       .then((leave) => {
         if (!leave) return;
         released.add(form);

@@ -244,6 +244,23 @@ test('offline: PostForms are guarded, and queued writes wait, save and stay orde
       page.getByRole('checkbox', { name: /Navy chinos/ }),
     ).toBeChecked();
 
+    // A declined deletion keeps it: the form's own confirm comes after the
+    // outbox's hold, which must not have discarded anything yet.
+    await page.goto('/auth/delete-account');
+    await page.getByLabel('Email').fill(email);
+    await page.getByLabel('Password').fill(E2E_PASSWORD);
+    // The confirm is asked after the outbox's async hold: waited for.
+    const asked = page.waitForEvent('dialog');
+    await page.getByRole('button', { name: 'Delete Account' }).click();
+    const confirmation = await asked;
+    expect(confirmation.message()).toBe(
+      'Are you sure you want to delete your account?',
+    );
+    await confirmation.dismiss();
+    await expect(page).toHaveURL(/\/auth\/delete-account$/);
+    await page.goto(tripUrl);
+    await expect(notice).toBeVisible();
+
     // Signing out with the refusal unsynced asks before discarding it.
     await page.locator('#avatar').click();
     page.once('dialog', (dialog) => {
