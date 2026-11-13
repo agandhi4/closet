@@ -75,6 +75,13 @@ export function isExpired(at: Position, floor: number): boolean {
 }
 
 export interface ChangesCursor {
+  /**
+   * The user it was answered to (#617). A cursor presented by anyone else (a
+   * device that switched accounts) is expired, never read: its positions
+   * are another account's. Null in one answered before the cursor named its
+   * user, expired the same way.
+   */
+  userId: number | null;
   /** Which resources the feed carried when it answered (feed.ts' FEED_COVERAGE). */
   coverage: number;
   /** By owner id. */
@@ -100,6 +107,7 @@ const PositionJson = Type.Tuple([
 const CursorJson = Type.Object(
   {
     v: Type.Literal(1),
+    u: Type.Optional(Type.Integer({ minimum: 1, maximum: ROW_ID_MAX })),
     c: Count,
     s: Type.Optional(Type.Literal(1)),
     w: Type.Record(Type.String({ pattern: '^[1-9]\\d{0,9}$' }), PositionJson),
@@ -107,7 +115,9 @@ const CursorJson = Type.Object(
   { additionalProperties: false },
 );
 
-export function writeChangesCursor(cursor: ChangesCursor): string {
+export function writeChangesCursor(
+  cursor: ChangesCursor & { userId: number },
+): string {
   const positions = Object.fromEntries(
     [...cursor.positions].map(([ownerId, at]) => [
       ownerId,
@@ -117,6 +127,7 @@ export function writeChangesCursor(cursor: ChangesCursor): string {
   return Buffer.from(
     JSON.stringify({
       v: 1,
+      u: cursor.userId,
       c: cursor.coverage,
       ...(cursor.snapshot && { s: 1 }),
       w: positions,
@@ -141,7 +152,12 @@ export function readChangesCursor(text: string): ChangesCursor {
     if (ownerId > ROW_ID_MAX) throw badCursor();
     positions.set(ownerId, { revision, kind, resource, id, seq, floor });
   }
-  return { coverage: json.c, positions, snapshot: json.s === 1 };
+  return {
+    userId: json.u ?? null,
+    coverage: json.c,
+    positions,
+    snapshot: json.s === 1,
+  };
 }
 
 function parsed(text: string): unknown {
