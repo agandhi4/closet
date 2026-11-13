@@ -17632,6 +17632,3357 @@
         }
       }
     },
+    "/api/v1/looks": {
+      "get": {
+        "operationId": "listLooks",
+        "summary": "Your saved looks, newest first",
+        "tags": [
+          "inspiration"
+        ],
+        "description": "Outfits › Inspiration: each look with its title, link, photo and how many pieces it is tagged with. Read one, with its pieces, with GET /looks/{id}.",
+        "parameters": [
+          {
+            "schema": {
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "description": "The previous page's `pagination.nextCursor`"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "description": "How many a page holds: 50 unless asked, at most 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of your saved looks, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "LookList",
+                  "description": "A page of your saved looks, newest first",
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "pagination"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "title": "LookListItem",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "pieceCount"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "sourceUrl": {
+                            "description": "Where it was seen: an http(s) link",
+                            "type": "string"
+                          },
+                          "photo": {
+                            "title": "LookPhoto",
+                            "description": "A look's photo: private, served only to its owner's device token (GET /api/v1/look-photos/{fileName}), relative to the server and immutable (another photo is another URL). Never build or edit one",
+                            "type": "object",
+                            "required": [
+                              "version",
+                              "originalUrl",
+                              "thumbUrl"
+                            ],
+                            "properties": {
+                              "version": {
+                                "type": "integer"
+                              },
+                              "originalUrl": {
+                                "type": "string"
+                              },
+                              "thumbUrl": {
+                                "description": "400 px",
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "pieceCount": {
+                            "minimum": 0,
+                            "description": "How many pieces it is tagged with: none is untagged",
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "pagination": {
+                      "title": "Pagination",
+                      "type": "object",
+                      "required": [
+                        "limit"
+                      ],
+                      "properties": {
+                        "nextCursor": {
+                          "type": "string"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createLook",
+        "summary": "Saves a look from a photo",
+        "tags": [
+          "inspiration"
+        ],
+        "description": "multipart/form-data with one `photo` part (a second file, or one past 20 MB, is a 413; an image it cannot read a 400), and optionally where it was seen (`url`) and a `title`. A link alone is POST /looks/link-imports. 201 with its `Location`; each call saves a new look.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "title": "LookUpload",
+                "description": "The text parts are read wherever they come; any other is ignored",
+                "type": "object",
+                "required": [
+                  "photo"
+                ],
+                "properties": {
+                  "photo": {
+                    "format": "binary",
+                    "description": "The look: JPEG, PNG, WebP, HEIC or AVIF, kept whole (no background removal)",
+                    "type": "string"
+                  },
+                  "url": {
+                    "maxLength": 4096,
+                    "description": "Where it was seen: an absolute http(s) link",
+                    "type": "string"
+                  },
+                  "title": {
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  "clientId": {
+                    "format": "uuid",
+                    "description": "Your id for this create, for retrying it offline: accepted, not yet deduplicated",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "LookCreated",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "photo"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "photo": {
+                      "title": "LookPhoto",
+                      "description": "A look's photo: private, served only to its owner's device token (GET /api/v1/look-photos/{fileName}), relative to the server and immutable (another photo is another URL). Never build or edit one",
+                      "type": "object",
+                      "required": [
+                        "version",
+                        "originalUrl",
+                        "thumbUrl"
+                      ],
+                      "properties": {
+                        "version": {
+                          "type": "integer"
+                        },
+                        "originalUrl": {
+                          "type": "string"
+                        },
+                        "thumbUrl": {
+                          "description": "400 px",
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/looks/link-imports": {
+      "post": {
+        "operationId": "importLookFromLink",
+        "summary": "Saves a look from a link",
+        "tags": [
+          "inspiration"
+        ],
+        "description": "The paste: the page is fetched, its title becomes the look's and its first readable photo is kept (or the image, for an image link). A site that refuses the fetch, or a page with no readable photo, still saves the link, saying why in `unread`. A link the server never fetches (a private address, an unusual port) is a 400 whose detail leads with its reason, nothing saved. Rate limited with the page's paste: 10 a minute between them, then a 429 with Retry-After. 201 with its `Location`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "LookLinkImport",
+                "type": "object",
+                "required": [
+                  "url"
+                ],
+                "properties": {
+                  "url": {
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "description": "A lookbook page, a post or an image link (http or https; text around a link is read as the link)",
+                    "type": "string"
+                  },
+                  "clientId": {
+                    "format": "uuid",
+                    "description": "Your id for this create, for retrying it offline: accepted, not yet deduplicated",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "LookImported",
+                  "type": "object",
+                  "required": [
+                    "id"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "unread": {
+                      "description": "Saved with its link but no photo, and why: `blocked-by-site` (most social sites refuse automated fetches), a timeout, `no-photo` (a page with none readable). Add one with PUT /looks/{id}/photo (a screenshot)",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "too-many-redirects"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "http-status"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "blocked-by-site"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "unexpected-content-type"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "too-large"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "timeout"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "network"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "unreadable-image"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no-photo"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/looks/{id}": {
+      "get": {
+        "operationId": "getLook",
+        "summary": "One of your saved looks, with its pieces",
+        "tags": [
+          "inspiration"
+        ],
+        "description": "Its title, note, link and photo, and each piece read in it with the garment chosen for it. Another's look is a 404 like an unknown id.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A saved look: a photo, a link or both, with a title, a note and the pieces read in it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Look",
+                  "description": "A saved look: a photo, a link or both, with a title, a note and the pieces read in it",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "pieces"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "sourceUrl": {
+                      "description": "Where it was seen: an http(s) link",
+                      "type": "string"
+                    },
+                    "photo": {
+                      "title": "LookPhoto",
+                      "description": "A look's photo: private, served only to its owner's device token (GET /api/v1/look-photos/{fileName}), relative to the server and immutable (another photo is another URL). Never build or edit one",
+                      "type": "object",
+                      "required": [
+                        "version",
+                        "originalUrl",
+                        "thumbUrl"
+                      ],
+                      "properties": {
+                        "version": {
+                          "type": "integer"
+                        },
+                        "originalUrl": {
+                          "type": "string"
+                        },
+                        "thumbUrl": {
+                          "description": "400 px",
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "pieces": {
+                      "description": "In their order",
+                      "type": "array",
+                      "items": {
+                        "title": "LookPiece",
+                        "description": "A piece the owner read in the look",
+                        "type": "object",
+                        "required": [
+                          "position",
+                          "role",
+                          "colors"
+                        ],
+                        "properties": {
+                          "position": {
+                            "minimum": 0,
+                            "maximum": 32767,
+                            "description": "The piece's place in its look, from the look's own counter: never renumbered, never given to another piece",
+                            "type": "integer"
+                          },
+                          "role": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "top"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "bottom"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "one-piece"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "layer"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "footwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "accessory"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "bag"
+                                ]
+                              }
+                            ]
+                          },
+                          "type": {
+                            "description": "One of the role's garment types",
+                            "type": "string"
+                          },
+                          "colors": {
+                            "description": "The main colour first, then an accent",
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "red"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "pink"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "orange"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "yellow"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "green"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "blue"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "purple"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "black"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "white"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "grey"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "beige"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "brown"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "gold"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "silver"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "pattern"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "other"
+                                  ]
+                                }
+                              ]
+                            }
+                          },
+                          "pattern": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "solid"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "stripes"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "check"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "print"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "graphic"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "floral"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
+                              }
+                            ]
+                          },
+                          "matched": {
+                            "title": "LookPieceMatch",
+                            "description": "The garment chosen for the piece: the closet garment its outfit was saved with, or the wishlist item \"Find this\" made (`status` wishlist). Editing the piece clears it",
+                            "type": "object",
+                            "required": [
+                              "garmentId",
+                              "category",
+                              "status"
+                            ],
+                            "properties": {
+                              "garmentId": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "category": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "wishlist"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "closet"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "archived"
+                                    ]
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateLook",
+        "summary": "Changes a look's title or note",
+        "tags": [
+          "inspiration"
+        ],
+        "description": "The look page's autosave: a field sent is saved (null or blank clears it), one left out is kept.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "LookTextInput",
+                "description": "Either or both; a field left out is kept",
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "description": "Null or blank clears it",
+                    "anyOf": [
+                      {
+                        "maxLength": 255,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "note": {
+                    "description": "Null or blank clears it",
+                    "anyOf": [
+                      {
+                        "maxLength": 2000,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "description": "Either or both; a field left out is kept"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Saved"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteLook",
+        "summary": "Deletes a saved look",
+        "tags": [
+          "inspiration"
+        ],
+        "description": "Its photo and pieces go with it; the outfits and wishlist items made from it stay. A look already gone is a 404, which a retry may read as done.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/looks/{id}/photo": {
+      "put": {
+        "operationId": "replaceLookPhoto",
+        "summary": "Adds or replaces a look's photo",
+        "tags": [
+          "inspiration"
+        ],
+        "description": "multipart/form-data with one `photo` part (a second file is a 413; an image it cannot read a 400): a link saved without one, or another picture, whose photo is then gone. Another's look is a 404 before the photo is read. Each call stores a new photo.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "title": "LookPhotoUpload",
+                "type": "object",
+                "required": [
+                  "photo"
+                ],
+                "properties": {
+                  "photo": {
+                    "format": "binary",
+                    "description": "The look: JPEG, PNG, WebP, HEIC or AVIF, kept whole (no background removal)",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "LookPhotoReplaced",
+                  "type": "object",
+                  "required": [
+                    "photo",
+                    "replaced"
+                  ],
+                  "properties": {
+                    "photo": {
+                      "title": "LookPhoto",
+                      "description": "A look's photo: private, served only to its owner's device token (GET /api/v1/look-photos/{fileName}), relative to the server and immutable (another photo is another URL). Never build or edit one",
+                      "type": "object",
+                      "required": [
+                        "version",
+                        "originalUrl",
+                        "thumbUrl"
+                      ],
+                      "properties": {
+                        "version": {
+                          "type": "integer"
+                        },
+                        "originalUrl": {
+                          "type": "string"
+                        },
+                        "thumbUrl": {
+                          "description": "400 px",
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "replaced": {
+                      "description": "It replaced the look's photo, which is gone",
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/looks/{id}/pieces": {
+      "post": {
+        "operationId": "addLookPiece",
+        "summary": "Adds a piece read in a look",
+        "tags": [
+          "inspiration"
+        ],
+        "description": "At the end of the look, at a position never used before in it (the look's counter only grows, so a removed piece's position stays retired). At most 12 pieces: one more is a 400. Each call adds one.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "LookPieceInput",
+                "type": "object",
+                "required": [
+                  "role"
+                ],
+                "properties": {
+                  "role": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "top"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "bottom"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "one-piece"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "layer"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "footwear"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "accessory"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "bag"
+                        ]
+                      }
+                    ]
+                  },
+                  "type": {
+                    "anyOf": [
+                      {
+                        "maxLength": 40,
+                        "description": "One of the role's garment types (a type of another role is a 400 naming the role's); absent or null for any",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "colors": {
+                    "maxItems": 2,
+                    "description": "The main colour first, then an accent; absent or [] for unread",
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "red"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "pink"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "orange"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "yellow"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "green"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "blue"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "purple"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "black"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "white"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "grey"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "beige"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "brown"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "gold"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "silver"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "pattern"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "other"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "pattern": {
+                    "anyOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "solid"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "stripes"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "check"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "print"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "graphic"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "floral"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "other"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "A piece the owner read in the look",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "LookPiece",
+                  "description": "A piece the owner read in the look",
+                  "type": "object",
+                  "required": [
+                    "position",
+                    "role",
+                    "colors"
+                  ],
+                  "properties": {
+                    "position": {
+                      "minimum": 0,
+                      "maximum": 32767,
+                      "description": "The piece's place in its look, from the look's own counter: never renumbered, never given to another piece",
+                      "type": "integer"
+                    },
+                    "role": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "top"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "bottom"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "one-piece"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "layer"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "footwear"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "accessory"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "bag"
+                          ]
+                        }
+                      ]
+                    },
+                    "type": {
+                      "description": "One of the role's garment types",
+                      "type": "string"
+                    },
+                    "colors": {
+                      "description": "The main colour first, then an accent",
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "red"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "pink"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "orange"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "yellow"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "green"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "blue"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "purple"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "black"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "white"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "grey"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "beige"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "brown"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "gold"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "silver"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "pattern"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "other"
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "pattern": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "solid"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "stripes"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "check"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "print"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "graphic"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "floral"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "other"
+                          ]
+                        }
+                      ]
+                    },
+                    "matched": {
+                      "title": "LookPieceMatch",
+                      "description": "The garment chosen for the piece: the closet garment its outfit was saved with, or the wishlist item \"Find this\" made (`status` wishlist). Editing the piece clears it",
+                      "type": "object",
+                      "required": [
+                        "garmentId",
+                        "category",
+                        "status"
+                      ],
+                      "properties": {
+                        "garmentId": {
+                          "type": "integer"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "category": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "wishlist"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "closet"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "archived"
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "setLookPieces",
+        "summary": "Sets a look's whole list of pieces",
+        "tags": [
+          "inspiration"
+        ],
+        "description": "MCP's set_inspiration_pieces: a stored piece equal in every part to one sent is kept, with its position and the garment chosen for it; the others are removed and the rest added after the look's last position, in the order sent. Sending the same list again changes nothing.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "LookPiecesInput",
+                "type": "object",
+                "required": [
+                  "pieces"
+                ],
+                "properties": {
+                  "pieces": {
+                    "maxItems": 12,
+                    "description": "The whole list, at most 12; [] clears it",
+                    "type": "array",
+                    "items": {
+                      "title": "LookPieceInput",
+                      "type": "object",
+                      "required": [
+                        "role"
+                      ],
+                      "properties": {
+                        "role": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "top"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "bottom"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "one-piece"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "layer"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "footwear"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "accessory"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "bag"
+                              ]
+                            }
+                          ]
+                        },
+                        "type": {
+                          "anyOf": [
+                            {
+                              "maxLength": 40,
+                              "description": "One of the role's garment types (a type of another role is a 400 naming the role's); absent or null for any",
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "colors": {
+                          "maxItems": 2,
+                          "description": "The main colour first, then an accent; absent or [] for unread",
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "red"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "pink"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "orange"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "yellow"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "green"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "blue"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "purple"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "black"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "white"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "grey"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "beige"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "brown"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "gold"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "silver"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "pattern"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
+                              }
+                            ]
+                          }
+                        },
+                        "pattern": {
+                          "anyOf": [
+                            {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "solid"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "stripes"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "check"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "print"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "graphic"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "floral"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "other"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "LookPiecesSet",
+                  "type": "object",
+                  "required": [
+                    "kept",
+                    "removed",
+                    "added"
+                  ],
+                  "properties": {
+                    "kept": {
+                      "minimum": 0,
+                      "description": "Stored pieces equal in every part to one asked for: kept with their position and what was chosen for them",
+                      "type": "integer"
+                    },
+                    "removed": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "added": {
+                      "minimum": 0,
+                      "description": "Added after the look's last position, in the order sent",
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/looks/{id}/pieces/{position}": {
+      "put": {
+        "operationId": "updateLookPiece",
+        "summary": "Changes what a piece is read as",
+        "tags": [
+          "inspiration"
+        ],
+        "description": "The piece replaced whole, at its position (a field left out is none); the garment chosen for it is cleared, chosen for what it was. A piece removed meanwhile is a 404.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "LookPieceInput",
+                "type": "object",
+                "required": [
+                  "role"
+                ],
+                "properties": {
+                  "role": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "top"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "bottom"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "one-piece"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "layer"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "footwear"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "accessory"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "bag"
+                        ]
+                      }
+                    ]
+                  },
+                  "type": {
+                    "anyOf": [
+                      {
+                        "maxLength": 40,
+                        "description": "One of the role's garment types (a type of another role is a 400 naming the role's); absent or null for any",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "colors": {
+                    "maxItems": 2,
+                    "description": "The main colour first, then an accent; absent or [] for unread",
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "red"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "pink"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "orange"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "yellow"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "green"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "blue"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "purple"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "black"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "white"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "grey"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "beige"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "brown"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "gold"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "silver"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "pattern"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "other"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "pattern": {
+                    "anyOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "solid"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "stripes"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "check"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "print"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "graphic"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "floral"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "other"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "minimum": 0,
+              "maximum": 32767,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "position",
+            "required": true,
+            "description": "The piece's place in its look, from the look's own counter: never renumbered, never given to another piece"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A piece the owner read in the look",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "LookPiece",
+                  "description": "A piece the owner read in the look",
+                  "type": "object",
+                  "required": [
+                    "position",
+                    "role",
+                    "colors"
+                  ],
+                  "properties": {
+                    "position": {
+                      "minimum": 0,
+                      "maximum": 32767,
+                      "description": "The piece's place in its look, from the look's own counter: never renumbered, never given to another piece",
+                      "type": "integer"
+                    },
+                    "role": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "top"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "bottom"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "one-piece"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "layer"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "footwear"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "accessory"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "bag"
+                          ]
+                        }
+                      ]
+                    },
+                    "type": {
+                      "description": "One of the role's garment types",
+                      "type": "string"
+                    },
+                    "colors": {
+                      "description": "The main colour first, then an accent",
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "red"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "pink"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "orange"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "yellow"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "green"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "blue"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "purple"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "black"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "white"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "grey"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "beige"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "brown"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "gold"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "silver"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "pattern"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "other"
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "pattern": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "solid"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "stripes"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "check"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "print"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "graphic"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "floral"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "other"
+                          ]
+                        }
+                      ]
+                    },
+                    "matched": {
+                      "title": "LookPieceMatch",
+                      "description": "The garment chosen for the piece: the closet garment its outfit was saved with, or the wishlist item \"Find this\" made (`status` wishlist). Editing the piece clears it",
+                      "type": "object",
+                      "required": [
+                        "garmentId",
+                        "category",
+                        "status"
+                      ],
+                      "properties": {
+                        "garmentId": {
+                          "type": "integer"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "category": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "wishlist"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "closet"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "archived"
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteLookPiece",
+        "summary": "Removes a piece of a look",
+        "tags": [
+          "inspiration"
+        ],
+        "description": "The rest keep their positions, and this one is never given to another piece. A piece already gone is a 404, which a retry may read as done.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "minimum": 0,
+              "maximum": 32767,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "position",
+            "required": true,
+            "description": "The piece's place in its look, from the look's own counter: never renumbered, never given to another piece"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/looks/{id}/recreation": {
+      "get": {
+        "operationId": "getLookRecreation",
+        "summary": "Recreates a look from your closet",
+        "tags": [
+          "inspiration"
+        ],
+        "description": "\"Recreate this look\": each piece with up to three of your closet garments closest to it, the chosen one first. Save the choice with POST /looks/{id}/outfits; put a missing piece on the wishlist with PUT /looks/{id}/pieces/{position}/wishlist-item.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "\"Recreate this look\": each piece with your closet garments closest to it, chosen to go together and never one garment for two pieces. Your own closet, whatever is shared with you",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "LookRecreation",
+                  "description": "\"Recreate this look\": each piece with your closet garments closest to it, chosen to go together and never one garment for two pieces. Your own closet, whatever is shared with you",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "pieces",
+                    "unfixedPositions"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "sourceUrl": {
+                      "description": "Where it was seen: an http(s) link",
+                      "type": "string"
+                    },
+                    "photo": {
+                      "title": "LookPhoto",
+                      "description": "A look's photo: private, served only to its owner's device token (GET /api/v1/look-photos/{fileName}), relative to the server and immutable (another photo is another URL). Never build or edit one",
+                      "type": "object",
+                      "required": [
+                        "version",
+                        "originalUrl",
+                        "thumbUrl"
+                      ],
+                      "properties": {
+                        "version": {
+                          "type": "integer"
+                        },
+                        "originalUrl": {
+                          "type": "string"
+                        },
+                        "thumbUrl": {
+                          "description": "400 px",
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "pieces": {
+                      "description": "In their order",
+                      "type": "array",
+                      "items": {
+                        "title": "RecreatedPiece",
+                        "type": "object",
+                        "required": [
+                          "position",
+                          "role",
+                          "colors",
+                          "matches",
+                          "missing",
+                          "repicked"
+                        ],
+                        "properties": {
+                          "position": {
+                            "minimum": 0,
+                            "maximum": 32767,
+                            "description": "The piece's place in its look, from the look's own counter: never renumbered, never given to another piece",
+                            "type": "integer"
+                          },
+                          "role": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "top"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "bottom"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "one-piece"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "layer"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "footwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "accessory"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "bag"
+                                ]
+                              }
+                            ]
+                          },
+                          "type": {
+                            "description": "One of the role's garment types",
+                            "type": "string"
+                          },
+                          "colors": {
+                            "description": "The main colour first, then an accent",
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "red"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "pink"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "orange"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "yellow"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "green"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "blue"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "purple"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "black"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "white"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "grey"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "beige"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "brown"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "gold"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "silver"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "pattern"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "other"
+                                  ]
+                                }
+                              ]
+                            }
+                          },
+                          "pattern": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "solid"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "stripes"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "check"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "print"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "graphic"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "floral"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
+                              }
+                            ]
+                          },
+                          "matched": {
+                            "title": "LookPieceMatch",
+                            "description": "The garment chosen for the piece: the closet garment its outfit was saved with, or the wishlist item \"Find this\" made (`status` wishlist). Editing the piece clears it",
+                            "type": "object",
+                            "required": [
+                              "garmentId",
+                              "category",
+                              "status"
+                            ],
+                            "properties": {
+                              "garmentId": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "category": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "wishlist"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "closet"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "archived"
+                                    ]
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          "matches": {
+                            "description": "The chosen garment first (the one saved for the piece while it still matches), then up to two alternates; empty when missing or on the wishlist",
+                            "type": "array",
+                            "items": {
+                              "title": "PieceMatch",
+                              "type": "object",
+                              "required": [
+                                "garment",
+                                "available",
+                                "agrees"
+                              ],
+                              "properties": {
+                                "garment": {
+                                  "title": "IdeaGarment",
+                                  "type": "object",
+                                  "required": [
+                                    "id",
+                                    "category",
+                                    "role"
+                                  ],
+                                  "properties": {
+                                    "id": {
+                                      "type": "integer"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "category": {
+                                      "type": "string"
+                                    },
+                                    "role": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "top"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "bottom"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "one-piece"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "layer"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "footwear"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "accessory"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "bag"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "none"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "thumbUrl": {
+                                      "description": "Signed, relative, immutable: from the cutout when it shows",
+                                      "type": "string"
+                                    },
+                                    "daysUnworn": {
+                                      "minimum": 0,
+                                      "description": "Days since it was last worn; absent when never",
+                                      "type": "integer"
+                                    }
+                                  }
+                                },
+                                "available": {
+                                  "description": "In the closet, at home and with a clean copy today",
+                                  "type": "boolean"
+                                },
+                                "agrees": {
+                                  "title": "PieceAgreement",
+                                  "description": "How it agrees with the piece",
+                                  "type": "object",
+                                  "required": [
+                                    "type",
+                                    "pattern"
+                                  ],
+                                  "properties": {
+                                    "type": {
+                                      "type": "boolean"
+                                    },
+                                    "color": {
+                                      "description": "`exact`: the main colour; `close`: a close shade of it, or the accent",
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "exact"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "close"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "pattern": {
+                                      "type": "boolean"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "missing": {
+                            "description": "No closet garment is close enough: \"Find this\" puts it on the wishlist",
+                            "type": "boolean"
+                          },
+                          "repicked": {
+                            "description": "The closest garment clashed with the rest, so another is chosen",
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    },
+                    "unfixedPositions": {
+                      "description": "Pieces whose chosen garments clash and that no re-pick within reach mended",
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/looks/{id}/outfits": {
+      "post": {
+        "operationId": "saveLookAsOutfit",
+        "summary": "Saves the garments chosen for a look as an outfit",
+        "tags": [
+          "inspiration"
+        ],
+        "description": "The match view's \"Save as outfit\": your closet garments, one per piece, saved as an outfit named after the look, and each recorded as its piece's choice. Garments that are an outfit of yours already answer that one, 200 with `alreadySaved`, so a retry creates nothing; a new one is 201 with its `Location`. A piece the look no longer has, a garment not of its piece's kind or one garment for two pieces is a 409 (the recreation is out of date: read it again); a garment gone from your closet a 409 naming it; nothing chosen, or a piece twice, a 400.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "RecreationChoices",
+                "type": "object",
+                "required": [
+                  "choices"
+                ],
+                "properties": {
+                  "choices": {
+                    "minItems": 1,
+                    "maxItems": 12,
+                    "description": "One per piece at most, as GET /looks/{id}/recreation offered them",
+                    "type": "array",
+                    "items": {
+                      "title": "PieceChoice",
+                      "type": "object",
+                      "required": [
+                        "position"
+                      ],
+                      "properties": {
+                        "position": {
+                          "minimum": 0,
+                          "maximum": 32767,
+                          "description": "The piece's place in its look, from the look's own counter: never renumbered, never given to another piece",
+                          "type": "integer"
+                        },
+                        "garmentId": {
+                          "description": "A closet garment of the piece's kind; absent or null: None",
+                          "anyOf": [
+                            {
+                              "minimum": 1,
+                              "maximum": 2147483647,
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "OutfitPicked",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "alreadySaved"
+                  ],
+                  "properties": {
+                    "id": {
+                      "description": "The outfit",
+                      "type": "integer"
+                    },
+                    "alreadySaved": {
+                      "description": "The garments were an outfit of yours already: it is the answer, nothing was created (a retry)",
+                      "type": "boolean"
+                    },
+                    "schedule": {
+                      "description": "With `plan`: planned now, or on that day already",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "scheduled"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "already-scheduled"
+                          ]
+                        }
+                      ]
+                    },
+                    "adopted": {
+                      "description": "Plan my week's outfit or entry, which this pick made yours: out of the re-plan's and Undo's reach",
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "OutfitPicked",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "alreadySaved"
+                  ],
+                  "properties": {
+                    "id": {
+                      "description": "The outfit",
+                      "type": "integer"
+                    },
+                    "alreadySaved": {
+                      "description": "The garments were an outfit of yours already: it is the answer, nothing was created (a retry)",
+                      "type": "boolean"
+                    },
+                    "schedule": {
+                      "description": "With `plan`: planned now, or on that day already",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "scheduled"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "already-scheduled"
+                          ]
+                        }
+                      ]
+                    },
+                    "adopted": {
+                      "description": "Plan my week's outfit or entry, which this pick made yours: out of the re-plan's and Undo's reach",
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/looks/{id}/pieces/{position}/wishlist-item": {
+      "put": {
+        "operationId": "findLookPiece",
+        "summary": "Puts a piece of a look on your wishlist",
+        "tags": [
+          "inspiration"
+        ],
+        "description": "\"Find this\": a wishlist item of the piece's category, type, colours and pattern, noting the look, recorded as its choice. A piece on your wishlist already answers its item, 200 with `created: false`; a new one is 201 with the garment's `Location`.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "minimum": 0,
+              "maximum": 32767,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "position",
+            "required": true,
+            "description": "The piece's place in its look, from the look's own counter: never renumbered, never given to another piece"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "LookPieceFound",
+                  "type": "object",
+                  "required": [
+                    "garmentId",
+                    "created"
+                  ],
+                  "properties": {
+                    "garmentId": {
+                      "description": "The wishlist item",
+                      "type": "integer"
+                    },
+                    "created": {
+                      "description": "False: the piece was on your wishlist already (a retry)",
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "LookPieceFound",
+                  "type": "object",
+                  "required": [
+                    "garmentId",
+                    "created"
+                  ],
+                  "properties": {
+                    "garmentId": {
+                      "description": "The wishlist item",
+                      "type": "integer"
+                    },
+                    "created": {
+                      "description": "False: the piece was on your wishlist already (a retry)",
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/look-photos/{fileName}": {
+      "get": {
+        "operationId": "getLookPhoto",
+        "summary": "A saved look's photo",
+        "tags": [
+          "inspiration"
+        ],
+        "description": "The URL a look's `photo` names: only yours, never a share's. Anything else (another's photo, a name that is none) is a 404 like a missing photo.",
+        "parameters": [
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "original"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "thumb"
+                  ]
+                }
+              ]
+            },
+            "in": "query",
+            "name": "variant",
+            "required": false,
+            "description": "The 1080 px original unless `thumb` (400 px)"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "v",
+            "required": false,
+            "description": "The photo's version, which its URL carries so it is cached for good"
+          },
+          {
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "in": "path",
+            "name": "fileName",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The photo, WebP: `private, immutable` for a year",
+            "content": {
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/weather/feedback": {
       "post": {
         "operationId": "sendTemperatureFeedback",

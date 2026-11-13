@@ -770,6 +770,10 @@ export const ROUTES: Route[] = [
       viewer: 'hidden',
       stranger: 'hidden',
     },
+    api: {
+      ok: 200,
+      request: (_, q) => ({ method: 'GET', url: `/api/v1/looks${q}` }),
+    },
   },
   {
     name: 'GET /inspiration/:id',
@@ -788,6 +792,13 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'GET',
+        url: `/api/v1/looks/${f.inspirationId}${q}`,
+      }),
+    },
   },
   {
     name: 'POST /inspiration/:id',
@@ -805,6 +816,14 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 204,
+      request: (f, q) => ({
+        method: 'PATCH',
+        url: `/api/v1/looks/${f.inspirationId}${q}`,
+        payload: { title: 'Renamed', note: 'A note' },
+      }),
     },
   },
   {
@@ -836,6 +855,23 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: async (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/looks/${f.inspirationId}/photo${q}`,
+        ...(await multipart(
+          {},
+          {
+            photo: {
+              data: f.photo,
+              filename: 'look.jpg',
+              contentType: 'image/jpeg',
+            },
+          },
+        )),
+      }),
+    },
   },
   {
     name: 'POST /inspiration/:id/delete',
@@ -852,6 +888,13 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 204,
+      request: (f, q) => ({
+        method: 'DELETE',
+        url: `/api/v1/looks/${f.inspirationId}${q}`,
+      }),
     },
   },
   // A look's pieces (#22b) and its match view: the owner's alone.
@@ -872,6 +915,14 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 201,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/looks/${f.inspirationId}/pieces${q}`,
+        payload: { role: 'bottom', type: 'jeans', colors: ['blue'] },
+      }),
+    },
   },
   {
     name: 'POST /inspiration/:id/pieces/:position',
@@ -890,6 +941,14 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/looks/${f.inspirationId}/pieces/0${q}`,
+        payload: { role: 'top', type: 'shirt', colors: ['blue'] },
+      }),
+    },
   },
   {
     name: 'POST /inspiration/:id/pieces/:position/delete',
@@ -906,6 +965,13 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 204,
+      request: (f, q) => ({
+        method: 'DELETE',
+        url: `/api/v1/looks/${f.inspirationId}/pieces/0${q}`,
+      }),
     },
   },
   {
@@ -924,6 +990,13 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'GET',
+        url: `/api/v1/looks/${f.inspirationId}/recreation${q}`,
+      }),
     },
   },
   // The match view's writes (#22c): the outfit and the wishlist item are
@@ -945,6 +1018,14 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 201,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/looks/${f.inspirationId}/outfits${q}`,
+        payload: { choices: [{ position: 0, garmentId: f.inspirationTeeId }] },
+      }),
+    },
   },
   {
     name: 'POST /inspiration/:id/pieces/:position/find',
@@ -961,6 +1042,13 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 201,
+      request: (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/looks/${f.inspirationId}/pieces/0/wishlist-item${q}`,
+      }),
     },
   },
   // A look's photo: the owner's session only, never by name alone.
@@ -980,6 +1068,14 @@ export const ROUTES: Route[] = [
         manager: 'notFound',
         viewer: 'notFound',
         stranger: 'notFound',
+      },
+      // The device token's twin: the page's route reads the cookie.
+      api: {
+        ok: 200,
+        request: (f) => ({
+          method: 'GET',
+          url: `/api/v1/look-photos/${f.inspirationFileName}?v=1${variant ? '&variant=thumb' : ''}`,
+        }),
       },
     }),
   ),

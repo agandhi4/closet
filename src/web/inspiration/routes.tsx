@@ -1,6 +1,6 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { type Static, Type } from '@sinclair/typebox';
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyReply } from 'fastify';
 import { todayIn } from '../../calendar-date';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
@@ -9,12 +9,11 @@ import { INSPIRATION_PHOTO_ROOT } from '../files/image-url';
 import { sendPrivatePhoto } from '../files/private-photo';
 import { t } from '../i18n';
 import { alreadySavedParam } from '../gallery/urls';
-import { loggableUrl } from '../loggable-url';
 import { outfitUrl } from '../outfits/urls';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { RowId } from '../schemas';
-import { LINK_IMPORT_LIMIT, tooManyAttempts } from '../security/rate-limit';
+import { enforceLimit } from '../security/rate-limit';
 import { viewContext } from '../view-context';
 import {
   LinkImportError,
@@ -62,6 +61,7 @@ import {
   addLinkedInspiration,
   addUploadedInspiration,
   attachInspirationPhoto,
+  type InspirationLinkLimit,
   removeInspiration,
   unreadReasonOf,
 } from './writes';
@@ -116,27 +116,14 @@ const FileParams = Type.Object({ fileName: Type.String() });
  * with a 303 to the look's page, the list after a delete; the autosave is
  * answered with its status line.
  */
-export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
+export const inspirationRoutes: FastifyPluginCallbackTypebox<
+  WebOptions & InspirationLinkLimit
+> = (
   app,
-  { db, photos, logger, fetcher, config },
+  { db, photos, logger, fetcher, config, inspirationLinkLimit },
   done,
 ) => {
   const deps = { db, photos, logger, fetcher };
-  // A budget of its own, like the order mail's "Add to closet": the
-  // garment link import's checker lives in its plugin, and a separate
-  // createRateLimit is a separate store (src/web/wardrobe/link-import/AGENTS.md).
-  const linkLimit = app.createRateLimit(LINK_IMPORT_LIMIT);
-
-  async function linkRetryAfter(
-    request: FastifyRequest,
-  ): Promise<number | undefined> {
-    const verdict = await linkLimit(request);
-    if (verdict.isAllowed || !verdict.isExceeded) return undefined;
-    logger.warn(
-      `Rate limit reached: ${request.method} ${loggableUrl(request)} for user ${sessionUserId(request)}`,
-    );
-    return verdict.ttlInSeconds;
-  }
 
   function refuseLink(
     reply: FastifyReply,
@@ -176,7 +163,7 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // The confirmation also posts the share's `url` and `title`
   // (addUploadedInspiration checks them).
   app.post(INSPIRATION_PATH, async (request, reply) => {
-    const id = await addUploadedInspiration(
+    const { id } = await addUploadedInspiration(
       deps,
       sessionUserId(request),
       request.parts({
@@ -221,9 +208,12 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     INSPIRATION_LINK_PATH,
     { schema: { body: LinkBody } },
     async (request, reply) => {
-      const retryAfter = await linkRetryAfter(request);
-      if (retryAfter !== undefined) throw tooManyAttempts(retryAfter);
       const userId = sessionUserId(request);
+      // The paste's budget, shared with POST /api/v1/looks/link-imports.
+      await enforceLimit(inspirationLinkLimit, request, {
+        logger,
+        who: `user ${userId}`,
+      });
       const typed = request.body.url;
       const link = linkIn(typed);
       if (!link) return refuseLink(reply, 'no-link', typed);
@@ -468,13 +458,10 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   done();
 };
 
-/** The save's choices: the posted pairs, a 400 when they do not pair up or name a piece twice. */
+/** The save's choices: the posted pairs, a 400 when they do not pair up (saveRecreation refuses a piece twice). */
 function postedChoices(body: Static<typeof ChoicesBody>): PostedChoice[] {
   if (body.position.length !== body.garment.length) {
     throw new HttpError(400, 'Each piece needs a position and a choice');
-  }
-  if (new Set(body.position).size !== body.position.length) {
-    throw new HttpError(400, 'A piece chosen twice');
   }
   return body.position.map((position, index) => {
     const garment = body.garment[index];

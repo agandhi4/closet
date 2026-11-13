@@ -30,11 +30,21 @@ export function pieceKindValue({ role, type }: PieceKind): string {
   return type === null ? role : `${role}/${type}`;
 }
 
+/**
+ * A role's garment types (its category's): what a piece of it may be read
+ * as. The JSON surfaces take role and type apart (MCP's
+ * set_inspiration_pieces, the API's pieces), so each refuses a type of
+ * another role with these named.
+ */
+export function typesOfRole(role: InspirationPieceRole): string[] {
+  return typesOf(pieceCategory(role)).map(({ value }) => value);
+}
+
 /** Every kind, in the select's order: each role, its types after it. */
 export const PIECE_KINDS: readonly PieceKind[] =
   INSPIRATION_PIECE_ROLES.flatMap((role) => [
     { role, type: null },
-    ...typesOf(pieceCategory(role)).map(({ value }) => ({ role, type: value })),
+    ...typesOfRole(role).map((type) => ({ role, type })),
   ]);
 
 export const PieceBody = Type.Object({

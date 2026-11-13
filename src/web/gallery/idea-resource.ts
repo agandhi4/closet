@@ -82,7 +82,7 @@ export const IdeaQuery = Type.Object({
   limit: ListLimit(IDEAS_PAGE_SIZE),
 });
 
-const IdeaGarment = Type.Object(
+export const IdeaGarment = Type.Object(
   {
     id: Type.Integer(),
     name: Type.Optional(Type.String()),
@@ -185,7 +185,7 @@ export function toIdeaWeather(
   };
 }
 
-function toIdeaGarment(garment: PoolGarment) {
+export function toIdeaGarment(garment: PoolGarment) {
   return withoutNulls({
     id: garment.id,
     name: garment.name,

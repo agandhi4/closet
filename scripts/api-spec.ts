@@ -82,6 +82,7 @@ export async function generateApiSpec(): Promise<unknown> {
     ...unservedOptions(),
     signInLimit: app.createRateLimit(SIGN_IN_LIMIT),
     linkImportLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
+    inspirationLinkLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
   });
   await app.ready();
   const spec: unknown = app.swagger();

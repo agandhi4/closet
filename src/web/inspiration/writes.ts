@@ -8,8 +8,10 @@ import type { Logger } from '../../logger';
 import { HttpError } from '../errors';
 import { unkeyedPhoto } from '../files/image-variant';
 import type { Photos } from '../files/photos';
+import type { PrivatePhoto } from '../files/image-url';
 import type { NewPhotoRow } from '../files/queries';
 import type { OutboundFetcher } from '../security/outbound-fetch';
+import type { RateLimitChecker } from '../security/rate-limit';
 import {
   importLink,
   type LinkImport,
@@ -22,6 +24,7 @@ import {
   deleteInspiration,
   findInspiration,
   INSPIRATION_TITLE_MAX,
+  type NewInspiration,
   saveInspiration,
   saveInspirationWithPendingPhoto,
   setInspirationPhoto,
@@ -35,6 +38,17 @@ import {
  * deleted, and bytes a committed write replaced or removed are unlinked
  * after the commit.
  */
+
+/**
+ * The paste's LINK_IMPORT_LIMIT, a budget of its own (not the garment
+ * import's: src/web/wardrobe/link-import/AGENTS.md), ONE checker built in
+ * webPlugin for the page's POST /inspiration/link and the API's
+ * POST /api/v1/looks/link-imports, so the two doors share it. MCP's
+ * add_inspiration counts against MCP_LINK_IMPORT_LIMIT instead.
+ */
+export interface InspirationLinkLimit {
+  inspirationLinkLimit: RateLimitChecker;
+}
 
 export interface InspirationDeps {
   db: Db;
@@ -51,29 +65,44 @@ export interface InspirationDeps {
  */
 export type UnreadReason = LinkImportRefusal | 'no-photo';
 
+/** A new look from an upload: its id and its photo (a new `file` row, version 1). */
+export interface UploadedInspiration {
+  id: number;
+  photo: PrivatePhoto;
+}
+
 /**
- * POST /inspiration: the multipart `photo` becomes a new look of the
- * owner's. HEIC and every other format go through Photos' one pipeline;
- * the look keeps its whole picture (no cutout is queued). The share
- * confirmation also posts the share's `url` and `title` (sharedSource);
- * any other field is ignored. Answers its id.
+ * POST /inspiration and POST /api/v1/looks: the multipart `photo` becomes
+ * a new look of the owner's. HEIC and every other format go through
+ * Photos' one pipeline; the look keeps its whole picture (no cutout is
+ * queued). The share confirmation and the API also post a `url` and a
+ * `title`, and the API a `clientId` (uploadedSource); any other field is
+ * ignored. `via` names the surface in the log line (' (API)'; the page's
+ * is '').
  */
 export async function addUploadedInspiration(
   { db, photos, logger }: InspirationDeps,
   ownerId: number,
   parts: AsyncIterable<Multipart>,
-): Promise<number> {
+  via = '',
+): Promise<UploadedInspiration> {
   const fields = new Map<string, MultipartValue>();
   const photo = await photos.storeUploadParts(filesOf(parts, fields), ownerId);
   if (!photo) throw new HttpError(400, 'No file uploaded');
   // Inside the commit, so a refused field deletes the stored bytes.
-  const id = await commitPhoto({ photos, logger }, photo, () =>
-    saveInspiration(db, ownerId, photo, sharedSource(fields)),
+  const { id, clientId } = await commitPhoto(
+    { photos, logger },
+    photo,
+    async () => {
+      const { look, clientId } = uploadedSource(fields);
+      return { id: await saveInspiration(db, ownerId, photo, look), clientId };
+    },
   );
+  const client = clientId ? `, client id ${clientId.slice(0, 8)}` : '';
   logger.info(
-    `Inspiration ${id} saved by user ${ownerId} from an upload: ${photo.fileName}`,
+    `Inspiration ${id} saved by user ${ownerId}${via} from an upload: ${photo.fileName}${client}`,
   );
-  return id;
+  return { id, photo: { fileName: photo.fileName, version: 1 } };
 }
 
 /** The parts' files, in order, noting the text fields as they pass. */
@@ -87,14 +116,19 @@ async function* filesOf(
   }
 }
 
+/** A client's id for an offline create (plan section 2): logged, not yet stored (#196a). */
+const CLIENT_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
- * The look's link and title from the share confirmation's fields. Stored
- * data, so a link that is not one absolute http(s) URL, a title past the
- * column, or a value busboy cut at LINK_INPUT_MAX is a 400; blank is none.
+ * The look's link and title from the share confirmation's or the API's
+ * fields, and the API's `clientId`. Stored data, so a link that is not one
+ * absolute http(s) URL, a title past the column, a client id that is not a
+ * uuid, or a value busboy cut at LINK_INPUT_MAX is a 400; blank is none.
  */
-function sharedSource(fields: Map<string, MultipartValue>): {
-  title: string | null;
-  sourceUrl: string | null;
+function uploadedSource(fields: Map<string, MultipartValue>): {
+  look: NewInspiration;
+  clientId: string | null;
 } {
   const text = (name: string): string => {
     const field = fields.get(name);
@@ -106,12 +140,19 @@ function sharedSource(fields: Map<string, MultipartValue>): {
   };
   const url = text('url');
   const title = text('title');
+  const clientId = text('clientId');
   if (url && !isStorableLink(url))
     throw new HttpError(400, 'Not an http(s) link');
   if (title.length > INSPIRATION_TITLE_MAX) {
     throw new HttpError(400, 'The title is too long');
   }
-  return { title: title || null, sourceUrl: url || null };
+  if (clientId && !CLIENT_ID.test(clientId)) {
+    throw new HttpError(400, 'The clientId is not a uuid');
+  }
+  return {
+    look: { title: title || null, sourceUrl: url || null },
+    clientId: clientId || null,
+  };
 }
 
 /**
@@ -130,6 +171,7 @@ export async function addLinkedInspiration(
   deps: InspirationDeps,
   ownerId: number,
   link: string,
+  via = '',
 ): Promise<{ id: number; unread: UnreadReason | undefined }> {
   const { db, logger } = deps;
   const linkOnly = async (unread: UnreadReason, title: string | null) => {
@@ -138,7 +180,7 @@ export async function addLinkedInspiration(
       sourceUrl: link,
     });
     logger.info(
-      `Inspiration ${id} saved by user ${ownerId} from a link without its photo (${unread})`,
+      `Inspiration ${id} saved by user ${ownerId}${via} from a link without its photo (${unread})`,
     );
     return { id, unread };
   };
@@ -165,7 +207,7 @@ export async function addLinkedInspiration(
   });
   if (id === undefined) return linkOnly('no-photo', title);
   logger.info(
-    `Inspiration ${id} saved by user ${ownerId} from a link (${imported.kind}): ${imported.photo}`,
+    `Inspiration ${id} saved by user ${ownerId}${via} from a link (${imported.kind}): ${imported.photo}`,
   );
   return { id, unread: undefined };
 }
@@ -195,18 +237,26 @@ function titleOf(name: string | null): string | null {
   return title ? title : null;
 }
 
+/** A look's new photo (a new `file` row, version 1), and whether it replaced one. */
+export interface AttachedPhoto {
+  photo: PrivatePhoto;
+  replaced: boolean;
+}
+
 /**
- * POST /inspiration/:id/photo: the multipart `photo` becomes the owner's
- * look's photo (a link saved without one, or another picture). The look is
- * looked up before the body is read, so a refused upload stores nothing;
- * the replaced photo is unlinked after commit.
+ * POST /inspiration/:id/photo and PUT /api/v1/looks/{id}/photo: the
+ * multipart `photo` becomes the owner's look's photo (a link saved without
+ * one, or another picture). The look is looked up before the body is
+ * read, so a refused upload stores nothing; the replaced photo is unlinked
+ * after commit.
  */
 export async function attachInspirationPhoto(
   { db, photos, logger }: InspirationDeps,
   id: number,
   ownerId: number,
   parts: AsyncIterable<MultipartFile>,
-): Promise<void> {
+  via = '',
+): Promise<AttachedPhoto> {
   await findInspiration(db, id, ownerId);
   const photo = await photos.storeUploadParts(parts, ownerId);
   if (!photo) throw new HttpError(400, 'No file uploaded');
@@ -214,22 +264,27 @@ export async function attachInspirationPhoto(
     setInspirationPhoto(db, id, ownerId, photo),
   );
   logger.info(
-    `Inspiration ${id} photo ${replaced ? 'replaced' : 'added'} by user ${ownerId}: ${photo.fileName}`,
+    `Inspiration ${id} photo ${replaced ? 'replaced' : 'added'} by user ${ownerId}${via}: ${photo.fileName}`,
   );
   if (replaced) await photos.deleteVariants(unkeyedPhoto(replaced));
+  return {
+    photo: { fileName: photo.fileName, version: 1 },
+    replaced: replaced !== null,
+  };
 }
 
-/** POST /inspiration/:id/delete: the owner's look, row then bytes. */
+/** POST /inspiration/:id/delete and DELETE /api/v1/looks/{id}: the owner's look, row then bytes. */
 export async function removeInspiration(
   { db, photos, logger }: InspirationDeps,
   id: number,
   ownerId: number,
+  via = '',
 ): Promise<void> {
   const { photo } = await deleteInspiration(db, id, ownerId);
   // Only after commit: an unlink cannot be rolled back.
   if (photo) await photos.deleteVariants(unkeyedPhoto(photo));
   logger.info(
-    `Inspiration ${id} deleted by user ${ownerId}${photo ? ` with its photo ${photo}` : ''}`,
+    `Inspiration ${id} deleted by user ${ownerId}${via}${photo ? ` with its photo ${photo}` : ''}`,
   );
 }
 

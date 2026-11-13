@@ -5,10 +5,7 @@ import {
   GARMENT_COLORS,
   INSPIRATION_PIECE_MAX_COLORS,
   INSPIRATION_PIECE_ROLES,
-  type InspirationPieceRole,
   PATTERNS,
-  pieceCategory,
-  typesOf,
 } from '../../../wardrobe/properties';
 import { HttpError } from '../../errors';
 import { t } from '../../i18n';
@@ -20,6 +17,7 @@ import {
   setInspirationPieces,
   wishlisted,
 } from '../../inspiration/queries';
+import { typesOfRole } from '../../inspiration/piece-input';
 import {
   type LookRecreation,
   recreateOwnLook,
@@ -39,11 +37,6 @@ import { rowId } from './common';
  * a piece writer of the look's own lock (setInspirationPieces). Muse reads
  * a link's page itself and tags the look: the vision step no server model does.
  */
-
-/** Each role's garment types: what set_inspiration_pieces takes as `type`. */
-function typesOfRole(role: InspirationPieceRole): string[] {
-  return typesOf(pieceCategory(role)).map(({ value }) => value);
-}
 
 const ROLE_TYPES = INSPIRATION_PIECE_ROLES.map(
   (role) => `${role} (${typesOfRole(role).join(', ')})`,
@@ -208,6 +201,7 @@ export const inspirationTools = [
           },
           ctx.userId,
           args.url,
+          ' (MCP)',
         );
       } catch (error) {
         if (!(error instanceof LinkImportError)) throw error;
