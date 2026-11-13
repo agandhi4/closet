@@ -42,8 +42,8 @@ the heartbeat says offline, and the activation refresh
 says), the due keys come from `cache.keys()` against the `activated-at`
 record, and the offline open's age is read from `#freshness` with the page's
 clock fast-forwarded (`page.clock`), never a sleep. Both builds render the
-same `?v=`, so the per-build static cache is proved by its unit spec, not
-here.
+same `?v=`, so the per-build static cache is proved by its unit spec
+(`src/asset-cache.spec.ts`, a stand-in cache and server), not here.
 
 Two bugs it found in `public/js/pwa.js` (fixed with it): the other window's
 Reload posted `SKIP_WAITING` to no waiting worker and did nothing, forever,

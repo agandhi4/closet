@@ -8,6 +8,8 @@ import {
   navigationPostAnswer,
   PAGE_ACCOUNT_HEADER,
   pageAccount,
+  refetchInTurn,
+  type RefetchStep,
   refetchVerdict,
   revalidationOutcome,
   sentToLogin,
@@ -338,8 +340,15 @@ describe('refetchVerdict', () => {
     expect(refetchVerdict(answer({ status }))).toBe('deleted');
   });
 
-  it.each([429, 500, 503])('stops the run on a %i, copies kept', (status) => {
-    expect(refetchVerdict(answer({ status }))).toBe('stop');
+  it.each([429, 502, 503, 504])(
+    'stops the run on a %i, the server unavailable or throttling',
+    (status) => {
+      expect(refetchVerdict(answer({ status }))).toBe('stop');
+    },
+  );
+
+  it.each([500, 501])('passes over one page failing with a %i', (status) => {
+    expect(refetchVerdict(answer({ status }))).toBe('failed');
   });
 
   it('keeps the copy on a redirect to another page, never storing it under this key', () => {
@@ -360,5 +369,60 @@ describe('refetchVerdict', () => {
     ],
   ])('ends the session on %s', (_case, fetched) => {
     expect(refetchVerdict(fetched)).toBe('session-ended');
+  });
+});
+
+describe('refetchInTurn', () => {
+  // Each key answered as the server would, through the real answer table:
+  // what refetchCachedPage hands the walk.
+  const server = (statuses: Record<string, number>) => {
+    const asked: string[] = [];
+    const step = (key: string): RefetchStep => {
+      const verdict = refetchVerdict({
+        status: statuses[key] ?? 200,
+        redirected: false,
+        url: `${ORIGIN}${key}`,
+        headers: new Headers({ [PAGE_ACCOUNT_HEADER]: '7' }),
+      });
+      if (verdict === 'deleted') return { verdict, removed: 2 };
+      if (verdict === 'stop' || verdict === 'session-ended') {
+        return { verdict, stop: verdict };
+      }
+      return { verdict };
+    };
+    const refetch = (key: string): Promise<RefetchStep> => {
+      asked.push(key);
+      return Promise.resolve(step(key));
+    };
+    return { asked, refetch };
+  };
+  const keys = ['/wardrobe/1', '/wardrobe/2', '/wardrobe/3'];
+
+  it('asks the keys after one page answering 500', async () => {
+    const { asked, refetch } = server({ '/wardrobe/2': 500 });
+    const run = await refetchInTurn(keys, refetch, () => false);
+    expect(asked).toEqual(keys);
+    expect(run).toEqual({ stored: 2, removed: 0, kept: 0, failed: 1 });
+  });
+
+  it('counts a gone page as its copies removed and goes on', async () => {
+    const { asked, refetch } = server({ '/wardrobe/1': 404 });
+    const run = await refetchInTurn(keys, refetch, () => false);
+    expect(asked).toEqual(keys);
+    expect(run).toEqual({ stored: 2, removed: 2, kept: 0, failed: 0 });
+  });
+
+  it('stops at the server unavailable, asking nothing after it', async () => {
+    const { asked, refetch } = server({ '/wardrobe/2': 503 });
+    const run = await refetchInTurn(keys, refetch, () => false);
+    expect(asked).toEqual(['/wardrobe/1', '/wardrobe/2']);
+    expect(run).toMatchObject({ stored: 1, stop: 'stop' });
+  });
+
+  it('stops before the next key once the session changed', async () => {
+    const { asked, refetch } = server({});
+    const run = await refetchInTurn(keys, refetch, () => asked.length === 1);
+    expect(asked).toEqual(['/wardrobe/1']);
+    expect(run.stop).toBe('the session changed');
   });
 });

@@ -280,9 +280,14 @@ export function revalidationOutcome(
  *  - deleted: a 404 or a 403, gone or no longer this account's to see (a
  *    revoked share): its copies go, page and `|hx` fragment;
  *  - kept: a followed redirect to another page, never stored under this key
- *    (pageStore's rule), or another refusal: the old copy stays;
- *  - stop: a 429 or a 5xx, the server unwell: nothing more is asked, every
- *    copy stays, and the next WARM_PAGES resumes;
+ *    (pageStore's rule), or another refusal: the old copy stays, settled;
+ *  - failed: any other 5xx, this one page failing (a bug on one garment's
+ *    page): the old copy stays, the run goes on to the next key, and the
+ *    next run asks again;
+ *  - stop: the server unreachable or throttling (a 429, or a 502, 503 or
+ *    504 from it or the proxy before it): nothing more is asked, every copy
+ *    stays, and the next WARM_PAGES resumes; a fetch that throws stops the
+ *    same way (refetchCachedPage);
  *  - session-ended: a 401, X-Session-Ended or a redirect to the login page:
  *    the session caches go (endFetchedSession). Deliberately: it is how a
  *    password change or a revocation reaches a lost phone, at the cost of an
@@ -294,8 +299,12 @@ export type RefetchVerdict =
   | 'stored'
   | 'deleted'
   | 'kept'
+  | 'failed'
   | 'stop'
   | 'session-ended';
+
+/** The answers that say the server, not the page, is unwell. */
+const UNAVAILABLE_STATUSES = new Set([429, 502, 503, 504]);
 
 export function refetchVerdict(answer: {
   status: number;
@@ -313,6 +322,57 @@ export function refetchVerdict(answer: {
   if (answer.redirected) return 'kept';
   if (answer.status === 200) return 'stored';
   if (answer.status === 404 || answer.status === 403) return 'deleted';
-  if (answer.status === 429 || answer.status >= 500) return 'stop';
+  if (UNAVAILABLE_STATUSES.has(answer.status)) return 'stop';
+  if (answer.status >= 500) return 'failed';
   return 'kept';
+}
+
+/** One key's refetch as the walk sees it (refetchInTurn). */
+export type RefetchStep =
+  | { verdict: 'stored' }
+  | { verdict: 'kept' }
+  | { verdict: 'failed' }
+  | { verdict: 'deleted'; removed: number }
+  | { verdict: 'stop' | 'session-ended' | 'unreachable'; stop: string };
+
+export interface RefetchRun {
+  stored: number;
+  /** Copies deleted (a page and its `|hx` fragment count apart). */
+  removed: number;
+  kept: number;
+  /** Keys whose page failed: their copies stay, due again next run. */
+  failed: number;
+  /** Why the walk ended early; undefined when it asked every key. */
+  stop?: string;
+}
+
+/**
+ * Refetches `keys` one at a time, in order (the activation refresh, a
+ * sync's refetch): a failing page is counted and passed over, and only an
+ * answer that says the server is unreachable, throttling or the session
+ * over (RefetchStep's stop) ends the walk, as does `sessionChanged` (a drop
+ * started a generation) before the next key.
+ */
+export async function refetchInTurn<Key>(
+  keys: readonly Key[],
+  refetch: (key: Key) => Promise<RefetchStep>,
+  sessionChanged: () => boolean,
+): Promise<RefetchRun> {
+  const run: RefetchRun = { stored: 0, removed: 0, kept: 0, failed: 0 };
+  for (const key of keys) {
+    if (sessionChanged()) {
+      run.stop = 'the session changed';
+      break;
+    }
+    const step = await refetch(key);
+    if (step.verdict === 'stored') run.stored += 1;
+    else if (step.verdict === 'deleted') run.removed += step.removed;
+    else if (step.verdict === 'kept') run.kept += 1;
+    else if (step.verdict === 'failed') run.failed += 1;
+    else {
+      run.stop = step.stop;
+      break;
+    }
+  }
+  return run;
 }

@@ -26,6 +26,8 @@ import {
   isRenderedPage,
   navigationPostAnswer,
   pageAccount,
+  refetchInTurn,
+  type RefetchStep,
   type RefetchVerdict,
   refetchVerdict,
   type Revalidation,
@@ -45,10 +47,12 @@ import {
 } from '../../src/web/shell/offline-warm';
 import { WARM_REQUEST_HEADER } from '../../src/warm-request';
 import {
-  answersItsBuild,
+  answerVersionedAsset,
+  ASSET_VERSION_HEADER,
   assetBuildOf,
-  keptBuilds,
-  unversionedUrl,
+  BuildAssets,
+  buildFilePaths,
+  isStorableAsset,
 } from '../../src/asset-cache';
 import {
   receiveShare,
@@ -189,73 +193,48 @@ const IMAGES_CACHE = 'images-v2';
 const SESSION_CACHES = [PAGES_CACHE, IMAGES_CACHE, SHARE_STASH_CACHE];
 
 // Each build's own static files, under the exact `?v=<build>` URL its pages
-// ask for (#656, src/asset-cache.ts). A page stored by an older build is
-// still served offline after a deploy, until the activation refresh replaces
-// it (refreshOlderBuildPages), and its <head> must meet its own build's
-// scripts: its importmap names that build's modules, and the precache holds
-// only this build's bytes (Workbox deletes the previous revisions on
-// activate). So this cache keeps only what the server said was the build the
-// URL names (answersItsBuild): the precache's answer is served when no exact
-// copy exists, never kept under the URL, and the network's is fetched behind
-// it once per build and file. Builds are kept whole, the newest two
-// (keptBuilds); no per-file expiry, or a page would get half its build.
+// ask for (#656, src/asset-cache.ts, src/web/shell/updates.md). A page stored
+// by an older build is still served offline after a deploy, until the
+// activation refresh replaces it (refreshOlderBuildPages), and its <head> must
+// meet its own build's scripts: its importmap names that build's modules, and
+// the precache holds only this build's bytes (Workbox deletes the previous
+// revisions on activate). So each worker's install keeps its build's whole set
+// (storeOwnBuild), and this cache keeps only what the server said was the
+// build the URL names (answersItsBuild): the precache's answer is served when
+// no exact copy exists, never kept under the URL. Builds are kept whole, the
+// newest two (keptBuilds); no per-file expiry, or a page would get half its
+// build. An older page whose build is not complete here is not served
+// (servedCopies).
 const ASSETS_CACHE = 'assets-v2';
-// Off-origin, like the page cache's records: newest first, the builds held.
-const ASSET_BUILDS_KEY = 'https://asset-cache.invalid/builds';
+
+const buildAssets = new BuildAssets(
+  () => self.caches.open(ASSETS_CACHE),
+  self.location.origin,
+  (message) => console.info(`[sw] ${message}`),
+);
 
 class BuildAsset extends Strategy {
-  protected async _handle(
+  protected _handle(
     request: Request,
     handler: StrategyHandler,
   ): Promise<Response> {
-    const kept = await handler.cacheMatch(request);
-    if (kept) return kept;
-    const fetched = handler.fetchAndCachePut(request);
-    const precached = await matchPrecache(unversionedUrl(new URL(request.url)));
-    if (!precached) return fetched;
-    // Offline the fetch fails: the precache's copy is the answer either way.
-    void handler.waitUntil(fetched.catch(() => undefined));
-    return precached;
+    return answerVersionedAsset(new URL(request.url), {
+      stored: () => handler.cacheMatch(request),
+      precached: (unversioned) => matchPrecache(unversioned),
+      fetchAndStore: () => handler.fetchAndCachePut(request),
+      behind: (work) => void handler.waitUntil(work),
+    });
   }
 }
 
-// Serializes the builds record's read, rewrite and eviction.
-let assetBuilds: Promise<unknown> = Promise.resolve();
-
-/** `build` just had a file stored: it leads, and builds past the kept ones go whole. */
-function keepBuild(build: string): Promise<void> {
-  const run = assetBuilds.then(async () => {
-    const cache = await self.caches.open(ASSETS_CACHE);
-    const record = await (await cache.match(ASSET_BUILDS_KEY))?.text();
-    const previous: string[] = record ? JSON.parse(record) : [];
-    if (previous[0] === build) return;
-    const kept = keptBuilds(previous, build);
-    await cache.put(ASSET_BUILDS_KEY, new Response(JSON.stringify(kept)));
-    const dropped = (await cache.keys()).filter((key) => {
-      const keyBuild = assetBuildOf(new URL(key.url), self.location.origin);
-      return keyBuild !== undefined && !kept.includes(keyBuild);
-    });
-    await Promise.all(dropped.map((key) => cache.delete(key)));
-    console.info(
-      `[sw] static files: keeping builds ${kept.join(', ')}, ${dropped.length} older file(s) dropped`,
-    );
-  });
-  assetBuilds = run.catch(() => undefined);
-  return run;
-}
-
 const assetStore: WorkboxPlugin = {
-  cacheWillUpdate: async ({ request, response }) => {
-    const build = assetBuildOf(new URL(request.url), self.location.origin);
-    const itsOwn =
-      build !== undefined &&
-      response.status === 200 &&
-      answersItsBuild(build, response.headers);
-    return itsOwn ? response : null;
-  },
+  cacheWillUpdate: async ({ request, response }) =>
+    isStorableAsset(new URL(request.url), self.location.origin, response)
+      ? response
+      : null,
   cacheDidUpdate: async ({ request }) => {
     const build = assetBuildOf(new URL(request.url), self.location.origin);
-    if (build !== undefined) await keepBuild(build);
+    if (build !== undefined) await buildAssets.keep(build);
   },
 };
 
@@ -268,10 +247,58 @@ registerRoute(
   new BuildAsset({ cacheName: ASSETS_CACHE, plugins: [assetStore] }),
 );
 
+// The one read of the injection point (workbox-build refuses a second):
+// the precache's entries, and the paths storeOwnBuild keeps per build.
+const PRECACHE_MANIFEST = self.__WB_MANIFEST;
+
+/**
+ * At install, every file a page of this build can name with `?v=` (the
+ * precache's scripts and styles, the /modules/ libraries no page may have
+ * loaded yet), kept under its exact URL: the pages the warm stored as HTML
+ * never fetched their subresources, so after the next deploy their build's
+ * files are here whatever they import. A file the server answers as another
+ * build (a deploy mid-install) or not at all is not kept and the build stays
+ * incomplete, whose older pages are then deleted on read as before #656
+ * (servedCopies). Never fails the install: the precache is the app shell.
+ * `reload`: past the HTTP cache, which may hold another build's bytes under
+ * a `?v=` URL the server answered after a deploy.
+ */
+async function storeOwnBuild(): Promise<void> {
+  const startedAt = Date.now();
+  const paths = buildFilePaths(
+    PRECACHE_MANIFEST.map((entry) =>
+      typeof entry === 'string' ? entry : entry.url,
+    ),
+    self.location.origin,
+  );
+  try {
+    const { build, stored, missing } = await buildAssets.storeBuildSet(
+      paths,
+      (url) => fetch(url, { cache: 'reload' }),
+    );
+    const took = `${((Date.now() - startedAt) / 1000).toFixed(1)} s`;
+    if (missing.length === 0) {
+      console.info(
+        `[sw] build ${build}: ${stored} static file(s) kept in ${took}`,
+      );
+    } else {
+      console.warn(
+        `[sw] build ${build ?? '(unnamed)'} incomplete: ${stored} of ${paths.length} static file(s) kept in ${took}, missing ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', ...' : ''}`,
+      );
+    }
+  } catch (error) {
+    console.warn("[sw] could not keep this build's static files", error);
+  }
+}
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(storeOwnBuild());
+});
+
 // Unversioned public/ files (the fonts bundle.css names by content hash)
 // are this build's: the precache, keyed by content hash, answers them, with
 // a stray `?v` ignored.
-precacheAndRoute(self.__WB_MANIFEST, {
+precacheAndRoute(PRECACHE_MANIFEST, {
   ignoreURLParametersMatching: [/^utm_/, /^fbclid$/, /^v$/],
 });
 
@@ -518,16 +545,34 @@ const pageStore: WorkboxPlugin = {
 // still fall between the two: the copy then lands in the emptied cache,
 // rendered for an account that no longer (or not yet) owns it, and this is
 // what keeps it from ever being served. A copy an older build stored is
-// served (#656: until 2026-11-13 it was deleted here, and a deploy left the
-// phone the offline page): offline it is NetworkFirst's answer, with its
-// age, and its <head> meets its own build's scripts (ASSETS_CACHE). It is
-// never opened stale-first (StaleTabRoot), and the activation refresh
-// replaces it (refreshOlderBuildPages).
+// served (#656: until 2026-11-13 every one was deleted here, and a deploy
+// left the phone the offline page) while its build's static files are all
+// kept (ASSETS_CACHE, the build its X-Asset-Version names): offline it is
+// NetworkFirst's answer, with its age, and its <head> meets its own build's
+// scripts. It is never opened stale-first (StaleTabRoot), and the activation
+// refresh replaces it (refreshOlderBuildPages). One whose build is not
+// complete there (its install missed a file, evicted, or a copy from before
+// pages named their build) would meet this build's bytes: it is deleted, as
+// before #656, and the offline page answers (the catch handler, not through
+// here). `request` is the cache key here (cacheKeyWillBeUsed has run).
 const servedCopies: WorkboxPlugin = {
-  cachedResponseWillBeUsed: async ({ request, cachedResponse }) => {
+  cachedResponseWillBeUsed: async ({ cacheName, request, cachedResponse }) => {
     if (!cachedResponse) return null;
     const path = new URL(request.url).pathname;
-    return (await isOwned(cachedResponse, path)) ? cachedResponse : null;
+    if (!(await isOwned(cachedResponse, path))) return null;
+    if (
+      isFromAnOlderBuild(cachedResponse, await activatedAt()) &&
+      !(await buildAssets.isComplete(
+        cachedResponse.headers.get(ASSET_VERSION_HEADER),
+      ))
+    ) {
+      await (await self.caches.open(cacheName)).delete(request);
+      console.info(
+        `[sw] ${path}: older-build copy deleted, its build's static files are not all kept`,
+      );
+      return null;
+    }
+    return cachedResponse;
   },
 };
 
@@ -985,35 +1030,28 @@ async function refetchSyncedPages(
   });
   const renewed: RenewedPage[] = [];
   let unchanged = 0;
-  let removed = 0;
-  let failed = 0;
-  let stop: string | undefined;
-  for (const key of due) {
-    if (generation !== run) {
-      stop = 'the session changed';
-      break;
-    }
-    // Read before the fetch: the refetch's store replaces it.
-    const before = await (await cache.match(key))?.text();
-    const refetched = await refetchCachedPage(event, key, run, 'refetch');
-    if (refetched.verdict === 'stored') {
-      const html = await refetched.answer.text();
-      if (html === before) unchanged += 1;
-      else {
-        renewed.push({
-          url: refetched.url,
-          fragment: refetched.fragment,
-          html,
-          fetchedAt: Date.now(),
-        });
+  const walk = await refetchInTurn(
+    due,
+    async (key) => {
+      // Read before the fetch: the refetch's store replaces it.
+      const before = await (await cache.match(key))?.text();
+      const refetched = await refetchCachedPage(event, key, run, 'refetch');
+      if (refetched.verdict === 'stored') {
+        const html = await refetched.answer.text();
+        if (html === before) unchanged += 1;
+        else {
+          renewed.push({
+            url: refetched.url,
+            fragment: refetched.fragment,
+            html,
+            fetchedAt: Date.now(),
+          });
+        }
       }
-    } else if (refetched.verdict === 'deleted') removed += refetched.removed;
-    else if (refetched.verdict === 'kept') failed += 1;
-    else {
-      stop = refetched.stop;
-      break;
-    }
-  }
+      return refetched;
+    },
+    () => generation !== run,
+  );
   const told =
     renewed.length > 0 && generation === run
       ? await tellRenewedPages(renewed)
@@ -1021,11 +1059,13 @@ async function refetchSyncedPages(
   const summary =
     `${writes.length} synced write(s): ${due.length} cached page(s), ` +
     `${renewed.length} renewed (${told} tab(s) told), ${unchanged} unchanged, ` +
-    `${removed} removed, ${failed} failed`;
-  if (stop) console.info(`[sw] ${summary}, stopped: ${stop}`);
+    `${walk.removed} removed, ${walk.kept} kept, ${walk.failed} failed`;
+  if (walk.stop) console.info(`[sw] ${summary}, stopped: ${walk.stop}`);
   else console.info(`[sw] ${summary}`);
 }
 
+// What refetchCachedPage tells its walk (refetchInTurn); a stored page
+// carries the answer, for a sync's comparison.
 type Refetched =
   | {
       verdict: 'stored';
@@ -1033,12 +1073,7 @@ type Refetched =
       url: string;
       fragment: boolean;
     }
-  | { verdict: 'deleted'; removed: number }
-  | { verdict: 'kept' }
-  | {
-      verdict: 'stop' | 'session-ended' | 'unreachable';
-      stop: 'the server failed' | 'signed out' | 'unreachable';
-    };
+  | Exclude<RefetchStep, { verdict: 'stored' }>;
 
 /**
  * A cached page or `|hx` fragment fetched again by the worker itself (the
@@ -1087,11 +1122,16 @@ async function refetchCachedPage(
       };
     case 'kept':
       return { verdict };
+    case 'failed':
+      console.warn(
+        `[sw] ${new URL(url).pathname} (${what}) answered ${answer.status}: skipped, asked again next run`,
+      );
+      return { verdict };
     case 'stop':
       console.warn(
         `[sw] ${new URL(url).pathname} (${what}) answered ${answer.status}: stopped`,
       );
-      return { verdict, stop: 'the server failed' };
+      return { verdict, stop: 'the server is unavailable' };
     case 'session-ended':
       await endFetchedSession(event, run, `${new URL(url).pathname} (${what})`);
       return { verdict, stop: 'signed out' };
@@ -1169,15 +1209,17 @@ const USAGE_CHECK_EVERY = 10;
  * The activation refresh (#656, src/web/shell/AGENTS.md, Updates): every
  * page and `|hx` fragment this cache holds from before this worker activated
  * (an older build rendered it) is fetched again, one at a time in the
- * cache's own order, through refetchCachedPage. The cache is the to-do list:
- * a key is due while its copy is stamped before ACTIVATED_AT_KEY, so a run
- * cut short (offline, the server failing) resumes at the next WARM_PAGES
- * with what is left, and a second deploy makes this build's copies due
- * again. Until a key is replaced, its older copy is NetworkFirst's offline
- * answer. Its own generation, like any run: a drop stops it, and whatever
- * it had in flight is refused (runOf). True when nothing was left to do or
- * it all got an answer; REFRESHED_AT_KEY then spares the next WARM_PAGES
- * the scan.
+ * cache's own order, through refetchCachedPage and refetchInTurn. The cache
+ * is the to-do list: a key is due while its copy is stamped before
+ * ACTIVATED_AT_KEY, so a run cut short (offline, the server unavailable or
+ * throttling) resumes at the next WARM_PAGES with what is left, and a second
+ * deploy makes this build's copies due again. One page failing (a 500) is
+ * passed over and stays due, asked again next run. Until a key is replaced,
+ * its older copy is NetworkFirst's offline answer. Its own generation, like
+ * any run: a drop stops it, and whatever it had in flight is refused
+ * (runOf). True when the walk asked every key, failed ones included, so the
+ * daily warm is never held back by one bad page; REFRESHED_AT_KEY, written
+ * only when none failed, spares the next WARM_PAGES the scan.
  */
 async function refreshOlderBuildPages(
   event: ExtendableMessageEvent,
@@ -1197,37 +1239,25 @@ async function refreshOlderBuildPages(
     if (copy && isFromAnOlderBuild(copy, since)) due.push(key);
   }
   const startedAt = Date.now();
-  const tally = { refreshed: 0, deleted: 0, kept: 0 };
-  let stop: string | undefined;
-  for (const key of due) {
-    if (generation !== run) {
-      stop = 'the session changed';
-      break;
-    }
-    const refetched = await refetchCachedPage(event, key, run, 'refresh');
-    if (refetched.verdict === 'stored') tally.refreshed += 1;
-    else if (refetched.verdict === 'deleted')
-      tally.deleted += refetched.removed;
-    else if (refetched.verdict === 'kept') tally.kept += 1;
-    else {
-      stop = refetched.stop;
-      break;
-    }
-  }
-  if (due.length === 0 && stop === undefined) {
-    await recordRefreshed(run);
-    return true;
-  }
+  const walk = await refetchInTurn(
+    due,
+    (key) => refetchCachedPage(event, key, run, 'refresh'),
+    () => generation !== run,
+  );
   const summary =
-    `${tally.refreshed} of ${due.length} older-build page(s) in ` +
+    `${walk.stored} of ${due.length} older-build page(s) in ` +
     `${((Date.now() - startedAt) / 1000).toFixed(1)} s ` +
-    `(${tally.deleted} deleted, ${tally.kept} kept)`;
-  if (stop) {
-    console.info(`[sw] refresh stopped, ${stop}: refreshed ${summary}`);
+    `(${walk.removed} deleted, ${walk.kept} kept, ${walk.failed} failed)`;
+  if (walk.stop) {
+    if (due.length > 0) {
+      console.info(`[sw] refresh stopped, ${walk.stop}: refreshed ${summary}`);
+    }
     return false;
   }
-  await recordRefreshed(run);
-  console.info(`[sw] refreshed ${summary}`);
+  // A failed key stays due: not recorded, so the next WARM_PAGES asks it
+  // (and only it, the rest replaced) again.
+  if (walk.failed === 0) await recordRefreshed(run);
+  if (due.length > 0) console.info(`[sw] refreshed ${summary}`);
   return true;
 }
 
@@ -1259,8 +1289,9 @@ function warmPages(event: ExtendableMessageEvent): Promise<void> {
     do {
       warmAgain = false;
       // What the user already had comes first, and a refresh that stopped
-      // (offline, the server failing, the session gone) would see the warm
-      // stop the same way: it waits for the next WARM_PAGES.
+      // (offline, the server unavailable, the session gone) would see the
+      // warm stop the same way: it waits for the next WARM_PAGES. One that
+      // only passed over failing pages lets the warm run.
       const refreshed = await refreshOlderBuildPages(event).catch(
         (error: unknown) => {
           console.warn('[sw] refresh failed', error);
