@@ -5,7 +5,7 @@ import {
   recordErrors,
   type RecordedErrors,
 } from '../../test/support/sentry-stub';
-import { createErrorHandler, HttpError } from './errors';
+import { createErrorHandler, HttpError, REQUEST_FAILED_EVENT } from './errors';
 import { renderPage } from './render';
 import type { ViewContext } from './view-context';
 
@@ -67,6 +67,9 @@ describe('createErrorHandler', () => {
     });
     app.get('/boom', () => {
       throw new Error('connection refused at 10.0.0.5');
+    });
+    app.get('/curly', () => {
+      throw new HttpError(409, 'Undo “Wore today” first…');
     });
     // A multipart part over the size limit fails inside the handler.
     app.get('/too-large', () => {
@@ -210,7 +213,9 @@ describe('createErrorHandler', () => {
   it('hides the detail of anything else behind a 500, logged with its stack', async () => {
     const res = await app.inject({ method: 'GET', url: '/boom' });
     expect(res.statusCode).toBe(500);
-    expect(res.body).toContain('<p>Internal server error</p>');
+    expect(res.body).toContain(
+      '<p>Something went wrong on our side. Try again in a moment.</p>',
+    );
     // The id a person quotes when reporting it (its log lines carry it).
     expect(res.body).toContain(`Request ID: ${REQUEST_ID}`);
     expect(res.body).not.toContain('10.0.0.5');
@@ -219,12 +224,30 @@ describe('createErrorHandler', () => {
     expect(logged.err?.stack).toContain('connection refused at 10.0.0.5');
   });
 
+  it("names a fragment request's failure in an ASCII HX-Trigger htmx reads back", async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/curly',
+      headers: { 'hx-request': 'true' },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toBe('');
+    const trigger = String(res.headers['hx-trigger']);
+    expect(trigger).toMatch(/^[\x20-\x7e]+$/);
+    expect(JSON.parse(trigger)).toEqual({
+      [REQUEST_FAILED_EVENT]: {
+        message: 'Undo “Wore today” first…',
+        requestId: REQUEST_ID,
+      },
+    });
+  });
+
   it('answers data on a path without a page context', async () => {
     const res = await app.inject({ method: 'GET', url: '/static' });
     expect(res.statusCode).toBe(500);
     expect(res.json()).toEqual({
       statusCode: 500,
-      message: 'Internal server error',
+      message: 'Something went wrong on our side. Try again in a moment.',
       request_id: REQUEST_ID,
     });
   });

@@ -854,3 +854,10 @@ Consequence: production is unaffected (drizzle-kit is a devDependency, omitted f
 Why: before a first release tag the owner wanted every core job working and everything beautiful, checked by evidence rather than feature lists: seven reviewers (journeys driven in the real app at 390 px, security, performance, quality, errors, portability, UI/UX) plus six gap reviews, P0–P2 findings adversarially verified (`docs/reports/2026-11-13-pre-0.1-audit.md`).
 Decision: the 141 surviving findings became 103 issues under the pinned epic #631 and milestone `0.1`, one issue per fix (shared root causes merged, polish batched per area), ordered P1s, journey blockers, UX, ops, security, perf, structure, polish; 9 product/legal/policy questions are `agent-blocked` until the owner answers (#637 #638 #639 #655 #670 #680 #681 #695 #725).
 Consequence: the work loop's lane order is #631's checklist; the 0.1 tag waits on the release-identity decision (#637), since 2026-10-13 retired semver tags.
+
+## 2026-11-13 — One channel for failed htmx requests (#642)
+
+Why: htmx swaps no 4xx/5xx, so a refused tap (a deleted garment's 404, the owner lock's 503, a 429) showed nothing; routes answered 200-with-error one by one.
+Decision: the root error handler decides by request kind: a fragment request gets its status, no body and `HX-Trigger` `closet:request-failed` `{ message, requestId }` (i18n, never the error's text; the 500 a fixed line); a navigation or boosted tap the error page. `public/js/request-failures.js` swaps a boosted error page that is ours (`X-Request-ID`), toasts the trigger, a foreign error answer and `htmx:timeout` (`HTMX_CONFIG.timeout` = `REPLAY_TIMEOUT_MS`); a queueable form's timeout is queued by the outbox instead. Not `responseHandling`: its rules see only the status, not `boosted`, and swapping every 4xx would empty a fragment target with the bodiless answer.
+Consequence: a route throws to refuse an htmx request; the link photo choice's 200-with-error is gone, the registration's inline validation stays 200 (a message is its answer, not a failure). The 404 handler's message no longer echoes the URL.
+

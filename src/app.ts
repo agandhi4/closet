@@ -31,6 +31,7 @@ import { createErrorHandler, HttpError } from './web/errors';
 import { configurePhotoUrls } from './web/files/image-url';
 import { configurePasswordHashing } from './web/auth/passwords';
 import { createPhotos, type Photos, photosConfig } from './web/files/photos';
+import { t } from './web/i18n';
 import { loggableUrl } from './web/loggable-url';
 import { webPlugin } from './web/plugin';
 import { createPushSender, type PushSender } from './web/push/sender';
@@ -408,13 +409,14 @@ export async function createApp(
   const web = logger.child({ logger: 'Web' });
   app.setErrorHandler(createErrorHandler(web, errors));
   // A path no route matches is the 404 page (a static path, which has no
-  // page context, gets data from the error handler instead); under /api a
-  // problem 404 that does not echo the URL, which a client may have put a
-  // token in.
+  // page context, gets data from the error handler instead; an htmx
+  // fragment request its trigger); under /api a problem 404. Neither
+  // message echoes the URL: a client may have put a token in it, and the
+  // message reaches the warn line (the page shows the path itself).
   app.setNotFoundHandler((request) => {
     throw surfaceOf(request) === 'api'
       ? new HttpError(404)
-      : new HttpError(404, `Cannot ${request.method} ${request.url}`);
+      : new HttpError(404, t('refusal.notFound.page'));
   });
 
   await app.register(webPlugin, {

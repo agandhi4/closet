@@ -171,7 +171,7 @@ const SAVED_TOASTS = {
  * GET /auth/profile/sizes, and its re-render with a refusal (400): the
  * unit, the measurements (one form, one Save: the numbers in the unit
  * shown), each brand's row and a new one. Native posts (PostForm): a
- * refusal re-renders with a 4xx, which htmx would not swap.
+ * refusal re-renders the whole page with a 4xx.
  */
 export function SizesPage(props: { ctx: ViewContext; model: SizesPageModel }) {
   const { ctx, model } = props;

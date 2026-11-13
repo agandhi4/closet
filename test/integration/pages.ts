@@ -4,6 +4,7 @@ import { expect } from 'vitest';
 import { outfit as outfitTable } from '../../src/db/schema';
 import { addDays } from '../../src/calendar-date';
 import { QUEUEABLE_ROUTES } from '../../src/offline-writes';
+import { REQUEST_FAILED_EVENT } from '../../src/web/errors';
 import {
   createGarment,
   createWishlistItem,
@@ -11,7 +12,7 @@ import {
   jpegPhoto,
   uploadPhoto,
 } from './garments';
-import { TestApp } from './harness';
+import { TestApp, unescapeHtml } from './harness';
 import { addLook } from './inspiration';
 import { planEntry, takeSelfie } from './selfies';
 
@@ -460,4 +461,42 @@ export function expectFragment(res: LightMyRequestResponse): void {
   expect(res.body).not.toContain('htmx-config');
   expect(res.body.trim().length).toBeGreaterThan(0);
   expectNoRawI18nKeys(res);
+}
+
+/**
+ * How an htmx fragment request's failure answers (#642, the root error
+ * handler, src/web/errors.tsx): its status, no body, and the failure as an
+ * `HX-Trigger` event carrying the message people read and the reply's own
+ * request id, which public/js/request-failures.js toasts.
+ */
+export function expectFailureTrigger(
+  res: LightMyRequestResponse,
+  status: number,
+  message: string | RegExp,
+): void {
+  expect(res.statusCode, res.body).toBe(status);
+  expect(res.body).toBe('');
+  const trigger = res.headers['hx-trigger'];
+  expect(typeof trigger).toBe('string');
+  expect(JSON.parse(String(trigger))).toEqual({
+    [REQUEST_FAILED_EVENT]: {
+      message:
+        typeof message === 'string' ? message : expect.stringMatching(message),
+      requestId: res.headers['x-request-id'],
+    },
+  });
+}
+
+/** A boosted tap's (or a navigation's) failure: the error page, whole. */
+export function expectErrorPage(
+  res: LightMyRequestResponse,
+  status: number,
+  message: string,
+): void {
+  expect(res.statusCode).toBe(status);
+  expect(res.headers['hx-trigger']).toBeUndefined();
+  expectFullPage(res);
+  expect(pageTitle(res.body)).toBe(`Error ${status}`);
+  expect(unescapeHtml(res.body)).toContain(message);
+  expect(res.body).toContain(String(res.headers['x-request-id']));
 }

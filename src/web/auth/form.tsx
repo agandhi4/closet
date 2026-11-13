@@ -4,7 +4,7 @@ import type { QueueableKind } from '../../offline-writes';
 /**
  * Building blocks of the account forms (login, registration, email,
  * password, deletion). Every form posts natively (`hx-boost="false"`): a
- * refusal answers 4xx with the page re-rendered, which htmx would not swap,
+ * refusal answers 4xx with the page re-rendered as a document of its own,
  * and a real form submission is what makes browsers offer to save or update
  * the password. A boosted registration never did, which cost the owner an
  * account generated and forgotten by the browser.
