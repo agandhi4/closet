@@ -202,6 +202,50 @@ export function readWeekPool(rows: readonly WeekPoolRow[]): WeekPoolGarment[] {
   }));
 }
 
+/** A garment as "Recreate this look" (#22) ranks it: the pool's, and whether it is available today. */
+export type RecreatePoolGarment = PoolGarment & { available: boolean };
+
+type RecreatePoolRow = PoolRow & { available: boolean };
+
+/**
+ * What "Recreate this look" (src/wardrobe/recreate.ts) matches a saved
+ * look's pieces against, with the avoided pairs and the outfit rules: the
+ * owner's whole closet (inCloset: dirty and away ones too, ranked after the
+ * available ones, since a look is recreated from what the owner has), each
+ * with its rest. Scalar subqueries for the match view's one statement
+ * (src/web/inspiration/queries.ts), read back with readRecreateInputs.
+ */
+export function recreateInputsSql(ownerId: number, today: IsoDate) {
+  return {
+    closet: poolJsonSql<RecreatePoolRow>(
+      and(eq(garment.ownerId, ownerId), inCloset()),
+      today,
+      { available: availableGarment() },
+    ),
+    avoid: avoidedPairsSql(ownerId),
+    rules: outfitRulesSql(ownerId),
+  };
+}
+
+export function readRecreateInputs(row: {
+  closet: RecreatePoolRow[];
+  avoid: [number, number][];
+  rules: OutfitRuleRow[];
+}): {
+  closet: RecreatePoolGarment[];
+  avoid: [number, number][];
+  rules: OutfitRule[];
+} {
+  return {
+    closet: row.closet.map((garment) => ({
+      ...poolGarment(garment),
+      available: garment.available,
+    })),
+    avoid: row.avoid,
+    rules: readOutfitRules(row.rules),
+  };
+}
+
 /**
  * Garments locked into every idea, whether or not they are clean (the
  * person chose them): `?with=`'s garment, Styling's locked rows (#42). The
