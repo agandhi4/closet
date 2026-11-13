@@ -39,8 +39,9 @@
  *   404/409/400 is a failure the notice shows until it is dismissed.
  * - **Accounts**: a record is its page's account's (`data-account`). A page
  *   of another account deletes the others' records unsent; signing out
- *   and deleting the account drain for at most SIGN_OUT_DRAIN_MS, then ask
- *   before discarding what is left.
+ *   and deleting the account drain for at most SIGN_OUT_DRAIN_MS; then
+ *   only signing out asks before discarding what is left (deletion never
+ *   asks: the next other account's page deletes it unsent).
  *
  * Listeners sit on the document once, at module evaluation (a module runs
  * once per document; boosted navigations swap only the body).

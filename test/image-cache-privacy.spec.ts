@@ -157,10 +157,45 @@ test.describe('the image cache belongs to one session', () => {
     const selfies = [selfieThumb, selfie];
     expect(await cachedAnywhere(page, selfies)).toEqual([]);
 
-    await switchAccount(
-      page,
-      await registerElsewhere(playwright, 'img-second'),
-    );
+    const second = await registerElsewhere(playwright, 'img-second');
+    await test.step('SESSION_ENDING empties both caches before the sign-out reaches the server', async () => {
+      // The page's sign-out post is held at the route, so the landing page
+      // cannot have been asked for: what the caches hold then is what the
+      // message alone dropped (pwa.js announceSessionBoundaries).
+      // Read from a page of its own: the signing-out one is mid-navigation.
+      const probe = await context.newPage();
+      await probe.goto('/health/live');
+      let held = false;
+      let leftAtPost: Error | undefined;
+      await context.route('**/auth/logout', async (route) => {
+        if (route.request().method() === 'POST') {
+          held = true;
+          leftAtPost = await expect
+            .poll(
+              async () => ({
+                // The drop re-warms the offline fallback page: A's own
+                // visits are what must be gone.
+                pages: (await cachedPaths(probe)).filter((path) =>
+                  ['/wardrobe', '/about'].includes(path),
+                ),
+                images: await cachedImages(probe),
+              }),
+              { timeout: 3_000 },
+            )
+            .toEqual({ pages: [], images: [] })
+            .then(
+              () => undefined,
+              (error: Error) => error,
+            );
+        }
+        await route.fallback();
+      });
+      await switchAccount(page, second);
+      await context.unroute('**/auth/logout');
+      await probe.close();
+      expect(held, 'the sign-out post reached the route').toBe(true);
+      expect(leftAtPost).toBeUndefined();
+    });
     await expect.poll(() => cachedAnywhere(page, photos)).toEqual([]);
 
     await network('offline');
