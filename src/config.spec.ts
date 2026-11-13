@@ -134,6 +134,25 @@ describe('loadConfig', () => {
     ).toBe(4);
   });
 
+  // /file serves DATA_PATH and the photo backups carry it: a log never lands there.
+  it('refuses a LOG_FILE under DATA_PATH, however it is spelled, naming the key only', () => {
+    expect(load({}).LOG_FILE).toBeUndefined();
+    expect(
+      load({ DATA_PATH: '/srv/data', LOG_FILE: '/srv/logs/closet.log' })
+        .LOG_FILE,
+    ).toBe('/srv/logs/closet.log');
+    for (const LOG_FILE of [
+      '/srv/data/app.log',
+      '/srv/data/../data/sub/app.log',
+      '/srv/data/',
+      '/srv/other/../data/app.log',
+    ]) {
+      expect(
+        problemsOf({ ...REQUIRED, DATA_PATH: '/srv/data', LOG_FILE }),
+      ).toEqual(['LOG_FILE: must not be under DATA_PATH']);
+    }
+  });
+
   it.each([
     ['the old default', 'ChangeMe!'],
     ['31 characters', 'x'.repeat(31)],

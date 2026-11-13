@@ -4,8 +4,8 @@ import { join } from 'node:path';
 
 /**
  * Whether this process can write a directory it needs at runtime: DATA_PATH
- * (photos, app.log) and MODELS_PATH (the cutout model's download). Used by
- * main.ts (DATA_PATH at boot: the logger opens app.log there) and
+ * (photos) and MODELS_PATH (the cutout model's download). Used by
+ * main.ts (DATA_PATH at boot) and
  * /health/ready's `storage` check (src/web/health/checks.ts).
  *
  * Why a real write and not mode bits or access(W_OK): the image runs as an

@@ -20,7 +20,7 @@ export interface StoredObject {
 }
 
 /**
- * The photo bytes: a flat directory (DATA_PATH), which also holds app.log.
+ * The photo bytes: a flat directory (DATA_PATH).
  * Knows nothing about photos; Photos (photos.ts) names, transcodes and
  * derives, and reconciliation maps names back to rows with parseStoredName.
  */
@@ -109,7 +109,7 @@ export class PhotoStorage {
     });
   }
 
-  /** Every file in the directory (app.log included); the caller filters. */
+  /** Every file in the directory; the caller filters. */
   async *list(): AsyncIterable<StoredObject> {
     const entries = await fs.promises.readdir(this.directory, {
       withFileTypes: true,

@@ -51,9 +51,9 @@ async function main(): Promise<void> {
     else boot.fatal({ err: error }, 'Configuration failed to load');
     process.exit(1);
   }
-  // Before createLogger, which opens DATA_PATH/app.log: an unwritable data
-  // directory (a root-owned host mount; the image runs non-root) would
-  // otherwise end the boot with a bare EACCES stack. Only DATA_PATH stops
+  // An unwritable data directory (a root-owned host mount; the image runs
+  // non-root) would otherwise fail on the first upload with a bare EACCES
+  // stack: refuse the boot, naming the fix. Only DATA_PATH stops
   // the boot: an unwritable MODELS_PATH leaves every page serving, so it is
   // /health/ready's `storage` check that reports it (src/web/health).
   const data = await probeWritable(config.DATA_PATH);
