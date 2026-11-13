@@ -2,6 +2,7 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { Type } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { sessionUserId } from '../../auth/require-session';
+import { HttpError } from '../../errors';
 import { t } from '../../i18n';
 import type { WebOptions } from '../../plugin';
 import { renderFragment, renderPage } from '../../render';
@@ -206,24 +207,18 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<
 
   // Another of the page's photos (or none) on the prefilled form: fetched
   // and stored as the pending photo, the one it replaces discarded (only if
-  // it is this user's and still pending). Always answers the slot, a
-  // refusal (the rate limit's included) with its message and the photo it
-  // had: htmx would not swap a 4xx.
+  // it is this user's and still pending). A refusal (the rate limit's, a
+  // fetch's) is thrown like any other: the error handler answers this
+  // hx-post its message as a toast (#642), and the slot keeps the photo it
+  // had, since nothing is swapped.
   app.post(
     LINK_PHOTO_PATH,
     { schema: { querystring: OwnerQuery, body: LinkPhotoBody } },
     async (request, reply) => {
       const userId = sessionUserId(request);
       const current = request.body.linkPhoto || undefined;
-      if ((await linkImportRetryAfter(request)) !== undefined) {
-        return renderFragment(
-          reply,
-          <LinkPhotoSlot
-            photo={current}
-            errors={[t('linkImport.RATE_LIMITED')]}
-          />,
-        );
-      }
+      const retryAfter = await linkImportRetryAfter(request);
+      if (retryAfter !== undefined) throw tooManyAttempts(retryAfter);
       // The pending photo is the fetching user's, not the wardrobe's; the
       // wardrobe is still checked, so only someone who may add to it fetches.
       const { access } = await authorize(request, 'manage');
@@ -234,16 +229,10 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<
           photo = await fetchLinkPhoto(importDeps, url, userId);
         } catch (error) {
           if (!(error instanceof LinkImportError)) throw error;
-          logger.warn(
-            `Link photo choice by user ${userId} refused (${error.reason})`,
-          );
-          return renderFragment(
-            reply,
-            <LinkPhotoSlot
-              photo={current}
-              errors={[t(REFUSALS[error.reason].message)]}
-            />,
-          );
+          const { message, status } = REFUSALS[error.reason];
+          throw new HttpError(status, t(message), {
+            logDetail: `link photo choice by user ${userId}: ${error.reason}`,
+          });
         }
       }
       if (current) {

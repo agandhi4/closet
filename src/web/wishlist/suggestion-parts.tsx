@@ -76,12 +76,10 @@ export function NotForMe(props: {
   label?: string;
   /** The reasons offered: the owner's for a pick or a need; OUTFIT_DISMISS_REASONS for an outfit. */
   reasons?: readonly OwnerDismissReason[];
-  /** Classes on the summary button. */
-  class?: string;
 }) {
   return (
     <details class="group/not-for-me" data-not-for-me="">
-      <summary class={`btn btn-ghost btn-sm ${props.class ?? ''}`}>
+      <summary class="btn btn-ghost btn-sm">
         {props.label ?? t('muse.NOT_FOR_ME')}
       </summary>
       <PostForm action={props.action} class="flex flex-col gap-2 pt-2">
@@ -102,7 +100,7 @@ export function NotForMe(props: {
               type="submit"
               name="reason"
               value={reason}
-              class="btn btn-outline btn-sm min-h-11 fine:min-h-8"
+              class="btn btn-outline btn-sm"
             >
               {reasonText(reason)}
             </button>
@@ -127,11 +125,7 @@ export function UndoForm(props: {
       <ReturnTo path={props.returnTo} />
       <button
         type="submit"
-        class={
-          props.primary
-            ? 'btn btn-primary'
-            : 'btn btn-ghost btn-sm min-h-11 fine:min-h-8'
-        }
+        class={props.primary ? 'btn btn-primary' : 'btn btn-ghost btn-sm'}
         aria-label={props.ariaLabel}
       >
         {props.label ?? t('muse.UNDO')}

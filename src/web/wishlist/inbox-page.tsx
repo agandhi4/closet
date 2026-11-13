@@ -369,9 +369,12 @@ function GroupCard(props: {
             </li>
           ))}
         </ul>
+        {/* `static`: the theme's touch hit area makes a btn-sm its own
+            containing block (views/assets/main.css), which would shrink the
+            stretched ::after to the button. */}
         <a
           href={needUrl(need.id, viewOwner)}
-          class="btn btn-primary btn-sm self-start after:absolute after:inset-0"
+          class="btn btn-primary btn-sm static self-start after:absolute after:inset-0"
         >
           {t('muse.DECIDE')}
         </a>

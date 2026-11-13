@@ -41,6 +41,7 @@ import {
   WWW_SHOP_HOST,
 } from './link-sites';
 import { silentLogger } from './logger';
+import { expectFailureTrigger } from './pages';
 
 /**
  * Adding a garment from a link (issue #6): the link page, the import that
@@ -405,9 +406,7 @@ describe('adding a garment from a link', () => {
       const page = await importLink(sites.url('/img/front.jpg'));
       const current = linkPhotoIn(page.body)!;
       const res = await choosePhoto(sites.url('/img/missing.jpg'), current);
-      expect(res.statusCode).toBe(200);
-      expect(linkPhotoIn(res.body)).toBe(current);
-      expect(res.body).toContain(text('linkImport.HTTP_STATUS'));
+      expectFailureTrigger(res, 502, text('linkImport.HTTP_STATUS'));
       expect(await storedOriginals()).toContain(current);
     });
 
@@ -423,7 +422,7 @@ describe('adding a garment from a link', () => {
       expect(page.body).toContain('id="link-photo-choices"');
     });
 
-    it('answers the slot, keeping the photo, past the rate limit (htmx swaps no 429)', async () => {
+    it('refuses past the rate limit with the 429 trigger (the slot is left as it was)', async () => {
       const { cookie } = await signUp('choosy@example.com');
       const current = `${randomUUID()}.webp`;
       const choose = () =>
@@ -434,24 +433,28 @@ describe('adding a garment from a link', () => {
           headers: { cookie, 'hx-request': 'true' },
         });
       for (let i = 0; i < 10; i++) {
-        const res = await choose();
-        expect(res.body).not.toContain(text('linkImport.RATE_LIMITED'));
+        expect((await choose()).statusCode).toBe(200);
       }
 
       const refused = await choose();
-      expect(refused.statusCode).toBe(200);
-      expect(refused.body).toContain(text('linkImport.RATE_LIMITED'));
-      expect(linkPhotoIn(refused.body)).toBe(current);
+      expectFailureTrigger(refused, 429, /^Too many attempts\. Try again in /);
       expect(t.logs.messages('warn', 'Web').join('\n')).toMatch(
         /Rate limit reached: POST \/wardrobe\/new\/from-link\/photo for user \d+/,
       );
     });
 
     it('never deletes a photo that has a row', async () => {
-      const id = await createGarment(t, { name: 'Kept photo' });
-      await uploadPhoto(t, id, await jpegPhoto());
+      // Its own user: the owner's fetch budget is spent by the tests above.
+      const { cookie } = await signUp('keeper@example.com');
+      const id = await createGarment(t, { name: 'Kept photo', cookie });
+      await uploadPhoto(t, id, await jpegPhoto(), cookie);
       const saved = await photoFileName(t, id);
-      const res = await choosePhoto('', saved);
+      const res = await t.inject({
+        method: 'POST',
+        url: '/wardrobe/new/from-link/photo',
+        payload: { url: '', linkPhoto: saved },
+        headers: { cookie, 'hx-request': 'true' },
+      });
       expect(res.statusCode).toBe(200);
       expect(await storedOriginals()).toContain(saved);
     });
@@ -918,16 +921,13 @@ describe('adding a garment from a link', () => {
       expect(
         (await importLink(sites.url('/nothing-here'), { cookie })).statusCode,
       ).not.toBe(429);
-      const choice = await choose();
-      expect(choice.body).not.toContain(text('linkImport.RATE_LIMITED'));
+      expect((await choose()).statusCode).toBe(200);
     }
 
     const eleventhImport = await importLink(sites.url('/nothing-here'), {
       cookie,
     });
     expect(eleventhImport.statusCode).toBe(429);
-    const eleventhChoice = await choose();
-    expect(eleventhChoice.statusCode).toBe(200);
-    expect(eleventhChoice.body).toContain(text('linkImport.RATE_LIMITED'));
+    expect((await choose()).statusCode).toBe(429);
   });
 });

@@ -1,4 +1,5 @@
 import type { Child } from 'hono/jsx';
+import { REPLAY_TIMEOUT_MS } from '../../offline-writes';
 import { appIconFile } from '../app-icon';
 import { jsonForScript } from '../html';
 import { t } from '../i18n';
@@ -24,7 +25,14 @@ import { AppStatus } from './app-status';
 //    edit form); further back is fetched, through the service worker.
 //  - No view transitions: while one runs (about 250 ms after every swap) the
 //    page takes no taps, and the app bar and dock cross-fade for nothing.
-const HTMX_CONFIG = { disableInheritance: true, historyCacheSize: 3 };
+//  - A request gives up after the outbox's replay timeout, the one bound on
+//    how long the app waits for the server (0, htmx's default, spun a hung
+//    hx-post forever); public/js/request-failures.js says so.
+const HTMX_CONFIG = {
+  disableInheritance: true,
+  historyCacheSize: 3,
+  timeout: REPLAY_TIMEOUT_MS,
+};
 
 // Bare specifiers for every ES module the pages import, so the versioned URL
 // lives here once. Page-specific modules (the snap strip's snap-strip, which
@@ -183,6 +191,9 @@ export function Layout({
         {/* Save-on-change forms drop answers a newer edit overtook
             (src/web/autosave.tsx). */}
         <script type="module" src={`/js/autosave.js${v}`}></script>
+        {/* A failed or timed-out htmx request says so: the error page
+            for a boosted tap, a toast otherwise (src/web/errors.tsx). */}
+        <script type="module" src={`/js/request-failures.js${v}`}></script>
         {/* The app bar's back arrow goes back like a native app's. After
             submit-once, whose cancelled submits it must see as cancelled. */}
         <script type="module" src={`/js/back.js${v}`}></script>

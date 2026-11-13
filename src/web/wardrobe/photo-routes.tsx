@@ -60,8 +60,8 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // 303 opens the first. Adding is a write: the wardrobe is checked before
   // the body is read, so a refused upload stores nothing, and so is the
   // room left for drafts: the parser stops at the first photo past it (one
-  // photo always fits: it is not a draft). A native post (PostForm): a
-  // refused photo is the error page, which htmx would not swap.
+  // photo always fits: it is not a draft). A native post (PostForm, as
+  // every upload): a refused photo is the error page.
   app.post(
     PHOTO_ADD_PATH,
     { schema: { querystring: OwnerQuery } },

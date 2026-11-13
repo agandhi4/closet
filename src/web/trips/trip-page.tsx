@@ -323,11 +323,13 @@ function TripOutfitRow(props: {
           "✓ Worn Undo" there crowds the name down to a letter at 390 px. It
           wraps under the occasion where the column is narrow. */}
       <div class="flex flex-col min-w-0">
+        {/* The truncation is the span's: on the link it would clip the
+            theme's touch hit area (.link, views/assets/main.css). */}
         <a
           href={`/outfits/${outfit.outfitId}`}
-          class="text-sm font-medium truncate"
+          class="link link-hover min-w-0 text-sm font-medium"
         >
-          {name}
+          <span class="block truncate">{name}</span>
         </a>
         {(outfit.occasion || worn !== null) && (
           <span class="flex flex-wrap items-center gap-x-2 text-xs text-muted">

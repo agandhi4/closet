@@ -6,6 +6,7 @@ import type {
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
 import { HttpError } from '../errors';
+import { t } from '../i18n';
 import { unkeyedPhoto } from '../files/image-variant';
 import type { Photos } from '../files/photos';
 import type { PrivatePhoto } from '../files/image-url';
@@ -88,7 +89,7 @@ export async function addUploadedInspiration(
 ): Promise<UploadedInspiration> {
   const fields = new Map<string, MultipartValue>();
   const photo = await photos.storeUploadParts(filesOf(parts, fields), ownerId);
-  if (!photo) throw new HttpError(400, 'No file uploaded');
+  if (!photo) throw new HttpError(400, t('refusal.request.noFile'));
   // Inside the commit, so a refused field deletes the stored bytes.
   const { id, clientId } = await commitPhoto(
     { photos, logger },
@@ -259,7 +260,7 @@ export async function attachInspirationPhoto(
 ): Promise<AttachedPhoto> {
   await findInspiration(db, id, ownerId);
   const photo = await photos.storeUploadParts(parts, ownerId);
-  if (!photo) throw new HttpError(400, 'No file uploaded');
+  if (!photo) throw new HttpError(400, t('refusal.request.noFile'));
   const { replaced } = await commitPhoto({ photos, logger }, photo, () =>
     setInspirationPhoto(db, id, ownerId, photo),
   );

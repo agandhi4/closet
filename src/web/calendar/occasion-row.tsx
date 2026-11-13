@@ -12,8 +12,9 @@ import { dayUrl, planPageUrl } from './urls';
 
 /**
  * One calendar entry as a row of its day's agenda: the occasion's label
- * (Auto while "Plan my week"'s pick stands untouched, #16), Change (another
- * outfit in its place, #69; not once worn) and × (unschedule); then the
+ * (Auto while "Plan my week"'s pick stands untouched, #16) and the Change
+ * menu (another outfit in its place, #69, not once worn; and unscheduling
+ * it, #636); then the
  * outfit as a small OutfitCollage with its name (tap to edit it in
  * Styling), its selfie (or the buttons that take one, #19) and the worn
  * pill. The one way a day's entries are drawn: the week agenda stacks them
@@ -54,23 +55,7 @@ export function OccasionRow(props: {
             {t('weekPlan.AUTO')}
           </span>
         )}
-        {/* A worn entry is the record of that day and keeps its outfit. */}
-        {!entry.worn && (
-          <a
-            href={planPageUrl({
-              kind: 'day',
-              day: entry.day,
-              occasion: entry.occasion,
-              replace: entry.id,
-            })}
-            class="btn btn-ghost btn-xs ms-auto font-normal text-muted"
-            aria-label={t('changeEntry.ACTION_LABEL', { name })}
-            data-change-entry={entry.id}
-          >
-            {t('changeEntry.ACTION')}
-          </a>
-        )}
-        <DeleteEntry entry={entry} pushRight={entry.worn} />
+        <EntryMenu entry={entry} name={name} />
       </div>
       <div class="flex items-center gap-2 lg:flex-wrap">
         <a
@@ -143,30 +128,54 @@ function OccasionLabel({ occasion }: { occasion: Occasion }) {
 }
 
 /**
- * × to unschedule, confirmed first; htmx swaps in the week it was on. At
- * the row's end: after Change, or pushed there itself (`pushRight`) when a
- * worn entry has no Change.
+ * The row's one menu, at its end (#636): a phone row carries two direct
+ * actions (this and the worn pill), not a 24 px × above the pill's Undo.
+ * "Change outfit" (not once worn: a worn entry is the record of that day
+ * and keeps its outfit), then Remove, confirmed first; htmx swaps in the
+ * week it was on. Buttons only: a form inside a daisyUI menu item loses
+ * its styling (the outfit page's ⋯ menu).
  */
-function DeleteEntry(props: { entry: CalendarEntry; pushRight: boolean }) {
+function EntryMenu(props: { entry: CalendarEntry; name: string }) {
   const { entry } = props;
-  const action = `/calendar/${entry.id}/delete`;
+  const remove = `/calendar/${entry.id}/delete`;
   return (
-    <form
-      method="post"
-      action={action}
-      hx-post={action}
-      hx-confirm={t('CALENDAR_DELETE_CONFIRM')}
-      hx-vals={JSON.stringify({ week: entry.day })}
-      class={props.pushRight ? 'ms-auto' : undefined}
-    >
-      <input type="hidden" name="week" value={entry.day} />
-      <button
-        type="submit"
-        class="btn btn-ghost btn-xs btn-square text-muted hover:text-error"
-        aria-label={t('DELETE')}
+    <details class="dropdown dropdown-end ms-auto" data-entry-menu={entry.id}>
+      <summary
+        class="btn btn-ghost btn-xs font-normal text-muted"
+        aria-label={t('changeEntry.ACTION_LABEL', { name: props.name })}
       >
-        ×
-      </button>
-    </form>
+        {t('changeEntry.ACTION')}
+      </summary>
+      <ul class="menu dropdown-content bg-base-100 rounded-box border border-base-300 z-20 w-56 p-2">
+        {!entry.worn && (
+          <li>
+            <a
+              href={planPageUrl({
+                kind: 'day',
+                day: entry.day,
+                occasion: entry.occasion,
+                replace: entry.id,
+              })}
+              data-change-entry={entry.id}
+            >
+              {t('changeEntry.TITLE')}
+            </a>
+          </li>
+        )}
+        <li>
+          <button
+            type="button"
+            class="text-error"
+            hx-post={remove}
+            hx-vals={JSON.stringify({ week: entry.day })}
+            hx-confirm={t('CALENDAR_DELETE_CONFIRM')}
+            data-needs-network=""
+            data-remove-entry={entry.id}
+          >
+            {t('CALENDAR_REMOVE')}
+          </button>
+        </li>
+      </ul>
+    </details>
   );
 }

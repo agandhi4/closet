@@ -14,6 +14,7 @@ import {
 } from '../offline-writes';
 import { sessionUserId } from './auth/require-session';
 import { HttpError } from './errors';
+import { t } from './i18n';
 
 declare module 'fastify' {
   interface FastifyContextConfig {
@@ -49,11 +50,16 @@ const QUEUED_HEADER = REPLAY_HEADER.toLowerCase();
 const IDEMPOTENCY_HEADER = 'idempotency-key';
 const OUTCOME_HEADER = 'X-Closet-Outcome';
 
-const REFUSAL_MESSAGES: Record<ReplayRefusal, string> = {
-  'too-old': 'Too long ago to save: add it from the calendar',
-  future: 'That day has not come yet',
-  account: 'Saved while signed in as someone else',
-};
+function refusalMessage(refusal: ReplayRefusal): string {
+  switch (refusal) {
+    case 'too-old':
+      return t('refusal.replay.tooOld');
+    case 'future':
+      return t('refusal.replay.future');
+    case 'account':
+      return t('refusal.replay.account');
+  }
+}
 
 /** A replay, as the queued-write hook has let it through. */
 export function isReplay(request: FastifyRequest): boolean {
@@ -82,7 +88,7 @@ export function replayRefused(
   options: { message?: string; logDetail?: string } = {},
 ): HttpError {
   reply.header(OUTCOME_HEADER, reason);
-  return new HttpError(409, options.message ?? REFUSAL_MESSAGES[reason], {
+  return new HttpError(409, options.message ?? refusalMessage(reason), {
     logDetail: options.logDetail,
   });
 }
@@ -115,7 +121,7 @@ export function dayOutsideWindow(
   const refusal = dayRefusal(day, today);
   return (
     refusal &&
-    new HttpError(409, REFUSAL_MESSAGES[refusal], { logDetail: `day ${day}` })
+    new HttpError(409, refusalMessage(refusal), { logDetail: `day ${day}` })
   );
 }
 
@@ -125,7 +131,7 @@ export function dayOutsideWindow(
  * words for a day to come.
  */
 export function dayAheadRefusal(logDetail: string): HttpError {
-  return new HttpError(409, REFUSAL_MESSAGES.future, { logDetail });
+  return new HttpError(409, refusalMessage('future'), { logDetail });
 }
 
 /**

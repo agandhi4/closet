@@ -63,8 +63,8 @@ describe('web layer', () => {
       const res = await t.inject({ method: 'GET', url: '/no-such-page?x=1' });
       expect(res.statusCode).toBe(404);
       expectFullPage(res);
-      expect(pageTitle(res.body)).toBe('Error 404');
-      expect(res.body).toContain('<p>Cannot GET /no-such-page?x=1</p>');
+      expect(pageTitle(res.body)).toBe('Not found');
+      expect(res.body).toContain('>There is no page at this address</p>');
       // The avatar: the account's initial, opening Profile.
       expect(res.body).toContain('<a href="/auth/profile" id="avatar"');
     });
@@ -76,7 +76,7 @@ describe('web layer', () => {
         anonymous: true,
       });
       expect(res.statusCode).toBe(404);
-      expect(pageTitle(res.body)).toBe('Error 404');
+      expect(pageTitle(res.body)).toBe('Not found');
       expect(res.body).toContain('href="/auth/login"');
       expect(res.body).not.toContain('id="avatar"');
     });

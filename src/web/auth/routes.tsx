@@ -210,7 +210,8 @@ export const authRoutes: FastifyPluginCallbackTypebox<
   );
 
   // Inline validation while the form is filled in: the message slots, swapped
-  // out of band. A 200 whatever it finds, since htmx swaps no 4xx.
+  // out of band. A 200 whatever it finds: a field's message is the answer,
+  // not a failure of the request (so not the error handler's toast, #642).
   app.post(
     '/auth/validate/register',
     {

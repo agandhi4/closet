@@ -5,7 +5,7 @@ import {
   recordErrors,
   type RecordedErrors,
 } from '../../test/support/sentry-stub';
-import { createErrorHandler, HttpError } from './errors';
+import { createErrorHandler, HttpError, REQUEST_FAILED_EVENT } from './errors';
 import { renderPage } from './render';
 import type { ViewContext } from './view-context';
 
@@ -65,8 +65,14 @@ describe('createErrorHandler', () => {
         logDetail: 'owner 7',
       });
     });
+    app.post('/busy-write', () => {
+      throw new HttpError(503);
+    });
     app.get('/boom', () => {
       throw new Error('connection refused at 10.0.0.5');
+    });
+    app.get('/curly', () => {
+      throw new HttpError(409, 'Undo “Wore today” first…');
     });
     // A multipart part over the size limit fails inside the handler.
     app.get('/too-large', () => {
@@ -122,9 +128,8 @@ describe('createErrorHandler', () => {
     expect(res.statusCode).toBe(404);
     expect(res.headers['content-type']).toBe('text/html; charset=utf-8');
     expect(res.body).toMatch(/^<!DOCTYPE html><html lang="en">/);
-    expect(res.body).toMatch(/<h1\b[^>]*>Error 404<\/h1>/);
-    expect(res.body).toContain('<p>Not Found</p>');
-    expect(res.body).toContain('Path: /missing');
+    expect(res.body).toMatch(/<h1\b[^>]*>Not found<\/h1>/);
+    expect(res.body).toContain('>Not Found</p>');
     expect(res.body).toContain('class="dock"');
     expect(logs.messages('warn')).toEqual(['GET /missing -> 404: Not Found']);
   });
@@ -132,8 +137,8 @@ describe('createErrorHandler', () => {
   it('keeps a Fastify 4xx thrown in the handler, with a message of ours', async () => {
     const res = await app.inject({ method: 'GET', url: '/too-large' });
     expect(res.statusCode).toBe(413);
-    expect(res.body).toMatch(/<h1\b[^>]*>Error 413<\/h1>/);
-    expect(res.body).toContain('<p>The request is too large</p>');
+    expect(res.body).toMatch(/<h1\b[^>]*>That did not work<\/h1>/);
+    expect(res.body).toContain('>The request is too large</p>');
     expect(logs.messages('warn')).toEqual([
       'GET /too-large -> 413: The request is too large (FST_REQ_FILE_TOO_LARGE)',
     ]);
@@ -142,7 +147,7 @@ describe('createErrorHandler', () => {
   it('never shows or logs the message of a 4xx it did not write', async () => {
     const res = await app.inject({ method: 'GET', url: '/quoting' });
     expect(res.statusCode).toBe(400);
-    expect(res.body).toContain('<p>The request could not be read</p>');
+    expect(res.body).toContain('>The request could not be read</p>');
     expect(res.body).not.toContain('hunter2');
     expect(logs.messages('warn')).toEqual([
       'GET /quoting -> 400: The request could not be read (SyntaxError)',
@@ -172,14 +177,14 @@ describe('createErrorHandler', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.body).toMatch(/^<!DOCTYPE html>/);
-    expect(res.body).toMatch(/<h1\b[^>]*>Error 400<\/h1>/);
+    expect(res.body).toMatch(/<h1\b[^>]*>That did not work<\/h1>/);
     expect(res.body).toContain('body/date must match format &quot;date&quot;');
   });
 
   it('keeps a chosen 5xx HttpError, logged as a warning with its log detail', async () => {
     const res = await app.inject({ method: 'GET', url: '/busy' });
     expect(res.statusCode).toBe(503);
-    expect(res.body).toContain('<p>Try again in a moment.</p>');
+    expect(res.body).toContain('>Try again in a moment.</p>');
     expect(res.body).not.toContain('owner 7');
     expect(logs.messages('warn')).toEqual([
       'GET /busy -> 503: Try again in a moment. (owner 7)',
@@ -210,7 +215,9 @@ describe('createErrorHandler', () => {
   it('hides the detail of anything else behind a 500, logged with its stack', async () => {
     const res = await app.inject({ method: 'GET', url: '/boom' });
     expect(res.statusCode).toBe(500);
-    expect(res.body).toContain('<p>Internal server error</p>');
+    expect(res.body).toContain(
+      '>Something went wrong on our side. Try again in a moment.</p>',
+    );
     // The id a person quotes when reporting it (its log lines carry it).
     expect(res.body).toContain(`Request ID: ${REQUEST_ID}`);
     expect(res.body).not.toContain('10.0.0.5');
@@ -219,12 +226,70 @@ describe('createErrorHandler', () => {
     expect(logged.err?.stack).toContain('connection refused at 10.0.0.5');
   });
 
+  // #644: a sentence and the way on, never a debug dump.
+  describe('the error page by class', () => {
+    const ISO_TIMESTAMP = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+    const page = async (url: string, query = '') =>
+      (await app.inject({ method: 'GET', url: `${url}${query}` })).body;
+
+    it('a 404 has Back and its way home, no Try again, no id, path or time', async () => {
+      const body = await page('/missing');
+      expect(body).toContain('data-history-back=""');
+      expect(body).toContain('href="/"');
+      expect(body).not.toContain('Try again</a>');
+      expect(body).not.toContain(REQUEST_ID);
+      expect(body).not.toContain('Path:');
+      expect(body).not.toMatch(ISO_TIMESTAMP);
+    });
+
+    it('a 503 has Try again to the same URL and the id', async () => {
+      const body = await page('/busy', '?week=2026-11-09');
+      expect(body).toContain('Try again</a>');
+      expect(body).toContain('href="/busy?week=2026-11-09"');
+      expect(body).toContain(`Request ID: ${REQUEST_ID}`);
+      expect(body).not.toMatch(ISO_TIMESTAMP);
+    });
+
+    it('a 500 shows the id and no Try again', async () => {
+      const body = await page('/boom');
+      expect(body).toContain(`Request ID: ${REQUEST_ID}`);
+      expect(body).not.toContain('Try again</a>');
+      expect(body).not.toContain('Path:');
+    });
+
+    it('never offers Try again for a write or a URL carrying a credential', async () => {
+      const token = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln';
+      const withToken = await page('/busy', `?t=${token}`);
+      expect(withToken).not.toContain('Try again</a>');
+      const post = await app.inject({ method: 'POST', url: '/busy-write' });
+      expect(post.body).not.toContain('Try again</a>');
+    });
+  });
+
+  it("names a fragment request's failure in an ASCII HX-Trigger htmx reads back", async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/curly',
+      headers: { 'hx-request': 'true' },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toBe('');
+    const trigger = String(res.headers['hx-trigger']);
+    expect(trigger).toMatch(/^[\x20-\x7e]+$/);
+    expect(JSON.parse(trigger)).toEqual({
+      [REQUEST_FAILED_EVENT]: {
+        message: 'Undo “Wore today” first…',
+        requestId: REQUEST_ID,
+      },
+    });
+  });
+
   it('answers data on a path without a page context', async () => {
     const res = await app.inject({ method: 'GET', url: '/static' });
     expect(res.statusCode).toBe(500);
     expect(res.json()).toEqual({
       statusCode: 500,
-      message: 'Internal server error',
+      message: 'Something went wrong on our side. Try again in a moment.',
       request_id: REQUEST_ID,
     });
   });

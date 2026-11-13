@@ -90,7 +90,7 @@ export async function postedDestination(
         });
         // Dismissed, or added by an earlier save of the same form, since
         // the check above: the garment rolls back with this.
-        if (!added) throw new HttpError(409, 'Already added from your orders');
+        if (!added) throw new HttpError(409, t('refusal.garment.alreadyAdded'));
       },
     };
   }

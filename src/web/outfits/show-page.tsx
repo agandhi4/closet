@@ -222,7 +222,7 @@ function ProposalBlock(props: {
         <div class="flex flex-wrap items-start gap-2">
           <PostForm action={action('love')}>
             <input type="hidden" name="returnTo" value={returnTo} />
-            <button type="submit" class="btn btn-primary min-h-11 fine:min-h-8">
+            <button type="submit" class="btn btn-primary">
               {t(props.complete ? 'outfits.muse.SAVE' : 'outfits.muse.LOVE')}
             </button>
           </PostForm>
@@ -231,7 +231,6 @@ function ProposalBlock(props: {
             returnTo={returnTo}
             reasons={OUTFIT_DISMISS_REASONS}
             label={`× ${t('muse.NOT_FOR_ME')}`}
-            class="min-h-11 fine:min-h-8"
           />
         </div>
       )}
