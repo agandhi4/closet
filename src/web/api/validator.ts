@@ -18,7 +18,11 @@ import type {
  * `?categroy=` would answer the unfiltered list). The one place, so a route
  * added later is strict without work; a parameter a route accepts must be
  * declared. `removeAdditional` is off for it: with `additionalProperties:
- * false`, ajv's default would strip the key instead of failing.
+ * false`, ajv's default would strip the key instead of failing. Off for
+ * bodies too, so a body schema that closes itself (the style profile's,
+ * replaced whole) refuses a key it lacks; an open one is unaffected, and
+ * ajv's stripping inside an `anyOf` would mutate the body under the
+ * branches still to try.
  *
  * Both are @fastify/ajv-compiler, the factory Fastify itself builds its
  * compiler with, with the root's options (app.ts sets none), so formats,
@@ -38,7 +42,9 @@ export function jsonApiValidator(
       // JSON schemas addSchema took, which is what the factory wants.
       const shared = scope.getSchemas() as Parameters<typeof build>[0];
       compilers = {
-        body: build(shared, { customOptions: { coerceTypes: false } }),
+        body: build(shared, {
+          customOptions: { coerceTypes: false, removeAdditional: false },
+        }),
         other: build(shared, { customOptions: {} }),
         query: build(shared, {
           customOptions: { removeAdditional: false },

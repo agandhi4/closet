@@ -166,6 +166,19 @@ export function outfitRuleListSql(ownerId: number): SQL<ListedOutfitRule[]> {
 }
 
 /**
+ * The style profile with its outfit rules, as scalar subqueries a caller
+ * reads with its own parts in one statement (selectScalars): the page,
+ * get_style_profile (with the week and the avoided pairs) and
+ * GET /api/v1/style-profile (these alone).
+ */
+export function styleProfileParts(userId: number) {
+  return {
+    profile: styleProfileSql(userId),
+    rules: outfitRuleListSql(userId),
+  };
+}
+
+/**
  * The garments the add form offers a side (#21b): the owner's closet, by
  * category and name, as a scalar subquery read with the page.
  */

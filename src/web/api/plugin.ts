@@ -13,6 +13,8 @@ import { outfitApiRoutes } from '../outfits/api-routes';
 import type { WebOptions } from '../plugin';
 import { Problem } from '../problem';
 import { selfieApiRoutes } from '../selfies/api-routes';
+import { sharingApiRoutes } from '../sharing/api-routes';
+import { styleApiRoutes } from '../style/api-routes';
 import {
   API_LIMIT,
   API_PHOTO_LIMIT,
@@ -139,6 +141,8 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
   await app.register(lookApiRoutes, options);
   await app.register(insightsApiRoutes, options);
   await app.register(sizesApiRoutes, options);
+  await app.register(styleApiRoutes, options);
+  await app.register(sharingApiRoutes, options);
   // Only with WEATHER_ENABLED, as /weather/* (webPlugin).
   const { weather } = options;
   if (weather) await app.register(weatherApiRoutes, { ...options, weather });

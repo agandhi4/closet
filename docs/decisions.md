@@ -779,6 +779,18 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 **Decision:** one place, `validator.ts`: `jsonApiValidator` closes every `/api/v1` querystring schema and compiles it with `removeAdditional: false`; `declareQuerystring` (an apiPlugin onRoute hook) gives a route with none an empty one. A stray parameter is a 400 `validation` with `errors[].path` `querystring/<name>` (`validationFailures` reads ajv's `additionalProperty`). Pages stay lenient. No route needed a new declaration.
 **Consequence:** a route added later is strict without work; a parameter it accepts (`ownerId`, `v`) must be declared in its schema.
 
+## 2026-11-13 — The API's style profile, outfit rules and shared wardrobes; sharing admin stays web-only (#195c)
+
+**Why:** the style page's three writes needed twins, and a native client needs the wardrobes shared with it to address `?ownerId=`. An invite link is a bearer capability to a wardrobe (handing one out is handing out a credential; accepting spends it), and the outbound and pending lists carry invite tokens and grantees' emails.
+**Decision:** `GET`/`PUT /style-profile` (set-state, a closed body), `POST /outfit-rules` (structured sides, never the page's `garment:<id>` spelling), `DELETE /outfit-rules/{id}`, each its page twin's writer; `GET /shared-wardrobes` maps `grantorFirstName` only, never `grantorName` (it falls back to the email). Invite, accept, decline and remove stay `SHARING_ADMIN`; change permission has no page action to twin.
+**Consequence:** a rule the owner holds already (a never-rule's mirror included) is 200 `added: false` on the API where the page answers 400 "You have this rule already": a retry or a second device is not a mistake to show, as the trip items' idempotency (decided here, deliberately divergent). No API answer carries an email.
+
+## 2026-11-13 — An API body schema that closes itself refuses extras (#195c)
+
+**Why:** a PUT that replaces the style profile whole must not silently drop a misspelled key, and ajv's `removeAdditional` strips keys inside an `anyOf` while trying branches, so a rule side `{ color, pattern }` could match after mutation.
+**Decision:** `jsonApiValidator` compiles bodies with `removeAdditional: false` too. A schema with `additionalProperties: false` (the style profile's, a rule and its sides) is a 400 naming `body/<key>`; open schemas, every other route's, are unaffected.
+**Consequence:** closing an existing route's body is a contract change for its clients: do it with its own decision, not in passing.
+
 ## 2026-11-13 — The API's insights, recap and sizes: data where the pages fall back, centimetres on the wire (#588)
 
 **Why:** a native client needs insights, the year in review and Profile › Sizes; the pages treat `?unworn=`/`?year=` as navigation state (anything falls back) and the measurements form posts strings in the unit shown, keeping a stored length posted as shown (`readMeasurementsForm`).

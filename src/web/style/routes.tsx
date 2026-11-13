@@ -18,10 +18,9 @@ import type { OutfitRulesModel } from './outfit-rules';
 import {
   addOutfitRule,
   deleteOutfitRule,
-  outfitRuleListSql,
   ruleGarmentChoicesSql,
   saveStyleProfile,
-  styleProfileSql,
+  styleProfileParts,
 } from './queries';
 import { StyleProfilePage } from './style-page';
 import {
@@ -73,10 +72,9 @@ export const styleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     // not read with WEATHER_ENABLED off, and the outfit rules with what
     // their form offers and the gallery's avoided pairs (#21b).
     const read = await selectScalars(db, {
-      profile: styleProfileSql(userId),
+      ...styleProfileParts(userId),
       template: weekTemplateSql(userId),
       home: options.weather ? homeNameSql(userId) : undefined,
-      rules: outfitRuleListSql(userId),
       garments: ruleGarmentChoicesSql(userId),
       avoided: avoidedPairsByNameSql(userId),
     });

@@ -145,6 +145,13 @@ export const OPERATIONS = [
   'addBrandSize',
   'updateBrandSize',
   'deleteBrandSize',
+  // #195c: the style profile and its outfit rules, and the wardrobes shared
+  // with you (sharing admin stays web-only: SHARING_ADMIN).
+  'getStyleProfile',
+  'saveStyleProfile',
+  'addOutfitRule',
+  'deleteOutfitRule',
+  'listSharedWardrobes',
 ] as const;
 export type OperationId = (typeof OPERATIONS)[number];
 
@@ -157,7 +164,7 @@ export function isOperationId(id: string): id is OperationId {
  * 6). An issue leaves this list when its last pending route does.
  */
 type EndpointIssue =
-  /** Insights, sizes, the style profile, shared wardrobes. */
+  /** Insights, sizes. */
   '#195';
 
 /**
@@ -388,9 +395,9 @@ export const PAGE_WRITES: Readonly<
   'POST /auth/profile/sizes/brands': { api: 'addBrandSize' },
   'POST /auth/profile/sizes/brands/:id': { api: 'updateBrandSize' },
   'POST /auth/profile/sizes/brands/:id/delete': { api: 'deleteBrandSize' },
-  'POST /auth/profile/style': { pending: '#195' },
-  'POST /auth/profile/style/rules': { pending: '#195' },
-  'POST /auth/profile/style/rules/:id/delete': { pending: '#195' },
+  'POST /auth/profile/style': { api: 'saveStyleProfile' },
+  'POST /auth/profile/style/rules': { api: 'addOutfitRule' },
+  'POST /auth/profile/style/rules/:id/delete': { api: 'deleteOutfitRule' },
   'POST /weather/home': { api: 'setWeatherHome' },
   'POST /weather/home/clear': { api: 'clearWeatherHome' },
   'POST /weather/here': { api: 'setWeatherHere' },
