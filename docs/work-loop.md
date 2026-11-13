@@ -38,3 +38,15 @@ proves main.
   hand-merge the journal. One migration-adding issue in flight at a time.
 - **Headless worker:** not enrolled.
 - **Ledger:** `~/.local/state/closet-gate/ledger.tsv`.
+- **Backlog order (2026-11-13):** the pinned epic #631 (milestone `0.1`), from the pre-0.1 audit
+  (`docs/reports/2026-11-13-pre-0.1-audit.md`, `-findings.json`). Work its checklist in order; its
+  `agent-blocked` issues wait on the owner's answer in the issue. Read an issue's finding ids in the
+  findings file before briefing: the evidence and file:line are there.
+- **One tier per worktree:** two `ci-db`/`ci-e2e` runs in one worktree destroy each other's
+  Postgres (the container name is the worktree path's hash), which reads as ECONNREFUSED or random
+  500s. Never run a verify runner beside a worker in its worktree (devkit friction, #490).
+- **Re-review after a fix:** `make merge` accepts a clean earlier round for a head with new fix
+  commits; for auth, money, sync or rate-limit fixes run `make review PR=<n>` on the new head first.
+- **An unexplained 500 is never "load":** capture the server error before calling a failure flaky
+  (#620 was first misread as a container collision).
+
