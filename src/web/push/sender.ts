@@ -100,8 +100,8 @@ const REQUEST_TIMEOUT_MS = 10_000;
 /**
  * The one way to send a Web Push message (web-push, RFC 8291 aes128gcm, the
  * encoding every current browser accepts). The VAPID details are checked
- * here, at boot, so a malformed key or a non-https SITE_URL fails the start
- * rather than every send; they are passed per request, never set globally.
+ * here, at boot, so a malformed key fails the start rather than every send
+ * (the https SITE_URL subject is loadConfig's rule); they are passed per request, never set globally.
  *
  * Endpoints are capability URLs: logs name a device by its row id, never
  * by endpoint (a WebPushError carries the endpoint; it is not logged whole).
