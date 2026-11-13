@@ -1,0 +1,2 @@
+ALTER TABLE "personal_access_token" ADD COLUMN "kind" text DEFAULT 'mcp' NOT NULL;--> statement-breakpoint
+ALTER TABLE "personal_access_token" ADD CONSTRAINT "personal_access_token_kind_check" CHECK ("personal_access_token"."kind" in ('mcp', 'device'));

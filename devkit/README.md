@@ -27,8 +27,8 @@ What each path is; [AGENTS.md](AGENTS.md) holds the invariants that tie them tog
 | `bin/pr_merge.sh`, `bin/merge_rules.sh`, `bin/pr_review.sh`, `bin/review_rules.sh`, `bin/codex_review.py`, `bin/_merge_carry.sh`, `bin/decisions_merge.py` | What `make merge PR=<n>` and `make review PR=<n>` call: `pr_merge.sh` fetches origin main and runs main's `merge_rules.sh` (or, `--rules review_rules.sh`, main's reviewer) with main's plan, so no branch decides the rules it merges under (homelab #134; a main without the script leaves the checkout's, saying so). No pre-merge gate (owner, 2026-11-02): a PR merges on its review rounds. A round is Codex's review of any commit of the PR, or a local record `make review` posts after running `claude -p` over the diff itself. An unresolved P0/P1 Codex thread always refuses; below the plan's `DEVKIT_REVIEW_ROUNDS` (default 3) a P0/P1 in the latest round wants another round; P2 and below never refuse, and the merge files each still open as an issue, answers and resolves its thread. A bot's manifest-only PR, a docs-only diff and a devkit sync owe no round. Nothing waits on Codex and a moved main is no refusal; a docs/decisions.md-only conflict is resolved and pushed, any other conflict is refused. `OWNER='<reason>'` skips the rounds after a typed confirmation at a terminal, the reason in the squash body. Every squash body ends with `Kind: product|tooling` and `Kind-By: kit|label|sync|bot` trailers (a kit plan's `GATE_KIT=1`, a `kind/*` label, a devkit sync or a dependency bot; any other PR is refused: `gh pr edit <n> --repo … --add-label kind/…`), which the scorecard's OUTPUT reads, then the commits' co-authors; an empty PR body squashes to its commits' subjects. No merge reads the fleet's product share: OUTPUT is a readout (2026-11-12). The merge is pinned to the head (`--match-head-commit`, `DEVKIT_MERGE_VERIFIED` for the gh shim); `merge_rules.sh`'s header is the contract, `codex_review.py`'s docstring the round rules. |
 | `bin/devkit-sync.sh` | Fetch upstream, replace `devkit/` with its tree filtered to `VENDOR_PATHS`, record `<commit> <filtered tree>` in `.devkit-rev`, commit. Refreshes tracked copies of vendored bases (`.swift-format`, `.githooks/*`) in the same commit. The commit ends with `DEVKIT_COMMIT_TRAILER`, else `git config devkit.trailer`, else the model-agnostic `Co-Authored-By: Claude <noreply@anthropic.com>` (an empty env value means none); an agent sets the env to the trailer naming its model. Conflict-free by construction. `--stage` leaves it in the index for the caller's own commit. |
 | `bin/devkit-new.sh`, `templates/new/` | `devkit new <name> --stack <stack> [--dir <parent>] [--no-image]`: a new repo that passes every guard on its first commit, which is made through the hooks. Stacks: `python-fastapi`, `node-service`, `rust`, `next-vercel`, `swift-app`, `infra-compose`; each is a directory under `templates/new/stacks/` (how to add one: `templates/new/README.md`). See "New project". |
-| `bin/devkit-check.sh` | Offline guard for `ci-quick` and pre-commit: the staged `devkit/` tree equals the staged `.devkit-rev` (both read from the index). Fails on in-repo edits, and on a tree holding paths outside its own `VENDOR_PATHS` (vendored whole by a pre-manifest sync: rerun the repo's `devkit-sync`), and on any tracked `.swift-format` that is not byte-equal to `lint/swift-format.json`, and on a `scripts/ci/gate_plan.sh` that sets a retired plan variable (read from the working tree, where the fix is made; `--staged` reads the index instead). Also on a plan whose `GATE_CODEX_REVIEW=0` has no literal `GATE_CODEX_REVIEW_REASON="<why>"`, or whose reason has no `=0`. And, a warning until 2026-11-01 and a failure from it, on a baseline file `devkit new` writes and a hand-built repo lacks, naming the command that creates it: `docs/metrics/scorecard.json` (`devkit/bin/python.sh -I devkit/bin/scorecard.py . --mode rebaseline`), and `docs/metrics/ratchet.json` beside a `scripts/ci/metrics.conf` (`make metrics-rebaseline`, which seeds every key when the file is missing and writes it only on success). In a public repo (the plan's literal `GATE_PUBLIC=1`) and in a devkit checkout (its tree is vendored into the public ones; there this is the only check, run by `self-check` and `docs-check`), fails on a tracked file outside `devkit/`, `docs/reports/` and `docs/audits/` that names homelab topology (`DEVKIT_TOPOLOGY_PATTERNS` in the script, one `<where> <ERE>` rule a line: generic shapes, never a fleet name, since this script is vendored into the repos it guards: any `.box` or `-box` host, NAS volume paths, macOS homes and paths into Linux homes, dynamic-DNS and tailnet suffixes, private and CGNAT host addresses; bare host names in prose, scripts and config, in code only in a URL or an ssh target, so code's `box` fields and CSS classes pass), naming `<file>:<line>`; a line that must show one (a test's private-address fixture) ends with a `topology example` comment (`#`, `//`, `--`, `<!-- -->`, `/* */`). Warns, without failing, on a `.dockerignore` that lets a TS repo's build context see a `tsbuildinfo` beside any tracked `tsconfig*.json` (a stale one let `tsc -b` skip the image's type-check, locus #145; add `**/*.tsbuildinfo`), and on a Makefile recipe line (the Makefile and its literal includes) that runs `docker` itself, naming `<file>:<line>`: route it through `docker_bounded.sh`. |
-| `bin/node_toolchain.sh` | Provides the exact Node in the repo's `.nvmrc`: uses PATH's node when it matches, else a checksum-verified install cached under `~/.local/share/devkit/node`. The gate and the hooks call it through `toolchain_path.sh`. |
+| `bin/devkit-check.sh` | Offline guard for `ci-quick` and pre-commit: the staged `devkit/` tree equals the staged `.devkit-rev` (both read from the index). Fails on in-repo edits, and on a tree holding paths outside its own `VENDOR_PATHS` (vendored whole by a pre-manifest sync: rerun the repo's `devkit-sync`), and on any tracked `.swift-format` that is not byte-equal to `lint/swift-format.json`, and on a `scripts/ci/gate_plan.sh` that sets a retired plan variable (read from the working tree, where the fix is made; `--staged` reads the index instead). Also on a plan whose `GATE_CODEX_REVIEW=0` has no literal `GATE_CODEX_REVIEW_REASON="<why>"`, or whose reason has no `=0`. And, a warning only (2026-11-13), on a baseline file `devkit new` writes and a hand-built repo lacks, naming the command that creates it: `docs/metrics/scorecard.json` (`devkit/bin/python.sh -I devkit/bin/scorecard.py . --mode rebaseline`), and `docs/metrics/ratchet.json` beside a `scripts/ci/metrics.conf` (`make metrics-rebaseline`, which seeds every key when the file is missing and writes it only on success). In a public repo (the plan's literal `GATE_PUBLIC=1`) and in a devkit checkout (its tree is vendored into the public ones; there this is the only check, run by `self-check` and `docs-check`), fails on a tracked file outside `devkit/`, `docs/reports/` and `docs/audits/` that names homelab topology (`DEVKIT_TOPOLOGY_PATTERNS` in the script, one `<where> <ERE>` rule a line: generic shapes, never a fleet name, since this script is vendored into the repos it guards: any `.box` or `-box` host, NAS volume paths, macOS homes and paths into Linux homes, dynamic-DNS and tailnet suffixes, private and CGNAT host addresses; bare host names in prose, scripts and config, in code only in a URL or an ssh target, so code's `box` fields and CSS classes pass), naming `<file>:<line>`; a line that must show one (a test's private-address fixture) ends with a `topology example` comment (`#`, `//`, `--`, `<!-- -->`, `/* */`). Warns, without failing, on a `.dockerignore` that lets a TS repo's build context see a `tsbuildinfo` beside any tracked `tsconfig*.json` (a stale one let `tsc -b` skip the image's type-check, locus #145; add `**/*.tsbuildinfo`), and on a Makefile recipe line (the Makefile and its literal includes) that runs `docker` itself, naming `<file>:<line>`: route it through `docker_bounded.sh`. |
+| `bin/node_toolchain.sh` | Provides the Node in the repo's `.nvmrc`: uses PATH's node when its major matches (22.20 serves a 22.23.3 pin), else a checksum-verified install cached under `~/.local/share/devkit/node`. The gate and the hooks call it through `toolchain_path.sh`. |
 | `bin/package_manager_toolchain.sh` | Provides the exact pnpm a tracked `package.json` `packageManager` field declares (`pnpm@10.32.1`, optionally `+sha512.<hex>`, checked against the tarball): `npm pack` with the pinned Node's npm, then an offline, scriptless `npm install --global --prefix` cached under `~/.local/share/devkit/pnpm/<ver>` with its tarball, which a declared hash is checked against on every use. Never a PATH corepack (Node 25+ ships none) or a PATH pnpm. Two disagreeing declarations or an inexact version fail naming the file; another manager is left to PATH with one stderr line. `toolchain_path.sh` and `playwright_browsers.sh` call it, so a recipe calls plain `pnpm`. |
 | `bin/rust_toolchain.sh` | Provides the exact Rust in `rust-toolchain.toml` (or `rust-toolchain`): uses PATH's cargo when it matches, else installs through rustup (PATH's, or a private one bootstrapped under `~/.local/share/devkit/rust`) and prints the toolchain's sysroot bin, so callers export PATH only. `--declared` prints the version. The gate and the hooks call it through `toolchain_path.sh`. |
 | `bin/toolchain_path.sh` | Sourced: `toolchain_path <tree>` puts the tree's pinned Node (`.nvmrc`), pnpm (`packageManager`) and Rust (`rust-toolchain.toml`) first on PATH through the three scripts above, or fails naming the pin. The one provisioning path for the plan runner and `hook_steps.sh` (the hook's checkout), so a hook runs a job's node and cargo on a machine with none. It also puts devkit's own python3 (below) first when PATH's is not it, so a recipe's bare `python3` gets it too; a repo's project Python needs nothing: uv reads `.python-version`. |
@@ -40,28 +40,28 @@ What each path is; [AGENTS.md](AGENTS.md) holds the invariants that tie them tog
 | `bin/release_tool.sh` | `<tool> -- <command> [args...]` (or `<tool> --version`): runs one command with a devkit-pinned release binary first on PATH; the pin and its per-platform sha256 live in the script (shellcheck 0.11.0, the fleet's one shellcheck; bats 1.14.0, the infra-compose stack's test runner, installed as its whole source tree). PATH's tool at that version is used as-is; else the release archive is downloaded and verified once per machine into `~/.local/share/devkit/tools/<tool>-<version>`. Exit 2 naming the tool when it cannot be provided (`DEVKIT_OFFLINE=1` and a cold store, a checksum mismatch). |
 | `bin/shellcheck.sh` | shellcheck as the fleet runs it, from the repo root: the pinned release over `lint/shellcheckrc` with the repo's `.shellcheckrc` appended (a merged `--rcfile`), so a lint step and `metrics/shell.py` read one config. |
 | `bin/toolchain_check.sh` | Guard for `ci-quick`: `.nvmrc` is exact, every `FROM node:` major and every setup-node step agree with it; same for `.python-version` (plus a regular-file copy beside every one-level-down `pyproject.toml`, because uv stops pin discovery at the project boundary) and `rust-toolchain.toml` (`FROM rust:` minor, `Cargo.toml` `rust-version` not above it, no inline `toolchain:`); `.swift-version` against `swift --version` on macOS only (Xcode's compiler; skipped elsewhere). Runs `ci_targets_check.sh` first. |
-| `bin/ci_targets_check.sh` | Guard for `ci-quick`, run by `toolchain_check.sh`: per-area halves of the standard targets are named tier first, `ci-<tier>-<area>` (`ci-unit-backend`, not `ci-backend-unit`). Warns naming the expected name until 2026-11-15, then fails. |
+| `bin/ci_targets_check.sh` | Guard for `ci-quick`, run by `toolchain_check.sh`: per-area halves of the standard targets are named tier first, `ci-<tier>-<area>` (`ci-unit-backend`, not `ci-backend-unit`). Only warns, naming the expected name; never fails. |
 | `bin/_makefile_lib.sh`, `bin/_dockerfile_lib.sh`, `bin/_gitattributes_lib.sh` | Sourced readers the guards share: root Makefile targets (with literal includes), Dockerfile list and final stage, the decisions-log `.gitattributes` line. |
 | `bin/docker_bounded.sh` | One docker call from a Makefile recipe behind the daemon probe (`DOCKER_PROBE_TIMEOUT`, 15 s) and the per-call bound (`DOCKER_CALL_TIMEOUT`, 180 s; an image build sets more): `DOCKER_CALL_TIMEOUT=900 devkit/bin/docker_bounded.sh build -t "$(CI_IMAGE)" .`. A recipe cannot source `_timeout_lib.sh` (make's `/bin/sh` is dash on Linux). Exit: docker's, 124 when stopped, 1 for a hung or unreachable daemon. Like throwaway_pg.sh and boot_image.sh (all through `devkit_docker_guard`) it holds the Mac awake while it runs, and on macOS a probe that times out gets one `caffeinate -u -t 2` wake and one re-probe; still hung, the line names the likely sleeping OrbStack VM and the remedy order (wake again; `orbctl stop && orbctl start` only as a last resort, it kills every container). devkit never restarts OrbStack. |
 | `bin/throwaway_pg.sh` | One throwaway Postgres container for tests and smoke boots: `up` prints `PG_PORT=<n>`, `url`, `down`. tmpfs on by default (the volume-leak fix), TCP readiness, loopback only; env-driven. **Lanes:** `name <base>` prints `<base>-<lane>`, the lane being `GATE_LANE_ID` or a hash of the checkout's top-level path, so two worktrees of one repo never share a container; `up` labels the container with its lane and refuses (exit 1) to remove one still running for another lane. A repo's container default is `$(shell devkit/bin/throwaway_pg.sh name <repo>-test-pg)` with an auto port read back through `url`; a Makefile that builds its URL from a port at parse time derives it with `port <base>` (20000-29999 from the base and the lane) instead of a literal, since a fixed port collides the same way. devkit-check warns on a literal name or port, quoted or not (finplat's `finplat-test-pg` on 55460). Per-worker databases on a server several lanes share are `<db>_<lane>_<worker>`, not `<db>_<worker>`. |
 | `bin/boot_image.sh` | Boots a built app image on a private network (optionally with `throwaway_pg.sh` Postgres as `<name>-pg`), waits for its health endpoint with early exit on container death, prints `BASE=<url>`; `down` removes everything. Post-boot assertions stay in each repo. Env-driven (`BOOT_*`); `BOOT_EXPECT_VERSION` also requires the health JSON `version` to equal it. |
 | `bin/contract_probe.sh` | `<base> --live P --health P --request-id P --json-log FILE\|CONTAINER --metrics P --require-metric NAME --proxy-404 URL`: the observability contract asserted against a booted app, each assertion opt-in so repos switch them on as they comply. Called from a smoke after `boot_image.sh up`; `BOOT_EXPECT_VERSION` is checked in health, logs and `app_info`. One `probe <name> PASS\|FAIL` line each, every assertion runs. |
 | `bin/publish.sh` | `<repo-checkout> [--ungated <reason>]`, run as the repo's `publish` target by the publisher host's timer: checks every new commit of origin/main with `check_tree.sh` and moves `latest` to the newest one that passes, when an image input changed, after `ci-image` + `ci-smoke` at it on native amd64. See "Publish". |
-| `bin/check_tree.sh` | `<sha> [--repo <checkout>] [--log-dir <dir>]`: every job of that commit's plan on a clean worktree; `CHECK <job> PASS|FAIL|REPORTED|SKIPPED`, `CHECK VERDICT PASS|FAIL head=<sha>`. A flake retried once (`flaky` issue), the ratchet report-only (`ratchet` issue). publish.sh and main_check.sh run it. |
+| `bin/check_tree.sh` | `<sha> [--repo <checkout>] [--log-dir <dir>]`: every job of that commit's plan on a clean worktree; `CHECK <job> PASS|FAIL|SKIPPED`, `CHECK VERDICT PASS|FAIL head=<sha>`. A flake retried once (`flaky` issue, unless its first run failed on the box, a network failure included; a later run on which that job passes first try closes its flaky issues, naming the commit); the metrics ratchet is no job here (report only, 2026-11-13). publish.sh and main_check.sh run it. |
 | `bin/main_check.sh`, `bin/_commit_status_lib.sh` | `[--root <dir>]... [--repos a,b]`, every 10 min on the Mac (`bin/install_main_check.sh` once): `check_tree.sh` at a new origin main of every checkout whose plan is not `DEPLOY_KINDS=image` alone, once per cadence window; the verdict is the commit's `main-check` status; `MAIN <repo> <sha7> pass|fail|up-to-date|waiting|error`. Deploys nothing. See "Deploy kinds". |
 | `bin/registry_prune.sh` | `<ghcr.io/owner/name> [--keep N] [--dry-run]`: GHCR retention in images, not package versions: the newest N `sha-*` images, everything since, `latest`, and every manifest they reference. publish.sh runs it. |
 | `bin/ship_tag.sh` | `<owner/repo> <sha> [--date YYYY-MM-DD]`: the deploying step marks a main commit shipped with the annotated tag `ship-<date>-<sha7>` via `gh api` (no clone). Idempotent for the same sha, refuses another, survives a create race; prints `SHIP_TAG=<tag>`. Needs `contents: write`. |
 | `bin/release_check.sh` | Guard for `ci-quick`: the image is the only source of `APP_VERSION`. Dockerfile final stage has the ARG, ENV and OCI `image.version` LABEL; no compose file sets it under `environment:`; every workflow step that pushes an image passes it as a build arg. Every Dockerfile (root and one level down): a non-root final `USER` may `EXPOSE` and health-check only ports >= 1024 (the NAS kernel refuses a privileged bind; Orbit was down 16 h on 2026-10-13). |
 | `bin/workflows_check.sh`, `bin/_workflows_lib.sh` | Guard for `ci-quick`: Actions follows the minutes and supply-chain rules. Every `uses:` is a commit SHA with a `# vX.Y.Z` comment (devkit reusable workflows may float on `@main`). A `pull_request` workflow runs one job, skips drafts, cancels superseded runs and ignores `**.md`; more jobs need a top-level `# workflows-check: multi-job ok: <reason>`. A job pushing an image on main runs with `cancel-in-progress: false`. Every `runs-on:` names a versioned image (`ubuntu-24.04`), never a `-latest` label. A PR job running `make ci-quick` checks out with `fetch-depth: 0`, so `origin/main` resolves for `changed_lint.py`. The lib's push-step detection is shared with `release_check.sh`. |
 | `bin/playwright_browsers.sh` | Installs the Playwright browsers the lockfile pins (default `chromium`) with the lockfile's runner and the `.nvmrc` Node; idempotent via Playwright's cache. `--with-deps` is honoured on Linux, ignored on macOS. |
-| `bin/docs_check.sh` | Guard for `ci-quick`: every `AGENTS.md` is the real file with `CLAUDE.md` symlinked to it, size caps (30 KB root, 16 KB nested; the shrink-only allowlist in `scripts/ci/docs_oversize.txt` ends 2026-11-15), `docs/decisions.md` exists, no retired-tool words, and the standard docs set ("Standard docs" below: required files and README sections, the root AGENTS.md's H2 list, the fixed `docs/` set with dated `docs/reports/`, no CONTRIBUTING.md, dated decisions entries, `make` targets and relative links that resolve, `docs/decisions.md merge=devkit-decisions` in `.gitattributes`; warnings until their date, then failures); in a plan with `GATE_PUBLIC=1`, devkit-check's topology rules (`bin/_topology_lib.sh`), since a docs-only commit runs docs-check alone; repo extras in `scripts/ci/docs_rules.sh`; trees of agent files the repo installs elsewhere (dotfiles) declared in `scripts/ci/docs_payload.txt`. `--report` prints the numbers (sizes vs caps, allowances, docs outside the set, H2s outside the list) for trims and the monthly audit. |
+| `bin/docs_check.sh` | Guard for `ci-quick`: every `AGENTS.md` is the real file with `CLAUDE.md` symlinked to it, `docs/decisions.md` exists, no retired-tool words; WARNINGS (never a failure, owner 2026-11-13) for size caps (30 KB root, 16 KB nested) and the standard docs set ("Standard docs" below: required files and README sections, the root AGENTS.md's H2 list, the fixed `docs/` set with dated `docs/reports/`, no CONTRIBUTING.md, dated decisions entries, `make` targets and relative links that resolve, `docs/decisions.md merge=devkit-decisions` in `.gitattributes`); in a plan with `GATE_PUBLIC=1`, devkit-check's topology rules (`bin/_topology_lib.sh`), since a docs-only commit runs docs-check alone; repo extras in `scripts/ci/docs_rules.sh`; trees of agent files the repo installs elsewhere (dotfiles) declared in `scripts/ci/docs_payload.txt`. `--report` prints the numbers (sizes vs caps, allowances, docs outside the set, H2s outside the list) for trims and the monthly audit. |
 | `bin/quiet_run.sh`, `bin/hook_steps.sh`, `bin/push_ranges.sh`, `bin/hooks_check.sh`, `templates/githooks/` | Git hooks: one line per step, 40-line tail on failure, and a captured step's notices (fd 6 under `DEVKIT_NOTICE_FD=6`: a tier's `waiting for capacity` lines) as they print; per-repo steps in `scripts/ci/hooks.conf`, scoped by changed paths by default from one fleet layout table (docs, backend, frontend, native, tooling, other: `devkit_classify_path` in `_paths_lib.sh`, which the gate uses too; tooling runs every hook step, like other) and each step's target name, so a docs-only change runs docs-check alone, a frontend-only one skips backend steps, a native-only one (ios/, OrbitAgent/) runs nothing and a vendoring-only pre-commit (devkit-sync's: devkit/ at `.devkit-rev`'s tree plus byte-exact base copies) runs no step, so a sync commits in a fresh worktree before any install, with `:unless=<globs>`, `:only=<globs>` or `:always` per step only where a repo's layout deviates; `hooks_check` asserts `core.hooksPath=.githooks` (a tool install silently repointed finplat's for two months) and every template hook (pre-commit, pre-push, commit-msg) there, and `--fix` self-heals the path, installs a missing hook from its template and adds the decisions-log merge-driver line to `.gitattributes` (converting an old union one) and sets the clone's merge drivers; it rejects a malformed step override and warns on a typecheck or unit step at pre-commit or a pre-commit that never runs `ci-lint` ("Git hooks"); LFS chained when the repo uses it. Before the first step the pinned Node and Rust go first on PATH, as in the gate (`toolchain_path.sh`), so `hooks.conf` lists steps only. A passing cargo step's summary sums every `test result:` line (the last one is the doctests). Every run appends step and total wall seconds to `$XDG_STATE_HOME/devkit/hooks/<repo>.tsv` (`<repo>` = the origin remote's repository name, lowercased, so worktree lanes share the repo's file), the per-machine hooks ledger the scorecard reads (T8: pre-commit p90 ≤ 30 s, pre-push ≤ 60 s). Steps run without the GIT_DIR git exports to a worktree's hooks (a step's `git init` would otherwise set core.bare=true in the shared config), and a step that still changes core.bare is named on stderr and in its ledger row, then undone (#48). |
-| `bin/tier_guard.sh` | `<tier> --budget <s> [--floor <runner>[=<min>]]... -- <cmd...>`: one test tier under a wall-clock budget (the whole command's wall time; over budget it prints `OVERBUDGET` and passes (owner 2026-10-29: budgets report, never fail); `TIER_BUDGET_ENFORCE=1`, for a run on an idle box, makes it exit 1, except on a shifted run, whose unshifted twin holds the budget; a box above its core count, or a pool with more than one run admitted, stretches it by min(max(load / cores, runs holding units), 2), sampled at start and end with the larger kept, printed as `budget 110 s ×1.6 (load 2.0 at start, 13.1 at end on 8 cpus) → 176 s` (`; 2 gate slots held` before the `)` when more than one was)) and per-runner floors on the tests that RAN (skipped ones do not count), read from the runner's own summary line: `pytest`, `vitest`, `playwright`, `cargo`, `bats` (its TAP `ok`/`not ok` lines without `# skip`, or the pretty formatter's summary). A floor the repo's `docs/metrics/ratchet.json` holds (`tests.<tier>.<runner>`, seeded and raised by `make metrics-tighten`, metrics_ratchet.py "Floors"), less 5% (the gate's ratchet holds it exactly), is that runner's floor, the larger of it and a `--floor` number winning, so the recipe may name the runner bare. Streams the command's output, exits with its code, prints `TIER <tier>: …` / `FAIL` / `FLOOR` / `OVERBUDGET` lines and writes `build/metrics/tier-<tier>.json` at the git top level (`tier.<tier>.seconds`, `tests.<tier>.<runner>`). Outside a gate it is first admitted to the machine-wide pool for its tier name's cost (`GATE_CAPACITY`, below; holder `<repo>:<tier>`, `TIER <tier> waiting for capacity: …` at once and every 30 s, heartbeats ending ` (waited <n>s)`, then `TIER <tier> admitted (cost <c> of <cap>[, queued <n>s])`, the wait outside the budget; under a hook those lines reach the hook's output on quiet_run's notice fd, so a queued pre-push is never silent), so hand-run tiers queue with the gates' jobs; inside a gate job or another tier it runs on those units, and `TIER_SLOT=0` stays out for a quick single test. Every `devkit new` stack's test tiers run through it. `DEVKIT_CLOCK_SHIFT=<n>d` runs a pytest or vitest tier with the wall clock shifted ("Clock shift" below). |
+| `bin/tier_guard.sh` | `<tier> --budget <s> [--floor <runner>[=<min>]]... -- <cmd...>`: one test tier under a wall-clock budget (the whole command's wall time; over budget it prints `OVERBUDGET` and passes (owner 2026-10-29 and 2026-11-13: budgets report, never fail, and no switch changes that); a box above its core count, or a pool with more than one run admitted, stretches it by min(max(load / cores, runs holding units), 2), sampled at start and end with the larger kept, printed as `budget 110 s ×1.6 (load 2.0 at start, 13.1 at end on 8 cpus) → 176 s` (`; 2 gate slots held` before the `)` when more than one was)) and per-runner floors, reported, on the tests that RAN (skipped ones do not count), read from the runner's own summary line: `pytest`, `vitest`, `playwright`, `cargo`, `bats` (its TAP `ok`/`not ok` lines without `# skip`, or the pretty formatter's summary). A floor the repo's `docs/metrics/ratchet.json` holds (`tests.<tier>.<runner>`, seeded and raised by `make metrics-tighten`, metrics_ratchet.py "Floors"), less 5%, is that runner's floor (a count under it prints `FLOOR` and passes: floors report, like budgets), the larger of it and a `--floor` number winning, so the recipe may name the runner bare. Streams the command's output, exits with its code, prints `TIER <tier>: …` / `FAIL` / `FLOOR` / `OVERBUDGET` lines and writes `build/metrics/tier-<tier>.json` at the git top level (`tier.<tier>.seconds`, `tests.<tier>.<runner>`). Outside a gate it is first admitted to the machine-wide pool for its tier name's cost (`GATE_CAPACITY`, below; holder `<repo>:<tier>`, `TIER <tier> waiting for capacity: …` at once and every 30 s, heartbeats ending ` (waited <n>s)`, then `TIER <tier> admitted (cost <c> of <cap>[, queued <n>s])`, the wait outside the budget; under a hook those lines reach the hook's output on quiet_run's notice fd, so a queued pre-push is never silent), so hand-run tiers queue with the gates' jobs; inside a gate job or another tier it runs on those units, and `TIER_SLOT=0` stays out for a quick single test. Every `devkit new` stack's test tiers run through it. `DEVKIT_CLOCK_SHIFT=<n>d` runs a pytest or vitest tier with the wall clock shifted ("Clock shift" below). |
 | `clock_shift/devkit_clock_shift.py` | The pytest plugin tier_guard.sh loads under `DEVKIT_CLOCK_SHIFT` (`PYTEST_PLUGINS`, this directory on `PYTHONPATH`): time-machine shifts the clock before the initial conftests load and ticks, every xdist worker shifts itself, `scripts/ci/clock_shift.conf` entries run as non-strict xfails with their reasons, and each shifted process records itself in tier_guard's `DEVKIT_CLOCK_SHIFT_PROOF` file (`NOSHIFT` without it). |
 | `clock_shift/vitest_clock_shift.mjs` | Its vitest half, the setup file tier_guard.sh names as `DEVKIT_CLOCK_SHIFT_VITEST` and `lint/vitest.base.mjs`'s `clockShift()` vite plugin hands to the repo's config, listing it first in `setupFiles` and adding it to vite's resolved `server.fs.allow` (so a package in a subdirectory loads it from `../devkit/`; fs.strict stays on): a `Date` proxy shifted and ticking in every pool and project (a test's fake timers start from it and restore it), `clock_shift.conf` entries by vitest test id turn a failure into a pass with the reason, and the same proof record. |
-| `bin/metrics_collect.sh` | `<snapshot\|check\|tighten\|rebaseline>`: the `ci-metrics` mechanism. Reads `scripts/ci/metrics.conf` (`<name> <area> <command...>`), runs each collector from the repo root into `build/metrics/<name>.json`, skips those whose area no changed path touched (in the gate; `tooling`/`other` and `repo` collectors run regardless), merges with the gate's and tiers' files, then runs the ratchet. A repo's Makefile holds four one-line targets and nothing else. "Metrics ratchet" below. |
-| `metrics/` | The shared collectors a `metrics.conf` line calls, one per stack, each `--scope <name> [--out FILE]`, deterministic, exit 3 naming a missing tool (`metrics_collect.sh check --quick` skips the collector on it; every other mode fails) and 2 for any other reason it cannot measure: `python.py --root <dir> --src <subdir|module.py>... [--python <interp>] [--mccabe] [--cognitive] [--vulture [--vulture-ignore-declarative] [--vulture-base <set,...>]] [--cycles] [--exclude <glob>]...` (ruff C901, complexipy, vulture, AST import cycles; run under the repo's interpreter, `uv run --locked --project backend python devkit/metrics/python.py …`, so the tools resolve); `ts.mjs --root <dir> --src <subdir> [--tsconfig F] [--test-glob G]... [--exclude G]... [--cyclomatic] [--cognitive] [--knip [--knip-base]] [--cycles] [--bundle [--bundle-entry index.html]]` (eslint `complexity`, sonarjs cognitive, knip, dependency-cruiser cycles, vite bundle KiB; tools from `<root>/node_modules/.bin`); `rust.py --root <workspace> [--cognitive] [--dead] [--cycles] [--fan] [--exclude <glob>]...` (clippy `cognitive_complexity` scoring every function, rustc's unused-code warnings; one `cargo clippy`/`check --workspace --locked` on PATH's cargo, which the gate provisions from `rust-toolchain.toml`, else through `bin/toolchain_exec.sh` for a hand run; module cycles and fan from the source, the production targets `cargo metadata` names, read by `metrics/_rust_graph.py`); `shell.py --root <dir> [--src <glob>]... [--exclude <glob>]... [--shellcheck] [--complexity] [--dead] [--cycles] [--fan]` (shellcheck errors and warnings through `bin/shellcheck.sh`, plus devkit's own `stdin-in-read-loop` warning: ssh, `docker exec -i` or ffmpeg draining a `while read` loop's input, which shellcheck 0.11 hides under any disable directive; branches per function, functions nothing calls, and the cycles and fan of the `source` graph, from a stdlib lexical scanner; default `--src` `**/*.sh` `**/*.bash`, the vendored `devkit/` never read); `jscpd.mjs --scope repo [--min-tokens 50] [--min-lines 5] [--bin <jscpd>] [--base] [--format <f,...>] [--list-out FILE] <paths...>` (shell: `--format bash`; no `--bin` is devkit's pin, `metrics/tools`); `coverage.py --scope <s> (--coverage-json F \| --istanbul-summary F \| --llvm-cov-json F)` (the tier writes the report; "run make ci-unit-<s> first" when it is missing). `--exclude` on python.py, ts.mjs and rust.py drops vendored production files (a shadcn component) from every key they emit; a glob matching nothing is exit 2, and the report-only `meta.<scope>.excluded_files` keeps the list visible. Keys per collector: `docs/metrics-keys.md`. The `--*base` flags merge `lint/`'s knip, jscpd and vulture bases under the repo's own config (`lint/README.md`). |
-| `bin/metrics_ratchet.py` | The "never worse than main" gate. `check` holds a snapshot to `docs/metrics/ratchet.json` and that file to main's copy (`git show origin/main:…`), so a PR cannot loosen its own bounds; a BETTER key fails it too (`… BETTER — run make metrics-tighten and commit …`; a float key within 0.05 passes), so `tighten` locks in BETTER numbers in the improving PR; `tighten` prints every WORSE or MISSING key as `check` would, exiting 1, so the author sees the gate's refusal first; report-only keys (`vuln.*`, `coupling.*.fan_in_max`, `duplication.*.jscpd_percent`, `size.*.max_lines`, `size.*.over_600`) are printed, never gated, dropped from the bounds by `tighten`/`rebaseline`, which commit their values to `docs/metrics/report-only.json` for the scorecard; `merge` joins `build/metrics/*.json` into one snapshot that records each key's collector and the collectors skipped, so a key whose collector did not run is SKIPPED, not a failure. Committing a looser bound needs the fail-closed `metrics-rebaseline` PR label; no label admits a value past the committed bound. |
+| `bin/metrics_collect.sh` | `<snapshot\|check\|tighten\|rebaseline>`: the `ci-metrics` mechanism. Reads `scripts/ci/metrics.conf` (`<name> <area> <command...>`), runs each collector from the repo root into `build/metrics/<name>.json`, merges with the tiers' files, then prints the ratchet report (exit 0 whatever it says). A repo's Makefile holds four one-line targets and nothing else. "Metrics report" below. |
+| `metrics/` | The shared collectors a `metrics.conf` line calls, one per stack, each `--scope <name> [--out FILE]`, deterministic, exit 3 naming a missing tool (a failed run) and 2 for any other reason it cannot measure: `python.py --root <dir> --src <subdir|module.py>... [--python <interp>] [--mccabe] [--cognitive] [--vulture [--vulture-ignore-declarative] [--vulture-base <set,...>]] [--cycles] [--exclude <glob>]...` (ruff C901, complexipy, vulture, AST import cycles; run under the repo's interpreter, `uv run --locked --project backend python devkit/metrics/python.py …`, so the tools resolve); `ts.mjs --root <dir> --src <subdir> [--tsconfig F] [--test-glob G]... [--exclude G]... [--cyclomatic] [--cognitive] [--knip [--knip-base]] [--cycles] [--bundle [--bundle-entry index.html]]` (eslint `complexity`, sonarjs cognitive, knip, dependency-cruiser cycles, vite bundle KiB; tools from `<root>/node_modules/.bin`); `rust.py --root <workspace> [--cognitive] [--dead] [--cycles] [--fan] [--exclude <glob>]...` (clippy `cognitive_complexity` scoring every function, rustc's unused-code warnings; one `cargo clippy`/`check --workspace --locked` on PATH's cargo, which the gate provisions from `rust-toolchain.toml`, else through `bin/toolchain_exec.sh` for a hand run; module cycles and fan from the source, the production targets `cargo metadata` names, read by `metrics/_rust_graph.py`); `shell.py --root <dir> [--src <glob>]... [--exclude <glob>]... [--shellcheck] [--complexity] [--dead] [--cycles] [--fan]` (shellcheck errors and warnings through `bin/shellcheck.sh`, plus devkit's own `stdin-in-read-loop` warning: ssh, `docker exec -i` or ffmpeg draining a `while read` loop's input, which shellcheck 0.11 hides under any disable directive; branches per function, functions nothing calls, and the cycles and fan of the `source` graph, from a stdlib lexical scanner; default `--src` `**/*.sh` `**/*.bash`, the vendored `devkit/` never read); `jscpd.mjs --scope repo [--min-tokens 50] [--min-lines 5] [--bin <jscpd>] [--base] [--format <f,...>] [--list-out FILE] <paths...>` (shell: `--format bash`; no `--bin` is devkit's pin, `metrics/tools`); `coverage.py --scope <s> (--coverage-json F \| --istanbul-summary F \| --llvm-cov-json F)` (the tier writes the report; "run make ci-unit-<s> first" when it is missing). `--exclude` on python.py, ts.mjs and rust.py drops vendored production files (a shadcn component) from every key they emit; a glob matching nothing is exit 2, and the report-only `meta.<scope>.excluded_files` keeps the list visible. Keys per collector: `docs/metrics-keys.md`. The `--*base` flags merge `lint/`'s knip, jscpd and vulture bases under the repo's own config (`lint/README.md`). |
+| `bin/metrics_ratchet.py` | The metrics report (report only, 2026-11-13). `check` prints a snapshot against `docs/metrics/ratchet.json` (SAME, BETTER, WORSE, MISSING, SKIPPED, REPORT-ONLY lines and a summary) and exits 0; `tighten` locks in BETTER numbers (a float key within 0.05 stays); report-only keys (`vuln.*`, `coupling.*.fan_in_max`, `duplication.*.jscpd_percent`, `size.*.max_lines`, `size.*.over_600`) are printed, never compared, dropped from the bounds by `tighten`/`rebaseline`, which commit their values to `docs/metrics/report-only.json` for the scorecard; `merge` joins `build/metrics/*.json` into one snapshot that records each key's collector. |
 | `templates/metrics/ratchet.json`, `docs/metrics-keys.md` | Starter bounds (all `null` until `rebaseline` fills them, so `check` refuses a raw copy; `{}` is the other valid start) and the flat `<domain>.<scope>.<stat>` key shape every collector emits. |
 | `bin/own_commit_check.py` | Transaction-boundary guard: AST scan fails a raw `.commit()` on a session the function did not open itself (`with … as db` / `db = Session()`), and pins every `commit_now(…, reason=…)` call to a shrink-only `path::qualname` allow-list. Prints `own_commit_allowlist_entries=<n>` for `metrics_ratchet.py` (direction lower). Opener regex and excludes are per repo. A TS repo holds the same boundary with guard_check's `own-transaction` kind. |
 | `bin/_dockerignore.py` | Which paths a root-context `docker build` sees: the root `.dockerignore` matched as Docker's patternmatcher does (from the context root, so `*.md` is root-only; parent matches exclude subtrees; `**`, `!`, last match wins; `.dockerignore` and `Dockerfile` always count). `keep` feeds the gate's image classifier (`_paths_lib.sh`); `redundant` feeds devkit-check's warning on a `GATE_IMAGE_EXCLUDE_PATHS` alternative the file already covers. Stdlib only. |
@@ -90,7 +90,7 @@ What each path is; [AGENTS.md](AGENTS.md) holds the invariants that tie them tog
 | `metrics/vuln.py` | Vulnerability collector for any stack (scorecard T11): the locked production dependencies (`uv export`, package-lock.json, pnpm-lock.yaml, Cargo.lock; `--swift <dir>`: Package.resolved, else project.yml/Package.swift exact pins, as OSV SwiftURL via `metrics/_swiftpm.py`; a github.com/gitlab.com pin is matched in any case against the spellings in OSV's SwiftURL export) asked of OSV in one batch, each hit fetched once for severity (a hit with none takes its `aliases`' worst, each alias fetched once); `vuln.<scope>.critical|high|total|packages` (packages 0 is a dev-only lockfile), and with `--findings <file>` each hit with its lowest fixed version above the lock (the vuln watch's input), report-only (a new advisory is not a code regression, so the ratchet never tracks it). `--compose <files>` counts the services' image references instead (OSV indexes no image): `images.<scope>.refs|unpinned|undigested`, `undigested` gated toward 0. No audit tool needs installing. |
 | `metrics/statements.py` | The statements collector (decision H): the db tier's statement fixture writes `{"<METHOD>:/<route>": <max statements>}` to a file outside `build/metrics/`; one `statements job:db …` line in `metrics.conf` validates and copies it into the snapshot as `statements.<METHOD>:/<route>` keys at tolerance 0. closet's `test/support/statement-budgets.ts` and finplat's `count_statements` are the two fixtures to copy. The scaling hook: a budget is a maximum over one-row worlds and cannot see an N+1, so a scaling test drives a route at two fixture sizes and records each request under `<METHOD>:/<route>@<rows>` in the same file (a key suffix, so every fixture's max-merge carries it unchanged); the collector writes `statements.<METHOD>:/<route>.per_row`, statements per added row, ideal 0, ratcheted lower. kitchen's `sync/tests/db/test_query_scaling.py` is the reference test. A repo with no samples has no `per_row` key and the scorecard's `ratchet.statements_scaling` reads UNMEASURED. |
 | `bin/agent_cost.py`, `docs/agent-cost.tsv`, `docs/fixed-context.tsv` | The agent-cost ledgers. `agent-cost.tsv`: one row per (repo, PR, agent) from the Claude Code session transcripts (API calls, tool calls, output and cache-read tokens attributed to the PR the agent was on, gate rounds, `GATE … FAIL` lines seen, merged) joined with the gate state dir's seconds; the scorecard's OUTPUT joins its tokens on the PR; `--summary` prints per-repo medians. `fixed-context.tsv` (`--fixed-context`): one row per interactive session under every `~/.claude/projects/*` dir, its first real API call's whole input (cache read + write + uncached: the tool schemas, plugins, AGENTS.md, memory and prompt every later call re-reads), the session's repo (a `.claude/worktrees/<lane>` folded onto it) and its first turn's length (the prompt plus the command tag, caveat or isMeta expansion Claude Code attached); `claude -p` runs, sidechains, first turns over 4000 chars (a slash command's expanded body) and sessions with no call yet are skipped; the scorecard's `agent.fixed_context` reads it. Both append-only, keyed by (repo, PR, agent) and session id. Run after a wave of lanes (`make agent-cost`). Transcripts are data: only counts, PR URLs and session ids leave them. |
-| `bin/scorecard.py`, `scorecard.conf` | The fleet scorecard v2 (standardization/scorecard-design.md §5): per repo one line and five readouts, WIRED (devkit mechanisms wired, `n/m`), TREND (ratchet.json and report-only.json history over 7 and 30 days, labelled bound worsens, signals apart, largest debts), VULN (a fresh OSV run over the locks), BITE (`bite.py`) and OUTPUT (product share of main's commits and agent tokens over 30 days; the fleet's against `output_product_share_min`); UNMEASURED is the devkit backlog, owner items are listed apart; the scorecard ratchet holds the WIRED share. "Scorecard" below. |
+| `bin/scorecard.py`, `scorecard.conf` | The fleet scorecard v2 (standardization/scorecard-design.md §5): per repo one line and five readouts, WIRED (devkit mechanisms wired, `n/m`), TREND (ratchet.json and report-only.json history over 7 and 30 days, bounds and signals apart, largest debts), VULN (a fresh OSV run over the locks), BITE (`bite.py`) and OUTPUT (product share of main's commits and agent tokens over 30 days; the fleet's against `output_product_share_min`); UNMEASURED is the devkit backlog, owner items are listed apart; the scorecard ratchet holds the WIRED share. "Scorecard" below. |
 | `tests/` | bats contract tests (fake `gh`/`make`/`node`, temp bare repos). |
 
 ## New project
@@ -327,8 +327,8 @@ hooks-check:     ## part of install
 ```
 
 Declare Node once in `.nvmrc` (exact version, e.g. `22.23.3`). Workflows use
-`node-version-file: .nvmrc`; the Dockerfile's `FROM node:<major>` must match; a bot bump to
-either fails `toolchain-check` until `.nvmrc` moves with it, which is the point.
+`node-version-file: .nvmrc`; the Dockerfile's `FROM node:<major>` must match the pin's major (any minor of it passes); a bot bump to
+a different major fails `toolchain-check` until `.nvmrc` moves with it, which is the point.
 
 and write `scripts/ci/gate_plan.sh`: scalar config at the top, an optional `gate_cleanup()`,
 and a `gate_plan()` that declares jobs per group and calls `devkit_default_gate_plan`
@@ -343,7 +343,6 @@ GATE_JOBS_BACKEND="unit ci-unit-backend|db ci-db TEST_DB_PORT=$DB_PORT"
 GATE_JOBS_FRONTEND="unit-fe ci-unit-frontend"
 GATE_JOBS_IMAGE="image ci-image CI_IMAGE=$IMAGE|smoke ci-smoke CI_IMAGE=$IMAGE"
 GATE_JOBS_E2E="e2e ci-e2e"
-GATE_JOBS_METRICS="metrics ci-metrics"                 # optional; always the last job
 GATE_IMAGE_EXCLUDE_PATHS='^eslint\.config\.mjs$'       # copied by the build, read by no stage
 GATE_IMAGE_PATHS='^scripts/ci/smoke_image\.sh$'        # paths that also run the image group
 GATE_JOB_COSTS="lint-swift=1"                          # optional: a job's admission cost (below)
@@ -359,14 +358,10 @@ agents are the plugins' code): every path under those prefixes is other, for the
 and `make merge`'s docs-only exemption alike; devkit-check holds it to that one unquoted line. Docs-only runs docs; tooling (`devkit/`, `.devkit-rev`, hooks.conf,
 `.githooks/`; a devkit sync) runs quick, plus the image group when `boot_image.sh` or
 `contract_probe.sh` changed; native-only runs nothing unless a group's areas name native
-(a `GATE_AREAS_<GROUP>`, or a metrics collector declared `native`); backend and frontend run their groups
-plus quick, image and e2e; other runs everything (`docs/metrics/ratchet.json` and
-`scripts/ci/metrics.conf` are other, so a bounds-only PR meets the ratchet and its label).
-The metrics group runs for backend, frontend, other and every area a metrics.conf collector
-names (tooling aside), after `gate_plan_extra`, so
-`ci-metrics` sees every earlier job's seconds; when the PR
-carries the `metrics-rebaseline` label (read through `gh`, fail-closed) its jobs get
-`METRICS_REBASELINE=1`. `GATE_AREAS_<GROUP>="..."` overrides a group's areas, except IMAGE and
+(a `GATE_AREAS_<GROUP>`); backend and frontend run their groups
+plus quick, image and e2e; other runs everything. There is no metrics group (2026-11-13): a plan
+that still sets `GATE_JOBS_METRICS` has it ignored, so delete the line.
+`GATE_AREAS_<GROUP>="..."` overrides a group's areas, except IMAGE and
 E2E: every app path runs them, and a plan setting `GATE_AREAS_IMAGE` or `GATE_AREAS_E2E` is
 exit 2 at the gate and a devkit-check failure in ci-quick. A changed path the root
 `.dockerignore` excludes cannot reach the image, and the gate reads that file itself with
@@ -387,27 +382,34 @@ Machine environment:
 | `GATE_CAPACITY` | max(4, ceil(cores / 2)) | The machine-wide admission pool's size (`bin/_slot_lib.sh`, at the fixed `~/.local/state/devkit/gate-slots/`), across repos, vendored revs and the nightly job. Every tier_guard.sh run is admitted for its cost before it runs and gives the units back after: the plan's `GATE_JOB_COSTS` entry, else the heaviest word of its make target (1 lint, quick, docs, deps, metrics, drift; 3 db, image, smoke, e2e; 4 ios, swift; else 2). A run that does not fit prints `waiting for capacity: …` at once and every 30 s. A holder whose pid died is reclaimed at the next look. |
 | `~/.config/devkit/gate.env` | absent | Per-machine defaults for `GATE_CAPACITY` (`KEY=value` lines, honours `XDG_CONFIG_HOME`); an explicit environment variable wins. The retired gate's keys (`GATE_REMOTE*`, `GATE_SILENCE_SECONDS`, the budgets, `GATE_LOAD_*`, `GATE_SLOTS`) are accepted and ignored; any other line is exit 2. |
 
-## Metrics ratchet (ci-metrics)
+## Metrics report (ci-metrics)
+
+**Report only (owner, 2026-11-13).** The metrics ratchet is for cleanup and refactor rounds, not
+for every PR: nothing gates on it. No plan job, pre-push hook, `check_tree.sh` run or merge rule
+runs or requires it, and there is no `metrics-rebaseline` label. When a round wants to know
+where the code stands, `make ci-metrics` prints every key against the bounds recorded in
+`docs/metrics/ratchet.json`, WORSE, BETTER and MISSING lines included, and exits 0
+(`ratchet report only: ...` closes it). `make metrics-tighten` records the gains worth keeping
+and `make metrics-rebaseline` moves bounds after a tool change; both stay as tools and nothing
+requires either. Test-count floors and tier budgets are reports too (`TIER <tier> FLOOR ...`).
 
 **Every key is a signal, not a verdict** (owner, 2026-10-18). A number says where to look; an
-agent judges whether the code needs to change, and acts or records an exception. A ratchet
-bound holds a floor against drift so a regression is seen in the PR that caused it, and the
-`metrics-rebaseline` label is the exception path when judgement says the number should move.
-A key whose movement says nothing about the code without that judgement is report-only: size
-is, because size alone never justifies a split (decisions 2026-10-17, T2 file size).
+agent judges whether the code needs to change. A key whose movement says nothing about the code
+without that judgement is report-only: size is, because size alone never justifies a split
+(decisions 2026-10-17, T2 file size).
 
 A repo declares its collectors in `scripts/ci/metrics.conf`, one per line, and its Makefile
-holds four one-line targets. Everything else (which collectors a PR runs, the merge, the
-comparison with main, the label) is devkit's.
+holds four one-line targets. Everything else (the merge, the comparison with the bounds) is
+devkit's.
 
 ```make
-ci-metrics:       ## gate job: no metric worse than main
+ci-metrics:       ## report only: every metric against docs/metrics/ratchet.json (exit 0)
 	devkit/bin/metrics_collect.sh check
 metrics-snapshot: ## run the collectors; build/metrics.json is the report
 	devkit/bin/metrics_collect.sh snapshot
-metrics-tighten:  ## lock in BETTER numbers; commit docs/metrics/ratchet.json in the same PR; TIGHTEN_RUN_TIERS=1 runs the tiers it needs first; SEED=1 bounds keys that have none
+metrics-tighten:  ## lock in BETTER numbers; TIGHTEN_RUN_TIERS=1 runs the tiers it needs first; SEED=1 bounds keys that have none
 	devkit/bin/metrics_collect.sh tighten
-metrics-rebaseline: ## KEYS=<key>[,<key>] loosens only those; commit, label metrics-rebaseline
+metrics-rebaseline: ## KEYS=<key>[,<key>] loosens only those to today's value
 	devkit/bin/metrics_collect.sh rebaseline
 ```
 
@@ -419,30 +421,17 @@ dup         repo     node devkit/metrics/jscpd.mjs --scope repo --out build/metr
 ```
 
 `<name>` names the output file `build/metrics/<name>.json` and is recorded as each key's
-`source`. `<area>` is the fleet area (docs, backend, frontend, native, tooling, other), or
-several comma-separated (`backend,native`: one jscpd run over server/ and ios/), whose
-paths can move the collector's numbers; the gate's metrics group runs for each area a
-collector names, so an ios/-only PR runs a `native` collector. Or `repo` for a whole-repo tool, or `job:<gate job>`
-for a collector that reads that gate job's output (coverage from `unit-backend`) rather than
-the tree. The command runs with
+`source`. `<area>` is kept for the file format (docs, backend, frontend, native, tooling, other,
+several comma-separated, or `repo`): every collector runs on every invocation. `job:<name>`
+names the plan job whose make target writes the collector's input (coverage from
+`unit-backend`), so a missing report is refused naming that target. The command runs with
 `bash -c` from the repo root under the repo's own dev dependencies (`uv run …`,
 `node_modules/.bin/…`) and must write its file in the `docs/metrics-keys.md` shape. The shared
 collectors in `devkit/metrics/` (`python.py`, `ts.mjs`, `rust.py`, `shell.py`, `jscpd.mjs`, `coverage.py`; CLIs in the
 Architecture table, keys in `docs/metrics-keys.md`) cover the fleet's stacks, so one
 implementation measures a thing fleet-wide (owner decision B, 2026-10-13); a repo-specific
-collector (finplat's reinvention registry) is any script that writes the file.
-
-In the gate, `ci-metrics` is the last job (`GATE_JOBS_METRICS`, above). An area collector runs
-when a changed path is in one of its areas or when an `other` path changed; `repo` collectors always
-run; `tooling` widens nothing (devkit's collectors and ratchet classify as `other`, so a
-devkit sync that changes one still runs everything, and a tooling-only PR runs no tier); a
-`job:<name>` collector runs only when `build/metrics/gate.json` records that job's seconds,
-which the plan runner writes after each job, so exactly when the job ran in this run (a job
-the plan skipped, for any reason, leaves no entry). The rest are skipped, and the snapshot
-says so: `check` reports their tracked keys as `SKIPPED (collector <name> did not run)`
-rather than failing. Why: a frontend-only PR cannot have changed backend coverage, and the
-backend unit job that produces that coverage did not run either. Outside the gate every
-collector runs, on the pinned toolchain (`toolchain_path`, as the gate and the hooks).
+collector (finplat's reinvention registry) is any script that writes the file. The run uses the
+pinned toolchain (`toolchain_path`, as the hooks do).
 
 **Findings.** A count says how much to fix, not what. `metrics_collect.sh` passes
 `--list-out build/metrics/<name>.findings.txt` to every `python.py`, `ts.mjs`, `rust.py` and `shell.py` line and ends
@@ -491,79 +480,57 @@ bounds it. The first `make ci-unit` on a machine installs cargo-llvm-cov (about 
 
 **Coverage** is produced by the unit tier, not by a collector: each `ci-unit-<area>` runs with
 coverage on and writes the tool's report (coverage.py JSON, an istanbul summary, a
-`cargo llvm-cov --json` export);
-`devkit/metrics/coverage.py` converts it to `coverage.<area>.lines|branches`, declared with
-`job:<the tier's gate job>` so it runs only when that job ran. Outside the gate
-a missing report fails the collector with "run make ci-unit-<area> first". A tier whose budget
-coverage would break says so in its PR rather than dropping the budget.
+`cargo llvm-cov --json` export); `devkit/metrics/coverage.py` converts it to
+`coverage.<area>.lines|branches`, declared with `job:<the tier's gate job>`. A missing report
+stops the run with "run make ci-unit-<area> first" (or `TIGHTEN_RUN_TIERS=1`, below).
 
-**Never track `gate.*`, `tier.*` or `tests.*`** in `ratchet.json`: jobs and tiers are
-area-scoped, so those keys are absent on narrow PRs, and the seconds are noisy. They stay in
-the snapshot as untracked, for the report.
+**Never track `gate.*`, `tier.*` or `tests.*`** in `ratchet.json` by hand-picked seconds: the
+seconds are noisy and nothing writes `gate.*` any more. The `tests.<tier>.<runner>` counts are the
+exception: they are the tiers' floors (`metrics_ratchet.py`, Floors), reported by `tier_guard.sh`.
 
 **Report-only keys** (`vuln.*`, `coupling.<scope>.fan_in_max`,
 `duplication.<scope>.jscpd_percent`, `size.<scope>.max_lines`, `size.<scope>.over_600`, and any
 key its collector declares in a `"report_only"` list, as ts.mjs does for a Next build's
-`bundle.<scope>.kb_total`, which `bundle.<scope>.kb_route_max` replaces) are collected and never gated, even when `ratchet.json`
-still holds a bound for one: `check` prints it as REPORT-ONLY with a note to run `make
-metrics-tighten`, a PR may drop it without the label, and `tighten` and `rebaseline` drop it. `tighten` and `rebaseline` write their values to
-`docs/metrics/report-only.json`, committed with the bounds, which the scorecard reads from a
-fresh clone (`check` never touches it). A hub module's fan-in is
-architecture, not drift (finplat #659); fan-out (a god module) stays gated. The duplicated
+`bundle.<scope>.kb_total`, which `bundle.<scope>.kb_route_max` replaces) are collected and never
+compared, even when `ratchet.json` still holds a bound for one: `check` prints it as REPORT-ONLY,
+and `tighten` and `rebaseline` drop it and write its value to `docs/metrics/report-only.json`,
+which the scorecard reads from a fresh clone (`check` never touches it). A hub module's fan-in is
+architecture, not drift (finplat #659); fan-out (a god module) is compared. The duplicated
 share rises when unduplicated lines are deleted (orbit #86, #88), so `duplication.<scope>.clones`
-is the one ratcheted duplication key and the scorecard grades on it. A file's length is read
+is the one compared duplication key and the scorecard grades on it. A file's length is read
 with judgement, never split for its own sake (owner 2026-10-18): `size.py` lists every file
 over the limit on stderr for the reader.
 
-**Gate-only.** Collectors need the dev dependencies and take tens of seconds (target under
-60 s; the job budget is 5 min), so `ci-metrics` is neither a hook step nor an Actions job.
-`check` reads main's bounds through `git show origin/main:docs/metrics/ratchet.json`; an
-unresolvable base ref is an error, never "no guard".
+Collectors need the dev dependencies and take tens of seconds, so `ci-metrics` is no hook step
+and no Actions job.
 
 Adoption: start `docs/metrics/ratchet.json` from `{}` (or from
 `devkit/templates/metrics/ratchet.json`, every shared-collector key at `null`), write
 `scripts/ci/metrics.conf`, then `SEED=1 make metrics-tighten` fills every bound
 from today's numbers, seeds every untracked key the collectors emit (never `gate.*`,
-`tier.*`, `tests.*` or a report-only key; a repo-specific domain is added by hand with its direction) and records
-each key's collector. The same command bounds a key a collector starts emitting later
-(`ratchet <key> SEEDED <value>`): an added bound is a tightening, so it needs no label, and
-plain `tighten` names the keys still without one. Commit both files; the devkit-sync commit itself needs no change, the
-adoption PR carries the attribution trailer. From then on a PR
-that improves a number runs the repo's `metrics-tighten` target and commits the bounds: the
-gate fails a BETTER key until it does (an integer key on any gain, a float key such as coverage
-or bundle KiB on a gain over 0.05), and the `metrics-rebaseline` label does not exempt it. A
-float gain within 0.05 is left at its old bound by `tighten` too, since both read one predicate,
-so run-to-run noise is never committed and then read WORSE. When HEAD does not contain
-origin/main's tip, `tighten` measures their merge in a temporary worktree (the repo's own
-`metrics-tighten` there, tiers included) and copies the bounds back, so the number it commits is
-the one the gate reads. The pre-push hook previews the ratchet with `check --quick` (no tiers;
-`BETTER: run make metrics-tighten before push`) and never blocks. `docs/metrics/*.json` merge per
-key, the stricter bound winning, once `make install`, a hook or devkit-sync has set the driver (bin/_gitattributes_lib.sh). A tighten on a HEAD that lacks origin/main measures their merge in a temporary worktree, as the gate will, with the call's own `--conf`, `--bounds` and `--out` (the script's header, "Merged tree"). Outside
-the gate every collector runs, so a coverage report or `build/statements.json` that no tier has
+`tier.*` or a report-only key; a repo-specific domain is added by hand with its direction) and
+records each key's collector. The same command bounds a key a collector starts emitting later
+(`ratchet <key> SEEDED <value>`); plain `tighten` names the keys still without one. A cleanup
+round that improved a number runs `make metrics-tighten` and commits the bounds to keep the
+gain: an integer key locks in on any gain, a float key such as coverage or bundle KiB on a gain
+over 0.05, so run-to-run noise is never committed. When HEAD does not contain origin/main's tip,
+`tighten` measures their merge in a temporary worktree (the repo's own `metrics-tighten` there,
+tiers included) and copies the bounds back. `docs/metrics/*.json` merge per
+key, the stricter bound winning, once `make install`, a hook or devkit-sync has set the driver
+(bin/_gitattributes_lib.sh). A coverage report or `build/statements.json` that no tier has
 written yet stops the run once, listing each missing file with the `make` target of the gate
-job that writes it; `TIGHTEN_RUN_TIERS=1 make metrics-tighten` runs those targets first (the inputs are one
-table in the script: coverage reports, the statement fixture, a Next app's
-`.next/build-manifest.json` for `ts.mjs --bundle`). An
+job that writes it; `TIGHTEN_RUN_TIERS=1 make ci-metrics` (or `metrics-tighten`) runs those
+targets first (the inputs are one table in the script: coverage reports, the statement fixture,
+a Next app's `.next/build-manifest.json` for `ts.mjs --bundle`). An
 input older than the newest tracked file under its source directory (after a rebase, say) is a
 WARNING, and under `TIGHTEN_RUN_TIERS=1` its tier reruns as well; `TIGHTEN_RUN_TIERS=fresh` (the
 script's `--fresh`) reruns every tier input.
 
-The `metrics-rebaseline` label permits a PR to COMMIT bounds looser than main's; it never
-permits a measured value past the committed bound. A PR whose numbers moved for a legitimate
-reason (a tool knob, a deliberate trade) runs `make metrics-rebaseline KEYS=<key>[,<key>]`,
-which loosens only the named bounds to today's numbers (a named key that is not worse is left
-and reported, one with no bound yet is seeded, one in neither file is exit 2), and commits `docs/metrics/ratchet.json` with the label.
-The gate's fix lines name that command with the WORSE keys filled in. Without `KEYS` the target
-rewrites every bound and `docs/metrics/scorecard.json`, which is for a label-approved tool
-change that moves everything, never for adding a bound (rollcall #74 did, to add two bundle keys); it then warns, naming each bound it loosened. The gate then holds every key to that committed file exactly as in
-check mode; the only difference is that the LOOSENED, REMOVED and DIRECTION bound lines are
-accepted. A key that is worse than its committed bound fails even under the label, with a line
-naming the fix (Orbit #78 merged a coverage drop under a label meant for two size bounds, and
-the next PR failed on it):
-
-```
-metrics-rebaseline: coverage.backend.lines 49.24 is past its bound 49.45; set the bound in docs/metrics/ratchet.json or fix the regression
-```
+`make metrics-rebaseline KEYS=<key>[,<key>]` loosens only the named bounds to today's numbers (a
+named key that is not worse is left and reported, one with no bound yet is seeded, one in
+neither file is exit 2). Without `KEYS` the target rewrites every bound and
+`docs/metrics/scorecard.json`, for a tool change that moves everything, never for adding a bound;
+it then warns, naming each bound it loosened.
 
 ## Clock shift
 
@@ -736,7 +703,7 @@ Output, an API: `<root>/<path>:<line>: <rule>: ...` per violation, `GUARD <secti
 ok|FAIL <n> known=<k>` per rule, `guards <section> files=<n> violations=<n> known=<k>` per
 section, `guard_violations=<n>` last; exit 0, 1 (violations, stale known lines or sites), 2.
 `--metrics-out` writes `guards.<section>.known` (direction lower), the `guards` collector in a
-scaffold's `metrics.conf`, so new debt needs the `metrics-rebaseline` label.
+scaffold's `metrics.conf`, so the metrics report shows new debt.
 
 Adoption, one PR per repo: declare the rule, DELETE the repo test it replaces, move that
 test's allow-list to `except` (a design decision) or `known` (debt, with the change that pays
@@ -794,7 +761,7 @@ visibility flips, and the last two right after:
    pointer per file and role words ("the publisher host", "the NAS"). Reword host names inside
    old `docs/decisions.md` and log entries too: a fork carries them (closet #477/#479/#481,
    redlib #90/#93).
-2. **Guard on.** `GATE_PUBLIC=1` in `scripts/ci/gate_plan.sh`, then `make devkit-sync`:
+2. **Guard on.** `GATE_PUBLIC=1` in `scripts/ci/gate_plan.sh`, then the repo's `devkit-sync` target:
    devkit-check and docs-check refuse topology from then on, docs-only commits included.
 3. **Identity history.** Rewrite author and committer identities that name a private address
    or a real name (`git filter-repo --mailmap`), restricted to the repo's own commits on a
@@ -850,8 +817,8 @@ visibility flips, and the last two right after:
 ## Standard docs
 
 Every repo carries the same docs set, and `make docs-check` (in `ci-quick`) keeps it present and
-honest. `devkit new` emits all of it from `templates/new/common/`. The new rules warn until
-2026-11-15 and fail from then; the dates live at the top of `bin/docs_check.sh`.
+honest. `devkit new` emits all of it from `templates/new/common/`. Its standards rules only warn
+(2026-11-13); file shapes, a retired tool and topology in a public repo fail.
 `docs_check.sh --report` prints where a repo stands (the monthly audit records it), and
 `docs_check.sh --fix` does the mechanical half on a clean tree: report-shaped or unlinked one-off
 docs move to `docs/reports/<first-commit-date>-<slug>.md` with their links rewritten, living docs
@@ -860,13 +827,13 @@ needs a reader (oversize AGENTS.md, non-standard sections, CONTRIBUTING.md) is l
 items. One reviewable diff, then `docs_check.sh --report` again.
 
 AGENTS.md is in every agent session's context, so it stays a navigation-sized map and reference
-material lives in `docs/`, which nothing loads unprompted. The caps are absolute from 2026-11-15:
-root `AGENTS.md` ≤ 30 KB, any other ≤ 16 KB (`docs_oversize.txt` allowances end that day).
+material lives in `docs/`, which nothing loads unprompted. The caps, warnings only:
+root `AGENTS.md` ≤ 30 KB, any other ≤ 16 KB (`docs_oversize.txt` is no longer read; delete it).
 
 | File | Holds | Checked |
 |---|---|---|
 | `README.md` | For a human arriving cold. One intro paragraph, then five H2 sections (aliases in `README_SECTIONS`): **Getting started** (install, run locally), **Commands** (the everyday `make` targets), **Architecture** (a short map, linking the full one), **Deploy** (how a change reaches users; "not deployed" is an answer), **Documentation** (an index of the other docs, with the line "Contributors and agents: see AGENTS.md"). | sections present; the contributors line; every `make <target>` it names exists |
-| `AGENTS.md` + `CLAUDE.md -> AGENTS.md` | For every agent session: rules, commands, deviations. The root file's H2s come only from: **Stack**, **Architecture**, **Where things live** (or Navigation, TL;DR), **Convention deltas**, **Commands**, **CI and the PR gate**, **Workflow**, **Deliberate exceptions**, **Documentation**. Stack, Convention deltas, Commands and Workflow are required. Stack holds the `Conventions:` line and exactly one `Capabilities:` line, `none` or a comma list of names from dotfiles' `conventions/decisions/capabilities.md` (the platform decisions filed on the repo follow it; docs-check holds its shape, from 2026-12-01). A Conventions, Guidelines, Patterns or Best practices section restates the convention files: keep only the deltas. It is also the contributor guide: no `CONTRIBUTING.md`. | pair shape, size cap, retired tools, the H2 list, the `Capabilities:` line's shape, `make` targets, no links into `docs/reports/` |
+| `AGENTS.md` + `CLAUDE.md -> AGENTS.md` | For every agent session: rules, commands, deviations. The root file's H2s come only from: **Stack**, **Architecture**, **Where things live** (or Navigation, TL;DR), **Convention deltas**, **Commands**, **CI and the PR gate**, **Workflow**, **Deliberate exceptions**, **Documentation**. Stack, Convention deltas, Commands and Workflow are required. Stack holds the `Conventions:` line and exactly one `Capabilities:` line, `none` or a comma list of names from dotfiles' `conventions/decisions/capabilities.md` (the platform decisions filed on the repo follow it; docs-check warns on its shape). A Conventions, Guidelines, Patterns or Best practices section restates the convention files: keep only the deltas. It is also the contributor guide: no `CONTRIBUTING.md`. | pair shape, size cap, retired tools, the H2 list, the `Capabilities:` line's shape, `make` targets, no links into `docs/reports/` |
 | `docs/decisions.md` | Dated entries, newest last: `## YYYY-MM-DD — title`, then Why / Decision / Consequence lines (`**Why:**`, `**Why**:` or `Why:`), at most eight lines. The root `.gitattributes` gives it `merge=devkit-decisions` (`decisions_merge.py --driver`), so two PRs that each append an entry rebase without a conflict, by date, one blank line apart (`hooks_check.sh --fix` adds the line or converts the old `merge=union`, which dropped that blank line; every hook, devkit-sync, devkit-check and the gate set the clone's driver); GitHub's merge ignores it, so `make merge` resolves that conflict itself (merge_rules.sh "Carry"). | exists; every H2 dated, in order, all three lines; the driver line |
 | `docs/architecture.md`, or `## Architecture` in the root `AGENTS.md` | Components, data flow, runtime. One home: a repo whose AGENTS.md already maps itself needs no second copy. | one of the two exists |
 | `docs/operations.md` (when there is something to operate) | Deploy, backup and restore, troubleshooting. `docs/runbook.md` and `docs/deployment.md` are old names: rename. | the old names |
@@ -886,7 +853,7 @@ tool that reads them, so docs-check leaves them out of every rule; a stale entry
 ## Scorecard
 
 `bin/scorecard.py <repo>` (v2, `standardization/scorecard-design.md` §5) prints one line,
-`scorecard <repo> wired n/m · 7d: a↓ b= c↑(l labelled), s signals moved · 30d: … · vuln c critical, h high · hooks h, fails f · output product n/m (p%)`,
+`scorecard <repo> wired n/m · 7d: a↓ b= c↑, s signals moved · 30d: … · vuln c critical, h high · hooks h, fails f · output product n/m (p%)`,
 then a table per readout, never averaged together; there are no letters and no repo grade.
 
 - **WIRED**: is devkit enforcing here. `wired <id> <scope> PASS|FAIL|D|NA` per mechanism the
@@ -911,13 +878,10 @@ then a table per readout, never averaged together; there are no letters and no r
   7 days under `<state>/devkit/scorecard/`. `auto_merge` (fleet) fails a listed repo whose GitHub
   settings still report `allow_auto_merge` true. `--mode` skips the fleet checks, since the ratchet never reads them.
 - **TREND**: is it improving. Per key of `docs/metrics/ratchet.json` and `report-only.json`, the
-  value at the start of 7 and 30 days of git history against HEAD, direction-aware. A worsen is
-  labelled when every commit that worsened it carries a `Metrics-Rebaseline: <key>=<old>→<new>`
-  trailer naming it, which `make merge` writes into a metrics-rebaseline PR's squash body. A
-  commit with no trailer (older history, an unsynced repo) falls back to a `docs/decisions.md`
-  line it adds naming the key, or `metrics-rebaseline` in its message; the table says which.
-  Bounds and signals print apart: an unlabelled worsen of a bound reads `UNLABELLED — enforcement
-  failure`, a report-only key's move (`size.*`, `coupling.*`, `meta.*.excluded_files`, `vuln.*`)
+  value at the start of 7 and 30 days of git history against HEAD, direction-aware. Metrics are a
+  cleanup-round report (owner 2026-11-13), so a worsen is a move to read, with no label, trailer
+  or verdict. Bounds and signals print apart: a report-only key's move (`size.*`, `coupling.*`,
+  `meta.*.excluded_files`, `vuln.*`)
   reads `signal`, with no verdict, and the line's counts are the bounds'. A window reaching a
   `devkit new` root commit (its values are the template's) reads the next commit's change to a
   key as `adopted`, never a worsen. "Largest debts" lists keys past the
@@ -955,15 +919,13 @@ that `--table` renders again, as the monthly audit does). `--fleet` with no path
 
 The ratchet holds each `repo`-scoped check: a repo commits `docs/metrics/scorecard.json`
 (`{"checks": {<id>: true|false}}`, `bin/scorecard.py . --mode rebaseline` once), and its
-`ci-metrics` target fails a PR in which a check the file records wired reads unwired or NA, or one it
-records unwired reads wired until `make metrics-tighten` commits it (gains lock in). A check the
+`ci-metrics` target reports (exit 0, 2026-11-13) a check the file records wired that reads unwired
+or NA, and one it records unwired that reads wired until `make metrics-tighten` commits it. A check the
 file does not record is new devkit backlog: printed as `new, unwired: devkit backlog`, never a
 failure, so a devkit sync that vendors a new check passes in every repo that has not wired it
 yet. The WIRED share is still printed, as a number, not a bound. `machine` checks (hooks ledger,
 gh shim, fixed context) and `fleet` checks (devkit-rev age) print in n/m but are never ratcheted:
-they move without a code change. As in the metrics ratchet, `check` holds the checks to the PR's file and
-that file to main's; the `metrics-rebaseline` label admits a check main records wired going
-unwired or unrecorded in the PR's file, never a loss against the PR's own file. An older file
+they move without a code change. `check` only prints the checks against the file's record. An older file
 (v1 `tracks`, or the share-only `{"wired": <share>}`) records no check by name: it reads as
 first adoption on either side and fails the `scorecard_file` check until `make metrics-tighten`
 rewrites it.
@@ -984,8 +946,7 @@ the NAS). A run prints one `PUBLISH <name> <sha7> published|checked|up-to-date|s
 <secs>s` line. There is no pre-merge gate, so main is proven here whenever it moves, whatever the
 commit changes (a tests-, Makefile- or plan-only commit too, devkit #355): `bin/check_tree.sh <sha>` runs
 every job of that commit's plan on a clean worktree (a failed job retried once, a pass on the
-retry filing a `flaky` issue; the ratchet and time budgets only report, the ratchet filing a
-`ratchet` issue). Image inputs (the IMAGE group) decide only whether a green commit is built: with
+retry filing a `flaky` issue (not when its first run failed on the box, a network failure for one, and closed again by the next run on which that job passes first try); time budgets only report, and the metrics ratchet is no job). Image inputs (the IMAGE group) decide only whether a green commit is built: with
 none since `latest` the run is `checked`, the commit is remembered as proven (the next walk starts
 above it; with main still there the run is `up-to-date`) and a green check closes `main-red` all
 the same. Otherwise the newest first-parent commit since `latest` that passes is built as
@@ -1059,3 +1020,4 @@ make ci-unit         # bats tests/
 - [docs/decisions.md](docs/decisions.md): every decision, dated, newest last.
 - [docs/metrics-keys.md](docs/metrics-keys.md): the metrics snapshot key shape.
 - [templates/new/README.md](templates/new/README.md): what `devkit new` renders and how to add a stack.
+- [docs/plans/2026-11-13-stop-vendoring.md](docs/plans/2026-11-13-stop-vendoring.md): the plan to pin devkit instead of vendoring it (owner decision 2026-11-13).

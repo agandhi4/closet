@@ -2601,11 +2601,7 @@ const writes: Step[] = [
     kind: 'action',
     route: 'POST /auth/tokens/:id/revoke',
     prepare: async (f) => {
-      const created = await f.build.tokens.createToken(
-        f.closet.db,
-        f.theo.id,
-        'Doomed',
-      );
+      const created = await f.mintToken(f.theo.id, 'Doomed');
       if (!created.created) throw new Error('Theo has too many tokens');
       return created.id;
     },

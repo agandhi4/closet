@@ -305,9 +305,21 @@
     "REVOKE": "Revoke",
     "REVOKE_CONFIRM": "Revoke {name}? Anything using it stops working at once.",
     "REVOKED": "Token revoked.",
+    "ALREADY_REVOKED": "That token was already revoked.",
     "NAME_REQUIRED": "Give the token a name.",
     "TOO_MANY": "You have {max} tokens. Revoke one first.",
+    "PASSWORD_CHANGED": "Your password was changed while this token was being made, so it was not. Enter your current password again.",
     "MANAGE": "Manage tokens"
+  },
+  "devices": {
+    "TITLE": "Devices",
+    "INTRO": "The apps signed in to your account. Changing your password signs them all out.",
+    "LAST_USED": "last used {day}",
+    "NEVER_USED": "never used",
+    "REVOKE": "Sign out",
+    "REVOKE_CONFIRM": "Sign out {name}? It needs your password to sign in again.",
+    "REVOKED": "Device signed out.",
+    "ALREADY_REVOKED": "That device was already signed out."
   },
   "SHARE_WARDROBE": "Share Your Wardrobe",
   "SHARE_WARDROBE_DESC": "Invite someone to view or manage your wardrobe.",

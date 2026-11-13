@@ -1,4 +1,5 @@
 import type { Child } from 'hono/jsx';
+import { todayIn } from '../../calendar-date';
 import { jsonForScript } from '../html';
 import { type StringKey, t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
@@ -30,6 +31,8 @@ import type { TokenListing } from './personal-tokens';
 import {
   ACCOUNT_SECTION_ID,
   AGENT_ACCESS_SECTION_ID,
+  DEVICES_PATH,
+  DEVICES_SECTION_ID,
   EXPORT_SECTION_ID,
   profileSection,
   SIGN_OUT_SECTION_ID,
@@ -230,8 +233,17 @@ export interface ProfileProps {
   weather?: { settings: Settings; timeZone: string; now: Date };
   /** The Sharing section: this user's shares and invites. */
   sharing: SharingModel;
-  /** Agent access: the personal access tokens in force. */
+  /** Agent access: the `mcp` tokens in force. */
   tokens: TokenListing[];
+  /**
+   * Devices (#189): the `device` tokens in force, the household's timezone
+   * for their days, and the revoke redirect's notice.
+   */
+  devices: {
+    tokens: TokenListing[];
+    timeZone: string;
+    notice?: 'revoked' | 'revoke-gone';
+  };
   /** Sizes (#24): the measurements and the brand notes. */
   sizes: { measurements: BodyMeasurements; brands: BrandSize[] };
 }
@@ -262,6 +274,9 @@ export function ProfilePage(props: ProfileProps) {
     { id: SIZES_SECTION_ID, label: t('sizes.TITLE') },
     { id: EXPORT_SECTION_ID, label: t('profile.EXPORT') },
     { id: AGENT_ACCESS_SECTION_ID, label: t('agentAccess.TITLE') },
+    ...(props.devices.tokens.length > 0
+      ? [{ id: DEVICES_SECTION_ID, label: t('devices.TITLE') }]
+      : []),
     { id: SIGN_OUT_SECTION_ID, label: t(SIGN_OUT_KEY) },
   ];
   return (
@@ -271,6 +286,18 @@ export function ProfilePage(props: ProfileProps) {
         {props.passwordChanged && (
           <div role="status" class="alert alert-success">
             <span>{t('PASSWORD_CHANGED')}</span>
+          </div>
+        )}
+        {/* Above the sections: the last device's revoke hides its section. */}
+        {props.devices.notice && (
+          <div role="status" class="alert alert-success">
+            <span>
+              {t(
+                props.devices.notice === 'revoked'
+                  ? 'devices.REVOKED'
+                  : 'devices.ALREADY_REVOKED',
+              )}
+            </span>
           </div>
         )}
         <nav
@@ -300,6 +327,9 @@ export function ProfilePage(props: ProfileProps) {
         <SizesSection {...props.sizes} />
         <ExportSection />
         <AgentAccessSection tokens={props.tokens} />
+        {props.devices.tokens.length > 0 && (
+          <DevicesSection {...props.devices} />
+        )}
         <ProfileSection id={SIGN_OUT_SECTION_ID} heading={t(SIGN_OUT_KEY)}>
           <p class="text-sm text-muted">{t('profile.SIGN_OUT_HINT')}</p>
           <SignOutForm />
@@ -398,6 +428,43 @@ function AgentAccessSection(props: { tokens: TokenListing[] }) {
       <a href={TOKENS_PATH} class="btn btn-sm self-start">
         {t('agentAccess.MANAGE')}
       </a>
+    </ProfileSection>
+  );
+}
+
+/**
+ * Profile › Devices (#189): the native clients signed in, by the name they
+ * gave and their last use, each revocable here without the password
+ * (revoking only narrows access). Shown only while there is one: nothing on
+ * the web mints a device token. Never the token or its prefix.
+ */
+function DevicesSection(props: { tokens: TokenListing[]; timeZone: string }) {
+  const day = (instant: Date) => todayIn(props.timeZone, instant);
+  return (
+    <ProfileSection id={DEVICES_SECTION_ID} heading={t('devices.TITLE')}>
+      <p class="text-sm text-muted">{t('devices.INTRO')}</p>
+      <ul class="divide-y divide-base-300">
+        {props.tokens.map((device) => (
+          <li class="py-2 flex items-center justify-between gap-2">
+            <div class="flex flex-col min-w-0">
+              <span class="truncate">{device.name}</span>
+              <span class="text-xs text-muted">
+                {device.lastUsedAt
+                  ? t('devices.LAST_USED', { day: day(device.lastUsedAt) })
+                  : t('devices.NEVER_USED')}
+              </span>
+            </div>
+            <PostForm
+              action={`${DEVICES_PATH}/${device.id}/revoke`}
+              confirm={t('devices.REVOKE_CONFIRM', { name: device.name })}
+            >
+              <button type="submit" class="btn btn-ghost btn-sm text-error">
+                {t('devices.REVOKE')}
+              </button>
+            </PostForm>
+          </li>
+        ))}
+      </ul>
     </ProfileSection>
   );
 }

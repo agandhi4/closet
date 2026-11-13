@@ -13,10 +13,8 @@
 #      AGENTS.md is canonical (every agent reads it); CLAUDE.md exists only so Claude Code loads it.
 #      A CLAUDE.md-only dir or a reversed pair fails, naming the directory. The root needs a pair.
 #   2. Size caps keep the context every agent loads small: root AGENTS.md <= 30 KB, any other
-#      <= 16 KB (KB = 1024 bytes). scripts/ci/docs_oversize.txt (`<path> <max-bytes>` per line,
-#      `#` comments) grants a larger cap to a named file. The allowance only shrinks: a file over
-#      its cap fails, and a file under 90% of its cap fails with "tighten docs_oversize.txt to
-#      <size>", so every trim is locked in. An entry for a file now within the default cap fails.
+#      <= 16 KB (KB = 1024 bytes). A WARNING (owner 2026-11-13). scripts/ci/docs_oversize.txt, the
+#      old shrink-only allowance, is no longer read; delete it.
 #   3. docs/decisions.md exists at the root.
 #   4. No AGENTS.md names a retired tool (case-insensitive whole word). The default list is the
 #      tools the 2026 standardization scan retired; DOCS_CHECK_BANNED (space-separated) replaces
@@ -46,12 +44,9 @@
 #      reported too: it drops that blank line. `devkit/bin/hooks_check.sh --fix` (`make install`)
 #      adds or converts it; why lives in bin/_gitattributes_lib.sh. Tracked file only: an
 #      untracked one helps nobody else.
-#   13-16. The docs diet (decisions.md 2026-10-16): every agent session loads AGENTS.md, so it
+#   14-16. The docs diet (decisions.md 2026-10-16): every agent session loads AGENTS.md, so it
 #      stays navigation-sized and uniform; reference material lives in docs/, which nothing loads
 #      unprompted.
-#   13. Allowance sunset: from DIET_FAILS_FROM the caps are absolute. Until then every file over
-#      its cap on a docs_oversize.txt allowance warns with its size and the cap (rule 2 keeps the
-#      allowance shrink-only meanwhile).
 #   14. The root AGENTS.md's H2s come from AGENTS_SECTIONS below and include AGENTS_REQUIRED (rule 5
 #      owns Convention deltas). Any other H2 is reference material for docs/; a Conventions,
 #      Guidelines, Patterns or Best practices heading is called out: it restates the conventions.
@@ -76,15 +71,17 @@
 #      without this a doc's hostname reached main unchecked (closet #482). It fails from the start,
 #      as devkit-check's does. Under a pre-commit hook (DEVKIT_HOOK=pre-commit, hook_steps.sh) it
 #      reads the index, the commit being made. A devkit checkout's docs-check runs devkit-check too.
-#   Rules 5-10 and 12-17 report through docs_rule: a warning before their FAILS_FROM date below, a
-#   failure on and after it, so no consumer's ci-quick breaks on the sync that introduces a rule and
-#   the flip needs no second PR. DOCS_CHECK_TODAY=YYYY-MM-DD overrides today (tests).
+#   Rules 2, 5-10 and 12-17 report through docs_rule: always a warning, never a failure (owner
+#   2026-11-13: they caught no defect and cost a PR round each; the dated warn-then-fail scheme is
+#   gone). What still fails: rule 0's and 1's file shapes (CLAUDE.md must be the AGENTS.md symlink
+#   or Claude Code loads nothing), a missing docs/decisions.md (3), a retired tool (4), rule 18's
+#   topology, and the repo extras' docs_fail. DOCS_CHECK_TODAY pins --fix's fallback date (tests).
 #   11. Optional scripts/ci/docs_rules.sh is sourced after the standard checks for repo extras. It
 #      may read $ROOT and call `docs_fail <msg>` (fails the run) or `docs_warn <msg>` (prints only).
 # Output: one `docs-check: <msg>` line per problem on stderr, then `docs-check: ok (<n> AGENTS.md
 # files)` on stdout or `docs-check: FAIL` on stderr. Exit 0 ok, 1 fail, 2 usage.
-# --report instead prints the numbers behind rules 2 and 13-16 as one `docs-report:` block on
-# stdout (sizes against caps, allowances, docs outside the set, H2s outside the list) ending in a
+# --report instead prints the numbers behind rules 2 and 14-16 as one `docs-report:` block on
+# stdout (sizes against caps, docs outside the set, H2s outside the list) ending in a
 # `docs-report: totals …` line, counts problems without printing them, and exits 0 (bar usage).
 # The monthly audit and the docs-trim lanes read it.
 # --fix does the mechanical half of the docs diet on a clean tree and exits 0 (2 when the tree is
@@ -129,16 +126,11 @@ cd "$ROOT" || exit 2
 
 ROOT_CAP=$((30 * 1024))
 AREA_CAP=$((16 * 1024))
-ALLOWLIST=scripts/ci/docs_oversize.txt
 EXTRAS=scripts/ci/docs_rules.sh
 PAYLOAD=scripts/ci/docs_payload.txt
 BANNED=${DOCS_CHECK_BANNED-graphify repomix serena nexus graphiti engram}
 
-# When each rule stops warning and starts failing; the one place these dates live.
-DELTAS_FAILS_FROM=2026-11-01
-DOCS_SET_FAILS_FROM=2026-11-15
-DIET_FAILS_FROM=2026-11-15
-CAPABILITIES_FAILS_FROM=2026-12-01
+# Today, for --fix's fallback date (DOCS_CHECK_TODAY pins it in tests).
 TODAY=${DOCS_CHECK_TODAY:-$(date +%F)}
 # README.md's required H2 sections: "Canonical|alias|alias…" (devkit/README.md, "Standard docs"
 # says what each holds). Aliases are names the fleet already used for the same content; add one
@@ -164,14 +156,12 @@ rc=0 nfail=0 nwarn=0
 quiet() { [ "$REPORT" = 1 ] || [ "$FIX" = 1 ]; }
 docs_fail() { rc=1; nfail=$((nfail + 1)); quiet || echo "docs-check: $*" >&2; }
 docs_warn() { nwarn=$((nwarn + 1)); quiet || echo "docs-check: warning: $*" >&2; }
-# report <kind> <detail>: one row of the --report block (rules 13-16 call it in every mode).
+# report <kind> <detail>: one row of the --report block (rules 2 and 14-16 call it in every mode).
 report_rows=()
 report() { report_rows+=("$(printf '%-16s %s' "$1" "$2")"); }
-# docs_rule <fails-from YYYY-MM-DD> <msg>: warn before the date, fail on and after it.
-docs_rule() {
-  local from=$1; shift
-  if [[ "$TODAY" < "$from" ]]; then docs_warn "$* (fails from $from)"; else docs_fail "$*"; fi
-}
+# docs_rule <msg>: a standards rule, a warning that never fails the run (owner 2026-11-13: a docs
+# shape that catches no defect is not worth a red PR). Only correctness rules call docs_fail.
+docs_rule() { docs_warn "$*"; }
 
 # Payload trees (rule 0): `<dir> <reason>` per line in $PAYLOAD, read before the index so every
 # rule below sees only the repo's own agent docs.
@@ -236,12 +226,6 @@ is_regular() { case "$1" in 100644|100755) return 0 ;; *) return 1 ;; esac; }
 cap_of() { if [ "$1" = AGENTS.md ]; then echo "$ROOT_CAP"; else echo "$AREA_CAP"; fi; }
 size_of() { if [ -f "$1" ]; then wc -c <"$1" | tr -d '[:space:]'; else echo 0; fi; }
 
-# allowance_of <path> -> max-bytes from the allowlist, or empty
-allowance_of() {
-  [ -f "$ALLOWLIST" ] || return 0
-  awk -v p="$1" '$1 == p { print $2; exit }' "$ALLOWLIST"
-}
-
 # ---- 1. pair shape ---------------------------------------------------------------------------
 # Every repo AGENTS.md the pair rule accepts. Read by rules 2, 4, 13, 15, --fix and closet's
 # scripts/ci/docs_rules.sh, so it stays a global.
@@ -282,38 +266,18 @@ rule_pair_shape() {
 }
 
 # ---- 2. size caps ----------------------------------------------------------------------------
+# A warning, with a --report row: the cap keeps the context every agent loads small, but a file a
+# few hundred bytes over catches no defect (owner 2026-11-13). scripts/ci/docs_oversize.txt, the
+# old shrink-only allowance, is no longer read.
 rule_size_caps() {
-  local f size cap allowed
+  local f size cap
   for f in ${agents_files[@]+"${agents_files[@]}"}; do
     [ -f "$f" ] || { docs_fail "$f: tracked but missing from the working tree"; continue; }
-    size=$(size_of "$f")
-    cap=$(cap_of "$f")
-    allowed=$(allowance_of "$f")
-    if [ -z "$allowed" ]; then
-      [ "$size" -le "$cap" ] || docs_fail "$f: $size bytes, over the $cap-byte cap; trim it (or list it in $ALLOWLIST)"
-    elif [ "$size" -le "$cap" ]; then
-      docs_fail "$f: $size bytes is within the $cap-byte cap; remove it from $ALLOWLIST"
-    elif [ "$size" -gt "$allowed" ]; then
-      docs_fail "$f: $size bytes, over its $allowed-byte allowance in $ALLOWLIST; trim it"
-    elif [ $((size * 10)) -lt $((allowed * 9)) ]; then
-      docs_fail "$f: $size bytes, under 90% of its $allowed-byte allowance; tighten $ALLOWLIST to $size"
-    fi
+    size=$(size_of "$f") cap=$(cap_of "$f")
+    if [ "$size" -le "$cap" ]; then report agents "$f $size/$cap"; continue; fi
+    report agents "$f $size/$cap OVER"
+    docs_rule "$f: $size bytes, over the $cap-byte cap; move reference material to docs/"
   done
-}
-
-# Every allowlist entry is <path> <max-bytes> for a tracked AGENTS.md.
-rule_allowlist_entries() {
-  local path bytes extra listed f
-  if [ -f "$ALLOWLIST" ]; then
-    while read -r path bytes extra || [ -n "${path:-}" ]; do
-      case "$path" in ''|'#'*) continue ;; esac
-      case "$bytes" in ''|*[!0-9]*) docs_fail "$ALLOWLIST: '$path' needs a byte count: <path> <max-bytes>"; continue ;; esac
-      [ -z "${extra:-}" ] || docs_fail "$ALLOWLIST: '$path' has trailing fields; expected <path> <max-bytes>"
-      listed=0
-      for f in ${agents_files[@]+"${agents_files[@]}"}; do [ "$f" = "$path" ] && listed=1; done
-      [ $listed = 1 ] || docs_fail "$ALLOWLIST: '$path' is not a tracked AGENTS.md; remove the stale entry"
-    done < "$ALLOWLIST"
-  fi
 }
 
 # ---- 3. decisions log ------------------------------------------------------------------------
@@ -337,7 +301,7 @@ rule_retired_tools() {
 # ---- 5. convention deltas heading -----------------------------------------------------------
 rule_deltas_heading() {
   if [ -f AGENTS.md ] && ! grep -qE '^## Convention deltas[[:space:]]*$' AGENTS.md; then
-    docs_rule "$DELTAS_FAILS_FROM" "AGENTS.md: no '## Convention deltas' heading; add it (list deviations from ~/.claude/conventions, or 'None.')"
+    docs_rule "AGENTS.md: no '## Convention deltas' heading; add it (list deviations from ~/.claude/conventions, or 'None.')"
   fi
 }
 
@@ -407,9 +371,9 @@ md_links() {
 
 # ---- 6. required files -----------------------------------------------------------------------
 rule_required_files() {
-  is_tracked README.md || docs_rule "$DOCS_SET_FAILS_FROM" "README.md is missing; start from devkit's templates/new/common/README.md (devkit/README.md, 'Standard docs')"
+  is_tracked README.md || docs_rule "README.md is missing; start from devkit's templates/new/common/README.md (devkit/README.md, 'Standard docs')"
   if ! is_tracked docs/architecture.md && ! { [ -f AGENTS.md ] && grep -qix architecture <<<"$(h2_of AGENTS.md)"; }; then
-    docs_rule "$DOCS_SET_FAILS_FROM" "no architecture doc: add docs/architecture.md (skeleton in devkit's templates/new/common/docs/) or an '## Architecture' section in AGENTS.md"
+    docs_rule "no architecture doc: add docs/architecture.md (skeleton in devkit's templates/new/common/docs/) or an '## Architecture' section in AGENTS.md"
   fi
 }
 
@@ -421,7 +385,7 @@ rule_readme_sections() {
     for spec in "${README_SECTIONS[@]}"; do
       grep -qxFf <(spec_names "$spec") <<<"$readme_h2" && continue
       aliases=${spec#*|}; [ "$aliases" = "$spec" ] && aliases=
-      docs_rule "$DOCS_SET_FAILS_FROM" "README.md: no '## ${spec%%|*}' section${aliases:+ (or one of: ${aliases//|/, })}"
+      docs_rule "README.md: no '## ${spec%%|*}' section${aliases:+ (or one of: ${aliases//|/, })}"
     done
   fi
 }
@@ -432,7 +396,7 @@ rule_decisions_entries() {
   local problem
   if [ -f docs/decisions.md ]; then
     while IFS= read -r problem; do
-      [ -n "$problem" ] && docs_rule "$DOCS_SET_FAILS_FROM" "docs/decisions.md:$problem"
+      [ -n "$problem" ] && docs_rule "docs/decisions.md:$problem"
     done < <(awk '
       function marker(name) { return "^(- )?(\\*\\*)?" name "(:\\*\\*|\\*\\*:|:)" }
       function close_entry() {
@@ -477,7 +441,7 @@ rule_make_targets() {
         for t in $targets; do
           case "$t" in *%*) case "$target" in ${t%%\%*}*${t#*%}) matched=1; break ;; esac ;; esac
         done
-        [ $matched = 1 ] || docs_rule "$DOCS_SET_FAILS_FROM" "$doc:$lineno: 'make $target' is not a Makefile target; fix the doc or the Makefile"
+        [ $matched = 1 ] || docs_rule "$doc:$lineno: 'make $target' is not a Makefile target; fix the doc or the Makefile"
       done < <(awk -v q="'" '
         # Print "<line> <target>" for each target word of one `make …` command line.
         function targets_of(cmd,   n, w, k) {
@@ -513,7 +477,7 @@ rule_links() {
   done < <(grep -E '^docs/.+\.md$' <<<"$TRACKED" || true)
   if [ ${#link_docs[@]} -gt 0 ]; then
     while IFS= read -r problem; do
-      [ -n "$problem" ] && docs_rule "$DOCS_SET_FAILS_FROM" "$problem"
+      [ -n "$problem" ] && docs_rule "$problem"
     done < <(md_links "${link_docs[@]}" | awk -F'\t' -v q="'" '
       FILENAME != "-" { tracked[$0] = 1; p = $0; while (sub(/\/[^\/]*$/, "", p)) dirs[p] = 1; next }
       !($4 in tracked || $4 in dirs) { printf "%s:%d: link to " q "%s" q " does not resolve to a tracked file\n", $1, $2, $3 }
@@ -527,22 +491,9 @@ rule_decisions_merge() {
   is_tracked .gitattributes && decisions_merge=$(decisions_merge_attr .gitattributes)
   case $decisions_merge in
     devkit-decisions) ;;
-    union) docs_rule "$DOCS_SET_FAILS_FROM" ".gitattributes: docs/decisions.md merge=union drops the blank line between two rebased entries; '$DECISIONS_MERGE_LINE' keeps it (fix: devkit/bin/hooks_check.sh --fix, then commit .gitattributes)" ;;
-    *) docs_rule "$DOCS_SET_FAILS_FROM" ".gitattributes: no '$DECISIONS_MERGE_LINE', so two PRs that each append a decisions entry conflict on rebase (fix: devkit/bin/hooks_check.sh --fix, then commit .gitattributes)" ;;
+    union) docs_rule ".gitattributes: docs/decisions.md merge=union drops the blank line between two rebased entries; '$DECISIONS_MERGE_LINE' keeps it (fix: devkit/bin/hooks_check.sh --fix, then commit .gitattributes)" ;;
+    *) docs_rule ".gitattributes: no '$DECISIONS_MERGE_LINE', so two PRs that each append a decisions entry conflict on rebase (fix: devkit/bin/hooks_check.sh --fix, then commit .gitattributes)" ;;
   esac
-}
-
-# ---- 13. allowance sunset --------------------------------------------------------------------
-rule_allowance_sunset() {
-  local f size cap allowed
-  for f in ${agents_files[@]+"${agents_files[@]}"}; do
-    [ -f "$f" ] || continue
-    size=$(size_of "$f") cap=$(cap_of "$f") allowed=$(allowance_of "$f")
-    if [ "$size" -le "$cap" ]; then report agents "$f $size/$cap"; continue; fi
-    report agents "$f $size/$cap OVER${allowed:+ (allowance $allowed)}"
-    # Without an allowance rule 2 already failed it.
-    [ -z "$allowed" ] || docs_rule "$DIET_FAILS_FROM" "$f: $size bytes on a $ALLOWLIST allowance; allowances end and the $cap-byte cap becomes absolute: move reference material to docs/, then delete the entry"
-  done
 }
 
 # ---- 14. AGENTS.md sections ------------------------------------------------------------------
@@ -553,16 +504,16 @@ rule_agents_sections() {
   allowed=$(spec_names "${AGENTS_SECTIONS[@]}")
   for name in "${AGENTS_REQUIRED[@]}"; do
     grep -qxF -- "$(lower "$name")" <<<"$h2" \
-      || docs_rule "$DIET_FAILS_FROM" "AGENTS.md: no '## $name' section (devkit/README.md, 'Standard docs')"
+      || docs_rule "AGENTS.md: no '## $name' section (devkit/README.md, 'Standard docs')"
   done
   while IFS= read -r h; do
     [ -n "$h" ] || continue
     grep -qxF -- "$(lower "$h")" <<<"$allowed" && continue
     report h2-outside "$h"
     if grep -qiwE 'conventions?|guidelines|patterns|best practices' <<<"$h"; then
-      docs_rule "$DIET_FAILS_FROM" "AGENTS.md: '## $h' restates the convention files; keep only deviations, one line each under '## Convention deltas'"
+      docs_rule "AGENTS.md: '## $h' restates the convention files; keep only deviations, one line each under '## Convention deltas'"
     else
-      docs_rule "$DIET_FAILS_FROM" "AGENTS.md: '## $h' is not a standard section; move reference material to docs/ (sections: devkit/README.md, 'Standard docs')"
+      docs_rule "AGENTS.md: '## $h' is not a standard section; move reference material to docs/ (sections: devkit/README.md, 'Standard docs')"
     fi
   done < <(h2_of AGENTS.md)
 }
@@ -591,24 +542,24 @@ rule_docs_set() {
       docs/runbook.md|docs/deployment.md)
         fix_old_names+=("$f")
         report docs-outside "$f $size (old name of docs/operations.md)"
-        docs_rule "$DIET_FAILS_FROM" "$f: the operations doc is docs/operations.md (deploy, backup and restore, troubleshooting); rename it" ;;
+        docs_rule "$f: the operations doc is docs/operations.md (deploy, backup and restore, troubleshooting); rename it" ;;
       docs/reports/*)
         [[ $f =~ $report_re ]] && continue
         fix_outside+=("$f")
         report docs-outside "$f $size (report name)"
-        docs_rule "$DIET_FAILS_FROM" "$f: a report is docs/reports/<YYYY-MM-DD>-<slug>.md; rename it" ;;
+        docs_rule "$f: a report is docs/reports/<YYYY-MM-DD>-<slug>.md; rename it" ;;
       *)
         grep -qxF -- "$f" <<<"$chosen" && continue
         fix_outside+=("$f")
         report docs-outside "$f $size"
-        docs_rule "$DIET_FAILS_FROM" "$f: not in the docs set; move a dated one-off to docs/reports/<YYYY-MM-DD>-<slug>.md, or link a living doc from README's Documentation section" ;;
+        docs_rule "$f: not in the docs set; move a dated one-off to docs/reports/<YYYY-MM-DD>-<slug>.md, or link a living doc from README's Documentation section" ;;
     esac
   done < <(grep -E '^docs/.+\.md$' <<<"$TRACKED" || true)
   report docs-total "$n Markdown files, $total bytes"
   [ ${#agents_files[@]} -gt 0 ] || return 0
   while IFS=$'\t' read -r f n _ _; do
     fix_agents_report_links+=("$f:$n")
-    docs_rule "$DIET_FAILS_FROM" "$f:$n: links into docs/reports/; reports stay out of agent context (link them from README or docs/ instead)"
+    docs_rule "$f:$n: links into docs/reports/; reports stay out of agent context (link them from README or docs/ instead)"
   done < <(md_links "${agents_files[@]}" | awk -F'\t' '$4 == "docs/reports" || index($4, "docs/reports/") == 1')
 }
 
@@ -618,14 +569,14 @@ rule_contributing() {
   for f in CONTRIBUTING.md .github/CONTRIBUTING.md docs/CONTRIBUTING.md; do
     is_tracked "$f" || continue
     report contributing "$f $(size_of "$f")"
-    docs_rule "$DIET_FAILS_FROM" "$f: AGENTS.md is the contributor guide; fold anything it lacks into AGENTS.md and delete $f"
+    docs_rule "$f: AGENTS.md is the contributor guide; fold anything it lacks into AGENTS.md and delete $f"
   done
   if ! is_tracked README.md || [ ! -f README.md ]; then return 0; fi
   read -r first last <<<"$(section_bounds README.md "$DOCS_SECTION")"
   [ -n "$first" ] || return 0 # rule 7 reports the missing section
   awk -v a="$first" -v b="$last" 'NR >= a && NR <= b' README.md | grep -qiE 'contributors and agents: see .*agents\.md' \
     || { fix_contrib_line_missing=1
-         docs_rule "$DIET_FAILS_FROM" "README.md: the Documentation section has no 'Contributors and agents: see [AGENTS.md](AGENTS.md).' line"; }
+         docs_rule "README.md: the Documentation section has no 'Contributors and agents: see [AGENTS.md](AGENTS.md).' line"; }
 }
 
 # ---- 17. capabilities line -------------------------------------------------------------------
@@ -639,15 +590,15 @@ capability_names() {
     item=${item#"${item%%[![:space:]]*}"} item=${item%"${item##*[![:space:]]}"}
     n=$((n + 1))
     if [ -z "$item" ]; then
-      docs_rule "$CAPABILITIES_FAILS_FROM" "$at: 'Capabilities:' has an empty name; write 'none' or names separated by ', '"
+      docs_rule "$at: 'Capabilities:' has an empty name; write 'none' or names separated by ', '"
     elif ! [[ $item =~ $CAPABILITY_RE ]]; then
-      docs_rule "$CAPABILITIES_FAILS_FROM" "$at: capability '$item' is not a name (lowercase letters, digits and '-', starting with a letter)"
+      docs_rule "$at: capability '$item' is not a name (lowercase letters, digits and '-', starting with a letter)"
     else
-      case "$seen" in *" $item "*) docs_rule "$CAPABILITIES_FAILS_FROM" "$at: capability '$item' is listed twice" ;; esac
+      case "$seen" in *" $item "*) docs_rule "$at: capability '$item' is listed twice" ;; esac
       seen="$seen$item "
     fi
   done
-  case "$seen" in *" none "*) [ "$n" -eq 1 ] || docs_rule "$CAPABILITIES_FAILS_FROM" "$at: 'none' cannot be listed with other capabilities" ;; esac
+  case "$seen" in *" none "*) [ "$n" -eq 1 ] || docs_rule "$at: 'none' cannot be listed with other capabilities" ;; esac
 }
 rule_capabilities() {
   if ! is_tracked AGENTS.md || [ ! -f AGENTS.md ]; then return 0; fi
@@ -660,18 +611,18 @@ rule_capabilities() {
     !fence && /^Capabilities:/ { print NR "\t" $0 }' AGENTS.md)
   n=$(grep -c . <<<"$hits")
   if [ "$n" -eq 0 ]; then
-    docs_rule "$CAPABILITIES_FAILS_FROM" "AGENTS.md:$first: '## Stack' has no 'Capabilities:' line; add one beside 'Conventions:' ('Capabilities: none', or names from ~/.claude/conventions/decisions/capabilities.md)"
+    docs_rule "AGENTS.md:$first: '## Stack' has no 'Capabilities:' line; add one beside 'Conventions:' ('Capabilities: none', or names from ~/.claude/conventions/decisions/capabilities.md)"
     return 0
   fi
   if [ "$n" -gt 1 ]; then
-    docs_rule "$CAPABILITIES_FAILS_FROM" "AGENTS.md:$(cut -f1 <<<"$hits" | paste -sd, -): $n 'Capabilities:' lines under '## Stack'; keep exactly one"
+    docs_rule "AGENTS.md:$(cut -f1 <<<"$hits" | paste -sd, -): $n 'Capabilities:' lines under '## Stack'; keep exactly one"
     return 0
   fi
   at=${hits%%$'\t'*}
   value=${hits#*$'\t'Capabilities:}
   value=${value#"${value%%[![:space:]]*}"} value=${value%"${value##*[![:space:]]}"}
   if [ -z "$value" ]; then
-    docs_rule "$CAPABILITIES_FAILS_FROM" "AGENTS.md:$at: 'Capabilities:' is empty; write 'Capabilities: none' or the repo's capabilities"
+    docs_rule "AGENTS.md:$at: 'Capabilities:' is empty; write 'Capabilities: none' or the repo's capabilities"
   else
     capability_names "$at" "$value"
   fi
@@ -699,7 +650,6 @@ rule_public_topology() {
 # Rules run in the header's order (11, the repo extras, last): their messages print in it.
 rule_pair_shape
 rule_size_caps
-rule_allowlist_entries
 rule_decisions_log
 rule_retired_tools
 rule_deltas_heading
@@ -709,7 +659,6 @@ rule_decisions_entries
 rule_make_targets
 rule_links
 rule_decisions_merge
-rule_allowance_sunset
 rule_agents_sections
 rule_docs_set
 rule_contributing
@@ -902,7 +851,7 @@ fix_docs() {
 [ "$FIX" = 1 ] && fix_docs
 
 if [ "$REPORT" = 1 ]; then
-  echo "docs-report: $(basename "$ROOT"): caps root $ROOT_CAP, area $AREA_CAP bytes; allowances end and rules 13-16 fail from $DIET_FAILS_FROM"
+  echo "docs-report: $(basename "$ROOT"): caps root $ROOT_CAP, area $AREA_CAP bytes (warnings, never failures)"
   for row in ${report_rows[@]+"${report_rows[@]}"}; do echo "docs-report:   $row"; done
   count() { printf '%s\n' ${report_rows[@]+"${report_rows[@]}"} | grep -c "$1"; }
   echo "docs-report: totals agents=${#agents_files[@]} over-cap=$(count ' OVER') docs-outside=$(count '^docs-outside ') h2-outside=$(count '^h2-outside ') contributing=$(count '^contributing ') failures=$nfail warnings=$nwarn"

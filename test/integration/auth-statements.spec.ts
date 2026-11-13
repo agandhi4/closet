@@ -3,10 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { personalAccessToken, user } from '../../src/db/schema';
-import {
-  createToken,
-  MAX_ACTIVE_TOKENS,
-} from '../../src/web/auth/personal-tokens';
+import { MAX_ACTIVE_TOKENS } from '../../src/web/auth/personal-tokens';
 import type { Queryable } from '../../src/db/client';
 import { HttpError } from '../../src/web/errors';
 import {
@@ -25,6 +22,7 @@ import {
   uniqueClient,
   userIdOf,
 } from './harness';
+import { mintToken } from './mcp';
 
 /**
  * What each auth, account and push request costs in statements (#171):
@@ -317,11 +315,12 @@ describe('auth, account and push statements (#171)', () => {
     });
   });
 
-  it('change password is the lookup and one statement that revokes the rest', async () => {
+  it('change password is the lookup and a transaction: the new hash, then one statement that revokes the rest', async () => {
     const email = 'rotator@example.com';
     const cookie = await t.register(email);
     const id = await userIdOf(t, email);
-    await createToken(t.db, id, 'Laptop');
+    await mintToken(t, id, 'Laptop');
+    await mintToken(t, id, 'Phone', 'device');
     const before = await passwordOf(id);
     const record = await recordQueries(async () => {
       const res = await t.inject({
@@ -336,19 +335,23 @@ describe('auth, account and push statements (#171)', () => {
       });
       expect(res.statusCode).toBe(302);
     });
-    expect(record.statements).toBe(2);
-    expect(record.sql[1]).toMatch(/^with "account" as \(update "user"/);
-    // The one statement did all three: the hash, the token, the log's counts.
+    // The lookup; begin, the hash (taking the row lock), the revocations
+    // read after the lock was granted, commit (#189: one statement's
+    // snapshot predates its lock wait, and missed a token minted meanwhile).
+    expect(record.statements).toBe(1 + 4);
+    expect(record.sql[2]).toMatch(/^update "user"/);
+    expect(record.sql[3]).toMatch(/^with "revoked_tokens" as \(update/);
     expect(passwordFingerprint(await passwordOf(id))).not.toBe(
       passwordFingerprint(before),
     );
-    const [token] = await t.db
+    const tokens = await t.db
       .select({ revokedAt: personalAccessToken.revokedAt })
       .from(personalAccessToken)
       .where(eq(personalAccessToken.userId, id));
-    expect(token.revokedAt).not.toBeNull();
+    expect(tokens).toHaveLength(2);
+    for (const token of tokens) expect(token.revokedAt).not.toBeNull();
     expect(t.logs.messages('info', 'Web')).toContain(
-      `Password changed for user ${id}: other sessions, 1 access tokens and 0 other push devices revoked`,
+      `Password changed for user ${id}: other sessions, 1 MCP tokens, 1 device tokens and 0 other push devices revoked`,
     );
   });
 
@@ -391,7 +394,7 @@ describe('auth, account and push statements (#171)', () => {
     it('creating reads the list under the lock and shows it without a read after commit', async () => {
       const email = 'minter@example.com';
       const cookie = await t.register(email);
-      await createToken(t.db, await userIdOf(t, email), 'Older');
+      await mintToken(t, await userIdOf(t, email), 'Older');
       let body = '';
       const record = await recordQueries(async () => {
         const res = await create(cookie, 'Newer');
@@ -413,7 +416,7 @@ describe('auth, account and push statements (#171)', () => {
       const cookie = await t.register(email);
       const id = await userIdOf(t, email);
       for (let n = 0; n < MAX_ACTIVE_TOKENS; n += 1) {
-        await createToken(t.db, id, `Kept ${n}`);
+        await mintToken(t, id, `Kept ${n}`);
       }
       let body = '';
       const record = await recordQueries(async () => {
@@ -431,12 +434,33 @@ describe('auth, account and push statements (#171)', () => {
     it('revoking is the lookup and the update', async () => {
       const email = 'revoker@example.com';
       const cookie = await t.register(email);
-      const created = await createToken(t.db, await userIdOf(t, email), 'Old');
+      const created = await mintToken(t, await userIdOf(t, email), 'Old');
       if (!created.created) throw new Error('no token');
       const record = await recordQueries(async () => {
         const res = await t.inject({
           method: 'POST',
           url: `/auth/tokens/${created.id}/revoke`,
+          headers: { cookie },
+        });
+        expect(res.statusCode).toBe(303);
+      });
+      expect(record.statements).toBe(2);
+    });
+
+    it('signing a device out is the lookup and the update (#189)', async () => {
+      const email = 'device-revoker@example.com';
+      const cookie = await t.register(email);
+      const created = await mintToken(
+        t,
+        await userIdOf(t, email),
+        'Phone',
+        'device',
+      );
+      if (!created.created) throw new Error('no token');
+      const record = await recordQueries(async () => {
+        const res = await t.inject({
+          method: 'POST',
+          url: `/auth/devices/${created.id}/revoke`,
           headers: { cookie },
         });
         expect(res.statusCode).toBe(303);

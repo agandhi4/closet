@@ -4,6 +4,7 @@ import {
   garment,
   garmentWear,
   outfitCalendar,
+  personalAccessToken,
   weekPlanEntry,
 } from '../../src/db/schema';
 import { addDays, dateParts, type IsoDate } from '../../src/calendar-date';
@@ -14,8 +15,9 @@ import {
   OWNER_EMAIL,
   type TestApp,
   unescapeHtml,
+  userIdOf,
 } from './harness';
-import { createAccessToken, callTool, tool } from './mcp';
+import { createAccessToken, callTool, mintToken, tool } from './mcp';
 import { mirrorPhoto, postSelfie } from './selfies';
 
 /**
@@ -510,6 +512,22 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
         (await post(`/trips/${laterId}/outfits/${laterOutfit}/wear`))
           .statusCode,
       ).toBe(409);
+    });
+
+    it("Profile's Devices (#189) writes a device's last use as the household's day", async () => {
+      const minted = await mintToken(
+        t,
+        await userIdOf(t, OWNER_EMAIL),
+        `Phone ${at}`,
+        'device',
+      );
+      if (!minted.created) throw new Error('no device token');
+      await t.db
+        .update(personalAccessToken)
+        .set({ lastUsedAt: new Date(at) })
+        .where(eq(personalAccessToken.id, minted.id));
+      const page = unescapeHtml((await get('/auth/profile')).body);
+      expect(page).toContain(`last used ${today}`);
     });
   });
 });

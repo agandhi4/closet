@@ -12,10 +12,6 @@
 #       malformed line calls the caller's die() naming <conf>:<line>. An area is `repo`,
 #       `job:<name>` or a comma-separated list of fleet areas (`backend,native`: one jscpd run
 #       over the Python and the Swift sources), kept as written.
-#   metrics_conf_areas <conf>
-#       The fleet areas the conf's area collectors name, each once, space-separated (neither
-#       `repo` nor `job:`, which run whenever the metrics job does); nothing when <conf> does
-#       not exist. A malformed conf calls die() as metrics_conf_parse does.
 #   tier_inputs <command>
 #       The files a collector command reads that a build or test tier writes, one per line,
 #       relative to the repo root (collectors run there). tier_input_rows: "<kind> <file>".
@@ -85,21 +81,6 @@ metrics_conf_parse() {
 
 area_error() { # <conf>:<line> <area>
   die "$1: area '$2' must be repo, job:<gate job name>, or comma-separated areas of: $METRICS_AREAS"
-}
-
-metrics_conf_areas() {
-  [ -f "$1" ] || return 0
-  # Local: metrics_conf_parse sets these by dynamic scope, so the caller's own parse is untouched.
-  local area one seen=' ' NAMES COLLECTOR_AREAS COMMANDS
-  metrics_conf_parse "$1"
-  for area in ${COLLECTOR_AREAS[@]+"${COLLECTOR_AREAS[@]}"}; do
-    case "$area" in repo | job:*) continue ;; esac
-    for one in ${area//,/ }; do
-      case "$seen" in *" $one "*) ;; *) seen+="$one " ;; esac
-    done
-  done
-  seen=${seen# }
-  echo "${seen% }"
 }
 
 # flag_values <flag> <word>...: each value the words give <flag> (`--f v` or `--f=v`).

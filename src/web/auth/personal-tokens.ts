@@ -1,20 +1,25 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
-import { TOKEN_PREFIX } from '../../credential-names';
+import { TOKEN_PREFIX, type TokenKind } from '../../credential-names';
 import type { Db, Queryable } from '../../db/client';
+import type { Logger } from '../../logger';
 import { markSecretChecked } from '../../metrics/request-timing';
 import { personalAccessToken, user } from '../../db/schema';
 import type { SessionUser } from './session';
 
 /**
- * Personal access tokens (#33): the MCP endpoint's credential
- * (src/web/mcp). A token is `closet_` plus 32 random bytes in base64url,
- * shown once when created; the database keeps its SHA-256 (hex) and a short
- * prefix to tell tokens apart on the profile. A fast hash is right here: the
- * token is 256 random bits, so there is nothing to guess, and a slow one
- * would cost every call. A token acts exactly as its user; a new password
- * revokes every token (revokeAllTokensStatement, in updatePasswordHash's
- * statement), as it ends every session.
+ * Personal access tokens (#33): the bearer credentials, of two kinds (#189):
+ * `mcp`, the MCP endpoint's (src/web/mcp), minted on Agent Access, and
+ * `device`, a native client's, minted by its sign-in and listed on the
+ * profile's Devices. A surface accepts only its own kind (authenticateToken),
+ * so a leaked agent token cannot drive the API and a device token cannot
+ * call /mcp. A token is `closet_` plus 32 random bytes in base64url, shown
+ * once when created; the database keeps its SHA-256 (hex) and a short
+ * prefix to tell tokens apart on Agent Access. A fast hash is right here:
+ * the token is 256 random bits, so there is nothing to guess, and a slow
+ * one would cost every call. A token acts exactly as its user; a new
+ * password revokes every token of both kinds (revokeAllTokensStatement, in
+ * updatePasswordHash), as it ends every session.
  */
 
 /** Characters of the token the profile shows: the fixed prefix and four more. */
@@ -22,7 +27,10 @@ const DISPLAY_LENGTH = TOKEN_PREFIX.length + 4;
 /** How stale last_used_at may get before a call writes it again. */
 const LAST_USED_RESOLUTION_MS = 60_000;
 export const TOKEN_NAME_MAX = 100;
-/** A household's tokens are a handful; this bounds a runaway script. */
+/**
+ * A household's tokens are a handful; this bounds a runaway script. Counted
+ * per kind: agent tokens and devices never crowd each other out.
+ */
 export const MAX_ACTIVE_TOKENS = 20;
 
 export function hashToken(token: string): string {
@@ -31,6 +39,7 @@ export function hashToken(token: string): string {
 
 export interface TokenListing {
   id: number;
+  kind: TokenKind;
   name: string;
   /** `closet_AbCd`: shown with an ellipsis. */
   prefix: string;
@@ -40,6 +49,7 @@ export interface TokenListing {
 
 const listingColumns = {
   id: personalAccessToken.id,
+  kind: personalAccessToken.kind,
   name: personalAccessToken.name,
   prefix: personalAccessToken.tokenPrefix,
   createdAt: personalAccessToken.createdAt,
@@ -52,59 +62,134 @@ const inForce = (userId: number) =>
     isNull(personalAccessToken.revokedAt),
   );
 
-/** The user's tokens still in force, newest first. */
+/**
+ * The user's tokens still in force, newest first: of one kind, or every
+ * kind for the profile, which shows both and splits them (one statement).
+ */
 export function listTokens(
   db: Queryable,
   userId: number,
+  kind?: TokenKind,
 ): Promise<TokenListing[]> {
   return db
     .select(listingColumns)
     .from(personalAccessToken)
-    .where(inForce(userId))
+    .where(
+      and(
+        inForce(userId),
+        kind === undefined ? undefined : eq(personalAccessToken.kind, kind),
+      ),
+    )
     .orderBy(desc(personalAccessToken.id));
 }
 
 /**
- * What creating answers: the token in the clear (the only time it exists
- * outside the caller's hands) and the list the page shows, the new token
- * first; or, at the cap, the list as it stands.
+ * The device token a sign-in past the cap revokes: the least recently used,
+ * where a token never used counts from its creation, and equal times go to
+ * the oldest row (the lowest id). `last_used_at` is written at most once a
+ * minute (LAST_USED_RESOLUTION_MS), so recency is only that fine; within a
+ * minute the order is the ids'. A token minted moments ago is newer than
+ * every token idle before it, so of two sign-ins racing at the cap neither
+ * evicts the other's.
  */
-export type CreateTokenResult =
-  | { created: true; id: number; token: string; tokens: TokenListing[] }
-  | { created: false; reason: 'too-many'; tokens: TokenListing[] };
+function leastRecentlyUsed(tokens: readonly TokenListing[]): TokenListing {
+  const recency = (token: TokenListing) =>
+    (token.lastUsedAt ?? token.createdAt).getTime();
+  return tokens.reduce((least, token) =>
+    recency(token) < recency(least) ||
+    (recency(token) === recency(least) && token.id < least.id)
+      ? token
+      : least,
+  );
+}
 
 /**
- * Makes a token for `userId`. `name` is already trimmed and bounded.
+ * What creating answers: the token in the clear (the only time it exists
+ * outside the caller's hands), the list of its kind the page shows, the new
+ * token first, and the device it evicted to stay under the cap, if any. A
+ * refusal: `too-many` (an agent token at the cap, with the list as it
+ * stands) or `password-changed` (the password the caller checked is no
+ * longer the account's, or the account is gone).
+ */
+export type CreateTokenResult =
+  | {
+      created: true;
+      id: number;
+      token: string;
+      tokens: TokenListing[];
+      evictedId?: number;
+    }
+  | { created: false; reason: 'too-many'; tokens: TokenListing[] }
+  | { created: false; reason: 'password-changed' };
+
+export interface NewToken {
+  userId: number;
+  kind: TokenKind;
+  /** Already trimmed and bounded (TOKEN_NAME_MAX). */
+  name: string;
+  /**
+   * The full password hash the caller verified the user's password against,
+   * from the row read that did it (sessionAccount on a page). Rechecked under
+   * the lock: a password changed after the check refuses the mint.
+   */
+  verifiedPassword: string;
+}
+
+/**
+ * Makes a token. The user's row is locked first, with its password read in
+ * the same statement: two creations take turns under the cap, and a new
+ * password, whose writer takes the same lock (updatePasswordHash), either
+ * commits before (this mint sees the new hash and refuses) or waits until
+ * this commits (and then revokes what it minted). Comparing the whole hash,
+ * not the session's 8-character fingerprint: a hash is this server's own
+ * read, so a plain comparison leaks nothing.
  *
- * The list is read under the user's lock, where the cap is checked, and
- * handed back with the new row: the page needs it either way, so the cap
- * costs no count of its own and the answer no read after commit (#171).
- * The lock and the list stay two statements: the list must be read after
- * the lock is granted, and a statement's snapshot is taken before its
- * locks are, so a creation waiting on another would count the tokens as
- * they were before that one committed.
+ * The list is read under the lock, where the cap is checked, and handed
+ * back with the new row: the page needs it either way, so the cap costs no
+ * count of its own and the answer no read after commit (#171). The lock and
+ * the list stay two statements: the list must be read after the lock is
+ * granted, and a statement's snapshot is taken before its locks are, so a
+ * creation waiting on another would count the tokens as they were before
+ * that one committed. Only tokens in force count, per kind; at the cap an
+ * agent token is refused (the page asks to revoke one) and a device token
+ * evicts that kind's least recently used (a native sign-in has no page to
+ * ask on), in the same transaction.
  */
 export function createToken(
-  db: Db,
-  userId: number,
-  name: string,
+  { db, logger }: { db: Db; logger: Logger },
+  { userId, kind, name, verifiedPassword }: NewToken,
 ): Promise<CreateTokenResult> {
   return db.transaction(async (tx) => {
-    // The user's row, locked: two creations take turns under the cap.
-    await tx
-      .select({ id: user.id })
+    const [account] = await tx
+      .select({ password: user.password })
       .from(user)
       .where(eq(user.id, userId))
       .for('update');
-    const tokens = await listTokens(tx, userId);
+    if (account?.password !== verifiedPassword) {
+      return { created: false, reason: 'password-changed' } as const;
+    }
+    let tokens = await listTokens(tx, userId, kind);
+    let evictedId: number | undefined;
     if (tokens.length >= MAX_ACTIVE_TOKENS) {
-      return { created: false, reason: 'too-many', tokens } as const;
+      if (kind === 'mcp') {
+        return { created: false, reason: 'too-many', tokens } as const;
+      }
+      evictedId = leastRecentlyUsed(tokens).id;
+      await tx
+        .update(personalAccessToken)
+        .set({ revokedAt: new Date() })
+        .where(eq(personalAccessToken.id, evictedId));
+      tokens = tokens.filter((token) => token.id !== evictedId);
+      logger.info(
+        `User ${userId} at ${MAX_ACTIVE_TOKENS} device tokens: evicted ${evictedId}, the least recently used`,
+      );
     }
     const token = `${TOKEN_PREFIX}${randomBytes(32).toString('base64url')}`;
     const [row] = await tx
       .insert(personalAccessToken)
       .values({
         userId,
+        kind,
         name,
         tokenHash: hashToken(token),
         tokenPrefix: token.slice(0, DISPLAY_LENGTH),
@@ -115,37 +200,60 @@ export function createToken(
       id: row.id,
       token,
       tokens: [row, ...tokens],
+      evictedId,
     } as const;
   });
 }
 
 /**
- * Revokes the user's token; false when it is not theirs, not a token, or
- * revoked already (the route answers each alike).
+ * Revokes the user's token of `kind`; false when it is not theirs, not of
+ * that kind, unknown, or revoked already. The routes answer every false
+ * alike, a flash on their own page, so an id tells nothing about whose it
+ * is, and a stale tab's second tap is no error page.
  */
 export async function revokeToken(
   db: Db,
   userId: number,
+  kind: TokenKind,
   id: number,
 ): Promise<boolean> {
   const revoked = await db
     .update(personalAccessToken)
     .set({ revokedAt: new Date() })
-    .where(and(eq(personalAccessToken.id, id), inForce(userId)))
+    .where(
+      and(
+        eq(personalAccessToken.id, id),
+        eq(personalAccessToken.kind, kind),
+        inForce(userId),
+      ),
+    )
     .returning({ id: personalAccessToken.id });
   return revoked.length > 0;
 }
 
 /**
- * Revokes every token of the user, returning a row per token revoked: a new
- * password, as a CTE of updatePasswordHash's one statement.
+ * Revokes every token of the user, of both kinds, but `keepTokenId` (the
+ * token making the change, once a token-authenticated route can change a
+ * password; another user's id keeps nothing), returning each revoked
+ * token's kind: a new password, in updatePasswordHash.
  */
-export function revokeAllTokensStatement(db: Queryable, userId: number) {
+export function revokeAllTokensStatement(
+  db: Queryable,
+  userId: number,
+  keepTokenId?: number,
+) {
   return db
     .update(personalAccessToken)
     .set({ revokedAt: new Date() })
-    .where(inForce(userId))
-    .returning({ id: personalAccessToken.id });
+    .where(
+      and(
+        inForce(userId),
+        keepTokenId === undefined
+          ? undefined
+          : ne(personalAccessToken.id, keepTokenId),
+      ),
+    )
+    .returning({ kind: personalAccessToken.kind });
 }
 
 export interface TokenAuth {
@@ -155,13 +263,15 @@ export interface TokenAuth {
 }
 
 /**
- * The user a presented token acts as, or undefined for an unknown or revoked
- * one (the caller answers both with the same 401). One indexed read; a
- * second statement records the use when the last one is a minute old.
+ * The user a presented token of `kind` acts as, or undefined for an
+ * unknown, revoked or other-kind one (the caller answers each with the same
+ * 401, and an other-kind token's use is never recorded). One indexed read;
+ * a second statement records the use when the last one is a minute old.
  */
 export async function authenticateToken(
   db: Db,
   token: string,
+  kind: TokenKind,
   now = new Date(),
 ): Promise<TokenAuth | undefined> {
   markSecretChecked();
@@ -178,6 +288,7 @@ export async function authenticateToken(
     .where(
       and(
         eq(personalAccessToken.tokenHash, hashToken(token)),
+        eq(personalAccessToken.kind, kind),
         isNull(personalAccessToken.revokedAt),
       ),
     );
