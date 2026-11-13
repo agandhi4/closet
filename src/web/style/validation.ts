@@ -68,18 +68,37 @@ export const EMPTY_STYLE_PROFILE: StyleProfileFields = {
 };
 
 /**
+ * A style profile's chosen values as stored, the one rule for the page's
+ * post (readStyleProfileForm) and PUT /api/v1/style-profile: each set in
+ * its own order, repeats gone, an empty one null; blank notes are none.
+ */
+export function storedStyleProfile(values: {
+  styles: readonly Style[];
+  palette: readonly GarmentColor[];
+  budget: BudgetBand | null;
+  notes: string | null;
+}): StyleProfileFields {
+  return {
+    styles: storedSet(STYLES, values.styles),
+    budget: values.budget,
+    palette: storedSet(GARMENT_COLORS, values.palette),
+    notes: values.notes?.trim() || null,
+  };
+}
+
+/**
  * A posted style profile as stored: every value the schema let through is
- * one of its set's, so nothing is refused here; repeats and order go.
+ * one of its set's, so nothing is refused here.
  */
 export function readStyleProfileForm(
   body: StyleProfileBody,
 ): StyleProfileFields {
-  return {
-    styles: storedSet(STYLES, body.styles ?? []),
+  return storedStyleProfile({
+    styles: body.styles ?? [],
+    palette: body.palette ?? [],
     budget: pick(BUDGET_BANDS, body.budget ?? ''),
-    palette: storedSet(GARMENT_COLORS, body.palette ?? []),
-    notes: body.notes?.trim() || null,
-  };
+    notes: body.notes ?? null,
+  });
 }
 
 /** A stored profile as the form posts it (the form's initial values). */
@@ -109,7 +128,8 @@ export const ruleSideValue = {
   pattern: (pattern: Pattern) => `pattern:${pattern}`,
 };
 
-const NO_MATCHER: StoredMatcher = {
+/** A side with no matcher set: one of its columns is spread over it. */
+export const NO_MATCHER: StoredMatcher = {
   garmentId: null,
   category: null,
   type: null,
