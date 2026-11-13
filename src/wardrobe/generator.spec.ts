@@ -455,6 +455,50 @@ describe('generateIdeas', () => {
       expect(locked.ideas.some((idea) => holds(idea, black))).toBe(true);
     });
 
+    it('an always-rule whose only B clashes with the rest of the outfit is moot (PR #501)', () => {
+      const striped = garment('top', { pattern: 'stripes', colors: ['white'] });
+      const bottom = garment('bottom');
+      const stripedShoes = garment('footwear', { pattern: 'stripes' });
+      const plainShoes = garment('footwear');
+      const always: OutfitRule = {
+        kind: 'always',
+        a: { by: 'garment', garmentId: striped.id },
+        b: { by: 'garment', garmentId: stripedShoes.id },
+      };
+      // Two loud patterns clash, so the striped shoes can never join the
+      // striped top: the rule leaves the plain-shoed outfit standing.
+      const { ideas } = page({
+        pool: [striped, bottom, stripedShoes, plainShoes],
+        rules: [always],
+      });
+      expect(ideas.map((idea) => keyOf(idea.garments))).toEqual([
+        keyOf([striped, bottom, plainShoes]),
+      ]);
+    });
+
+    it('an always-rule is still kept when one of its Bs fits the outfit', () => {
+      const striped = garment('top', { pattern: 'stripes', colors: ['white'] });
+      const bottom = garment('bottom');
+      const stripedBrown = garment('footwear', {
+        pattern: 'stripes',
+        colors: ['brown'],
+      });
+      const plainBrown = garment('footwear', { colors: ['brown'] });
+      const plainBlack = garment('footwear');
+      const always: OutfitRule = {
+        kind: 'always',
+        a: { by: 'garment', garmentId: striped.id },
+        b: { by: 'color', color: 'brown' },
+      };
+      const { ideas } = page({
+        pool: [striped, bottom, stripedBrown, plainBrown, plainBlack],
+        rules: [always],
+      });
+      expect(ideas.map((idea) => keyOf(idea.garments))).toEqual([
+        keyOf([striped, bottom, plainBrown]),
+      ]);
+    });
+
     it('locks that break a never-rule are still shown, each idea flagged with the rule', () => {
       const pool = closet();
       const [white, , , , blueBottom] = pool;

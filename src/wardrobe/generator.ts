@@ -262,16 +262,17 @@ export function generateIdeas<G extends IdeaGarment>(
 
   // A layer only when the weather asks (and none is locked).
   const layersOffered = Boolean(request.needs) && !lockedRoles.has('layer');
-  const always = alwaysCheck(rules.always, {
+  const always = alwaysCheck<G>(rules.always, {
     drawable: viable,
     lockedIds,
     layersOffered,
+    compatible,
   });
   return drawPage(request, {
     outfits: outfitsOf(
       drawer(request.seed, templates, byRole, locked),
       new Set([...lockedIds, ...[...viable.values()].flat().map((g) => g.id)]),
-      repairer(request.seed, always, compatible, lockedIds),
+      repairer(request.seed, always),
     ),
     bases,
     floor: scoreFloor(
@@ -379,25 +380,22 @@ function outfitsOf<G extends IdeaGarment>(
  * The always-rules' one repair step (the plan's section 2): a base holding
  * a garment that asks for another and none answering gets one in the slot
  * of the answer's role, before it is judged; each broken rule in turn,
- * once. Of the answers that break no colour, pattern or never-rule, one
- * by rotation weight from a sequence keyed by the seed, the base and the
- * rule, so a base is mended the same way however often it is drawn. A
- * rule only a layer answers is left to bestIdea's layers; one nothing
- * answers is left for `passes` to refuse.
+ * once. Of the swaps alwaysCheck offers (each breaking no colour, pattern
+ * or never-rule), one by rotation weight from a sequence keyed by the
+ * seed, the base and the rule, so a base is mended the same way however
+ * often it is drawn. A rule only a layer answers is left to bestIdea's
+ * layers; one no compatible swap answers is moot (alwaysCheck).
  */
 function repairer<G extends IdeaGarment>(
   seed: number,
   always: AlwaysCheck<G>,
-  compatible: HardRule,
-  lockedIds: ReadonlySet<number>,
 ): (base: G[]) => G[] {
   return (base) => {
     let outfit = base;
     let unmet = always.unmet(outfit, 0);
     while (unmet) {
-      const kept = swapsFor(outfit, unmet.menders, lockedIds).filter((swap) =>
-        compatible(swap.outfit),
-      );
+      // A base has no layer slot: bestIdea adds layers.
+      const kept = unmet.swaps.filter((swap) => swap.mender.role !== 'layer');
       if (kept.length > 0) {
         const random = seededRandom(
           'generator-repair',
@@ -413,24 +411,6 @@ function repairer<G extends IdeaGarment>(
     }
     return outfit;
   };
-}
-
-/** `outfit` with each mender in its role's drawn slot; a layer has none in a base. */
-function swapsFor<G extends IdeaGarment>(
-  outfit: readonly G[],
-  menders: ReadonlyMap<GarmentRole, readonly G[]>,
-  lockedIds: ReadonlySet<number>,
-): { mender: G; outfit: G[] }[] {
-  return [...menders]
-    .filter(([role]) => role !== 'layer')
-    .flatMap(([role, garments]) =>
-      garments.map((mender) => ({
-        mender,
-        outfit: outfit.map((g) =>
-          g.role === role && !lockedIds.has(g.id) ? mender : g,
-        ),
-      })),
-    );
 }
 
 /** byRole without what `fits` refuses: the garments an idea with the locks can hold. */

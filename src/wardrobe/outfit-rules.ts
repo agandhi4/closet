@@ -200,48 +200,73 @@ interface AlwaysContext<G extends RuleGarment> {
   lockedIds: ReadonlySet<number>;
   /** The draws add a layer (the weather asks for one and none is locked). */
   layersOffered: boolean;
+  /**
+   * The colour, pattern and never-rules (the generator's `compatible`): a
+   * swap that breaks one cannot keep the rule, so it does not count.
+   */
+  compatible: (garments: readonly G[]) => boolean;
 }
 
-/** An always-rule an outfit breaks: the garment that asks, and what could answer it. */
+/** A garment matching an always-rule's `b`, and the outfit with it in its role's slot. */
+interface Swap<G> {
+  mender: G;
+  outfit: G[];
+}
+
+/** An always-rule an outfit breaks: the garment that asks, and the swaps that would keep it. */
 interface UnmetRule<G> {
   /** The rule's index in CompiledRules.always: the repair's seed. */
   index: number;
   asker: G;
-  /** Garments matching `b`, by the role whose slot they would take; never the asker. */
-  menders: ReadonlyMap<GarmentRole, readonly G[]>;
+  /** Never empty, never the asker, each compatible; in `drawable`'s role and garment order. */
+  swaps: readonly Swap<G>[];
 }
 
 export interface AlwaysCheck<G extends RuleGarment> {
-  /** No always-rule broken that a drawable garment could keep. */
+  /** No always-rule broken that a compatible swap could keep. */
   holds(garments: readonly G[]): boolean;
-  /** The first always-rule from `from` on that `garments` break and a garment of an open slot could mend. */
+  /** The first always-rule from `from` on that `garments` break and a compatible swap could keep. */
   unmet(garments: readonly G[], from: number): UnmetRule<G> | undefined;
 }
 
 /**
- * The always-rules against one request's draws. A rule's `b` is drawable
- * into an outfit when a drawable garment matches it (not the asker) and
- * its role's slot is open: a drawn, unlocked garment of that role is in
- * the outfit to be swapped, or it is a layer and the draws add layers.
- * With none, the rule is moot for that outfit.
+ * The always-rules against one request's draws. A rule's `b` can be drawn
+ * into an outfit when a drawable garment matching it (not the asker) takes
+ * its role's slot and the outfit still passes `compatible`: the slot is a
+ * drawn, unlocked garment of that role to swap, or a layer (added, or
+ * replacing the drawn one) while the draws add layers. With no such swap
+ * the rule is moot for that outfit, so an always-rule never empties the
+ * ideas: a B that clashes with the rest of the outfit leaves it standing
+ * (PR #501's review: a striped top asking for the only, striped, shoes).
+ * The repair (generator.ts' repairer) picks from these same swaps, so what
+ * the check calls mendable is exactly what the repair can mend.
  */
 export function alwaysCheck<G extends RuleGarment>(
   rules: readonly CompiledRule[],
   context: AlwaysContext<G>,
 ): AlwaysCheck<G> {
-  const menders = rules.map(
-    (rule) =>
-      new Map(
-        [...context.drawable].map(([role, garments]) => [
-          role,
-          garments.filter(rule.b),
-        ]),
-      ),
+  const menders = rules.map((rule) =>
+    [...context.drawable].map(
+      ([role, garments]) => [role, garments.filter(rule.b)] as const,
+    ),
   );
-  const openSlot = (garments: readonly G[], role: GarmentRole) =>
-    role === 'layer'
-      ? context.layersOffered
-      : garments.some((g) => g.role === role && !context.lockedIds.has(g.id));
+  const swapInto = (
+    garments: readonly G[],
+    role: GarmentRole,
+    mender: G,
+  ): G[] | undefined => {
+    const open = garments.some(
+      (g) => g.role === role && !context.lockedIds.has(g.id),
+    );
+    if (open) {
+      return garments.map((g) =>
+        g.role === role && !context.lockedIds.has(g.id) ? mender : g,
+      );
+    }
+    return role === 'layer' && context.layersOffered
+      ? [...garments, mender]
+      : undefined;
+  };
   const unmetAt = (
     garments: readonly G[],
     index: number,
@@ -254,15 +279,16 @@ export function alwaysCheck<G extends RuleGarment>(
       ) {
         continue;
       }
-      const open = new Map(
-        [...menders[index]].flatMap(([role, found]) => {
-          const others = found.filter((g) => g.id !== asker.id);
-          return others.length > 0 && openSlot(garments, role)
-            ? [[role, others] as const]
+      const swaps = menders[index].flatMap(([role, found]) =>
+        found.flatMap((mender) => {
+          if (mender.id === asker.id) return [];
+          const outfit = swapInto(garments, role, mender);
+          return outfit && context.compatible(outfit)
+            ? [{ mender, outfit }]
             : [];
         }),
       );
-      if (open.size > 0) return { index, asker, menders: open };
+      if (swaps.length > 0) return { index, asker, swaps };
     }
     return undefined;
   };
