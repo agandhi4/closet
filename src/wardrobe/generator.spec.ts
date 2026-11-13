@@ -11,6 +11,7 @@ import {
   MAX_ACCENT_COLORS,
   neutralFor,
   OUTFIT_ORDER,
+  placeKeyer,
   topToToe,
   REST_DAYS,
   rotationWeight,
@@ -652,5 +653,17 @@ describe('generateIdeas', () => {
       ['footwear', [1]],
       ['none', [2]],
     ]);
+  });
+});
+
+describe('placeKeyer', () => {
+  it('names a garment that is in neither the pool nor the locks', () => {
+    const known = garment('top');
+    const stray = garment('bottom');
+    const keyOfPlaces = placeKeyer(new Map([['top', [known]]]), []);
+    expect(keyOfPlaces([known])).toBe('top0');
+    expect(() => keyOfPlaces([known, stray])).toThrow(
+      `garment ${stray.id} is in neither`,
+    );
   });
 });

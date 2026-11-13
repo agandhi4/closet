@@ -893,3 +893,9 @@ Consequence: thresholds came from the real days, not from tuning; a new real-wor
 **Why:** #743 capped `limbs` and added `limbsCeiling` (the too-warm bound); `week_plan_entry` stores only the capped target, so equal stored targets hid warmth-5 boots turning feet-too-warm (#746).
 **Decision:** `replanWeek` re-runs `assessOutfit` with the fresh needs for an entry whose targets held, and treats a legs/feet too-warm problem as a change (kept, or swapped for a better idea, saying "warmer"). No schema change.
 **Consequence:** a near miss planned with that problem is re-judged each morning (pure, no extra statement); it is swapped only for a strictly better idea.
+
+## 2026-11-13 — The layer is drawn by rotation per base, not by one global preference (#646)
+
+**Why:** `bestIdea` tried layers most rested first, the same order for every base, and took the first that scored 0: one layer (the parka unworn since winter, or the denim jacket on a never-worn closet) on 12 of 12 ideas.
+**Decision:** layers are tried in `rotationOrder` (`src/wardrobe/generator.ts`): a lazy weighted draw without replacement by `rotationWeight`, keyed by the seed and the base's places (`placeKeyer`: each garment's position in its role, never its id, so `seed --reset`'s new ids draw the same; `seed.spec.ts` caught it), which the repairer's mends now share. Among the layers tied best each wins as often as its weight says; a base is still one idea. The issue's "closeness to the layer's target" tier was dropped: a hard closeness filter left one layer per warmth class (Down Sweater on 10 of 12 April ideas on the demo closet), the monoculture again. GENERATOR_VERSION 3.
+**Consequence:** a base that fits bare never draws a sequence; one that needs a layer judges, on average, more layers before the first fit (no fixed order happens to put a broadly fitting one first), so a closet with many layers costs more per draw.
