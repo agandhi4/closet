@@ -2462,6 +2462,66 @@ describe('API statements per route', () => {
     });
   });
 
+  describe('the changes feed: its cost does not grow with the page (#196b-1)', () => {
+    // A user of their own, as the looks' (the twin device's API_LIMIT).
+    const email = 'changes-statements@example.com';
+    let token: string;
+
+    const page = async (query: string) => {
+      // A second call of the minute: no last-use write.
+      await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      return statementsOf(() =>
+        t.api(token, { method: 'GET', url: `/api/v1/changes?${query}` }),
+      );
+    };
+
+    beforeAll(async () => {
+      await t.register(email);
+      token = (await deviceToken(t, { email })).token;
+      const ids: number[] = [];
+      for (const name of ['One', 'Two', 'Three', 'Four']) {
+        const res = await t.api(token, {
+          method: 'POST',
+          url: '/api/v1/garments',
+          payload: { category: 'shirt', name },
+        });
+        ids.push(res.json<{ id: number }>().id);
+      }
+      const capsule = await t.api(token, {
+        method: 'POST',
+        url: '/api/v1/capsules',
+        payload: { name: 'Counted' },
+      });
+      await t.api(token, {
+        method: 'PATCH',
+        url: `/api/v1/capsules/${capsule.json<{ id: number }>().id}/members`,
+        payload: { add: ids },
+      });
+      await t.api(token, {
+        method: 'PUT',
+        url: `/api/v1/garments/${ids[0]}/wears/${t.today()}`,
+      });
+    });
+
+    it('a page of garments: the token, BEGIN, the wardrobes, the keyset read, the garments, COMMIT; as many at 4 as at 2', async () => {
+      const [two, four] = [await page('limit=2'), await page('limit=4')];
+      expect(two).toMatchObject({ status: 200, statements: 6 });
+      expect(four).toMatchObject({ status: 200, statements: 6 });
+    });
+
+    it('a page of every resource: one statement each; an empty page none', async () => {
+      const all = await page('limit=100');
+      expect(all).toMatchObject({ status: 200, statements: 8 });
+      const { cursor } = (
+        await t.api(token, { method: 'GET', url: '/api/v1/changes' })
+      ).json<{ cursor: string }>();
+      expect(await page(`cursor=${cursor}`)).toMatchObject({
+        status: 200,
+        statements: 5,
+      });
+    });
+  });
+
   it('POST /garments/link-imports: the token, the pending photo kept, the claim; no read back', async () => {
     const { token } = await deviceToken(t);
     sites.serve('/counted.jpg', jpeg(await jpegPhoto(320, 240)));

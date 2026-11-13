@@ -22,6 +22,9 @@ export const ERROR_CODES = [
   'not_found',
   'conflict',
   'gone',
+  // A changes cursor past what the feed still holds (sync_floor, #196b):
+  // sync in full.
+  'cursor_expired',
   'stale',
   'rate_limited',
   'busy',

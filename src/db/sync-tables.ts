@@ -15,6 +15,8 @@ export interface SyncRoot {
   owner: 'owner_id' | 'user_id';
   /** The tombstone's resource_id: the primary key (the user for the one-row-per-user tables). */
   id: 'id' | 'user_id';
+  /** Whether it has a `client_id` (an offline create's id, #563): the feed answers it. */
+  clientId: boolean;
 }
 
 /**
@@ -34,17 +36,22 @@ export interface SyncChild {
 }
 
 export const SYNC_ROOTS = [
-  { table: 'garment', owner: 'owner_id', id: 'id' },
-  { table: 'outfit', owner: 'owner_id', id: 'id' },
-  { table: 'outfit_calendar', owner: 'owner_id', id: 'id' },
-  { table: 'garment_wear', owner: 'owner_id', id: 'id' },
-  { table: 'selfie', owner: 'owner_id', id: 'id' },
-  { table: 'capsule', owner: 'owner_id', id: 'id' },
-  { table: 'trip', owner: 'owner_id', id: 'id' },
-  { table: 'week_plan', owner: 'owner_id', id: 'id' },
-  { table: 'brand_size', owner: 'user_id', id: 'id' },
-  { table: 'style_profile', owner: 'user_id', id: 'user_id' },
-  { table: 'body_measurements', owner: 'user_id', id: 'user_id' },
+  { table: 'garment', owner: 'owner_id', id: 'id', clientId: true },
+  { table: 'outfit', owner: 'owner_id', id: 'id', clientId: true },
+  { table: 'outfit_calendar', owner: 'owner_id', id: 'id', clientId: true },
+  { table: 'garment_wear', owner: 'owner_id', id: 'id', clientId: true },
+  { table: 'selfie', owner: 'owner_id', id: 'id', clientId: false },
+  { table: 'capsule', owner: 'owner_id', id: 'id', clientId: true },
+  { table: 'trip', owner: 'owner_id', id: 'id', clientId: true },
+  { table: 'week_plan', owner: 'owner_id', id: 'id', clientId: false },
+  { table: 'brand_size', owner: 'user_id', id: 'id', clientId: true },
+  { table: 'style_profile', owner: 'user_id', id: 'user_id', clientId: false },
+  {
+    table: 'body_measurements',
+    owner: 'user_id',
+    id: 'user_id',
+    clientId: false,
+  },
 ] as const satisfies readonly SyncRoot[];
 
 export type SyncResource = (typeof SYNC_ROOTS)[number]['table'];

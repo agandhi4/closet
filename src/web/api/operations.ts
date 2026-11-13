@@ -152,6 +152,8 @@ export const OPERATIONS = [
   'addOutfitRule',
   'deleteOutfitRule',
   'listSharedWardrobes',
+  // #196b: the changes feed (a native client's sync; no page twin).
+  'listChanges',
 ] as const;
 export type OperationId = (typeof OPERATIONS)[number];
 

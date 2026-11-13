@@ -812,3 +812,15 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 
 **Decision:** `src/db/migration-lock-timeout.spec.ts` (unit tier, reads `drizzle/*.sql`) fails any file from 0051 on with `ALTER TABLE`, trigger, `DROP`, `TRUNCATE` or non-concurrent `CREATE INDEX` whose first statement is not `SET LOCAL lock_timeout`; 0000-0050 are exempt by number.
 **Consequence:** 0051 shipped without one and only review caught it (#601); a new migration now fails fast, naming file and fix.
+
+## 2026-11-13 — The feed's garment carries its stored fields only (#607)
+
+**Why:** the page's garment embeds `worn`, `wornSinceWash`, `lastWorn`, `cost`, `costPerWear` and `capsules`, read from wears and capsules. A wear or a capsule rename moves only its own row's revision, so a synced garment would hold them stale; touching the garment from every wear needs a migration and resends a garment per wear.
+**Decision:** `GET /changes` carries `SyncedGarment` (`garment-resource.ts`): the stored fields, the owner's stored care (`washAfterWears`, `lastWashedOn`, `away`, `awayNote`) and repair log (a child that touches the garment), nothing derived. The wears and capsules (with `garmentIds`) are resources of their own; the client derives the rest.
+**Consequence:** the feed's garment differs from `GET /garments/{id}`'s; the derived rules (`src/wardrobe/insights.ts`, the wash rules) are the client's to mirror.
+
+## 2026-11-13 — The changes cursor: a keyset position per wardrobe (#607)
+
+**Why:** one transaction is one revision (a bulk edit, the #196a backfill's every row at 0), so `{ ownerId: revision }` cannot end a page inside a revision; an inclusive end resends a revision-0 wardrobe forever; a full sync paging below a raised floor would 410 forever.
+**Decision:** opaque base64url JSON `{ v: 1, c, w: { <owner>: [revision, kind, table, id, seq, passFloor] } }` (`src/web/sync/cursor.ts`): the total order `(revision, kind, resource COLLATE "C", id, tombstone id)`, an exclusive end (kind 2) at the snapshot's `user.revision`, the floor the pass began at (expired only if the floor rose past both), and `c`, the registered resources' bitmask: a cursor from before a resource joined the feed is a 410 rather than missing that resource's older rows.
+**Consequence:** #608 registering a resource expires every cursor once (one full sync per device); a malformed cursor is a 400 like `readIdCursor`'s.

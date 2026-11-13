@@ -91,6 +91,7 @@ Each area's detail lives in an `AGENTS.md` beside its code, with `CLAUDE.md` a s
 | Weekly auto-plan | `src/web/week-plan/AGENTS.md` | "Plan my week", the daily re-plan, `planned_by` |
 | Web Push | `src/push/AGENTS.md` | subscriptions, notifications, reminders |
 | MCP server | `src/web/mcp/AGENTS.md` | `/mcp`, its tools, personal access tokens |
+| Changes feed | `src/web/sync/AGENTS.md` | `/api/v1/changes`, its cursor, what a synced resource carries |
 | JSON API | `src/web/api/AGENTS.md` | `/api/v1`, the device sign-in, problem+json, the OpenAPI spec, adding an API route |
 | Health | `src/web/health/AGENTS.md` | `/health/live`, `/health/ready`, `/healthz`, a readiness check, the image `HEALTHCHECK` |
 | PWA and the service worker | `src/web/shell/AGENTS.md` | the service worker, caching, offline, queued writes (the outbox), install, updates, static delivery |

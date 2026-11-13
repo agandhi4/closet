@@ -1,0 +1,505 @@
+import { and, eq, inArray } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { garment, garmentWear, user, wardrobeShare } from '../../src/db/schema';
+import { deviceToken, expectProblem } from './api';
+import { asFixture, createTestApp, type TestApp, userIdOf } from './harness';
+
+/**
+ * The changes feed (#196b-1, GET /api/v1/changes; src/web/sync/AGENTS.md):
+ * a device's sync, paged, against writes from another session. What a page
+ * costs is api-statements'.
+ */
+
+let t: TestApp;
+
+beforeAll(async () => {
+  t = await createTestApp();
+});
+
+afterAll(async () => {
+  await t?.cleanup();
+});
+
+interface Item {
+  resource: string;
+  ownerId: number;
+  id: number;
+  clientId?: string;
+  revision: number;
+}
+interface Change extends Item {
+  data: Record<string, unknown>;
+}
+interface Page {
+  changes: Change[];
+  deletions: Item[];
+  cursor: string;
+  more: boolean;
+  revokedWardrobes?: number[];
+}
+
+interface Account {
+  id: number;
+  /** The syncing device. */
+  device: string;
+  /** Another device of the same user: "another session". */
+  other: string;
+}
+
+async function account(email: string): Promise<Account> {
+  await t.register(email);
+  return {
+    id: await userIdOf(t, email),
+    device: (await deviceToken(t, { email })).token,
+    other: (await deviceToken(t, { email, deviceName: 'iPad' })).token,
+  };
+}
+
+const api = (
+  token: string,
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+  url: string,
+  payload?: object,
+) => t.api(token, { method, url: `/api/v1${url}`, payload });
+
+async function changes(
+  token: string,
+  query: { cursor?: string; limit?: number } = {},
+): Promise<Page> {
+  const params = new URLSearchParams();
+  if (query.cursor) params.set('cursor', query.cursor);
+  if (query.limit) params.set('limit', String(query.limit));
+  const res = await api(token, 'GET', `/changes?${params}`);
+  expect(res.statusCode, res.body).toBe(200);
+  return res.json<Page>();
+}
+
+/** Every page from `cursor` until `more` is false: the pages and the cursor it ends on. */
+async function syncAll(
+  token: string,
+  from: { cursor?: string; limit: number },
+): Promise<{ pages: Page[]; cursor: string }> {
+  const pages: Page[] = [];
+  let cursor = from.cursor;
+  // A sync is a bounded walk: no test here has more than a dozen items.
+  for (let call = 0; call < 20; call += 1) {
+    const page = await changes(token, { cursor, limit: from.limit });
+    pages.push(page);
+    cursor = page.cursor;
+    if (!page.more) return { pages, cursor };
+  }
+  throw new Error('The feed never finished');
+}
+
+const keyOf = (item: Item) => `${item.resource}:${item.id}`;
+const changeKeys = (pages: Page[]) =>
+  pages.flatMap((page) => page.changes.map(keyOf));
+const deletionKeys = (pages: Page[]) =>
+  pages.flatMap((page) => page.deletions.map(keyOf));
+
+async function newGarment(token: string, name: string): Promise<number> {
+  const res = await api(token, 'POST', '/garments', {
+    category: 'shirt',
+    name,
+  });
+  expect(res.statusCode, res.body).toBe(201);
+  return res.json<{ id: number }>().id;
+}
+
+async function newCapsule(token: string, name: string, add: number[]) {
+  const res = await api(token, 'POST', '/capsules', { name });
+  expect(res.statusCode, res.body).toBe(201);
+  const { id } = res.json<{ id: number }>();
+  const members = await api(token, 'PATCH', `/capsules/${id}/members`, { add });
+  expect(members.statusCode, members.body).toBe(200);
+  return id;
+}
+
+async function wear(token: string, garmentId: number): Promise<number> {
+  const res = await api(
+    token,
+    'PUT',
+    `/garments/${garmentId}/wears/${t.today()}`,
+  );
+  expect(res.statusCode, res.body).toBe(200);
+  const [row] = await t.db
+    .select({ id: garmentWear.id })
+    .from(garmentWear)
+    .where(eq(garmentWear.garmentId, garmentId));
+  return row.id;
+}
+
+const revisionOf = async (userId: number) =>
+  (
+    await t.db
+      .select({ revision: user.revision })
+      .from(user)
+      .where(eq(user.id, userId))
+  )[0].revision;
+
+const setFloor = (userId: number, floor: number) =>
+  t.db.update(user).set({ syncFloor: floor }).where(eq(user.id, userId));
+
+describe('the delta', () => {
+  it('a device syncs, another session edits and deletes: the next sync is exactly that, then nothing', async () => {
+    const a = await account('changes-delta@example.com');
+    const [kept, edited, deleted] = [
+      await newGarment(a.other, 'Kept'),
+      await newGarment(a.other, 'Edited'),
+      await newGarment(a.other, 'Deleted'),
+    ];
+    const capsuleId = await newCapsule(a.other, 'Office', [kept, deleted]);
+    const first = await syncAll(a.device, { limit: 2 });
+    expect(first.pages.length).toBeGreaterThan(1);
+    expect(changeKeys(first.pages).sort()).toEqual(
+      [
+        `capsule:${capsuleId}`,
+        `garment:${deleted}`,
+        `garment:${edited}`,
+        `garment:${kept}`,
+      ].sort(),
+    );
+    expect(deletionKeys(first.pages)).toEqual([]);
+
+    const edit = await api(a.other, 'PATCH', `/garments/${edited}`, {
+      name: 'Edited again',
+    });
+    expect(edit.statusCode, edit.body).toBe(200);
+    expect(
+      (await api(a.other, 'DELETE', `/garments/${deleted}`)).statusCode,
+    ).toBe(204);
+    const wearId = await wear(a.other, kept);
+
+    const delta = await syncAll(a.device, { cursor: first.cursor, limit: 2 });
+    // The capsule lost a member with the garment; the wear moved no garment.
+    expect(changeKeys(delta.pages).sort()).toEqual(
+      [`capsule:${capsuleId}`, `garment:${edited}`, `wear:${wearId}`].sort(),
+    );
+    expect(deletionKeys(delta.pages)).toEqual([`garment:${deleted}`]);
+    const all = delta.pages.flatMap((page) => page.changes);
+    expect(all.find((c) => c.resource === 'garment')?.data).toMatchObject({
+      id: edited,
+      name: 'Edited again',
+    });
+    expect(all.find((c) => c.resource === 'capsule')?.data).toEqual({
+      id: capsuleId,
+      name: 'Office',
+      garmentIds: [kept],
+    });
+    expect(all.find((c) => c.resource === 'wear')).toMatchObject({
+      ownerId: a.id,
+      data: { id: wearId, garmentId: kept, day: t.today() },
+    });
+
+    const after = await changes(a.device, { cursor: delta.cursor });
+    expect(after).toMatchObject({ changes: [], deletions: [], more: false });
+    expect(after.cursor).toBe(delta.cursor);
+  });
+
+  it("carries a garment's stored fields only: nothing derived from its wears or capsules", async () => {
+    const a = await account('changes-derived@example.com');
+    const id = await newGarment(a.device, 'Worn');
+    await newCapsule(a.device, 'Weekend', [id]);
+    await wear(a.device, id);
+    const { pages } = await syncAll(a.device, { limit: 100 });
+    const data = pages[0].changes.find((c) => c.resource === 'garment')?.data;
+    expect(data).toMatchObject({ id, name: 'Worn', repairs: [] });
+    expect(data).not.toHaveProperty('capsules');
+    // The owner's stored care records only (none set): no worn, cost or last worn.
+    expect(data?.care).toEqual({});
+  });
+
+  it('pages across a boundary inside one revision, deletions of several resources before its rows', async () => {
+    const a = await account('changes-revision@example.com');
+    const ids = [
+      await newGarment(a.device, 'One'),
+      await newGarment(a.device, 'Two'),
+      await newGarment(a.device, 'Three'),
+    ];
+    const capsuleId = await newCapsule(a.device, 'All', ids);
+    const wearId = await wear(a.device, ids[2]);
+    const { cursor } = await syncAll(a.device, { limit: 100 });
+
+    // One transaction each: one revision for three garments, then one for a
+    // garment's tombstone, its wear's and the capsule it left.
+    const bulk = await api(a.device, 'PATCH', '/garments', {
+      ids,
+      property: 'condition',
+      value: 'needs_repair',
+    });
+    expect(bulk.statusCode, bulk.body).toBe(200);
+    expect(
+      (await api(a.device, 'DELETE', `/garments/${ids[2]}`)).statusCode,
+    ).toBe(204);
+
+    const { pages } = await syncAll(a.device, { cursor, limit: 1 });
+    const items = pages.flatMap((page) => [
+      ...page.deletions.map((d) => ({ ...d, deleted: true })),
+      ...page.changes.map((c) => ({ ...c, deleted: false })),
+    ]);
+    const [bulkRevision, deleteRevision] = [
+      items[0].revision,
+      items[items.length - 1].revision,
+    ];
+    expect(
+      items.map((item) => [keyOf(item), item.deleted, item.revision]),
+    ).toEqual([
+      [`garment:${ids[0]}`, false, bulkRevision],
+      [`garment:${ids[1]}`, false, bulkRevision],
+      // Edited, then deleted before the sync: only its deletion.
+      [`garment:${ids[2]}`, true, deleteRevision],
+      [`wear:${wearId}`, true, deleteRevision],
+      [`capsule:${capsuleId}`, false, deleteRevision],
+    ]);
+    expect(deleteRevision).toBe(bulkRevision + 1);
+    expect(pages.at(-1)?.more).toBe(false);
+  });
+
+  it('a wardrobe still at the backfill (revision 0) is sent once, then never again', async () => {
+    const a = await account('changes-backfill@example.com');
+    const ids = [
+      await newGarment(a.device, 'Old one'),
+      await newGarment(a.device, 'Old two'),
+      await newGarment(a.device, 'Old three'),
+    ];
+    // As #196a's backfill left production: every row and the owner at 0
+    // (the stamp trigger would bump them, so it is off for the update).
+    await t.db.transaction(async (tx) => {
+      await tx.execute('alter table garment disable trigger user');
+      await tx
+        .update(garment)
+        .set({ revision: 0 })
+        .where(inArray(garment.id, ids));
+      await tx.execute('alter table garment enable trigger user');
+      await tx.update(user).set({ revision: 0 }).where(eq(user.id, a.id));
+    });
+    const first = await syncAll(a.device, { limit: 2 });
+    expect(first.pages).toHaveLength(2);
+    expect(changeKeys(first.pages).sort()).toEqual(
+      ids.map((id) => `garment:${id}`).sort(),
+    );
+    expect(
+      first.pages.flatMap((page) => page.changes.map((c) => c.revision)),
+    ).toEqual([0, 0, 0]);
+    expect(await changes(a.device, { cursor: first.cursor })).toMatchObject({
+      changes: [],
+      deletions: [],
+      more: false,
+    });
+  });
+
+  it('a write committing during a paginated read is never lost: it comes on the next call, once', async () => {
+    const a = await account('changes-held@example.com');
+    const [sent, middle, unsent] = [
+      await newGarment(a.device, 'Sent'),
+      await newGarment(a.device, 'Middle'),
+      await newGarment(a.device, 'Unsent'),
+    ];
+    const committed = await revisionOf(a.id);
+    const page1 = await changes(a.device, { limit: 1 });
+    expect(page1.changes.map(keyOf)).toEqual([`garment:${sent}`]);
+
+    // The writer holds its transaction (and its revision) open on another
+    // connection, as a slow request would, over one garment already sent
+    // and one not yet.
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let wrote = () => {};
+    const written = new Promise<void>((resolve) => (wrote = resolve));
+    const writer = asFixture(t.db, async (tx) => {
+      await tx
+        .update(garment)
+        .set({ name: 'Renamed late' })
+        .where(inArray(garment.id, [sent, unsent]));
+      wrote();
+      await held;
+    });
+    await written;
+    const rest = await syncAll(a.device, { cursor: page1.cursor, limit: 1 });
+    expect(changeKeys(rest.pages)).toEqual([
+      `garment:${middle}`,
+      `garment:${unsent}`,
+    ]);
+    expect(
+      rest.pages.flatMap((page) => page.changes.map((c) => c.data.name)),
+    ).toEqual(['Middle', 'Unsent']);
+
+    release();
+    await writer;
+    const late = await changes(a.device, { cursor: rest.cursor });
+    // `unsent` twice in all (as it was, then renamed): the harmless resend
+    // an upsert absorbs. Nothing skipped.
+    expect(
+      late.changes.map((c) => [keyOf(c), c.revision, c.data.name]),
+    ).toEqual([
+      [`garment:${sent}`, committed + 1, 'Renamed late'],
+      [`garment:${unsent}`, committed + 1, 'Renamed late'],
+    ]);
+    expect(late.more).toBe(false);
+  });
+});
+
+describe('the cursor', () => {
+  it('a forged cursor is a 400; one from before a resource joined the feed is expired', async () => {
+    const a = await account('changes-forged@example.com');
+    for (const cursor of [
+      'bm90LWpzb24',
+      Buffer.from('{"v":1,"c":7,"w":{"1":[1]}}').toString('base64url'),
+    ]) {
+      expectProblem(
+        await api(a.device, 'GET', `/changes?cursor=${cursor}`),
+        400,
+        'validation',
+      );
+    }
+    const older = Buffer.from(
+      `{"v":1,"c":1,"w":{"${a.id}":[0,2,"",0,0,0]}}`,
+    ).toString('base64url');
+    expectProblem(
+      await api(a.device, 'GET', `/changes?cursor=${older}`),
+      410,
+      'cursor_expired',
+    );
+  });
+
+  it('is a 410 below sync_floor, or inside its deletions; at the floor, past it or fresh it is read', async () => {
+    const a = await account('changes-floor@example.com');
+    const kept = [
+      await newGarment(a.device, 'Kept'),
+      await newGarment(a.device, 'Also kept'),
+    ];
+    const gone = await newGarment(a.device, 'Gone');
+    await wear(a.device, gone);
+    const synced = await syncAll(a.device, { limit: 100 });
+    // A garment's tombstone and its wear's, at one revision: a page of one
+    // ends between them.
+    expect(
+      (await api(a.device, 'DELETE', `/garments/${gone}`)).statusCode,
+    ).toBe(204);
+    const deletedAt = await revisionOf(a.id);
+    const inside = await changes(a.device, { cursor: synced.cursor, limit: 1 });
+    expect(inside.deletions.map(keyOf)).toEqual([`garment:${gone}`]);
+    const done = await syncAll(a.device, { cursor: inside.cursor, limit: 100 });
+
+    // The prune (#196b-3) records the newest revision it pruned as the floor.
+    await setFloor(a.id, deletedAt);
+    expectProblem(
+      await api(a.device, 'GET', `/changes?cursor=${synced.cursor}`),
+      410,
+      'cursor_expired',
+    );
+    expectProblem(
+      await api(a.device, 'GET', `/changes?cursor=${inside.cursor}`),
+      410,
+      'cursor_expired',
+    );
+    // Exactly at the floor, past its deletions: nothing missed.
+    expect(await changes(a.device, { cursor: done.cursor })).toMatchObject({
+      changes: [],
+      more: false,
+    });
+
+    // A fresh sync is never refused, leaves out the deletions at or below
+    // the floor (the client held none of their rows), and pages on past
+    // revisions below the floor without expiring.
+    const fresh = await syncAll(a.device, { limit: 1 });
+    expect(changeKeys(fresh.pages)).toEqual(kept.map((id) => `garment:${id}`));
+    expect(deletionKeys(fresh.pages)).toEqual([]);
+
+    await newGarment(a.device, 'After');
+    await setFloor(a.id, await revisionOf(a.id));
+    expectProblem(
+      await api(a.device, 'GET', `/changes?cursor=${done.cursor}`),
+      410,
+      'cursor_expired',
+    );
+  });
+});
+
+describe("a grantee's feed", () => {
+  it("carries the shared wardrobe's garments and capsules in the grantee shape, none of its owner-only records; a revoked share drops out", async () => {
+    const owner = await account('changes-owner@example.com');
+    const grantee = await account('changes-grantee@example.com');
+    const shared = await newGarment(owner.device, 'Shared');
+    const capsuleId = await newCapsule(owner.device, 'Shared capsule', [
+      shared,
+    ]);
+    await wear(owner.device, shared);
+    expect(
+      (
+        await api(owner.device, 'POST', `/garments/${shared}/repairs`, {
+          day: t.today(),
+          kind: 'repair',
+          note: 'Owner only',
+        })
+      ).statusCode,
+    ).toBe(201);
+    const style = await api(owner.device, 'PUT', '/style-profile', {
+      styles: ['classic'],
+      palette: ['black'],
+      budget: 'mid',
+      notes: 'Owner only',
+    });
+    expect(style.statusCode, style.body).toBe(200);
+    const measured = await api(owner.device, 'PUT', '/sizes/measurements', {
+      waist: 80,
+    });
+    expect(measured.statusCode, measured.body).toBe(200);
+    const own = await newGarment(grantee.device, 'Mine');
+    await t.db.insert(wardrobeShare).values({
+      grantorId: owner.id,
+      granteeId: grantee.id,
+      permission: 'VIEW',
+      acceptedAt: new Date(),
+      createdAt: new Date(),
+    });
+
+    const synced = await syncAll(grantee.device, { limit: 1 });
+    const all = synced.pages.flatMap((page) => page.changes);
+    // Their own first, then the shared wardrobe by revision: the repair
+    // touched the garment after the capsule's members.
+    expect(all.map((c) => [c.ownerId, keyOf(c)])).toEqual([
+      [grantee.id, `garment:${own}`],
+      [owner.id, `capsule:${capsuleId}`],
+      [owner.id, `garment:${shared}`],
+    ]);
+    const sharedGarment = all[2].data;
+    expect(sharedGarment).toMatchObject({ id: shared, name: 'Shared' });
+    expect(sharedGarment).not.toHaveProperty('care');
+    expect(sharedGarment).not.toHaveProperty('repairs');
+    expectProblem(
+      await api(grantee.device, 'GET', `/changes?ownerId=${owner.id}`),
+      400,
+      'validation',
+    );
+
+    // The owner's wear deletion never reaches the grantee; the garment's does.
+    expect(
+      (await api(owner.device, 'DELETE', `/garments/${shared}`)).statusCode,
+    ).toBe(204);
+    const delta = await syncAll(grantee.device, {
+      cursor: synced.cursor,
+      limit: 100,
+    });
+    expect(deletionKeys(delta.pages)).toEqual([`garment:${shared}`]);
+    expect(changeKeys(delta.pages)).toEqual([`capsule:${capsuleId}`]);
+
+    await t.db
+      .delete(wardrobeShare)
+      .where(
+        and(
+          eq(wardrobeShare.grantorId, owner.id),
+          eq(wardrobeShare.granteeId, grantee.id),
+        ),
+      );
+    const revoked = await changes(grantee.device, { cursor: delta.cursor });
+    expect(revoked).toMatchObject({
+      changes: [],
+      deletions: [],
+      revokedWardrobes: [owner.id],
+    });
+    expect(
+      await changes(grantee.device, { cursor: revoked.cursor }),
+    ).not.toHaveProperty('revokedWardrobes');
+  });
+});

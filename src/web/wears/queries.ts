@@ -625,3 +625,32 @@ export async function setAway(
     .returning({ id: garment.id });
   return updated.length > 0;
 }
+
+/** A wear as the changes feed carries it (wearsByIds, wear-resource.ts). */
+export interface WearRow {
+  id: number;
+  garmentId: number;
+  day: string;
+  /** The calendar entry it was logged from; null for a single "Wore today". */
+  outfitCalendarId: number | null;
+}
+
+/**
+ * The wears with these ids, in one statement (the changes feed's page,
+ * src/web/sync/feed.ts, which read the ids from the owner's own wardrobe
+ * in the same snapshot: a grantee's feed never carries a wear).
+ */
+export function wearsByIds(
+  db: Queryable,
+  ids: readonly number[],
+): Promise<WearRow[]> {
+  return db
+    .select({
+      id: garmentWear.id,
+      garmentId: garmentWear.garmentId,
+      day: garmentWear.day,
+      outfitCalendarId: garmentWear.outfitCalendarId,
+    })
+    .from(garmentWear)
+    .where(inArray(garmentWear.id, [...ids]));
+}

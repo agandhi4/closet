@@ -43,6 +43,7 @@ import {
 import { dirtyCopiesSql, needsWash } from '../wears/queries';
 import { compareSizes } from './garment';
 import { GRID_PAGE_SIZE } from './grid-page-size';
+import { type RepairEntry, repairLogSql } from './repairs';
 import {
   type GarmentScope,
   inCloset,
@@ -538,6 +539,35 @@ export async function findGarment(
     .leftJoin(file, eq(file.id, garment.photoId))
     .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)));
   return row;
+}
+
+/** A garment as the changes feed reads it (garmentsByIds). */
+export interface SyncedGarmentRow extends GarmentDetail {
+  /** The owner's repair log; null on a wardrobe the viewer does not own. */
+  repairs: RepairEntry[] | null;
+}
+
+/**
+ * The garments with these ids, in one statement whatever their owners (the
+ * changes feed's page, src/web/sync/feed.ts, which read the ids from the
+ * wardrobes `viewerId` may see, in the same snapshot). The repair log is
+ * the owner's own record: read only where `viewerId` owns the garment.
+ */
+export function garmentsByIds(
+  db: Queryable,
+  viewerId: number,
+  ids: readonly number[],
+): Promise<SyncedGarmentRow[]> {
+  return db
+    .select({
+      ...detailColumns,
+      repairs: sql<
+        RepairEntry[] | null
+      >`case when ${garment.ownerId} = ${viewerId} then ${repairLogSql(garment.id)} end`,
+    })
+    .from(garment)
+    .leftJoin(file, eq(file.id, garment.photoId))
+    .where(inArray(garment.id, [...ids]));
 }
 
 /**
