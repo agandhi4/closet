@@ -9216,6 +9216,28 @@
                             "description": "The outfit selfie taken of it",
                             "type": "integer"
                           },
+                          "selfiePhoto": {
+                            "title": "SelfiePhoto",
+                            "description": "An outfit selfie's photo: private, served only to its owner's device token (GET /api/v1/selfie-photos/{fileName}), relative to the server and immutable (a replacement selfie is another photo, so other URLs). Never build or edit one",
+                            "type": "object",
+                            "required": [
+                              "version",
+                              "originalUrl",
+                              "thumbUrl"
+                            ],
+                            "properties": {
+                              "version": {
+                                "type": "integer"
+                              },
+                              "originalUrl": {
+                                "type": "string"
+                              },
+                              "thumbUrl": {
+                                "description": "400 px",
+                                "type": "string"
+                              }
+                            }
+                          },
                           "outfit": {
                             "title": "CalendarEntryOutfit",
                             "type": "object",
@@ -10527,6 +10549,28 @@
                                 "selfieId": {
                                   "description": "The outfit selfie taken of it",
                                   "type": "integer"
+                                },
+                                "selfiePhoto": {
+                                  "title": "SelfiePhoto",
+                                  "description": "An outfit selfie's photo: private, served only to its owner's device token (GET /api/v1/selfie-photos/{fileName}), relative to the server and immutable (a replacement selfie is another photo, so other URLs). Never build or edit one",
+                                  "type": "object",
+                                  "required": [
+                                    "version",
+                                    "originalUrl",
+                                    "thumbUrl"
+                                  ],
+                                  "properties": {
+                                    "version": {
+                                      "type": "integer"
+                                    },
+                                    "originalUrl": {
+                                      "type": "string"
+                                    },
+                                    "thumbUrl": {
+                                      "description": "400 px",
+                                      "type": "string"
+                                    }
+                                  }
                                 },
                                 "outfit": {
                                   "title": "CalendarEntryOutfit",
@@ -19203,6 +19247,92 @@
         "responses": {
           "204": {
             "description": "Removed"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/selfie-photos/{fileName}": {
+      "get": {
+        "operationId": "getSelfiePhoto",
+        "summary": "An outfit selfie's photo",
+        "tags": [
+          "selfies"
+        ],
+        "description": "The URL an entry's `selfiePhoto` names: only yours, whatever is shared with you. Anything else (another's photo, a selfie already removed or replaced, a name that is none) is a 404 like a missing photo.",
+        "parameters": [
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "original"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "thumb"
+                  ]
+                }
+              ]
+            },
+            "in": "query",
+            "name": "variant",
+            "required": false,
+            "description": "The 1080 px original unless `thumb` (400 px)"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "v",
+            "required": false,
+            "description": "The photo's version, which its URL carries so it is cached for good"
+          },
+          {
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "in": "path",
+            "name": "fileName",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The photo, WebP: `private, immutable` for a year",
+            "content": {
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
           },
           "4XX": {
             "description": "A problem (RFC 9457): switch on `code`",

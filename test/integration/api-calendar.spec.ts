@@ -7,6 +7,7 @@ import {
   selfie,
   weekPlan,
 } from '../../src/db/schema';
+import { t as text } from '../../src/web/i18n';
 import { deviceToken, expectProblem } from './api';
 import { createGarment, jpegPhoto } from './garments';
 import { createTestApp, multipart, type TestApp } from './harness';
@@ -250,6 +251,30 @@ describe('calendar entries', () => {
     });
     expect((await entryRow(entry.id)).outfitId).toBe(second.id);
 
+    // Each body fault is named at its own field.
+    const both = expectProblem(
+      await api('PUT', `/calendar-entries/${entry.id}/outfit`, {
+        outfitId: second.id,
+        garmentIds: [1],
+      }),
+      400,
+      'validation',
+    );
+    expect(both.errors?.map(({ path }) => path)).toEqual(['body/outfitId']);
+    expect(both.errors?.[0]?.message).toBe(text('api.OUTFIT_ONE_OF'));
+    const named = expectProblem(
+      await api('PUT', `/calendar-entries/${entry.id}/outfit`, {
+        outfitId: second.id,
+        name: 'Nope',
+      }),
+      400,
+      'validation',
+    );
+    expect(named.errors?.map(({ path }) => path)).toEqual(['body/name']);
+    expect(named.errors?.[0]?.message).toBe(
+      text('api.OUTFIT_NAME_NEEDS_GARMENTS'),
+    );
+
     // The first outfit on the day again: the entry would hold it twice.
     await schedule(first.id, today, 'evening');
     expectProblem(await change(first.id), 409, 'conflict');
@@ -418,6 +443,64 @@ describe('outfit selfies', () => {
     );
     expect(listed.json<{ data: { selfieId?: number }[] }>().data).toEqual(
       expect.arrayContaining([expect.objectContaining({ selfieId })]),
+    );
+  });
+
+  it("serves the owner's selfie bytes as the page does, a problem 404 to anyone else, once replaced or removed", async () => {
+    const { id: outfitId } = await newOutfit('Photo look');
+    const entry = await schedule(outfitId, t.today());
+    const { selfieId } = (await upload(entry.id)).json<{ selfieId: number }>();
+    const photoUrls = async () => {
+      const [found] = (
+        await api('GET', `/calendar-entries?from=${t.today()}&to=${t.today()}`)
+      )
+        .json<{
+          data: {
+            id: number;
+            selfiePhoto?: { originalUrl: string; thumbUrl: string };
+          }[];
+        }>()
+        .data.filter((e) => e.id === entry.id);
+      return found.selfiePhoto!;
+    };
+    const { originalUrl, thumbUrl } = await photoUrls();
+    expect(thumbUrl).toMatch(/\?v=\d+&variant=thumb$/);
+    const fileName = originalUrl.split('/').pop()!.split('?')[0];
+
+    for (const url of [originalUrl, thumbUrl]) {
+      const bytes = await t.api(token, { method: 'GET', url });
+      expect(bytes.statusCode, url).toBe(200);
+      expect(bytes.headers['content-type']).toBe('image/webp');
+      expect(bytes.headers['cache-control']).toBe(
+        'private, max-age=31536000, immutable',
+      );
+      const refused = await t.api(strangerToken, { method: 'GET', url });
+      expectProblem(refused, 404, 'not_found');
+      expect(refused.headers['cache-control']).toBe('no-store');
+      expect(refused.body).not.toContain(fileName);
+    }
+
+    // A replacement keeps the selfie's id but is another photo: the old URL is gone.
+    expect((await upload(entry.id)).json<{ selfieId: number }>().selfieId).toBe(
+      selfieId,
+    );
+    expectProblem(
+      await t.api(token, { method: 'GET', url: originalUrl }),
+      404,
+      'not_found',
+    );
+    const replaced = await photoUrls();
+    expect(replaced.originalUrl).not.toBe(originalUrl);
+    expect(
+      (await t.api(token, { method: 'GET', url: replaced.thumbUrl }))
+        .statusCode,
+    ).toBe(200);
+
+    await api('DELETE', `/selfies/${selfieId}`);
+    expectProblem(
+      await t.api(token, { method: 'GET', url: replaced.originalUrl }),
+      404,
+      'not_found',
     );
   });
 

@@ -495,24 +495,3 @@ export const PieceFound = Type.Object(
   },
   { title: 'LookPieceFound' },
 );
-
-export const LookPhotoParams = Type.Object({
-  // Checked by the handler, as on the page: anything that is not one of
-  // your looks' photo names is the 404 of a missing photo.
-  fileName: Type.String({ maxLength: 64 }),
-});
-
-export const LookPhotoQuery = Type.Object({
-  variant: Type.Optional(
-    CloneType(literals(['original', 'thumb'] as const), {
-      description: 'The 1080 px original unless `thumb` (400 px)',
-    }),
-  ),
-  v: Type.Optional(
-    Type.Integer({
-      minimum: 1,
-      description:
-        "The photo's version, which its URL carries so it is cached for good",
-    }),
-  ),
-});

@@ -761,6 +761,12 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 **Decision:** a route marked `config: { apiPhotoBytes: true }` counts on `API_PHOTO_LIMIT` (600 a minute per token: a 50-item page twice a minute with headroom, and immutable bytes mean a caching client stays far below), picked by the API plugin's preHandler, never a path regex. Neither budget counts a 401. The refused photo's 404 is `no-store`, as the page's.
 **Consequence:** `servePrivatePhoto` plus this flag is the one way an API route serves private image bytes; #579 (selfies) reuses both.
 
+## 2026-11-13 — The API's selfie bytes are addressed by file name, not selfie id (#579)
+
+**Why:** replacing a selfie keeps its id but stores another photo, so an id-addressed URL served as immutable would hand a caching client the old bytes.
+**Decision:** `GET /api/v1/selfie-photos/{fileName}?variant=thumb&v=` (`servePrivatePhoto`, `apiPhotoBytes`), owner-only; a stranger, a grantee and a replaced or removed selfie get the same problem 404. A calendar entry carries `selfiePhoto { version, originalUrl, thumbUrl }` beside `selfieId`, so a client never builds the URL. The look and selfie byte routes share their schemas in `src/web/api/private-photo-bytes.ts`.
+**Consequence:** a new private image over the API is addressed by its stored file name, read from the resource, never by its row id.
+
 ## 2026-11-13 — The API's Today and weather: one day shape for MCP and the API, the location limits per route (#195a)
 
 **Why:** a native client needs Today, the forecast, the settings, the place search and a trip's destination; MCP's tools already map a forecast day and a typical day (`dayWeather`), and the page's `WEATHER_SEARCH_LIMIT`/`WEATHER_LOCATION_LIMIT` are route configs that read the session's user, so each page route counts on its own (`weather.spec.ts`: "Home counts on its own").

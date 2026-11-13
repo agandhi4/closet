@@ -6,10 +6,12 @@ import { MAX_PICKED } from '../gallery/pick';
 import { OUTFIT_NAME_MAX, outfitText } from '../outfits/queries';
 import {
   OutfitGarmentResource,
+  outfitNameNeedsGarments,
   outfitOrGarments,
   toOutfitGarment,
 } from '../outfits/outfit-resource';
 import { IsoDateSchema, RowId } from '../schemas';
+import { SelfiePhoto, toSelfiePhoto } from '../selfies/selfie-resource';
 import type { CalendarEntry } from './calendar-view';
 import { MAX_CALENDAR_DAYS, type ScheduleOutcome } from './queries';
 import type { Replaced, ReplacementChoice } from './replace';
@@ -37,6 +39,7 @@ export const CalendarEntryResource = Type.Object(
     selfieId: Type.Optional(
       Type.Integer({ description: 'The outfit selfie taken of it' }),
     ),
+    selfiePhoto: Type.Optional(SelfiePhoto),
     outfit: Type.Object(
       {
         id: Type.Integer(),
@@ -63,7 +66,10 @@ export function toCalendarEntryResource(
     occasion: entry.occasion,
     worn: entry.worn,
     plannedBy: entry.plannedBy,
-    ...(entry.selfie && { selfieId: entry.selfie.id }),
+    ...(entry.selfie && {
+      selfieId: entry.selfie.id,
+      selfiePhoto: toSelfiePhoto(entry.selfie.photo),
+    }),
     outfit: {
       id: entry.outfit.id,
       ...withoutNulls({ name: entry.outfit.name }),
@@ -183,16 +189,17 @@ export const EntryOutfitInput = Type.Object(
   },
 );
 
-/** The choice an EntryOutfitInput names; both or neither is a 400 `validation`. */
+/**
+ * The choice an EntryOutfitInput names. Each fault is a 400 `validation` at
+ * its own field: both or neither of `outfitId`/`garmentIds` at `outfitId`, a
+ * `name` beside `outfitId` alone at `name`.
+ */
 export function entryOutfitChoice(
   input: Static<typeof EntryOutfitInput>,
 ): ReplacementChoice {
   const { outfitId, garmentIds, name } = input;
-  if (
-    outfitId !== undefined &&
-    garmentIds === undefined &&
-    name === undefined
-  ) {
+  if (outfitId !== undefined && garmentIds === undefined) {
+    if (name !== undefined) throw outfitNameNeedsGarments();
     return { outfitId };
   }
   if (outfitId === undefined && garmentIds !== undefined) {

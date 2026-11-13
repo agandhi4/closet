@@ -312,3 +312,15 @@ export function outfitOrGarments(): HttpError {
     validation: [{ path: 'body/outfitId', message }],
   });
 }
+
+/**
+ * `name` sent with `outfitId` alone: a saved outfit keeps its own name, and a
+ * name only goes with `garmentIds`, which make a new outfit. Pointed at the
+ * field at fault, not at `outfitId`.
+ */
+export function outfitNameNeedsGarments(): HttpError {
+  const message = t('api.OUTFIT_NAME_NEEDS_GARMENTS');
+  return new HttpError(400, message, {
+    validation: [{ path: 'body/name', message }],
+  });
+}

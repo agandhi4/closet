@@ -2,6 +2,11 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { Type } from '@sinclair/typebox';
 import { todayIn } from '../../calendar-date';
 import { apiResponses } from '../api/contract';
+import {
+  PhotoBytes,
+  PrivatePhotoParams,
+  PrivatePhotoQuery,
+} from '../api/private-photo-bytes';
 import type { ApiOptions } from '../api/plugin';
 import { idCursor, readIdCursor } from '../api/resource';
 import { HttpError } from '../errors';
@@ -21,8 +26,6 @@ import {
   LookList,
   LookListQuery,
   LookParams,
-  LookPhotoParams,
-  LookPhotoQuery,
   LookPieceInput,
   LookPieceResource,
   LookPiecesInput,
@@ -69,15 +72,6 @@ const PIECE_PATH = `${LOOK_PATH}/pieces/:position`;
 
 const noContent = (description: string) => ({
   204: Type.Null({ description }),
-});
-
-/**
- * The photo's bytes, for the spec: Fastify never serializes a stream, and
- * every refusal is the problem (apiResponses).
- */
-const PhotoBytes = Type.Unsafe<unknown>({
-  description: 'The photo, WebP: `private, immutable` for a year',
-  content: { 'image/webp': { schema: { type: 'string', format: 'binary' } } },
 });
 
 /** A look's API URL: where its create answers it is. */
@@ -541,8 +535,8 @@ export const lookApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         summary: "A saved look's photo",
         description:
           "The URL a look's `photo` names: only yours, never a share's. Anything else (another's photo, a name that is none) is a 404 like a missing photo.",
-        params: LookPhotoParams,
-        querystring: LookPhotoQuery,
+        params: PrivatePhotoParams,
+        querystring: PrivatePhotoQuery,
         response: apiResponses({ 200: PhotoBytes }),
       },
     },
