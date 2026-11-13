@@ -42,16 +42,20 @@ export async function blockedBehind(
  * Resolves once at least `count` backends are blocked behind `holderPid`
  * (blockedBehind), so an unrelated wait (a bcrypt hash, a third writer's
  * lock) never ends it early. No deadline of its own: a wait that never ends
- * is the test's timeout. The one way to sequence a race on a lock
+ * is the test's timeout. Aborting `signal` ends the poll (it resolves, never
+ * rejects), checked before each query, so a caller that stops caring leaves
+ * no query running. The one way to sequence a race on a lock
  * (test/AGENTS.md).
  */
 export async function waitForBlockedOn(
   db: Queryable,
   holderPid: number,
   count = 1,
+  signal?: AbortSignal,
 ): Promise<void> {
-  while ((await blockedBehind(db, holderPid)) < count) {
-    await sleep(LOOK_EVERY_MS);
+  while (!signal?.aborted && (await blockedBehind(db, holderPid)) < count) {
+    // An abort wakes the sleep early; it resolves, never rejects.
+    await sleep(LOOK_EVERY_MS, undefined, { signal }).catch(() => undefined);
   }
 }
 
@@ -60,6 +64,9 @@ export async function waitForBlockedOn(
  * in a transaction held open once it has written, `second` starts and must
  * then wait on the first's lock (waitForBlockedOn), then `meanwhile` runs (a third write
  * committed while the second waits), then the first commits. Answers both.
+ * A second write that settles without ever waiting fails the call at once
+ * (no deadline: the race against it is what ends the wait), and the holder's
+ * transaction is always released.
  * A first writer that fails ends the wait at once instead of hanging.
  * Used by every spec that proves two writers take turns on a lock
  * (owner-lock, access-tokens, push-revocation and others: grep interleave).
@@ -84,11 +91,37 @@ export async function interleave<A, B>(
   });
   await Promise.race([written, a]);
   const b = second();
-  await waitForBlockedOn(db, holderPid);
+  // Settled before any backend blocked: the second write never queued behind
+  // the holder, so the race this helper exists to prove did not happen.
+  const secondSettled = b.then(
+    (value) => ({ value }),
+    (error: unknown) => ({ error }),
+  );
+  const stopPolling = new AbortController();
+  const polling = waitForBlockedOn(db, holderPid, 1, stopPolling.signal);
   try {
+    const outcome = await Promise.race([
+      polling.then(() => null),
+      secondSettled,
+    ]);
+    if (outcome) {
+      const result =
+        'error' in outcome
+          ? `rejected with ${String(outcome.error)}`
+          : `resolved with ${JSON.stringify(outcome.value)}`;
+      throw new Error(
+        `the second write never waited on the first's lock: lock ordering regressed? The second ${result}`,
+      );
+    }
     await meanwhile?.();
   } finally {
+    // The losing poll must end before the caller's pool can close.
+    stopPolling.abort();
+    await polling;
     release();
+    // The holder's transaction ends (and its connection returns to the pool)
+    // even when the wait failed; its own failure is not this call's to hide.
+    await a.catch(() => undefined);
   }
   return Promise.all([a, b]);
 }

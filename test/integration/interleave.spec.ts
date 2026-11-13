@@ -1,8 +1,14 @@
+import { sql } from 'drizzle-orm';
 import { Client } from 'pg';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { connectionOptions } from '../../src/db/client';
 import { createTestApp, type TestApp } from './harness';
-import { blockedBehind, waitForBlockedOn } from './interleave';
+import {
+  backendPid,
+  blockedBehind,
+  interleave,
+  waitForBlockedOn,
+} from './interleave';
 
 /**
  * The race helper waits for a block on the holder's own lock: a backend
@@ -68,4 +74,39 @@ it('counts only backends blocked behind the holder, not behind another lock', as
       [holder, other, waiter, second].map((c) => c.end().catch(() => {})),
     );
   }
+});
+
+it('fails fast when the second write takes no lock, and frees the holder', async () => {
+  let holderPid = 0;
+  await expect(
+    interleave(
+      t.db,
+      async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(9621003)`);
+        holderPid = await backendPid(tx);
+      },
+      () => Promise.resolve('no lock taken'),
+    ),
+  ).rejects.toThrow(
+    /the second write never waited on the first's lock: lock ordering regressed\?.*no lock taken/,
+  );
+  const { rows } = await t.db.execute<{ held: number }>(
+    sql`select count(*)::int as held from pg_stat_activity
+         where pid = ${holderPid}::int and state like 'idle in transaction%'`,
+  );
+  expect(rows[0].held).toBe(0);
+});
+
+it('an aborted wait resolves without running another query', async () => {
+  let queries = 0;
+  const counting = new Proxy(t.db, {
+    get(target, key, receiver) {
+      if (key === 'execute') queries += 1;
+      return Reflect.get(target, key, receiver) as unknown;
+    },
+  });
+  const stop = new AbortController();
+  stop.abort();
+  await waitForBlockedOn(counting, 0, 1, stop.signal);
+  expect(queries).toBe(0);
 });
