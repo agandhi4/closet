@@ -11,6 +11,7 @@ import { wardrobeApiRoutes } from '../wardrobe/api-routes';
 import { apiResponses, requireContract } from './contract';
 import spec from './openapi.json';
 import { createDeviceTokenHook, refuseQueryToken } from './token-auth';
+import { jsonApiValidator } from './validator';
 
 export type ApiOptions = WebOptions & SignInLimit;
 
@@ -42,6 +43,7 @@ const SPEC_BODY = JSON.stringify(spec);
  * root onRoute hook), so the cookie is never read, the same-origin check
  * lets a request without Origin through, and every error is problem+json.
  * In this scope, for every route:
+ *  - a JSON body is validated as sent, never coerced (jsonApiValidator);
  *  - registration refuses a route without its contract (requireContract);
  *  - onRequest: a token in the query string is a 400, then a device token,
  *    unless `config.public` (before the body is read);
@@ -56,6 +58,7 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
   const { db, apiLogger } = options;
   // Every route's 4xx and 5xx refer to it (apiResponses).
   app.addSchema(Problem);
+  app.setValidatorCompiler(jsonApiValidator(app));
   app.addHook('onRoute', requireContract);
   app.addHook('onRequest', refuseQueryToken);
   app.addHook('onRequest', createDeviceTokenHook({ db, logger: apiLogger }));

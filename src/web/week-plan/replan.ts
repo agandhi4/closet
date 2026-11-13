@@ -12,7 +12,8 @@ import {
   type Unwearable,
   unwearableOn,
 } from '../../wardrobe/week-planner';
-import { OwnerLockTimeout, ownerTransaction } from '../auth/queries';
+import { ownerTransaction } from '../auth/queries';
+import { OwnerLockTimeout } from '../errors';
 import { dayOfWeek, hourIn, type IsoDate, todayIn } from '../../calendar-date';
 import { DAY_NAMES, occasionLabel } from '../date-labels';
 import { ideaName } from '../gallery/ideas';

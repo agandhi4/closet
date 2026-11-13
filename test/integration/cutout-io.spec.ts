@@ -18,6 +18,7 @@ import {
   parseStoredName,
   variantFileName,
 } from '../../src/web/files/image-variant';
+import { lockOwnerQuery } from '../../src/web/auth/queries';
 import { removeGarment } from '../../src/web/wardrobe/writes';
 import {
   eventually,
@@ -313,10 +314,10 @@ describe('cutout writes outside the row lock', () => {
     SOAK_TIMEOUT_MS,
   );
 
-  // A garment deleted while a cutout swap holds its photo's row: the
-  // garment lock does not wait for the swap, only the file row's DELETE
-  // does, so the files to unlink must be what that DELETE returned, not a
-  // key read before it (which names the set the swap replaced).
+  // A garment deleted while a cutout swap holds its photo's row (and its
+  // owner's lock, #196a): the deletion waits for the swap, so the files to
+  // unlink must be what its DELETE returned, not a key read before it
+  // (which names the set the swap replaced).
   it("unlinks the set a swap committed while the photo's deletion waited", async () => {
     const garmentId = await createGarment(t, { name: 'Deleted mid-swap' });
     await uploadPhoto(t, garmentId, await jpegPhoto(1200, 800));
@@ -331,8 +332,11 @@ describe('cutout writes outside the row lock', () => {
     const swap = new Client(connectionOptions(t.database));
     await swap.connect();
     try {
-      // The swap, as writeCutout's transaction makes it, not yet committed.
+      // The swap, as writeCutout's transaction makes it, not yet committed:
+      // the owner's lock first (lockCutoutRow), then the row.
       await swap.query('begin');
+      const ownerLock = lockOwnerQuery(t.db, t.owner.id).toSQL();
+      await swap.query(ownerLock.sql, ownerLock.params);
       await swap.query(
         `update file set cutout_status = 'edited', version = version + 1, variant_key = $1 where file_name = $2`,
         [key, fileName],

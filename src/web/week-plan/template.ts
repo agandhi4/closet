@@ -1,6 +1,7 @@
 import { type Static, type TSchema, Type } from '@sinclair/typebox';
-import { eq, type SQL, sql } from 'drizzle-orm';
+import { and, eq, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
+import { lockedOwnerId, ownerLockCte, ownerLocked } from '../../db/owner-lock';
 import { weekTemplate } from '../../db/schema';
 import { selectScalars } from '../../db/select-scalars';
 import {
@@ -71,11 +72,20 @@ export function saveWeekTemplate(
   slots: readonly TemplateSlot[],
 ): Promise<number> {
   return db.transaction(async (tx) => {
-    await tx.delete(weekTemplate).where(eq(weekTemplate.userId, userId));
+    // Both statements take the owner lock (src/db/owner-lock.ts): the
+    // delete's runs only once it scans, the insert's re-takes it, held.
+    const lock = ownerLockCte(tx, userId);
+    await tx
+      .with(lock)
+      .delete(weekTemplate)
+      .where(and(eq(weekTemplate.userId, userId), ownerLocked(tx, lock)));
     if (slots.length > 0) {
       await tx
+        .with(lock)
         .insert(weekTemplate)
-        .values(slots.map((slot) => ({ userId, ...slot })));
+        .values(
+          slots.map((slot) => ({ userId: lockedOwnerId(lock), ...slot })),
+        );
     }
     return slots.length;
   });

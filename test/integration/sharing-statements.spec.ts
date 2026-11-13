@@ -19,6 +19,7 @@ import {
   type TestApp,
   unescapeHtml,
   userIdOf,
+  asFixture,
 } from './harness';
 
 /**
@@ -297,16 +298,20 @@ describe('sharing: statements per request', () => {
       .select({ id: capsule.id })
       .from(capsule)
       .where(eq(capsule.ownerId, owner.id));
-    await t.db
-      .insert(capsuleGarment)
-      .values(
-        ids.map((garmentId) => ({ capsuleId: capsuleRow.id, garmentId })),
-      );
+    await asFixture(t.db, (tx) =>
+      tx
+        .insert(capsuleGarment)
+        .values(
+          ids.map((garmentId) => ({ capsuleId: capsuleRow.id, garmentId })),
+        ),
+    );
     // An archived member keeps its membership and leaves the card.
-    await t.db
-      .update(garment)
-      .set({ status: 'archived' })
-      .where(eq(garment.id, ids[4]));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(garment)
+        .set({ status: 'archived' })
+        .where(eq(garment.id, ids[4])),
+    );
 
     const list = readCapsuleList(
       await selectScalars(t.db, capsuleListSql(owner.id)),

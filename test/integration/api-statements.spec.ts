@@ -1,3 +1,4 @@
+import type { InjectOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { deviceToken, SIGN_IN_URL, signInDevice } from './api';
 import { createGarment } from './garments';
@@ -138,6 +139,162 @@ describe('API statements per route', () => {
         status: 200,
         statements: 3,
       });
+    });
+  });
+
+  describe('the garment writes: what their page twins cost (#192b)', () => {
+    let token: string;
+
+    beforeAll(async () => {
+      token = (await deviceToken(t)).token;
+    });
+
+    /**
+     * Each write's page twin and its API request, each on a garment of its
+     * own, and how many statements the API pays beyond the page: PATCH
+     * reads the garment it merges into (the form's save posts every field
+     * and reads nothing); the tagging card's answer reads the garment
+     * again, which the API's does not.
+     */
+    const CASES: {
+      name: string;
+      extra: number;
+      ok: [page: number, api: number];
+      page: (id: number) => InjectOptions;
+      api: (id: number) => InjectOptions;
+    }[] = [
+      {
+        name: 'POST /garments (POST /wardrobe)',
+        extra: 0,
+        ok: [302, 201],
+        page: () => ({
+          method: 'POST',
+          url: '/wardrobe',
+          payload: { name: 'Counted', category: 'tops' },
+        }),
+        api: () => ({
+          method: 'POST',
+          url: '/api/v1/garments',
+          payload: { name: 'Counted', category: 'tops' },
+        }),
+      },
+      {
+        name: 'PATCH /garments/{id} (POST /wardrobe/:id)',
+        extra: 1,
+        ok: [302, 200],
+        page: (id) => ({
+          method: 'POST',
+          url: `/wardrobe/${id}`,
+          payload: { name: 'Renamed', category: 'tops' },
+        }),
+        api: (id) => ({
+          method: 'PATCH',
+          url: `/api/v1/garments/${id}`,
+          payload: { name: 'Renamed' },
+        }),
+      },
+      {
+        name: 'DELETE /garments/{id} (DELETE /wardrobe/:id)',
+        extra: 0,
+        ok: [200, 204],
+        page: (id) => ({ method: 'DELETE', url: `/wardrobe/${id}` }),
+        api: (id) => ({ method: 'DELETE', url: `/api/v1/garments/${id}` }),
+      },
+      {
+        name: 'PUT /garments/{id}/status (POST /wardrobe/:id/archive)',
+        extra: 0,
+        ok: [200, 200],
+        page: (id) => ({ method: 'POST', url: `/wardrobe/${id}/archive` }),
+        api: (id) => ({
+          method: 'PUT',
+          url: `/api/v1/garments/${id}/status`,
+          payload: { status: 'archived' },
+        }),
+      },
+      {
+        name: 'PUT /garments/{id}/condition (POST /wardrobe/:id/condition)',
+        extra: 0,
+        ok: [303, 200],
+        page: (id) => ({
+          method: 'POST',
+          url: `/wardrobe/${id}/condition`,
+          payload: { condition: 'needs_repair' },
+        }),
+        api: (id) => ({
+          method: 'PUT',
+          url: `/api/v1/garments/${id}/condition`,
+          payload: { condition: 'needs_repair' },
+        }),
+      },
+      {
+        name: 'POST /garments/{id}/clones (POST /wardrobe/:id/clone)',
+        extra: 0,
+        ok: [302, 201],
+        page: (id) => ({
+          method: 'POST',
+          url: `/wardrobe/${id}/clone`,
+          payload: { name: 'Twin', category: 'tops' },
+        }),
+        api: (id) => ({
+          method: 'POST',
+          url: `/api/v1/garments/${id}/clones`,
+          payload: { name: 'Twin' },
+        }),
+      },
+      {
+        name: 'POST /garments/{id}/copies (POST /wardrobe/:id/copies)',
+        extra: 0,
+        ok: [303, 200],
+        page: (id) => ({ method: 'POST', url: `/wardrobe/${id}/copies` }),
+        api: (id) => ({
+          method: 'POST',
+          url: `/api/v1/garments/${id}/copies`,
+          payload: { copies: 1 },
+        }),
+      },
+      {
+        name: 'PATCH /garments/{id}/tags (POST /wardrobe/:id/tag)',
+        extra: -1,
+        ok: [200, 200],
+        page: (id) => ({
+          method: 'POST',
+          url: `/wardrobe/${id}/tag`,
+          payload: { warmth: '3' },
+        }),
+        api: (id) => ({
+          method: 'PATCH',
+          url: `/api/v1/garments/${id}/tags`,
+          payload: { warmth: 3 },
+        }),
+      },
+      {
+        name: 'PATCH /garments (POST /wardrobe/bulk)',
+        extra: 0,
+        ok: [303, 200],
+        page: (id) => ({
+          method: 'POST',
+          url: '/wardrobe/bulk',
+          payload: { ids: [id], property: 'warmth', warmth: '4' },
+        }),
+        api: (id) => ({
+          method: 'PATCH',
+          url: '/api/v1/garments',
+          payload: { ids: [id], property: 'warmth', value: 4 },
+        }),
+      },
+    ];
+
+    it.each(CASES)('$name', async ({ extra, ok, page, api }) => {
+      const [pageId, apiId] = [
+        await createGarment(t, { name: 'Counted', category: 'tops' }),
+        await createGarment(t, { name: 'Counted', category: 'tops' }),
+      ];
+      const pageRun = await statementsOf(() => t.inject(page(pageId)));
+      // A second call of the minute: no last-use write.
+      await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      const apiRun = await statementsOf(() => t.api(token, api(apiId)));
+      expect([pageRun.status, apiRun.status]).toEqual(ok);
+      expect(apiRun.statements).toBe(pageRun.statements + extra);
     });
   });
 

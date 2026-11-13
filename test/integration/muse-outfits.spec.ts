@@ -13,6 +13,7 @@ import {
   recordQueries,
   type TestApp,
   unescapeHtml,
+  asFixture,
 } from './harness';
 import { createAccessToken, tool } from './mcp';
 
@@ -58,17 +59,19 @@ describe('Muse’s outfits (#335)', () => {
     const id = Number(
       /^\/outfits\/(\d+)$/.exec(String(res.headers.location))![1],
     );
-    await t.db
-      .update(outfit)
-      .set({
-        proposedAt: at,
-        proposedByTokenId: tokenId,
-        proposalNote: `Why ${name}`,
-        reaction,
-        ownerNote: reaction === 'revise' ? 'Warmer, please' : null,
-        dismissedReason: reaction === 'declined' ? 'colour' : null,
-      })
-      .where(eq(outfit.id, id));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(outfit)
+        .set({
+          proposedAt: at,
+          proposedByTokenId: tokenId,
+          proposalNote: `Why ${name}`,
+          reaction,
+          ownerNote: reaction === 'revise' ? 'Warmer, please' : null,
+          dismissedReason: reaction === 'declined' ? 'colour' : null,
+        })
+        .where(eq(outfit.id, id)),
+    );
     return id;
   };
 
@@ -204,10 +207,12 @@ describe('Muse’s outfits (#335)', () => {
         cardigan,
         jeans,
       ]);
-      await t.db
-        .update(garment)
-        .set({ dismissedAt: new Date(), dismissedReason: 'colour' })
-        .where(eq(garment.id, cardigan));
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(garment)
+          .set({ dismissedAt: new Date(), dismissedReason: 'colour' })
+          .where(eq(garment.id, cardigan)),
+      );
       const html = await tab();
       expect(primaryOf(html, complete)).toBe('save');
       expect(primaryOf(html, loved)).toBe('choose');
@@ -574,10 +579,12 @@ describe('Muse’s outfits (#335)', () => {
       category: 'outerwear',
     });
     const id = await proposed('Archived piece', [parka, tee, await belt()]);
-    await t.db
-      .update(garment)
-      .set({ status: 'archived' })
-      .where(eq(garment.id, parka));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(garment)
+        .set({ status: 'archived' })
+        .where(eq(garment.id, parka)),
+    );
     const card = cardOf(await tab(), id)!;
     expect(card).toMatch(
       new RegExp(
@@ -625,14 +632,16 @@ describe('the generator’s memory keeps Muse’s proposals (#335)', () => {
     const id = Number(
       /^\/outfits\/(\d+)$/.exec(String(res.headers.location))![1],
     );
-    await t.db
-      .update(outfit)
-      .set({
-        proposedAt: new Date(),
-        reaction: 'declined',
-        dismissedReason: 'style',
-      })
-      .where(eq(outfit.id, id));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(outfit)
+        .set({
+          proposedAt: new Date(),
+          reaction: 'declined',
+          dismissedReason: 'style',
+        })
+        .where(eq(outfit.id, id)),
+    );
     expect(await ideas()).not.toContain('Canvas shoes');
   });
 });

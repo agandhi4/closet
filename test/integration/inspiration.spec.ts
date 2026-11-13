@@ -29,6 +29,7 @@ import {
   type TestApp,
   unescapeHtml,
   userIdOf,
+  asFixture,
 } from './harness';
 import { interleave } from './interleave';
 import { addLook, lookIdOf, lookPhotoName, postLookPhoto } from './inspiration';
@@ -522,10 +523,12 @@ describe('inspiration', () => {
   it('is never an orphan to storage reconciliation', async () => {
     const { id, fileName } = await addLook(t, photo);
     const then = new Date(Date.now() - 3 * DAY_MS);
-    await t.db
-      .update(file)
-      .set({ createdOn: then.toISOString() })
-      .where(eq(file.fileName, fileName));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(file)
+        .set({ createdOn: then.toISOString() })
+        .where(eq(file.fileName, fileName)),
+    );
     await utimes(join(t.dataPath, fileName), then, then);
 
     const report = await reconcileStorage({

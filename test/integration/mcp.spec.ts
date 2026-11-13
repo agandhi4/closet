@@ -24,6 +24,7 @@ import {
   TEST_PASSWORD,
   uniqueClient,
   userIdOf,
+  asFixture,
 } from './harness';
 import { interleave } from './interleave';
 import {
@@ -509,16 +510,18 @@ describe('the MCP endpoint', () => {
       });
       // What a save most easily wipes: the weight (the form shows ounces),
       // the materials, the condition's note, a bought item's replaced garment.
-      await t.db
-        .update(garment)
-        .set({
-          fabricWeight: 203,
-          materials: ['linen'],
-          condition: 'needs_repair',
-          conditionNote: 'Frayed cuff',
-          replacesGarmentId: garments.tee.id,
-        })
-        .where(eq(garment.id, id));
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(garment)
+          .set({
+            fabricWeight: 203,
+            materials: ['linen'],
+            condition: 'needs_repair',
+            conditionNote: 'Frayed cuff',
+            replacesGarmentId: garments.tee.id,
+          })
+          .where(eq(garment.id, id)),
+      );
       const row = async () => {
         const [stored] = await t.db
           .select({
@@ -1176,10 +1179,12 @@ describe('the MCP endpoint', () => {
     it('MANAGE writes the garments but not the wears', async () => {
       // The wash limit is the owner's record (FormAudience): a grantee's
       // save through the form's reader leaves it as stored.
-      await t.db
-        .update(garment)
-        .set({ washAfterWears: 5 })
-        .where(eq(garment.id, garments.jeans.id));
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(garment)
+          .set({ washAfterWears: 5 })
+          .where(eq(garment.id, garments.jeans.id)),
+      );
       await tool(t, manager.token, 'update_garment', {
         id: garments.jeans.id,
         ownerId: t.owner.id,

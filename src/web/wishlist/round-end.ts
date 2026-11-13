@@ -1,6 +1,6 @@
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
-import { OwnerLockTimeout } from '../auth/queries';
+import { OwnerLockTimeout } from '../errors';
 import { t } from '../i18n';
 import type { DeviceMessage, PushSender } from '../push/sender';
 import { roundReviewPath, roundWhat } from './round-text';

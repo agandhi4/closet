@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, isNotNull, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
+import { lockedOwnerId, ownerLockCte, ownerLocked } from '../../db/owner-lock';
 import {
   outfit,
   outfitCalendar,
@@ -201,9 +202,11 @@ export async function createTrip(
   ownerId: number,
   fields: TripFields,
 ): Promise<number> {
+  const lock = ownerLockCte(db, ownerId);
   const [row] = await db
+    .with(lock)
     .insert(trip)
-    .values({ ownerId, ...fields })
+    .values({ ownerId: lockedOwnerId(lock), ...fields })
     .returning({ id: trip.id });
   return row.id;
 }
@@ -232,11 +235,13 @@ export function updateTrip(
   fields: TripFields,
 ): Promise<{ undated: number; locationCleared: boolean } | 'not-found'> {
   return db.transaction(async (tx) => {
+    const lock = ownerLockCte(tx, ownerId);
     const [current] = await tx
+      .with(lock)
       .select({ destination: trip.destination })
       .from(trip)
-      .where(ownsTripWhere(id, ownerId))
-      .for('update');
+      .where(and(ownsTripWhere(id, ownerId), ownerLocked(tx, lock)))
+      .for('update', { of: trip });
     if (!current) return 'not-found';
     const locationCleared = current.destination !== fields.destination;
     const { startsOn, endsOn } = fields;
@@ -284,14 +289,16 @@ export async function setTripDestination(
   ownerId: number,
   place: { name: string; location: Location },
 ): Promise<boolean> {
+  const lock = ownerLockCte(db, ownerId);
   const updated = await db
+    .with(lock)
     .update(trip)
     .set({
       destination: place.name,
       latitude: place.location.latitude,
       longitude: place.location.longitude,
     })
-    .where(ownsTripWhere(id, ownerId))
+    .where(and(ownsTripWhere(id, ownerId), ownerLocked(db, lock)))
     .returning({ id: trip.id });
   return updated.length > 0;
 }
@@ -302,9 +309,11 @@ export async function deleteTrip(
   id: number,
   ownerId: number,
 ): Promise<boolean> {
+  const lock = ownerLockCte(db, ownerId);
   const deleted = await db
+    .with(lock)
     .delete(trip)
-    .where(ownsTripWhere(id, ownerId))
+    .where(and(ownsTripWhere(id, ownerId), ownerLocked(db, lock)))
     .returning({ id: trip.id });
   return deleted.length > 0;
 }
@@ -407,9 +416,9 @@ function notATripDay(trip: {
  * snapshot may still hold one deleted meanwhile: a row locked after a wait
  * is read again, so a deleted outfit drops out and the answer is
  * 'no-outfit', never the foreign key's 500. `exists (select 1 from
- * locked)` is a one-time filter that takes the trip lock before the
- * outfit's, the order every trip write keeps (deleteOutfit locks the
- * outfit and never a trip, so they cannot deadlock).
+ * locked)` is a one-time filter that takes the owner's and the trip's
+ * locks before the outfit's, the order every trip write keeps (deleteOutfit
+ * takes the owner's lock first too, so the two take turns on it).
  */
 export function addTripOutfit(
   db: Queryable,
@@ -421,7 +430,7 @@ export function addTripOutfit(
       endsOn: IsoDate;
       owned: boolean;
     }>(sql`
-      with ${lockedTripCte(input.tripId, input.ownerId)},
+      with ${lockedTripCte(tx, input.tripId, input.ownerId)},
       owned as (
         select ${outfit.id} as id from ${outfit}
         where ${and(eq(outfit.id, input.outfitId), eq(outfit.ownerId, input.ownerId))}
@@ -463,8 +472,9 @@ export function addTripOutfit(
  * The gallery's pick for a trip (`?for=trip:ID[:day]`) and plan_trip_outfit
  * with garments: the idea becomes an outfit, once (pickIdea: reused when the
  * owner has one of exactly these garments), and goes on the trip, in one
- * transaction under the trip's lock (taken before pickIdea's owner lock,
- * the order every trip write keeps). 'not-found' when a garment is not in
+ * transaction under the owner's lock and then the trip's (lockTrip takes
+ * both, the order every trip write keeps; pickIdea's owner lock is then
+ * held already). 'not-found' when a garment is not in
  * the owner's closet; nothing is written on any refusal.
  */
 export function pickForTrip(
@@ -505,7 +515,7 @@ export function removeTripOutfit(
 ): Promise<{ outfitId: number; unpacked: number } | 'not-found'> {
   return db.transaction(async (tx) => {
     const { rows } = await tx.execute<{ outfitId: number }>(sql`
-      with ${lockedTripCte(input.tripId, input.ownerId)}
+      with ${lockedTripCte(tx, input.tripId, input.ownerId)}
       delete from ${tripOutfit}
       where ${and(
         eq(tripOutfit.id, input.tripOutfitId),
@@ -693,7 +703,7 @@ export async function addTripItems(
     sql`, `,
   )}]::text[]) with ordinality`;
   const { rows } = await db.execute<{ found: boolean; added: number }>(sql`
-    with ${lockedTripCte(tripId, ownerId)}, ${addedItemsCte(list)}
+    with ${lockedTripCte(db, tripId, ownerId)}, ${addedItemsCte(list)}
     select exists (select 1 from locked) as found,
       (select count(*)::int from added) as added`);
   const [{ found, added }] = rows;
@@ -719,7 +729,7 @@ export async function copyTripItems(
     and ${fromTripId}::int <> ${toTripId}::int
   )`;
   const { rows } = await db.execute<{ found: boolean; added: number }>(sql`
-    with ${lockedTripCte(toTripId, ownerId)}, ${addedItemsCte(from)}
+    with ${lockedTripCte(db, toTripId, ownerId)}, ${addedItemsCte(from)}
     select exists (select 1 from locked)
         and ${ownsTrip(fromTripId, ownerId)}
         and ${fromTripId}::int <> ${toTripId}::int as found,
@@ -756,7 +766,7 @@ export async function setItemsPacked(
     unpacked: number;
     items: TripItemRow[];
   }>(sql`
-    with ${lockedTripCte(tripId, input.ownerId)},
+    with ${lockedTripCte(db, tripId, input.ownerId)},
     changed as (
       update ${tripItem} set packed = not (${tripItem.id} = any(${unpacked}))
       where ${tripItem.tripId} = ${tripId} and exists (select 1 from locked)
@@ -788,13 +798,16 @@ export async function removeTripItem(
   db: Db,
   input: { tripId: number; itemId: number; ownerId: number },
 ): Promise<boolean> {
+  const lock = ownerLockCte(db, input.ownerId);
   const removed = await db
+    .with(lock)
     .delete(tripItem)
     .where(
       and(
         eq(tripItem.id, input.itemId),
         eq(tripItem.tripId, input.tripId),
         sql`exists (select 1 from ${trip} where ${trip.id} = ${tripItem.tripId} and ${trip.ownerId} = ${input.ownerId})`,
+        ownerLocked(db, lock),
       ),
     )
     .returning({ id: tripItem.id });

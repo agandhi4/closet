@@ -28,6 +28,7 @@ import {
   recordQueries,
   type TestApp,
   unescapeHtml,
+  asFixture,
 } from './harness';
 import { callTool, createAccessToken, mcpRequest, tool } from './mcp';
 import { expectFragment, expectFullPage, HX_FRAGMENT } from './pages';
@@ -616,10 +617,12 @@ describe('weather', () => {
           name: 'Parka',
           category: 'outerwear',
         });
-        await t.db
-          .update(garment)
-          .set({ warmth: 5 })
-          .where(inArray(garment.id, [jumper, parka]));
+        await asFixture(t.db, (tx) =>
+          tx
+            .update(garment)
+            .set({ warmth: 5 })
+            .where(inArray(garment.id, [jumper, parka])),
+        );
         viewer = await t.register('viewer-fit@example.com');
         stranger = await t.register('stranger-fit@example.com');
         const invite = await t.inject({

@@ -41,6 +41,7 @@ import {
   TestApp,
   type TestAppOptions,
   userIdOf,
+  asFixture,
 } from './harness';
 import { jpeg, type LinkSites, startLinkSites } from './link-sites';
 import { deviceToken } from './api';
@@ -682,15 +683,17 @@ export function describeMatrix(
           /^\/outfits\/(\d+)$/.exec(made.headers.location as string)?.[1],
         );
         expect(id, made.body).toBeGreaterThan(0);
-        await t.db
-          .update(outfitTable)
-          .set({
-            proposedAt: new Date(),
-            proposalNote: 'Why this',
-            reaction,
-            dismissedReason: reaction === 'declined' ? 'style' : null,
-          })
-          .where(eq(outfitTable.id, id));
+        await asFixture(t.db, (tx) =>
+          tx
+            .update(outfitTable)
+            .set({
+              proposedAt: new Date(),
+              proposalNote: 'Why this',
+              reaction,
+              dismissedReason: reaction === 'declined' ? 'style' : null,
+            })
+            .where(eq(outfitTable.id, id)),
+        );
         return id;
       };
       // Garment sets of their own: a save of a set already saved reuses it.
@@ -831,10 +834,12 @@ export function describeMatrix(
         .select({ id: orderItem.id })
         .from(orderItem)
         .where(eq(orderItem.name, orderItemName));
-      const [{ id: weekPlanId }] = await t.db
-        .insert(weekPlan)
-        .values({ ownerId: t.owner.id })
-        .returning({ id: weekPlan.id });
+      const [{ id: weekPlanId }] = await asFixture(t.db, (tx) =>
+        tx
+          .insert(weekPlan)
+          .values({ ownerId: t.owner.id })
+          .returning({ id: weekPlan.id }),
+      );
       const inviteToken = await createInviteLink('VIEW');
       const [{ id: inviteShareId }] = await t.db
         .select({ id: wardrobeShare.id })

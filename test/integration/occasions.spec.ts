@@ -10,6 +10,7 @@ import {
   recordQueries,
   type TestApp,
   unescapeHtml,
+  asFixture,
 } from './harness';
 import { expectFullPage, expectNativePostForms } from './pages';
 
@@ -158,9 +159,11 @@ describe('occasions', () => {
       const outfit = await newOutfit('Constraint');
       // Raw SQL: the column's type already refuses it in TypeScript.
       await expect(
-        t.db.execute(
-          sql`insert into outfit_calendar (owner_id, outfit_id, day, occasion)
+        asFixture(t.db, (tx) =>
+          tx.execute(
+            sql`insert into outfit_calendar (owner_id, outfit_id, day, occasion)
               values (${t.owner.id}, ${outfit}, '2030-11-07', 'brunch')`,
+          ),
         ),
       ).rejects.toMatchObject({
         cause: { code: '23514', constraint: 'outfit_calendar_occasion_check' },

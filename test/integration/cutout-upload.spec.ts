@@ -18,6 +18,7 @@ import {
   multipart,
   type TestApp,
   unescapeHtml,
+  asFixture,
 } from './harness';
 import {
   expectFragment,
@@ -290,10 +291,12 @@ describe('cutouts: upload, page and polling', () => {
     const id = await createGarment(t, { name: 'Legacy shirt' });
     await uploadPhoto(t, id, await jpegPhoto());
     const fileName = await photoFileName(t, id);
-    await t.db
-      .update(file)
-      .set({ cutoutStatus: 'none', cutoutRequestedAt: null })
-      .where(eq(file.fileName, fileName));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(file)
+        .set({ cutoutStatus: 'none', cutoutRequestedAt: null })
+        .where(eq(file.fileName, fileName)),
+    );
 
     const html = unescapeHtml((await page(id)).body);
     expect(html).toContain('<div id="garment-photo">');

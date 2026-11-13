@@ -2,6 +2,7 @@ import { and, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { initialCutoutState } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
+import { ownerLockCte, ownerLocked } from '../../db/owner-lock';
 import { file, selfie } from '../../db/schema';
 import { ownerTransaction } from '../auth/queries';
 import type { IsoDate } from '../../calendar-date';
@@ -127,15 +128,20 @@ export async function deleteSelfie(
   selfieId: number,
   ownerId: number,
 ): Promise<string | undefined> {
+  const lock = ownerLockCte(q, ownerId);
   const [deleted] = await q
+    .with(lock)
     .delete(file)
     .where(
-      inArray(
-        file.id,
-        q
-          .select({ id: selfie.photoId })
-          .from(selfie)
-          .where(and(eq(selfie.id, selfieId), eq(selfie.ownerId, ownerId))),
+      and(
+        inArray(
+          file.id,
+          q
+            .select({ id: selfie.photoId })
+            .from(selfie)
+            .where(and(eq(selfie.id, selfieId), eq(selfie.ownerId, ownerId))),
+        ),
+        ownerLocked(q, lock),
       ),
     )
     .returning({ fileName: file.fileName });

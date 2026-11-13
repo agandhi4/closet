@@ -1,6 +1,12 @@
 import { and, eq, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
 import {
+  OWNER_LOCKED,
+  ownerLockCte,
+  ownerLocked,
+  ownerLockSql,
+} from '../../db/owner-lock';
+import {
   garment,
   outfitSlot,
   trip,
@@ -33,9 +39,10 @@ export function listGarmentIdsSql(tripId: number): SQL {
 }
 
 /**
- * lockTrip as the first CTE of a trip write that is one statement:
- * `locked`, one row (id, starts_on, ends_on) when the trip is the owner's,
- * locked like lockTrip. Every write of the statement reads it (joins it, or
+ * lockTrip as the first CTEs of a trip write that is one statement: the
+ * owner lock (`owner_lock`, src/db/owner-lock.ts), then `locked`, one row
+ * (id, starts_on, ends_on) when the trip is the owner's, locked like
+ * lockTrip: the owner's lock first, as every synced write takes it. Every write of the statement reads it (joins it, or
  * asks `exists (select 1 from locked)`, uncorrelated, which Postgres
  * evaluates once before scanning), so the trip's lock comes before any row
  * the statement changes, the order every trip write keeps. A statement is
@@ -52,11 +59,16 @@ export function listGarmentIdsSql(tripId: number): SQL {
  * writes and removeTripOutfit's prune judge the trip's outfits, so they
  * run in a statement after the one that locks, in its transaction.
  */
-export function lockedTripCte(tripId: number, ownerId: number): SQL {
-  return sql`locked as (
+export function lockedTripCte(
+  db: Queryable,
+  tripId: number,
+  ownerId: number,
+): SQL {
+  return sql`${ownerLockSql(db, ownerId)},
+  locked as (
     select ${trip.id} as id, ${trip.startsOn} as starts_on, ${trip.endsOn} as ends_on
     from ${trip}
-    where ${and(eq(trip.id, tripId), eq(trip.ownerId, ownerId))}
+    where ${and(eq(trip.id, tripId), eq(trip.ownerId, ownerId))} and ${OWNER_LOCKED}
     for no key update
   )`;
 }
@@ -102,21 +114,35 @@ export async function tripsOfOutfit(
 }
 
 /**
- * Locks the owner's trip for a write (FOR NO KEY UPDATE: the trip's writers
- * take turns, and rows referencing it may still be inserted by the one
- * holding the lock); undefined when it is not theirs.
+ * Locks the owner, then the owner's trip, for a write, in one statement
+ * (FOR NO KEY UPDATE: the trip's writers take turns, and rows referencing
+ * it may still be inserted by the one holding the lock); undefined when it
+ * is not theirs.
  */
 export async function lockTrip(
   tx: Queryable,
   tripId: number,
   ownerId: number,
 ): Promise<{ startsOn: string; endsOn: string } | undefined> {
-  const [row] = await tx
+  const [row] = await lockTripQuery(tx, tripId, ownerId);
+  return row;
+}
+
+/** lockTrip's statement, exported for owner-lock.spec.ts, which EXPLAINs it. */
+export function lockTripQuery(tx: Queryable, tripId: number, ownerId: number) {
+  const lock = ownerLockCte(tx, ownerId);
+  return tx
+    .with(lock)
     .select({ startsOn: trip.startsOn, endsOn: trip.endsOn })
     .from(trip)
-    .where(and(eq(trip.id, tripId), eq(trip.ownerId, ownerId)))
-    .for('no key update');
-  return row;
+    .where(
+      and(
+        eq(trip.id, tripId),
+        eq(trip.ownerId, ownerId),
+        ownerLocked(tx, lock),
+      ),
+    )
+    .for('no key update', { of: trip });
 }
 
 export interface PackedChange {
@@ -153,7 +179,7 @@ export async function setPacked(
     packed: number;
     unpacked: number;
   }>(sql`
-    with ${lockedTripCte(tripId, input.ownerId)},
+    with ${lockedTripCte(db, tripId, input.ownerId)},
     pruned as (
       delete from ${tripGarmentPacked}
       where ${tripGarmentPacked.tripId} = ${tripId} and ${locked} and not ${onList}

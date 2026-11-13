@@ -1,5 +1,6 @@
 import { and, asc, eq, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
+import { lockedOwnerId, ownerLockCte, ownerLocked } from '../../db/owner-lock';
 import { isUniqueViolation } from '../../db/errors';
 import { selectScalars } from '../../db/select-scalars';
 import {
@@ -85,9 +86,11 @@ export async function saveMeasurements(
   lengths: Measurements,
 ): Promise<void> {
   const values = lengthColumns(lengths);
+  const lock = ownerLockCte(db, userId);
   await db
+    .with(lock)
     .insert(bodyMeasurements)
-    .values({ userId, ...values })
+    .values({ userId: lockedOwnerId(lock), ...values })
     .onConflictDoUpdate({
       target: bodyMeasurements.userId,
       set: { ...values, updatedAt: sql`now()` },
@@ -100,9 +103,11 @@ export async function setLengthUnit(
   userId: number,
   unit: LengthUnit,
 ): Promise<void> {
+  const lock = ownerLockCte(db, userId);
   await db
+    .with(lock)
     .insert(bodyMeasurements)
-    .values({ userId, unit })
+    .values({ userId: lockedOwnerId(lock), unit })
     .onConflictDoUpdate({
       target: bodyMeasurements.userId,
       set: { unit, updatedAt: sql`now()` },
@@ -219,9 +224,15 @@ export async function addBrandSize(
 ): Promise<number | BrandTaken> {
   try {
     return await db.transaction(async (tx) => {
+      const lock = ownerLockCte(tx, userId);
       const [row] = await tx
+        .with(lock)
         .insert(brandSize)
-        .values({ userId, ...fields, brandKey: brandKey(fields.brand) })
+        .values({
+          userId: lockedOwnerId(lock),
+          ...fields,
+          brandKey: brandKey(fields.brand),
+        })
         .returning({ id: brandSize.id });
       return row.id;
     });
@@ -244,10 +255,18 @@ export async function updateBrandSize(
 ): Promise<'updated' | BrandTaken> {
   let updated: { id: number }[];
   try {
+    const lock = ownerLockCte(db, actor.userId);
     updated = await db
+      .with(lock)
       .update(brandSize)
       .set({ ...fields, brandKey: brandKey(fields.brand) })
-      .where(and(eq(brandSize.id, id), eq(brandSize.userId, actor.userId)))
+      .where(
+        and(
+          eq(brandSize.id, id),
+          eq(brandSize.userId, actor.userId),
+          ownerLocked(db, lock),
+        ),
+      )
       .returning({ id: brandSize.id });
   } catch (error) {
     if (isUniqueViolation(error, BRAND_SIZE_UNIQUE)) return 'brand-taken';
@@ -263,9 +282,17 @@ export async function deleteBrandSize(
   actor: Actor,
   id: number,
 ): Promise<string> {
+  const lock = ownerLockCte(db, actor.userId);
   const [row] = await db
+    .with(lock)
     .delete(brandSize)
-    .where(and(eq(brandSize.id, id), eq(brandSize.userId, actor.userId)))
+    .where(
+      and(
+        eq(brandSize.id, id),
+        eq(brandSize.userId, actor.userId),
+        ownerLocked(db, lock),
+      ),
+    )
     .returning({ brand: brandSize.brand });
   if (!row) throw brandNotFound(actor, id);
   return row.brand;

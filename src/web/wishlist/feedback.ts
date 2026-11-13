@@ -14,7 +14,7 @@ import type {
   DismissReason,
   OutfitDismissReason,
 } from '../../wardrobe/suggestions';
-import { OWNER_LOCK_TIMEOUT_MS } from '../auth/queries';
+import { OWNER_LOCK_TIMEOUT_MS } from '../../db/owner-lock';
 
 /**
  * What the owner decided about the agent's work since the agent last

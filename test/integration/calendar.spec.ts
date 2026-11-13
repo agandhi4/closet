@@ -12,6 +12,7 @@ import {
   shownMarkup,
   TestApp,
   unescapeHtml,
+  asFixture,
 } from './harness';
 import { dayColumns, planButtonLabel } from './calendar-page';
 import { expectFullPage } from './pages';
@@ -516,10 +517,12 @@ describe('calendar', () => {
         }),
       });
       const first = await schedule(pictured, '2029-03-14');
-      await t.db
-        .update(outfitCalendar)
-        .set({ wornAt: new Date() })
-        .where(eq(outfitCalendar.id, first));
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(outfitCalendar)
+          .set({ wornAt: new Date() })
+          .where(eq(outfitCalendar.id, first)),
+      );
 
       const html = await monthPage('?month=2029-03');
       const cell = /<a[^>]*data-month-day="2029-03-14"[\s\S]*?<\/a>/.exec(

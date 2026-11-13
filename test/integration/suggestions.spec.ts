@@ -8,7 +8,13 @@ import {
 } from '../../src/db/schema';
 import { decide, markSuggestion } from '../../src/web/wishlist/decisions';
 import { createGarment, createWishlistItem, garmentRow } from './garments';
-import { createTestApp, type TestApp, unescapeHtml, userIdOf } from './harness';
+import {
+  createTestApp,
+  type TestApp,
+  unescapeHtml,
+  userIdOf,
+  asFixture,
+} from './harness';
 import { createAccessToken, tool } from './mcp';
 
 /**
@@ -167,10 +173,12 @@ describe('suggestions', () => {
       expect((await garmentRow(t, late))?.suggestedAt).toBeNull();
       // The database's backstop: no provenance without suggested_at.
       await expect(
-        t.db
-          .update(garment)
-          .set({ suggestionNote: 'sneaked in' })
-          .where(eq(garment.id, tee)),
+        asFixture(t.db, (tx) =>
+          tx
+            .update(garment)
+            .set({ suggestionNote: 'sneaked in' })
+            .where(eq(garment.id, tee)),
+        ),
       ).rejects.toThrow();
     });
   });
@@ -394,14 +402,16 @@ describe('suggestions', () => {
       });
       await t.register('glove-stranger@example.com');
       const strangerId = await userIdOf(t, 'glove-stranger@example.com');
-      const [theirs] = await t.db
-        .insert(garment)
-        .values({
-          shareableId: 'glove-stranger',
-          category: 'accessories',
-          ownerId: strangerId,
-        })
-        .returning({ id: garment.id });
+      const [theirs] = await asFixture(t.db, (tx) =>
+        tx
+          .insert(garment)
+          .values({
+            shareableId: 'glove-stranger',
+            category: 'accessories',
+            ownerId: strangerId,
+          })
+          .returning({ id: garment.id }),
+      );
       expect(
         await decide(t.db, ownerId, {
           kind: 'bought',

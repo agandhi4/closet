@@ -1,5 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { STATUS_CODES } from 'node:http';
+import { isLockTimeout } from '../db/errors';
+import { OWNER_LOCK_TIMEOUT_MS } from '../db/owner-lock';
 import { t } from './i18n';
 import { AppBar } from './layout/app-bar';
 import { Dock } from './layout/dock';
@@ -49,6 +51,11 @@ export class HttpError extends Error {
   readonly code: ErrorCode;
   /** Sent as `Retry-After`: a rate limit's window, the owner lock's wait. */
   readonly retryAfterSeconds?: number;
+  /**
+   * Which fields a 400 refuses, each with its message: a problem's `errors`
+   * (a JSON body the form's rules refused, #192b); a page shows the message.
+   */
+  readonly validation?: readonly ValidationFailure[];
 
   constructor(
     readonly statusCode: number,
@@ -57,6 +64,7 @@ export class HttpError extends Error {
       logDetail?: string;
       code?: ErrorCode;
       retryAfterSeconds?: number;
+      validation?: readonly ValidationFailure[];
     } = {},
   ) {
     super(message);
@@ -64,6 +72,30 @@ export class HttpError extends Error {
     this.logDetail = options.logDetail;
     this.code = options.code ?? codeOfStatus(statusCode);
     this.retryAfterSeconds = options.retryAfterSeconds;
+    this.validation = options.validation;
+  }
+}
+
+/**
+ * A lock wait of a transaction holding an owner lock ran past
+ * OWNER_LOCK_TIMEOUT_MS (every form of the lock sets it,
+ * src/db/owner-lock.ts): a 503 asking to try again, logged with the writer
+ * and, when known, the owner. Nothing was written (the transaction rolled
+ * back). ownerTransaction throws it naming its writer, which the jobs that
+ * defer on it (the re-plan, the quiet round's end) need; describeError
+ * answers any other 55P03 (a folded lock's) as one, so every writer's wait
+ * is the same 503 whichever way it took the lock.
+ */
+export class OwnerLockTimeout extends HttpError {
+  constructor(
+    readonly writer: string,
+    readonly ownerId?: number,
+  ) {
+    super(503, t('WARDROBE_BUSY'), {
+      logDetail: `${writer}${ownerId === undefined ? '' : ` for owner ${ownerId}`} waited ${OWNER_LOCK_TIMEOUT_MS} ms for a lock`,
+      retryAfterSeconds: OWNER_LOCK_TIMEOUT_MS / 1000,
+    });
+    this.name = 'OwnerLockTimeout';
   }
 }
 
@@ -96,8 +128,8 @@ export interface ErrorAnswer {
   /** For the log line, never the answer (HttpError.logDetail). */
   logDetail?: string;
   retryAfterSeconds?: number;
-  /** A schema validation's failures, each where and what (Fastify's). */
-  validation?: ValidationFailure[];
+  /** A validation's failures, each where and what (Fastify's, or an HttpError's). */
+  validation?: readonly ValidationFailure[];
   /** A crash, not a chosen answer: logged with its stack. */
   unexpected: boolean;
 }
@@ -155,10 +187,14 @@ function errorKind(error: Error): string {
  * keeps its status and message (we wrote them); a schema validation failure
  * its 400 and ajv's message, which names the rule and the field, never the
  * value; any other 4xx (a failed body parse, an oversized upload) its status
- * and a fixed message (requestRefusal), its code in the log line; everything
+ * and a fixed message (requestRefusal), its code in the log line; a lock
+ * wait past the owner lock's timeout (55P03) OwnerLockTimeout's 503; everything
  * else is an unexpected 500 without detail.
  */
 export function describeError(error: unknown): ErrorAnswer {
+  if (!(error instanceof HttpError) && isLockTimeout(error)) {
+    return describeError(new OwnerLockTimeout('a write'));
+  }
   if (error instanceof HttpError) {
     return {
       status: error.statusCode,
@@ -166,6 +202,7 @@ export function describeError(error: unknown): ErrorAnswer {
       code: error.code,
       logDetail: error.logDetail,
       retryAfterSeconds: error.retryAfterSeconds,
+      validation: error.validation,
       unexpected: false,
     };
   }

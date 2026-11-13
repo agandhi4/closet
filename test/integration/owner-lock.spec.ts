@@ -1,33 +1,76 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
+import { and, asc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Queryable } from '../../src/db/client';
 import {
   garment,
+  inspiration,
   outfit,
   outfitCalendar,
   outfitSlot,
+  pendingPhoto,
+  user,
   weekPlan,
   weekReplan,
 } from '../../src/db/schema';
 import type { Occasion } from '../../src/wardrobe/occasions';
 import { lockOwner, lockOwnerQuery } from '../../src/web/auth/queries';
 import { addDays, type IsoDate } from '../../src/calendar-date';
-import { deleteEntry, scheduleOutfit } from '../../src/web/calendar/queries';
+import {
+  deleteEntry,
+  insertEntry,
+  scheduleOutfit,
+} from '../../src/web/calendar/queries';
 import {
   replaceEntryOutfit,
   replaceMessage,
 } from '../../src/web/calendar/replace';
 import { pickIdea } from '../../src/web/outfits/pick';
 import type { Actor } from '../../src/web/sharing/access';
-import { deleteGarment } from '../../src/web/wardrobe/queries';
 import { setGarmentStatus } from '../../src/web/wardrobe/status';
 import {
   createWeekPlan,
   recordAutoEntry,
 } from '../../src/web/week-plan/queries';
 import { type ReplanDeps, replanToday } from '../../src/web/week-plan/replan';
-import { createTestApp, type TestApp } from './harness';
+import { deleteAccount } from '../../src/web/auth/account';
+import { lockCutoutRowQuery } from '../../src/cutout/queries';
+import { LOCKED_OWNERS_SETTING, ownerLockCte } from '../../src/db/owner-lock';
+import { REPAIR_KINDS } from '../../src/wardrobe/care';
+import {
+  changeMembership,
+  createCapsule,
+  lockMembersSql,
+} from '../../src/web/capsules/queries';
+import { deleteOutfit } from '../../src/web/outfits/queries';
+import { lockTripQuery, setPacked } from '../../src/web/trips/packed';
+import {
+  addTripItems,
+  addTripOutfit,
+  createTrip,
+  deleteTrip,
+} from '../../src/web/trips/queries';
+import { addRepair } from '../../src/web/wardrobe/repairs';
+import {
+  deleteGarment,
+  lockGarmentQuery,
+  updateGarmentProperties,
+} from '../../src/web/wardrobe/queries';
+import { insertPhotoRow } from '../../src/web/files/queries';
+import { readGarmentForm } from '../../src/web/wardrobe/garment-input';
+import {
+  createGarmentWithPendingPhoto,
+  discardPendingPhoto,
+  keepPendingPhoto,
+} from '../../src/web/wardrobe/writes';
+import { saveInspirationWithPendingPhoto } from '../../src/web/inspiration/queries';
+import { setWoreToday } from '../../src/web/wears/queries';
+import { saveWeekTemplate } from '../../src/web/week-plan/template';
+import { createGarment, jpegPhoto } from './garments';
+import { createTestApp, type TestApp, asFixture, userIdOf } from './harness';
 import { interleave as interleaveOn } from './interleave';
+import { silentLogger } from './logger';
 
 /**
  * The owner lock (#122, src/web/calendar/AGENTS.md): every writer of the
@@ -55,12 +98,93 @@ function formPayload(fields: Fields) {
 /** A node of EXPLAIN (VERBOSE, FORMAT JSON)'s plan. */
 interface PlanNode {
   'Node Type': string;
+  'Parent Relationship'?: string;
+  'Relation Name'?: string;
+  'Subplan Name'?: string;
+  'One-Time Filter'?: string;
+  Filter?: string;
   Output?: string[];
   Plans?: PlanNode[];
 }
 
+/** `node` and every node below it, depth first. */
+function nodesOf(node: PlanNode): PlanNode[] {
+  return [node, ...(node.Plans ?? []).flatMap(nodesOf)];
+}
+
+function outputOf(node: PlanNode): string {
+  return (node.Output ?? []).join(' ');
+}
+
+/** `node` and what it reads its rows from, not the InitPlans and SubPlans hung on the way. */
+function inputsOf(node: PlanNode): PlanNode[] {
+  return [
+    node,
+    ...(node.Plans ?? [])
+      .filter(
+        (child) =>
+          child['Parent Relationship'] !== 'InitPlan' &&
+          child['Parent Relationship'] !== 'SubPlan',
+      )
+      .flatMap(inputsOf),
+  ];
+}
+
+/** The LockRows node whose input scans `relation`. */
+function lockRowsOn(plan: PlanNode, relation: string): PlanNode {
+  const lock = nodesOf(plan).find(
+    (node) =>
+      node['Node Type'] === 'LockRows' &&
+      inputsOf(node).some((input) => input['Relation Name'] === relation),
+  );
+  if (!lock) throw new Error(`no LockRows over ${relation}`);
+  return lock;
+}
+
+/** The scan of `relation` among `node`'s inputs. */
+function scanOf(node: PlanNode, relation: string): PlanNode {
+  return inputsOf(node).find((input) => input['Relation Name'] === relation)!;
+}
+
 describe('the owner lock', () => {
   let t: TestApp;
+
+  /** EXPLAIN (VERBOSE, FORMAT JSON) of `query`: its plan's top node. */
+  const planOf = async (query: SQL): Promise<PlanNode> => {
+    const { rows } = await t.db.execute<{
+      'QUERY PLAN': [{ Plan: PlanNode }];
+    }>(sql`explain (verbose, format json) ${query}`);
+    return rows[0]['QUERY PLAN'][0].Plan;
+  };
+
+  /**
+   * A folded owner lock (src/db/owner-lock.ts) comes before `relation`'s
+   * row lock: the `owner_lock` CTE locks the user row, and `relation`'s
+   * LockRows reads a scan gated on it (a one-time filter, evaluated before
+   * the scan returns a row) or computing it in its own output (below the
+   * LockRows, so before the row is locked).
+   */
+  const expectOwnerLockFirst = async (query: SQL, relation: string) => {
+    const plan = await planOf(query);
+    const cte = nodesOf(plan).find(
+      (node) => node['Subplan Name'] === 'CTE owner_lock',
+    );
+    expect(cte, 'the owner_lock CTE').toBeDefined();
+    lockRowsOn(cte!, 'user');
+    const below = nodesOf(lockRowsOn(plan, relation)).filter(
+      (node) => !nodesOf(cte!).includes(node),
+    );
+    expect(
+      below.some(
+        (node) =>
+          node['One-Time Filter']?.includes('InitPlan') ||
+          outputOf(node).includes('InitPlan') ||
+          outputOf(node).includes('owner_lock'),
+      ),
+      JSON.stringify(plan),
+    ).toBe(true);
+  };
+
   /** The owner as replaceEntryOutfit's actor (#188). */
   let owner: Actor;
   let tops: number[];
@@ -84,6 +208,15 @@ describe('the owner lock', () => {
     return Number(
       /^\/wardrobe\/(\d+)\?/.exec(String(res.headers.location))![1],
     );
+  };
+
+  /** Backends of the spec's database waiting on a lock (pg_stat_activity). */
+  const lockWaiters = async (): Promise<number> => {
+    const { rows } = await t.db.execute<{ waiting: number }>(
+      sql`select count(*)::int as waiting from pg_stat_activity
+          where datname = current_database() and wait_event_type = 'Lock'`,
+    );
+    return rows[0].waiting;
   };
 
   /** Holds `first` open while `second` waits on it (interleave.ts). */
@@ -119,7 +252,7 @@ describe('the owner lock', () => {
 
   /** An entry "Plan my week" made: planned 'auto', recorded in a batch. */
   const autoEntry = (garmentIds: number[], day: IsoDate, occasion: Occasion) =>
-    t.db.transaction(async (tx) => {
+    asFixture(t.db, async (tx) => {
       const weekPlanId = await createWeekPlan(tx, t.owner.id);
       const picked = await pickIdea(tx, t.owner.id, {
         garmentIds,
@@ -168,13 +301,15 @@ describe('the owner lock', () => {
   // Every test starts without outfits, entries or batches, the closet whole
   // (a plain delete is fine: nothing here is worn history).
   beforeEach(async () => {
-    await t.db.delete(outfit);
-    await t.db.delete(weekPlan);
+    await asFixture(t.db, (tx) => tx.delete(outfit));
+    await asFixture(t.db, (tx) => tx.delete(weekPlan));
     await t.db.delete(weekReplan);
-    await t.db
-      .update(garment)
-      .set({ status: 'closet' })
-      .where(eq(garment.ownerId, t.owner.id));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(garment)
+        .set({ status: 'closet' })
+        .where(eq(garment.ownerId, t.owner.id)),
+    );
   });
 
   describe('scheduling against a replace (the unique key)', () => {
@@ -436,16 +571,21 @@ describe('the owner lock', () => {
 
   describe('the lock timeout (#134, #158)', () => {
     // lockOwner sets lock_timeout in the lock's own statement: it bounds the
-    // wait only while set_config is computed in the scan below LockRows.
-    it('is set below LockRows, in the same statement as the lock', async () => {
-      const query = lockOwnerQuery(t.db, t.owner.id).toSQL();
-      const { rows } = await t.db.$client.query<{
-        'QUERY PLAN': [{ Plan: PlanNode }];
-      }>(`explain (verbose, format json) ${query.sql}`, query.params);
-      const [{ Plan: top }] = rows[0]['QUERY PLAN'];
-      expect(top['Node Type']).toBe('LockRows');
-      const scan = top.Plans![0];
-      expect(scan.Output!.join(' ')).toContain('set_config');
+    // wait only while set_config is computed in the scan below LockRows. The
+    // mark the sync guard reads (#196a) is the opposite: set above LockRows,
+    // over the row it locked, so a wait that failed leaves no mark.
+    it('is set below LockRows, and the mark above it, in the same statement as the lock', async () => {
+      const plan = await planOf(lockOwnerQuery(t.db, t.owner.id).getSQL());
+      const lock = lockRowsOn(plan, 'user');
+      expect(outputOf(scanOf(lock, 'user'))).toContain("'lock_timeout'");
+      expect(outputOf(scanOf(lock, 'user'))).not.toContain(
+        LOCKED_OWNERS_SETTING,
+      );
+      const marking = nodesOf(plan).find((node) =>
+        outputOf(node).includes(LOCKED_OWNERS_SETTING),
+      );
+      expect(marking?.['Node Type']).toBe('Subquery Scan');
+      expect(nodesOf(marking!)).toContain(lock);
     });
 
     it("names the joined writer that waited, not its caller's", async () => {
@@ -542,6 +682,335 @@ describe('the owner lock', () => {
         idea().sort((a, b) => a - b),
       );
       expect(await entriesOn(day)).toHaveLength(1);
+    });
+  });
+
+  describe('every synced write takes the owner lock first (#196a)', () => {
+    it('folds it ahead of the row locks of lockGarment, lockTrip, lockMembers and the cutout row', async () => {
+      const lock = ownerLockCte(t.db, t.owner.id);
+      await expectOwnerLockFirst(
+        lockGarmentQuery(t.db, lock, tops[0], t.owner.id).getSQL(),
+        'garment',
+      );
+      await expectOwnerLockFirst(
+        lockTripQuery(t.db, 1, t.owner.id).getSQL(),
+        'trip',
+      );
+      await expectOwnerLockFirst(
+        lockMembersSql(t.db, t.owner.id, [1, 2], [tops[0], tops[1]]),
+        'capsule',
+      );
+      await expectOwnerLockFirst(
+        lockCutoutRowQuery(t.db, 'photo.webp').getSQL(),
+        'file',
+      );
+    });
+
+    it('a garment autosave that waited on a pick writes after it', async () => {
+      const [pick, saved] = await interleave(
+        (tx) => pickIdea(tx, t.owner.id, { garmentIds: [tops[0], bottoms[0]] }),
+        () => updateGarmentProperties(t.db, tops[0], t.owner.id, { warmth: 3 }),
+      );
+      expect(pick).not.toBe('not-found');
+      expect(saved).toBe(true);
+    });
+
+    it('a trip write that waited on an outfit deletion writes after it, never a deadlock', async () => {
+      const day = addDays(t.today(), 3);
+      const tripId = await createTrip(t.db, t.owner.id, {
+        name: 'Lock order',
+        destination: null,
+        startsOn: day,
+        endsOn: day,
+        notes: null,
+      });
+      const doomed = await outfitOf([tops[1], bottoms[1]]);
+      expect(
+        await addTripOutfit(t.db, {
+          tripId,
+          ownerId: t.owner.id,
+          outfitId: doomed,
+        }),
+      ).toBe('added');
+      // deleteOutfit holds the owner lock and cascades into the trip's
+      // rows; the extras' write waits on the owner, not the trip.
+      const [, added] = await interleave(
+        (tx) => deleteOutfit(tx, doomed, t.owner.id),
+        () => addTripItems(t.db, tripId, t.owner.id, ['Charger']),
+      );
+      expect(added).toBe(1);
+    });
+
+    // Account deletion's lock set holds every owner whose garment shows a
+    // photo the account uploaded (as a MANAGE grantee): the delete empties
+    // their photo_id. The uploader has the lower id, so a lock that read
+    // only the set's first row would leave the other owner unlocked, and
+    // the sync guard would refuse the cascade.
+    it('an account deletion locks every owner of a garment showing its photo, not only the first', async () => {
+      await t.register('lock-uploader@example.com');
+      const uploader = await userIdOf(t, 'lock-uploader@example.com');
+      const cookie = await t.register('lock-photo-owner@example.com');
+      const photoOwner = await userIdOf(t, 'lock-photo-owner@example.com');
+      expect(uploader).toBeLessThan(photoOwner);
+      const shown = await createGarment(t, {
+        name: 'Shown',
+        category: 'tops',
+        cookie,
+      });
+      await asFixture(t.db, async (tx) => {
+        const photoId = await insertPhotoRow(tx, {
+          fileName: `${randomUUID()}.webp`,
+          shareableId: randomUUID(),
+          createdOn: new Date().toISOString(),
+          createdById: uploader,
+        });
+        await tx.update(garment).set({ photoId }).where(eq(garment.id, shown));
+      });
+
+      await deleteAccount(
+        { db: t.db, photos: t.photos, logger: t.logger },
+        uploader,
+      );
+      const [row] = await t.db
+        .select({ photoId: garment.photoId })
+        .from(garment)
+        .where(eq(garment.id, shown));
+      expect(row).toEqual({ photoId: null });
+    });
+
+    describe("a pending photo's taker against its account's deletion", () => {
+      const deps = () => ({
+        db: t.db,
+        photos: t.photos,
+        logger: silentLogger,
+        cutouts: { wake: () => undefined },
+      });
+      const fields = () => {
+        const form = readGarmentForm({ category: 'tops' }, { owner: true });
+        if (!form.ok) throw new Error('the fixture form must read');
+        return form.fields;
+      };
+
+      /** A new account holding one pending photo: its id and the photo's name. */
+      const saverWithPendingPhoto = async (email: string) => {
+        await t.register(email);
+        const saver = await userIdOf(t, email);
+        const { fileName } = await t.photos.storeImage(
+          {
+            stream: Readable.from(await jpegPhoto(64, 64)),
+            mimetype: 'image/jpeg',
+            filename: 'pending.jpg',
+          },
+          saver,
+        );
+        await keepPendingPhoto(deps(), fileName, saver);
+        return { saver, fileName };
+      };
+
+      /** Every taker of a pending row: each locks the owner, then the name (lockOwnerAndPhotoName). */
+      const takers: Record<
+        string,
+        (saver: number, fileName: string) => Promise<unknown>
+      > = {
+        "a garment's save": (saver, fileName) =>
+          createGarmentWithPendingPhoto(
+            deps(),
+            saver,
+            saver,
+            fields(),
+            fileName,
+            'closet',
+          ),
+        'a discard': (saver, fileName) =>
+          discardPendingPhoto(deps(), fileName, {
+            userId: saver,
+            ownerId: saver,
+          }),
+        "a look's save": async (saver, fileName) => {
+          const photo = await t.photos.pendingPhotoRow(fileName, saver);
+          if (!photo) throw new Error('the fixture photo must be stored');
+          return saveInspirationWithPendingPhoto(t.db, saver, photo, {
+            title: null,
+            sourceUrl: 'https://example.com/look',
+          });
+        },
+      };
+
+      /** A transaction holding `fileName`'s pending row until `release`. */
+      const holdPendingRow = async (fileName: string) => {
+        let held!: () => void;
+        const holding = new Promise<void>((resolve) => (held = resolve));
+        let release!: () => void;
+        const released = new Promise<void>((resolve) => (release = resolve));
+        const holder = t.db.transaction(async (tx) => {
+          await tx
+            .select({ fileName: pendingPhoto.fileName })
+            .from(pendingPhoto)
+            .where(eq(pendingPhoto.fileName, fileName))
+            .for('update');
+          held();
+          await released;
+        });
+        await Promise.race([holding, holder]);
+        return {
+          release: () => {
+            release();
+            return holder;
+          },
+        };
+      };
+
+      describe.each(Object.entries(takers))('%s', (name, take) => {
+        const email = (order: string) =>
+          `${order}-${name.replace(/\W+/g, '-')}@example.com`;
+
+        // The taker holds the owner and the name, stopped at the row (a third
+        // transaction holds it); the deletion waits on the owner, not the
+        // row. Taking the row before the owner (lockPhotoName, then the
+        // garment's insert locking the owner) deadlocked here, 40P01.
+        it('a deletion that waited on it deletes the account after it', async () => {
+          const { saver, fileName } = await saverWithPendingPhoto(
+            email('take-first'),
+          );
+          const row = await holdPendingRow(fileName);
+          const taken = take(saver, fileName);
+          await expect.poll(lockWaiters).toBe(1);
+          const deletion = deleteAccount(
+            { db: t.db, photos: t.photos, logger: t.logger },
+            saver,
+          );
+          await expect.poll(lockWaiters).toBe(2);
+          await row.release();
+          const [answer] = await Promise.all([taken, deletion]);
+          expect(answer).toBeDefined();
+          expect(await t.db.$count(user, eq(user.id, saver))).toBe(0);
+          expect(
+            await t.db.$count(pendingPhoto, eq(pendingPhoto.userId, saver)),
+          ).toBe(0);
+        });
+
+        // deleteUserAndFileRows' order, held between its owner lock and its
+        // pending rows' delete: the taker must wait on the owner, not take
+        // the row first (a deadlock, or a look whose file row the
+        // deletion's cascade drops without its bytes).
+        it('waits on a deletion and finds its photo gone, never a deadlock', async () => {
+          const { saver, fileName } = await saverWithPendingPhoto(
+            email('delete-first'),
+          );
+          let locked!: () => void;
+          const ownerHeld = new Promise<void>((resolve) => (locked = resolve));
+          let proceed!: () => void;
+          const go = new Promise<void>((resolve) => (proceed = resolve));
+          const deletion = t.db.transaction(async (tx) => {
+            await lockOwner(tx, saver);
+            locked();
+            await go;
+            return tx
+              .delete(pendingPhoto)
+              .where(eq(pendingPhoto.userId, saver))
+              .returning({ fileName: pendingPhoto.fileName });
+          });
+          await Promise.race([ownerHeld, deletion]);
+          const taken = take(saver, fileName);
+          await expect.poll(lockWaiters).toBe(1);
+          proceed();
+          const [deleted, answer] = await Promise.all([deletion, taken]);
+          expect(deleted).toEqual([{ fileName }]);
+          expect(answer).toBeUndefined();
+          expect(await t.db.$count(garment, eq(garment.ownerId, saver))).toBe(
+            0,
+          );
+          expect(
+            await t.db.$count(inspiration, eq(inspiration.ownerId, saver)),
+          ).toBe(0);
+        });
+      });
+    });
+  });
+
+  describe('the sync guard (test/support/sync-guard.ts)', () => {
+    it('refuses a write to a synced table without its owner lock', async () => {
+      await expect(
+        t.db
+          .update(garment)
+          .set({ notes: 'unlocked' })
+          .where(eq(garment.id, tops[0])),
+      ).rejects.toMatchObject({
+        cause: { code: 'P0001', message: expect.stringMatching(/sync guard/) },
+      });
+    });
+
+    // The cascades of a garment's, an outfit's and an account's deletion
+    // write their children with the deleting writer's owner lock held, or
+    // with the owner already gone: no guard refusal, no foreign key error.
+    it('lets every cascade through: a garment, an outfit and an account deleted with their children', async () => {
+      const day = addDays(t.today(), 4);
+      const doomed = await garmentIn('Doomed shirt', 'tops', 'red');
+      const outfitId = await outfitOf([doomed, bottoms[2]]);
+      await insertEntry(t.db, {
+        ownerId: t.owner.id,
+        outfitId,
+        day,
+        occasion: 'all-day',
+      });
+      const capsuleId = await createCapsule(t.db, t.owner.id, {
+        name: `Cascade ${day}`,
+        notes: null,
+      });
+      if (capsuleId === 'name-taken') throw new Error('capsule name taken');
+      await changeMembership(t.db, t.owner.id, {
+        add: { capsuleIds: [capsuleId], garmentIds: [doomed] },
+      });
+      const tripId = await createTrip(t.db, t.owner.id, {
+        name: 'Cascade',
+        destination: null,
+        startsOn: day,
+        endsOn: day,
+        notes: null,
+      });
+      await addTripOutfit(t.db, { tripId, ownerId: t.owner.id, outfitId });
+      await setPacked(t.db, {
+        tripId,
+        ownerId: t.owner.id,
+        packed: [doomed],
+        unpacked: [],
+      });
+      await setWoreToday(t.db, {
+        garmentId: doomed,
+        ownerId: t.owner.id,
+        day: t.today(),
+        worn: true,
+      });
+      await addRepair(t.db, t.owner.id, doomed, {
+        day: t.today(),
+        kind: REPAIR_KINDS[0],
+        note: 'A button',
+        cost: null,
+      });
+
+      expect(await deleteGarment(t.db, doomed, t.owner.id)).toMatchObject({
+        ok: true,
+      });
+      expect(await deleteOutfit(t.db, outfitId, t.owner.id)).toBeDefined();
+      expect(await deleteTrip(t.db, tripId, t.owner.id)).toBe(true);
+
+      const cookie = await t.register('cascade-account@example.com');
+      const theirs = await userIdOf(t, 'cascade-account@example.com');
+      const theirGarment = await createGarment(t, {
+        name: 'Theirs',
+        category: 'tops',
+        cookie,
+      });
+      await pickIdea(t.db, theirs, { garmentIds: [theirGarment] });
+      await saveWeekTemplate(t.db, theirs, [{ weekday: 1, occasion: 'work' }]);
+      await deleteAccount(
+        { db: t.db, photos: t.photos, logger: t.logger },
+        theirs,
+      );
+      expect(await t.db.$count(garment, eq(garment.ownerId, theirs))).toBe(0);
+      expect(await t.db.$count(outfit, inArray(outfit.ownerId, [theirs]))).toBe(
+        0,
+      );
     });
   });
 });

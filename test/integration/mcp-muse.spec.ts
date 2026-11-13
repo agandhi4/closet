@@ -12,7 +12,7 @@ import { setGarmentStatus } from '../../src/web/wardrobe/status';
 import { markSuggestion } from '../../src/web/wishlist/decisions';
 import { FEEDBACK_MARGIN_MS } from '../../src/web/wishlist/feedback';
 import { createGarment, createWishlistItem, garmentRow } from './garments';
-import { createTestApp, type TestApp, userIdOf } from './harness';
+import { createTestApp, type TestApp, userIdOf, asFixture } from './harness';
 import {
   html,
   jpeg,
@@ -602,13 +602,15 @@ describe('MCP: Muse’s tools', () => {
       expect(until).toBeLessThan(Date.now() - FEEDBACK_MARGIN_MS / 2);
       // A decision whose transaction began a second after `until`, before
       // the read, and committed only now (decide stamps its start).
-      await t.db
-        .update(garment)
-        .set({
-          dismissedAt: new Date(until + 1_000),
-          dismissedReason: 'colour',
-        })
-        .where(eq(garment.id, blazer));
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(garment)
+          .set({
+            dismissedAt: new Date(until + 1_000),
+            dismissedReason: 'colour',
+          })
+          .where(eq(garment.id, blazer)),
+      );
       // The round ends as part A2's finish_round moves the cursor.
       await t.db
         .update(personalAccessToken)
@@ -621,16 +623,18 @@ describe('MCP: Muse’s tools', () => {
     });
 
     it('tells a migrated reaction (no reacted_at) before the first round only', async () => {
-      const [migrated] = await t.db
-        .insert(outfit)
-        .values({
-          shareableId: crypto.randomUUID(),
-          ownerId: t.owner.id,
-          proposedAt: new Date(),
-          proposedByTokenId: tokenId,
-          reaction: 'loved',
-        })
-        .returning({ id: outfit.id });
+      const [migrated] = await asFixture(t.db, (tx) =>
+        tx
+          .insert(outfit)
+          .values({
+            shareableId: crypto.randomUUID(),
+            ownerId: t.owner.id,
+            proposedAt: new Date(),
+            proposedByTokenId: tokenId,
+            reaction: 'loved',
+          })
+          .returning({ id: outfit.id }),
+      );
       const fresh = await createAccessToken(t, { name: 'Muse again' });
       const first = await tool<Feedback>(t, fresh, 'get_suggestion_feedback');
       expect(first.since).toBeNull();
@@ -715,14 +719,18 @@ describe('MCP: Muse’s tools', () => {
         category: 'bottoms',
         cookie,
       });
-      await t.db
-        .update(garment)
-        .set({ quantity: 2 })
-        .where(eq(garment.id, twinJeans));
-      await t.db
-        .update(garment)
-        .set({ condition: 'replace_soon' })
-        .where(eq(garment.id, wornChinos));
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(garment)
+          .set({ quantity: 2 })
+          .where(eq(garment.id, twinJeans)),
+      );
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(garment)
+          .set({ condition: 'replace_soon' })
+          .where(eq(garment.id, wornChinos)),
+      );
       expect(
         (await setGarmentStatus(t.db, archived, userId, { event: 'archive' }))
           .ok,

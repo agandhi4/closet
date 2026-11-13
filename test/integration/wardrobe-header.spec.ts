@@ -3,7 +3,12 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { file, garment } from '../../src/db/schema';
 import { createGarment } from './garments';
-import { createTestApp, type TestApp, unescapeHtml } from './harness';
+import {
+  createTestApp,
+  type TestApp,
+  unescapeHtml,
+  asFixture,
+} from './harness';
 import { expectFullPage, HX_FRAGMENT } from './pages';
 
 /**
@@ -204,21 +209,22 @@ describe('the Wardrobe header and tabs', () => {
 
   it('draws a cutout contained on the plinth and a photo still without one covering it', async () => {
     const photo = async (status: 'ready' | 'pending', name: string) => {
-      const [row] = await t.db
-        .insert(file)
-        .values({
-          fileName: `${randomUUID()}.webp`,
-          shareableId: randomUUID(),
-          createdOn: new Date().toISOString(),
-          createdById: ownerId,
-          cutoutStatus: status,
-        })
-        .returning({ id: file.id, fileName: file.fileName });
+      const [row] = await asFixture(t.db, (tx) =>
+        tx
+          .insert(file)
+          .values({
+            fileName: `${randomUUID()}.webp`,
+            shareableId: randomUUID(),
+            createdOn: new Date().toISOString(),
+            createdById: ownerId,
+            cutoutStatus: status,
+          })
+          .returning({ id: file.id, fileName: file.fileName }),
+      );
       const id = await createGarment(t, { name, category: 'tops' });
-      await t.db
-        .update(garment)
-        .set({ photoId: row.id })
-        .where(eq(garment.id, id));
+      await asFixture(t.db, (tx) =>
+        tx.update(garment).set({ photoId: row.id }).where(eq(garment.id, id)),
+      );
       return row.fileName;
     };
     const cut = await photo('ready', 'Cut tee');

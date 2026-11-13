@@ -14,7 +14,12 @@ import { monthDayOf } from '../../src/weather/normals';
 import { displayTemperature } from '../../src/weather/temperature';
 import { addDays } from '../../src/calendar-date';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
-import { createTestApp, type TestApp, unescapeHtml } from './harness';
+import {
+  createTestApp,
+  type TestApp,
+  unescapeHtml,
+  asFixture,
+} from './harness';
 import { createAccessToken, tool } from './mcp';
 import { expectFragment, HX_FRAGMENT } from './pages';
 
@@ -465,10 +470,12 @@ describe('climate normals with WEATHER_ENABLED=false', () => {
     });
     expect(res.statusCode).toBe(303);
     const id = Number(/^\/trips\/(\d+)/.exec(String(res.headers.location))![1]);
-    await t.db
-      .update(trip)
-      .set({ latitude: 30.27, longitude: -97.74 })
-      .where(eq(trip.id, id));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(trip)
+        .set({ latitude: 30.27, longitude: -97.74 })
+        .where(eq(trip.id, id)),
+    );
 
     const weather = await t.inject({
       method: 'GET',
