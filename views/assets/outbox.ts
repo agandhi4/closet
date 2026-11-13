@@ -62,6 +62,7 @@ import {
   replayVerdict,
   retryDelayMs,
   routesThroughOutbox,
+  sharedUntilRejected,
   takesDay,
 } from '../../src/offline-writes';
 
@@ -174,21 +175,21 @@ function offline(): boolean {
 
 // ---- The store --------------------------------------------------------------
 
-let database: Promise<IDBDatabase> | undefined;
-
-function openDatabase(): Promise<IDBDatabase> {
-  database ??= new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      const store = request.result.createObjectStore(STORE, { keyPath: 'id' });
-      store.createIndex('key', 'key');
-      store.createIndex('account', 'account');
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('open failed'));
-  });
-  return database;
-}
+const openDatabase = sharedUntilRejected(
+  () =>
+    new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, 1);
+      request.onupgradeneeded = () => {
+        const store = request.result.createObjectStore(STORE, {
+          keyPath: 'id',
+        });
+        store.createIndex('key', 'key');
+        store.createIndex('account', 'account');
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error ?? new Error('open failed'));
+    }),
+);
 
 /** One transaction over the store, settled when it commits. */
 async function transact(

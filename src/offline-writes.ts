@@ -167,6 +167,27 @@ export interface OutboxStore<R extends StoredRecord> {
   putCollapsed(records: readonly R[]): Promise<void>;
 }
 
+/**
+ * `open` run once and shared by concurrent callers, but forgotten if it
+ * rejects, so the next call retries: one transient IndexedDB open failure
+ * must not break every later read and write for the page's life.
+ */
+export function sharedUntilRejected<T>(
+  open: () => Promise<T>,
+): () => Promise<T> {
+  let shared: Promise<T> | undefined;
+  return () => {
+    if (!shared) {
+      const attempt = open();
+      shared = attempt;
+      attempt.catch(() => {
+        if (shared === attempt) shared = undefined;
+      });
+    }
+    return shared;
+  };
+}
+
 const pendingKeys = (records: readonly StoredRecord[]) =>
   new Set(records.filter((r) => r.state === 'pending').map((r) => r.key));
 
