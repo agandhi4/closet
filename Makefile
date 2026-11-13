@@ -5,7 +5,8 @@
 # a failed bootstrap. macOS's make 3.81 prints "No such file or directory" once before remaking it.
 include devkit/.devkit-materialized.mk
 devkit/.devkit-materialized.mk: SHELL := /bin/sh
-devkit/.devkit-materialized.mk: .devkit-rev .devkit-bootstrap.sh ; @./.devkit-bootstrap.sh && touch $@
+devkit/.devkit-materialized.mk: .devkit-rev .devkit-bootstrap.sh devkit/.devkit-materialized devkit/bin ; @[ -d devkit/bin ] || rm -f devkit/.devkit-materialized; ./.devkit-bootstrap.sh && touch $@
+devkit/.devkit-materialized devkit/bin: ;
 
 .PHONY: help ci-deps ci-quick ci-guards ci-guards-staged devkit-check-staged ci-lint ci-typecheck secrets-staged ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten metrics-rebaseline screenshots gate pr merge review publish devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check migration-check secrets-check install
 
