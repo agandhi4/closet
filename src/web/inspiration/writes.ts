@@ -17,7 +17,7 @@ import {
   type LinkImportRefusal,
   REFUSALS,
 } from '../wardrobe/link-import/import';
-import { LINK_INPUT_MAX } from '../wardrobe/link-import/link-text';
+import { isStorableLink } from '../wardrobe/link-import/link-text';
 import {
   deleteInspiration,
   findInspiration,
@@ -106,20 +106,12 @@ function sharedSource(fields: Map<string, MultipartValue>): {
   };
   const url = text('url');
   const title = text('title');
-  if (url && !isHttpUrl(url)) throw new HttpError(400, 'Not an http(s) link');
+  if (url && !isStorableLink(url))
+    throw new HttpError(400, 'Not an http(s) link');
   if (title.length > INSPIRATION_TITLE_MAX) {
     throw new HttpError(400, 'The title is too long');
   }
   return { title: title || null, sourceUrl: url || null };
-}
-
-/** As the column's check reads it (`^https?://`), and one that parses. */
-function isHttpUrl(value: string): boolean {
-  return (
-    value.length <= LINK_INPUT_MAX &&
-    /^https?:\/\/\S+$/i.test(value) &&
-    URL.canParse(value)
-  );
 }
 
 /**

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, max, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { IsoDate } from '../../calendar-date';
 import { initialCutoutState } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
@@ -429,6 +429,9 @@ async function lockOwnLook(q: Queryable, id: number, ownerId: number) {
   if (!look) throw new NotFound('inspiration');
 }
 
+/** The piece position column's largest value (smallint). */
+export const MAX_PIECE_POSITION = 32_767;
+
 /**
  * A new piece at the end of the owner's look `id`; answers its position.
  * The look's row is locked first, so two adds take turns for the next
@@ -443,24 +446,49 @@ export function addInspirationPiece(
 ): Promise<number> {
   return db.transaction(async (tx) => {
     await lockOwnLook(tx, id, ownerId);
-    const [{ last, count }] = await tx
-      .select({
-        last: max(inspirationPiece.position),
-        count: sql<number>`count(*)::int`,
-      })
-      .from(inspirationPiece)
-      .where(eq(inspirationPiece.inspirationId, id));
+    const count = await tx.$count(
+      inspirationPiece,
+      eq(inspirationPiece.inspirationId, id),
+    );
     if (count >= INSPIRATION_MAX_PIECES) {
       throw new HttpError(400, undefined, {
         logDetail: `inspiration ${id} already has ${count} pieces`,
       });
     }
-    const position = last === null ? 0 : last + 1;
+    const position = await takePiecePositions(tx, id, 1);
     await tx
       .insert(inspirationPiece)
       .values({ inspirationId: id, position, ...pieceColumns(piece) });
     return position;
   });
+}
+
+/**
+ * Reserves `count` new positions on the look `id` (its row locked by the
+ * caller) and answers the first. The look's counter only grows, so a
+ * removed piece's position is never given to another: the match view posts
+ * positions, and a stale one must not land on a new piece. A 400 when the
+ * counter would pass the column's smallint.
+ */
+async function takePiecePositions(
+  tx: Queryable,
+  id: number,
+  count: number,
+): Promise<number> {
+  const [{ next }] = await tx
+    .update(inspiration)
+    .set({
+      nextPiecePosition: sql`${inspiration.nextPiecePosition} + ${count}`,
+    })
+    .where(eq(inspiration.id, id))
+    .returning({ next: inspiration.nextPiecePosition });
+  const first = next - count;
+  if (next - 1 > MAX_PIECE_POSITION) {
+    throw new HttpError(400, undefined, {
+      logDetail: `inspiration ${id} has used every piece position`,
+    });
+  }
+  return first;
 }
 
 function pieceColumns(piece: LookPiece) {
@@ -536,8 +564,8 @@ export interface PiecesSet {
  * to one asked for (role, type, colours in order, pattern; each matched
  * once) stays as it is, its position and its chosen garment with it; the
  * other stored pieces are removed, and the rest asked for added after the
- * highest position the look had, in the order given, so no position is
- * reused for another piece (the match view posts positions). Under the
+ * look's next positions (takePiecePositions), in the order given, so no
+ * position is reused for another piece (the match view posts positions). Under the
  * look's lock (lockOwnLook), like every piece write. NotFound when the
  * look is not theirs; a 400 past INSPIRATION_MAX_PIECES.
  */
@@ -581,7 +609,7 @@ export function setInspirationPieces(
       );
     }
     if (added.length > 0) {
-      const next = Math.max(-1, ...stored.map((row) => row.position)) + 1;
+      const next = await takePiecePositions(tx, id, added.length);
       await tx.insert(inspirationPiece).values(
         added.map((piece, index) => ({
           inspirationId: id,

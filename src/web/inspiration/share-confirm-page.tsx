@@ -105,6 +105,10 @@ export function ShareConfirmPage(props: { ctx: ViewContext }) {
         >
           {t('inspiration.SHARE_NOT_OPENED')}
         </div>
+        {/* Before the file: the browser posts fields in document order, so
+            the link and title never depend on a reader going past the photo. */}
+        <input type="hidden" name="url" value="" />
+        <input type="hidden" name="title" value="" />
         {/* Filled by the module from the stash, never by a tap. */}
         <input
           type="file"
@@ -114,8 +118,6 @@ export function ShareConfirmPage(props: { ctx: ViewContext }) {
           tabindex={-1}
           aria-hidden="true"
         />
-        <input type="hidden" name="url" value="" />
-        <input type="hidden" name="title" value="" />
       </div>
     </FormPage>
   );

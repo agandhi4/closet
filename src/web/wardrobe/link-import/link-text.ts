@@ -25,3 +25,17 @@ const TRAILING_PUNCTUATION = /[.,;:!?)\]}'"»”’]+$/;
 export function linkIn(text: string): string | undefined {
   return LINK.exec(text)?.[0].replace(TRAILING_PUNCTUATION, '');
 }
+
+/**
+ * A link the server stores for a look (POST /inspiration's `url`; the
+ * column's check reads `^https?://`): one absolute http(s) URL that parses,
+ * within LINK_INPUT_MAX. The worker applies it too, so a share's link that
+ * the server would refuse is dropped, never posted.
+ */
+export function isStorableLink(value: string): boolean {
+  return (
+    value.length <= LINK_INPUT_MAX &&
+    /^https?:\/\/\S+$/i.test(value) &&
+    URL.canParse(value)
+  );
+}

@@ -35,6 +35,7 @@ import {
   INSPIRATION_TITLE_MAX,
   isOwnInspirationPhoto,
   listInspirations,
+  MAX_PIECE_POSITION,
   updateInspirationPiece,
   updateInspirationText,
 } from './queries';
@@ -70,7 +71,10 @@ const LOOK_ROUTE = `${INSPIRATION_PATH}/:id`;
 
 const LookParams = Type.Object({ id: RowId });
 /** A piece's place in its look (inspiration_piece.position, a smallint). */
-const PIECE_POSITION = Type.Integer({ minimum: 0, maximum: 32_767 });
+const PIECE_POSITION = Type.Integer({
+  minimum: 0,
+  maximum: MAX_PIECE_POSITION,
+});
 const PieceParams = Type.Object({ id: RowId, position: PIECE_POSITION });
 // The match view's save (#22c): each strip's piece and its choice, pairs in
 // document order ('' is None; a single strip posts scalars, which ajv's

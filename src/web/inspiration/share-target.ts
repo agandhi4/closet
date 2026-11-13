@@ -1,4 +1,8 @@
-import { LINK_INPUT_MAX, linkIn } from '../wardrobe/link-import/link-text';
+import {
+  isStorableLink,
+  LINK_INPUT_MAX,
+  linkIn,
+} from '../wardrobe/link-import/link-text';
 import { LINK_IMPORT_PATH, wardrobeUrl } from '../wardrobe/urls';
 
 /**
@@ -137,7 +141,7 @@ export async function receiveShare(
     }
     const id = crypto.randomUUID();
     const source = {
-      link: linkIn(sharedText(field('url'), field('text'))),
+      link: storableLinkIn(sharedText(field('url'), field('text'))),
       // Bounded for the header; the confirmation page cuts it to the look's.
       title: field('title').trim().slice(0, LINK_INPUT_MAX),
     };
@@ -150,6 +154,12 @@ export async function receiveShare(
   }
   const { outcome, path } = linkPageFor(field('url'), field('text'));
   return answer(outcome, path);
+}
+
+/** The shared link if POST /inspiration would take it, else none (the photo is kept). */
+function storableLinkIn(text: string): string | undefined {
+  const link = linkIn(text);
+  return link !== undefined && isStorableLink(link) ? link : undefined;
 }
 
 /** What a share says, its url first: Android often puts the link in text. */

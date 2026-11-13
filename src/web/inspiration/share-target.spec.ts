@@ -11,6 +11,7 @@ import {
   SHARED_URL_HEADER,
   type ShareStashStorage,
 } from './share-target';
+import { LINK_INPUT_MAX } from '../wardrobe/link-import/link-text';
 
 const ORIGIN = 'https://closet.test';
 const NOW = 1_800_000_000_000;
@@ -131,6 +132,25 @@ describe('receiveShare', () => {
     const none = kept(idIn(bare.response))!.headers;
     expect(none.has(SHARED_URL_HEADER)).toBe(false);
     expect(none.has(SHARED_TITLE_HEADER)).toBe(false);
+  });
+
+  // POST /inspiration refuses these (isStorableLink): the photo is kept, the link dropped.
+  it.each([
+    ['a link that does not parse', 'https://'],
+    [
+      'a link past LINK_INPUT_MAX',
+      `https://shop.test/${'a'.repeat(LINK_INPUT_MAX)}`,
+    ],
+  ])('keeps the photo but not %s', async (_case, link) => {
+    const { storage, kept } = fakeCaches();
+    const { response } = await receiveShare(
+      shareRequest({ url: link, title: 'Suit' }, [jpeg()]),
+      storage,
+      NOW,
+    );
+    const headers = kept(idIn(response))!.headers;
+    expect(headers.has(SHARED_URL_HEADER)).toBe(false);
+    expect(headers.get(SHARED_TITLE_HEADER)).toBe('Suit');
   });
 
   it('refuses a body declared past the cap before reading it', async () => {

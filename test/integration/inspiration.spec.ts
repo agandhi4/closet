@@ -335,6 +335,31 @@ describe('inspiration', () => {
     expect(res.statusCode).toBe(413);
   });
 
+  // Whatever the order: the confirmation page puts the fields first, but the
+  // route must not depend on it (an older cached page posts the file first).
+  it("keeps a shared look's link and title when the photo is posted before them", async () => {
+    const form = new FormData();
+    form.append(
+      'photo',
+      new Blob([new Uint8Array(photo)], { type: 'image/jpeg' }),
+      'shared.jpg',
+    );
+    form.append('url', 'https://shop.test/file-first');
+    form.append('title', 'File first');
+    const encoded = new Response(form);
+    const res = await t.inject({
+      method: 'POST',
+      url: '/inspiration',
+      payload: Buffer.from(await encoded.arrayBuffer()),
+      headers: { 'content-type': encoded.headers.get('content-type')! },
+    });
+    expect(res.statusCode).toBe(303);
+    expect(await lookRow(lookIdOf(res.headers.location))).toMatchObject({
+      sourceUrl: 'https://shop.test/file-first',
+      title: 'File first',
+    });
+  });
+
   // The confirmation posts the share's link and title beside its photo.
   it('saves a shared photo with its link and title, and refuses a link that is not http(s)', async () => {
     const post = async (fields: Record<string, string>) => {
@@ -411,6 +436,15 @@ describe('inspiration', () => {
     );
     expect(body).toMatch(/<button type="submit" class="[^"]*" disabled="">/);
     expect(body).toContain('<input type="file" name="photo" accept="image/*"');
+    // The link and title precede the file: a browser posts fields in
+    // document order, so they never wait behind the photo.
+    expect(body.indexOf('name="url"')).toBeGreaterThan(-1);
+    expect(body.indexOf('name="url"')).toBeLessThan(
+      body.indexOf('type="file"'),
+    );
+    expect(body.indexOf('name="title"')).toBeLessThan(
+      body.indexOf('type="file"'),
+    );
     expect(body).toContain('data-stash-cache="shares-v1"');
     expect(body).toContain("import { confirmShare } from 'share-confirm';");
     expect(body).toContain(text('inspiration.SAVE_SHARED'));
@@ -934,6 +968,44 @@ describe('inspiration', () => {
       expect(res.statusCode, JSON.stringify(payload)).toBe(status);
     }
     expect(await t.db.$count(outfit, eq(outfit.ownerId, userId))).toBe(0);
+    expect(await matchedOf(id)).toEqual([null, null, null]);
+  });
+
+  it("never gives a removed piece's position to a new one: a stale save is a 409, not applied to the replacement", async () => {
+    const cookie = await t.register('look-positions@example.com');
+    const { id, whiteTee } = await closetAndLook(cookie);
+    const sneakers = await wear(
+      cookie,
+      'White sneakers',
+      'footwear',
+      'sneakers',
+      'white',
+    );
+    const post = (url: string, payload: Record<string, unknown> = {}) =>
+      t.inject({ method: 'POST', url, payload, headers: { cookie } });
+    // The look has pieces 0 to 2; the match view (stale) will post piece 2.
+    expect((await post(`/inspiration/${id}/pieces/2/delete`)).statusCode).toBe(
+      303,
+    );
+    const added = await post(
+      `/inspiration/${id}/pieces`,
+      piece('footwear/sneakers', 'white', '', 'solid'),
+    );
+    expect(added.statusCode).toBe(303);
+    const positions = (
+      await t.db
+        .select({ position: inspirationPiece.position })
+        .from(inspirationPiece)
+        .where(eq(inspirationPiece.inspirationId, id))
+        .orderBy(inspirationPiece.position)
+    ).map((row) => row.position);
+    expect(positions).toEqual([0, 1, 3]);
+
+    const stale = await post(`/inspiration/${id}/recreate/outfit`, {
+      position: ['1', '2'],
+      garment: [String(whiteTee), String(sneakers)],
+    });
+    expect(stale.statusCode).toBe(409);
     expect(await matchedOf(id)).toEqual([null, null, null]);
   });
 
