@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { type StoredMatcher, storedMatcher } from './outfit-rules';
+import { GarmentCategory } from './properties';
 
 const none: StoredMatcher = {
   garmentId: null,
@@ -17,14 +18,28 @@ describe('storedMatcher', () => {
       by: 'garment',
       garmentId: 7,
     });
-    expect(storedMatcher({ ...none, category: 'shoes', type: null })).toEqual({
+    expect(
+      storedMatcher({
+        ...none,
+        category: GarmentCategory.FOOTWEAR,
+        type: null,
+      }),
+    ).toEqual({
       by: 'category',
-      category: 'shoes',
+      category: GarmentCategory.FOOTWEAR,
       type: null,
     });
     expect(
-      storedMatcher({ ...none, category: 'shoes', type: 'sneakers' }),
-    ).toEqual({ by: 'category', category: 'shoes', type: 'sneakers' });
+      storedMatcher({
+        ...none,
+        category: GarmentCategory.FOOTWEAR,
+        type: 'sneakers',
+      }),
+    ).toEqual({
+      by: 'category',
+      category: GarmentCategory.FOOTWEAR,
+      type: 'sneakers',
+    });
     expect(storedMatcher({ ...none, color: 'red' })).toEqual({
       by: 'color',
       color: 'red',
