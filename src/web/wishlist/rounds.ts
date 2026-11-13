@@ -7,7 +7,7 @@ import {
   personalAccessToken,
 } from '../../db/schema';
 import { ownerTransaction } from '../auth/queries';
-import { museOutfitWaiting } from '../outfits/proposals';
+import { museOutfitWaiting } from '../outfits/references';
 import { moveFeedbackCursor } from './feedback';
 import { OPEN_PICKS } from './inbox';
 

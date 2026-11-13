@@ -10,7 +10,7 @@ import {
 } from '../../src/db/schema';
 import { deviceToken, expectProblem } from './api';
 import { createGarment, createWishlistItem } from './garments';
-import { createTestApp, type TestApp } from './harness';
+import { asFixture, createTestApp, type TestApp } from './harness';
 
 /**
  * Outfits, wears, washes and away on /api/v1 (#193a): each its page twin's
@@ -215,6 +215,59 @@ describe('outfits', () => {
       }),
       404,
       'not_found',
+    );
+  });
+
+  it("lists Muse's waiting proposals with proposed=true, to their owner only, and leaves the default list as it was", async () => {
+    const [shirt, jeans] = await pair();
+    const waiting = (
+      await create({ slots: [{ category: 'any', garmentId: shirt }] })
+    ).json<Saved>().id;
+    const setAside = (
+      await create({ slots: [{ category: 'any', garmentId: jeans }] })
+    ).json<Saved>().id;
+    await asFixture(t.db, async (tx) => {
+      await tx
+        .update(outfit)
+        .set({
+          proposedAt: new Date(),
+          reaction: 'proposed',
+          proposalNote: 'For rain',
+        })
+        .where(eq(outfit.id, waiting));
+      await tx
+        .update(outfit)
+        .set({
+          proposedAt: new Date(),
+          reaction: 'declined',
+          dismissedReason: 'style',
+        })
+        .where(eq(outfit.id, setAside));
+    });
+    const ids = async (url: string, as = token) =>
+      (await t.api(as, { method: 'GET', url })).json<{
+        data: { id: number; proposal?: { note?: string; reaction: string } }[];
+      }>().data;
+
+    const proposed = await ids('/api/v1/outfits?proposed=true');
+    expect(proposed.map(({ id }) => id)).toEqual([waiting]);
+    expect(proposed[0].proposal).toEqual({
+      reaction: 'proposed',
+      note: 'For rain',
+    });
+    const owned = (await ids('/api/v1/outfits')).map(({ id }) => id);
+    expect(owned).not.toContain(waiting);
+    expect(owned).not.toContain(setAside);
+    expect(await ids('/api/v1/outfits?proposed=true', strangerToken)).toEqual(
+      [],
+    );
+    expectProblem(
+      await t.api(token, {
+        method: 'GET',
+        url: '/api/v1/outfits?proposed=yes',
+      }),
+      400,
+      'validation',
     );
   });
 

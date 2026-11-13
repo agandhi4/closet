@@ -1,4 +1,4 @@
-import { and, eq, type SQL, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
   garment,
@@ -119,6 +119,20 @@ export function ownersOutfit(
   outfitId: SQL | AnyPgColumn = outfit.id,
 ): SQL<boolean> {
   return sql<boolean>`(${outfit.proposedAt} is null or (${outfit.reaction} = 'loved' and ${outfitIsComplete(outfitId)}))`;
+}
+
+/** Muse's proposals still waiting on the owner, and those set aside: not the owner's. */
+export function museOutfit(): SQL {
+  return sql`(${isNotNull(outfit.proposedAt)} and not ${ownersOutfit()})`;
+}
+
+/**
+ * One of Muse's outfits still waiting on the owner: not theirs yet, and
+ * not set aside (the From Muse section's cards). What a round's Today card
+ * counts (src/web/wishlist/rounds.ts) and GET /api/v1/outfits?proposed=true.
+ */
+export function museOutfitWaiting(): SQL {
+  return sql`(${museOutfit()} and ${outfit.reaction} <> 'declined')`;
 }
 
 /**

@@ -565,6 +565,13 @@ describe('API statements per route', () => {
         api: () => ({ method: 'GET', url: '/api/v1/outfits' }),
       },
       {
+        name: "GET /outfits?proposed=true (the page's From Muse section: GET /outfits)",
+        proposal: true,
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: '/outfits' }),
+        api: () => ({ method: 'GET', url: '/api/v1/outfits?proposed=true' }),
+      },
+      {
         name: 'GET /outfits/{id} (GET /outfits/:id)',
         ok: [200, 200],
         page: (s) => ({ method: 'GET', url: `/outfits/${s.outfitId}` }),
