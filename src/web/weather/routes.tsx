@@ -40,11 +40,8 @@ import {
   WEATHER_SETTINGS_ID,
   WeatherLocation,
 } from './settings';
-import { dayChips } from './summary';
+import { dayChips, MAX_SUMMARY_DAYS } from './summary';
 import { UserWeatherLine, WeatherCellDay, WeatherDay } from './views';
-
-/** The widest range of day chips one summary answers: a calendar month and a half. */
-const MAX_SUMMARY_DAYS = 42;
 
 const SummaryQuery = Type.Object({
   from: Type.Optional(IsoDateSchema),

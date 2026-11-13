@@ -154,30 +154,37 @@ export const LINK_IMPORT_LIMIT = {
 } satisfies RateLimitOptions;
 
 /**
- * The weather's city search (GET /weather/places, src/web/weather): each
- * search is a call to Open-Meteo's geocoding. Per signed-in user, like
- * LINK_IMPORT_LIMIT: room for a few tries at a spelling, and a ceiling on
- * how hard one account can make the server ask a free service.
+ * The weather's city search (GET /weather/places, src/web/weather; a trip's,
+ * and the API's GET /api/v1/weather/places): each search is a call to
+ * Open-Meteo's geocoding. Per user (the session's or the device token's),
+ * like LINK_IMPORT_LIMIT: room for a few tries at a spelling, and a ceiling
+ * on how hard one account can make the server ask a free service. A route
+ * config, so each route counts on its own (the page's two searches always
+ * did; the API's is a third, decisions 2026-11-13).
  */
 export const WEATHER_SEARCH_LIMIT = {
   max: 20,
   timeWindow: MINUTE_MS,
   hook: 'preHandler',
-  keyGenerator: (request) => `user ${request.auth!.user.id}`,
+  keyGenerator: (request) =>
+    `user ${request.accessToken?.user.id ?? request.auth!.user.id}`,
 } satisfies RateLimitOptions;
 
 /**
  * The routes that set a location the weather will be fetched for (POST
- * /weather/home, /weather/here, /trips/:id/destination). Every new rounded
- * location misses the forecast cache, so each is an Open-Meteo request and
- * a weather_forecast row: per signed-in user, room for a few tries and a
- * ceiling on how many one account can make the server fetch and keep.
+ * /weather/home, /weather/here, /trips/:id/destination, and their API twins
+ * PUT /api/v1/weather/home, /weather/here, /trips/{id}/destination). Every
+ * new rounded location misses the forecast cache, so each is an Open-Meteo
+ * request and a weather_forecast row: per user (the session's or the device
+ * token's), room for a few tries and a ceiling on how many one account can
+ * make the server fetch and keep. Each route counts on its own.
  */
 export const WEATHER_LOCATION_LIMIT = {
   max: 10,
   timeWindow: MINUTE_MS,
   hook: 'preHandler',
-  keyGenerator: (request) => `user ${request.auth!.user.id}`,
+  keyGenerator: (request) =>
+    `user ${request.accessToken?.user.id ?? request.auth!.user.id}`,
 } satisfies RateLimitOptions;
 
 /**

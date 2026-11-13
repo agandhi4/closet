@@ -133,5 +133,6 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
   await app.register(selfieApiRoutes, options);
   await app.register(lookApiRoutes, options);
   // Only with WEATHER_ENABLED, as /weather/* (webPlugin).
-  if (options.weather) await app.register(weatherApiRoutes, options);
+  const { weather } = options;
+  if (weather) await app.register(weatherApiRoutes, { ...options, weather });
 };

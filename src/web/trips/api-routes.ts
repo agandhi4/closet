@@ -13,13 +13,18 @@ import {
 } from '../api/resource';
 import { outfitOrGarments } from '../outfits/outfit-resource';
 import { RowId } from '../schemas';
+import { WEATHER_LOCATION_LIMIT } from '../security/rate-limit';
 import { type Actor, actorOf } from '../sharing/access';
 import { API_PREFIX } from '../surface';
+import { pickedPlace } from '../weather/place-picker';
+import { KeptPlace, PlaceInput } from '../weather/weather-resource';
+import { tripForecast } from './forecast';
 import { createTrip, listTrips } from './queries';
 import {
   addTripItem,
   copyTripExtras,
   editTrip,
+  locateTrip,
   pickIdeaForTrip,
   planTripOutfit,
   removeTrip,
@@ -50,8 +55,10 @@ import {
   TripOutfitRemoved,
   TripOutfitWorn,
   TripUpdated,
+  TripWeather,
   toTripListItem,
   toTripResource,
+  toTripWeather,
 } from './trip-resource';
 import {
   readTripForm,
@@ -93,7 +100,7 @@ const deleted = { 204: Type.Null({ description: 'Deleted' }) };
  */
 export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
   app,
-  { db, config, logger },
+  { db, config, logger, weather },
   done,
 ) => {
   const today = () => todayIn(config.timeZone, new Date());
@@ -504,6 +511,65 @@ export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       return { added };
     },
   );
+
+  // The destination's weather, only with WEATHER_ENABLED (as the page's
+  // GET /trips/:id/weather and POST /trips/:id/destination). The place
+  // search is GET /weather/places: a client needs no trip to search.
+  if (weather) {
+    app.get(
+      `${TRIP_PATH}/weather`,
+      {
+        schema: {
+          operationId: 'getTripWeather',
+          tags: ['trips'],
+          summary: "The destination's weather for the trip's days",
+          description:
+            "The trip page's forecast: the located destination's forecast for the trip's days from today within the 16-day forecast, each with what it asks of an all-day outfit (your offset included), and the typical weather of the days past it. Nothing is fetched for a trip not located or over. No ETag: it moves with the day and the forecast.",
+          params: TripParams,
+          response: apiResponses({ 200: TripWeather }),
+        },
+      },
+      async (request) => {
+        const actor = actorOf(request);
+        const trip = await requireTrip(db, actor, request.params.id);
+        const forecast = await tripForecast(
+          { db, weather },
+          actor.userId,
+          trip,
+          today(),
+        );
+        return toTripWeather(forecast);
+      },
+    );
+
+    app.put(
+      `${TRIP_PATH}/destination`,
+      {
+        schema: {
+          operationId: 'setTripDestination',
+          tags: ['trips'],
+          summary: "Locates the trip's destination",
+          description:
+            "A place from GET /weather/places becomes the destination (its name too), so the trip gets the place's weather. Set-state. 10 a minute per user (each new place is a forecast to fetch).",
+          params: TripParams,
+          body: PlaceInput,
+          response: apiResponses({ 200: KeptPlace }),
+        },
+        config: { rateLimit: WEATHER_LOCATION_LIMIT },
+      },
+      async (request) => {
+        const actor = actorOf(request);
+        const { id } = request.params;
+        const place = pickedPlace(request.body);
+        await locateTrip(db, actor, id, place);
+        // The user, never the place: where someone travels is theirs.
+        logger.info(
+          `Trip ${id} destination located by user ${actor.userId} (API)`,
+        );
+        return { name: place.name, ...place.location };
+      },
+    );
+  }
 
   done();
 };

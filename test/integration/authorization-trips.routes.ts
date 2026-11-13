@@ -385,6 +385,13 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'GET',
+        url: `/api/v1/trips/${f.tripId}/weather${q}`,
+      }),
+    },
   },
   {
     name: 'GET /trips/:id/places',
@@ -421,6 +428,14 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/trips/${f.tripId}/destination${q}`,
+        payload: { name: 'Paris', latitude: 48.85, longitude: 2.35 },
+      }),
     },
   },
   {

@@ -319,6 +319,25 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
       expect(res.json<{ today: IsoDate }>().today).toBe(today);
     });
 
+    it("GET /api/v1/today (#195a) is the household's day and its plan", async () => {
+      const { token } = await deviceToken(t);
+      const { outfitId } = await newOutfit(`API today ${at}`);
+      const entry = await plan(outfitId, today);
+      await plan(outfitId, tomorrow);
+      const res = await t.api(token, { method: 'GET', url: '/api/v1/today' });
+      expect(res.statusCode, res.body).toBe(200);
+      const model = res.json<{
+        today: IsoDate;
+        rows: { entries?: { id: number; day: IsoDate }[] }[];
+      }>();
+      expect(model.today).toBe(today);
+      const entries = model.rows.flatMap((row) => row.entries ?? []);
+      expect(entries).toContainEqual(
+        expect.objectContaining({ id: entry, day: today }),
+      );
+      expect(entries.every((e) => e.day === today)).toBe(true);
+    });
+
     it("the API's calendar (#193b): this week from today, today's entry worn and tomorrow's refused, Wear this today, the week planned from today", async () => {
       const { token } = await deviceToken(t);
       const api = (
