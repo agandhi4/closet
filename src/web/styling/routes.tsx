@@ -67,6 +67,7 @@ import {
   ScopeMenu,
   type StylingModel,
   StylingPage,
+  StylingPreview,
   StylingRows,
 } from './styling-page';
 import { type RowContext, StripPage } from './styling-row';
@@ -659,7 +660,10 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  /** Shuffle and "Add row" answer the rows alone, with what the page carries on. */
+  /**
+   * Shuffle, "Add row" and the Include picks switch answer the rows, with
+   * what the page carries on and the preview drawn from them.
+   */
   function renderRows(
     reply: FastifyReply,
     input: {
@@ -677,21 +681,21 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       scope?: { capsule: CapsuleRef | undefined; capsules: CapsuleRef[] };
     },
   ) {
+    const rows = stylingRows(
+      withEveryRole(input.states, input.windows),
+      input.windows,
+      input.held,
+    );
     return renderFragment(
       reply,
       <>
         <StylingRows
-          model={{
-            rows: stylingRows(
-              withEveryRole(input.states, input.windows),
-              input.windows,
-              input.held,
-            ),
-            seed: input.seed,
-            notice: input.notice,
-          }}
+          model={{ rows, seed: input.seed, notice: input.notice }}
           context={input.context}
         />
+        {/* The preview follows the rows (StylingPreview): out of band, as
+            its slots are the rows' and the page keeps it beside them. */}
+        <StylingPreview rows={rows} oob />
         {input.scope && (
           <ScopeMenu {...input.scope} state={input.context.state} oob />
         )}

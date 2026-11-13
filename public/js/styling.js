@@ -16,6 +16,12 @@
  *   (the lock's field, its attribute and the neighbours), and a strip's
  *   next page is made inert as it lands in a locked row (`snap-strip:watch`).
  *
+ * - The preview (#468, shown from lg) has a slot per row; the server draws
+ *   it and sends it again with every rows answer, and between them a choice
+ *   moves without a request, so each `snap-strip:chosen` copies the chosen
+ *   item's look (its plinth's children) into its row's slot. It follows a
+ *   swipe offline as choosing does.
+ *
  * Evaluated once per document: the listeners below sit on the document and
  * serve every page's rows.
  */
@@ -44,6 +50,34 @@ document.addEventListener('snap-strip:watch', (event) => {
   const strip = event.target;
   if (strip.matches('.styling-strip')) syncLock(rowOf(strip));
 });
+
+// The preview follows each row's choice.
+document.addEventListener('snap-strip:chosen', (event) => {
+  const strip = event.target;
+  if (strip.matches('.styling-strip')) mirror(rowOf(strip), event.detail.item);
+});
+
+/**
+ * The row's preview slot (`data-preview-slot`, its index among the rows)
+ * shows the chosen item's look, or nothing for "No garment". The slot keeps
+ * the chosen id, so a choice already shown (a strip's first watch centres
+ * the server's choice) costs nothing.
+ */
+function mirror(row, item) {
+  const rows = [
+    ...row.parentElement.querySelectorAll(':scope > [data-styling-row]'),
+  ];
+  const slot = document.querySelector(
+    `#styling-preview [data-preview-slot="${rows.indexOf(row)}"]`,
+  );
+  const value = item.dataset.snapValue;
+  if (!slot || slot.dataset.previewGarment === value) return;
+  slot.dataset.previewGarment = value;
+  const plinth = value ? item.querySelector('[data-styling-plinth]') : null;
+  slot.replaceChildren(
+    ...(plinth ? [...plinth.children].map((look) => look.cloneNode(true)) : []),
+  );
+}
 
 function rowOf(element) {
   return element.closest('[data-styling-row]');

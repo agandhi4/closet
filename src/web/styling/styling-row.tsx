@@ -47,9 +47,14 @@ export function roleLabel(role: GarmentRole): string {
 /** Accessories, bags and the rest ride along: smaller items, so the outfit leads. */
 const SMALL: readonly GarmentRole[] = ['accessory', 'bag', 'none'];
 
+/** A role that rides along: a small strip, and a small slot at the preview's foot. */
+export function ridesAlong(role: GarmentRole): boolean {
+  return SMALL.includes(role);
+}
+
 /** The strip's item size; see `SnapSize` for how it and the end spacers go together. */
 function sizing(role: GarmentRole): SnapSize {
-  return SMALL.includes(role) ? 'small' : 'roomy';
+  return ridesAlong(role) ? 'small' : 'roomy';
 }
 
 /**
@@ -248,20 +253,12 @@ function GarmentItem(props: {
     >
       <span
         class={`aspect-square w-full rounded-box bg-base-200 flex items-center justify-center p-2 ${PLINTH_STATE}`}
+        data-styling-plinth=""
       >
-        {garment.photo ? (
-          <img
-            src={imageUrl(garment.photo, 'thumb')}
-            alt=""
-            class="max-h-full max-w-full object-contain"
-            width="200"
-            height="200"
-            loading={props.selected ? 'eager' : 'lazy'}
-            decoding="async"
-          />
-        ) : (
-          <HangerIcon class="size-10 text-faint" strokeWidth="1" />
-        )}
+        <GarmentLook
+          garment={garment}
+          loading={props.selected ? 'eager' : 'lazy'}
+        />
       </span>
       <span class="text-xs truncate">
         {garment.name ?? categoryLabel(garment.category)}
@@ -272,6 +269,33 @@ function GarmentItem(props: {
         })}
       />
     </a>
+  );
+}
+
+/**
+ * A garment's picture, its cutout's thumb contained, or the hanger without
+ * a photo: what its plinth holds and what the preview's slot shows. One
+ * markup for both, since styling.js copies a chosen item's plinth children
+ * into its slot (`data-styling-plinth`) and the server draws the slot with
+ * this on first paint and in every rows answer.
+ */
+export function GarmentLook(props: {
+  garment: RowGarment;
+  loading: 'eager' | 'lazy';
+}) {
+  const { photo } = props.garment;
+  return photo ? (
+    <img
+      src={imageUrl(photo, 'thumb')}
+      alt=""
+      class="max-h-full max-w-full object-contain"
+      width="200"
+      height="200"
+      loading={props.loading}
+      decoding="async"
+    />
+  ) : (
+    <HangerIcon class="size-10 text-faint" strokeWidth="1" />
   );
 }
 

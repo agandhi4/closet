@@ -10,7 +10,7 @@ import { householdToday } from './support/household-today';
 import { fakeSubscription, stubPushManager } from './support/push-stub';
 
 /**
- * Phone-width (390 px) screenshots of the key pages with the seed personas
+ * Phone-width (390 px) screenshots, and a desktop (1440 px) block, of the key pages with the seed personas
  * (AGENTS.md, Seed personas), saved to screenshots/ for CI to upload as a
  * PR artifact: how every change looks with real data. Not a visual gate:
  * people look at them. Runs only with SEED_SCREENSHOTS (CI's e2e job), as
@@ -231,6 +231,24 @@ test.describe('dark', () => {
       '70-demo-calendar-month-dark',
       '/calendar/month?month=2026-08',
     );
+  });
+});
+
+// Desktop, 1440 x 900 (#307: 390 and 1440 per PR). Styling at lg (#468):
+// the rows beside the aside (the preview, Shuffle and Save), fresh, then
+// shuffled around a locked top. Before any test re-seeds Theo.
+test.describe('desktop', () => {
+  test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+
+  test('demo: Theo, Styling at 1440', async ({ page }) => {
+    await signInAs(page, 'demo');
+    await shot(page, '82-demo-styling-desktop', '/styling');
+    await lockTopRow(page);
+    await page.getByRole('button', { name: /Shuffle/ }).click();
+    await expect(page.locator('#styling-rows input[name="seed"]')).toHaveCount(
+      1,
+    );
+    await shot(page, '82b-demo-styling-shuffled-desktop');
   });
 });
 

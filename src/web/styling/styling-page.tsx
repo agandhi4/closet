@@ -25,7 +25,13 @@ import { tripUrl } from '../trips/urls';
 import type { ViewContext } from '../view-context';
 import { garmentUrl } from '../wardrobe/urls';
 import type { StylingRow } from './rows';
-import { type RowContext, roleLabel, StylingRowView } from './styling-row';
+import {
+  GarmentLook,
+  ridesAlong,
+  type RowContext,
+  roleLabel,
+  StylingRowView,
+} from './styling-row';
 import {
   STYLING_PATH,
   STYLING_ROW_PATH,
@@ -131,39 +137,40 @@ export function StylingPage(props: { ctx: ViewContext; model: StylingModel }) {
           />
         }
       />
-      <PageMain width="wide" class="pt-20 pb-40 flex flex-col gap-3">
+      <PageMain width="wide" class="pt-20 pb-40 lg:pb-8 flex flex-col gap-3">
         <Header model={model} />
         {model.rows.length > 0 ? (
-          <>
-            {/* Not guarded as a whole: guarding it would dim and freeze the
-                strips it wraps, and "choosing still works" offline
-                (styling.OFFLINE). Every network control around it
-                (Shuffle, picks, + Add row, the sheet's Save) carries its own
-                data-needs-network. */}
-            <PostForm
-              id="styling-form"
-              action={STYLING_PATH}
-              allowOffline="choosing a look works offline; Save is guarded in the sheet"
-            >
-              <StateFields model={model} />
-              <StylingRows model={model} context={context} />
-            </PostForm>
-            <AddRow model={model} />
-            <script
-              type="module"
-              dangerouslySetInnerHTML={{ __html: STYLING_INIT }}
-            />
-          </>
+          // Two columns from lg (#468): the rows, and the aside beside them.
+          // Below lg both wrappers are `contents`, so a phone lays out the
+          // same boxes as before they existed.
+          <div class={COMPOSER_COLUMNS}>
+            <div class="contents lg:flex lg:flex-col lg:gap-3 lg:min-w-0">
+              {/* Not guarded as a whole: guarding it would dim and freeze the
+                  strips it wraps, and "choosing still works" offline
+                  (styling.OFFLINE). Every network control around it
+                  (Shuffle, picks, + Add row, the sheet's Save) carries its
+                  own data-needs-network. */}
+              <PostForm
+                id="styling-form"
+                action={STYLING_PATH}
+                allowOffline="choosing a look works offline; Save is guarded in the sheet"
+              >
+                <StateFields model={model} />
+                <StylingRows model={model} context={context} />
+              </PostForm>
+              <AddRow model={model} />
+              <script
+                type="module"
+                dangerouslySetInnerHTML={{ __html: STYLING_INIT }}
+              />
+            </div>
+            <StylingAside model={model} />
+          </div>
         ) : (
           <Empty model={model} />
         )}
       </PageMain>
-      {model.rows.length > 0 && (
-        <>
-          <ActionBar model={model} />
-          {!model.shared && <SaveSheet model={model} />}
-        </>
-      )}
+      {model.rows.length > 0 && !model.shared && <SaveSheet model={model} />}
       <Dock ctx={ctx} />
     </Layout>
   );
@@ -194,6 +201,87 @@ export function StylingRows(props: {
         <input type="hidden" name="seed" value={String(model.seed)} />
       )}
       {context.state.picks && <input type="hidden" name="picks" value="1" />}
+    </div>
+  );
+}
+
+/** The composer's frame from lg: the rows' column, then the aside's fixed one. */
+const COMPOSER_COLUMNS =
+  'contents lg:grid lg:grid-cols-[1fr_20rem] lg:gap-6 lg:pr-4';
+
+/**
+ * Beside the rows from lg: the preview above Shuffle and Save, sticky under
+ * the app bar while the rows scroll. Below lg it is `contents` (no box): the
+ * preview is hidden and the ActionBar is the fixed bar above the dock, as a
+ * fixed box ignores a parent that has no transform. In DOM order after the
+ * rows and "Add row", so Tab reaches Shuffle and Save last on both.
+ */
+function StylingAside({ model }: { model: StylingModel }) {
+  return (
+    <div class="contents lg:flex lg:flex-col lg:gap-4 lg:sticky lg:top-20 lg:self-start">
+      <StylingPreview rows={model.rows} />
+      <ActionBar model={model} />
+    </div>
+  );
+}
+
+/**
+ * The outfit as it stands (#468), top to toe, shown from lg: a slot per
+ * row in row order (`data-preview-slot`, its index among the rows), the
+ * worn roles stacked and the ones riding along (accessory, bag, none) in a
+ * line at the foot, each the chosen garment's look or nothing for "No
+ * garment" (an empty slot collapses). Not `OutfitCollage`: that lays out by
+ * the roles present, which only the server knows, and the choice moves in
+ * the browser. The server draws it from the rows' states (so `?with=`,
+ * `?outfit=` and a refused Save open right) and every rows answer sends it
+ * again out of band (`oob`); between them styling.js copies each choice in
+ * (`snap-strip:chosen`), so it follows a swipe offline too. `aria-hidden`:
+ * each strip's listbox already says what is chosen.
+ */
+export function StylingPreview(props: {
+  rows: readonly StylingRow[];
+  oob?: boolean;
+}) {
+  const slots = props.rows.map((row, index) => ({ row, index }));
+  return (
+    <div
+      id="styling-preview"
+      hx-swap-oob={props.oob ? 'true' : undefined}
+      class="hidden lg:flex flex-col gap-2 rounded-box bg-base-200 p-4"
+      aria-hidden="true"
+    >
+      <p class="text-xs font-semibold uppercase tracking-wide text-muted">
+        {t('styling.PREVIEW')}
+      </p>
+      <div class="flex flex-col items-center gap-2">
+        {slots
+          .filter(({ row }) => !ridesAlong(row.role))
+          .map((slot) => (
+            <PreviewSlot {...slot} class="h-24 w-full" />
+          ))}
+      </div>
+      <div class="flex flex-wrap justify-center gap-2">
+        {slots
+          .filter(({ row }) => ridesAlong(row.role))
+          .map((slot) => (
+            <PreviewSlot {...slot} class="size-16" />
+          ))}
+      </div>
+    </div>
+  );
+}
+
+/** A row's slot: `data-preview-garment` is the chosen id ('' for none), which styling.js compares and keeps. */
+function PreviewSlot(props: { row: StylingRow; index: number; class: string }) {
+  const { row } = props;
+  const garment = row.garments.find((one) => one.id === row.garmentId);
+  return (
+    <div
+      class={`flex items-center justify-center empty:hidden ${props.class}`}
+      data-preview-slot={String(props.index)}
+      data-preview-garment={garment ? String(garment.id) : ''}
+    >
+      {garment && <GarmentLook garment={garment} loading="lazy" />}
     </div>
   );
 }
@@ -443,12 +531,13 @@ function AddRow({ model }: { model: StylingModel }) {
 /**
  * The bar above the dock (`bottom-dock`, z-20: under the dock and the
  * navbar, AGENTS.md Gotchas): Shuffle, and Save (the sheet), or over a
- * shared wardrobe the reason there is no Save.
+ * shared wardrobe the reason there is no Save. From lg it sits in the
+ * aside under the preview (`lg:static`), its buttons stacked full width.
  */
 function ActionBar({ model }: { model: StylingModel }) {
   return (
-    <div class="fixed left-rail right-0 bottom-dock z-20 bg-base-100 border-t border-base-300">
-      <div class="flex items-center gap-2 px-4 py-2 max-w-page-narrow mx-auto">
+    <div class="fixed left-rail right-0 bottom-dock z-20 bg-base-100 border-t border-base-300 lg:static lg:z-auto lg:bg-transparent lg:border-0">
+      <div class="flex items-center gap-2 px-4 py-2 max-w-page-narrow mx-auto lg:flex-col lg:items-stretch lg:p-0 lg:max-w-none">
         <button
           type="button"
           class="btn btn-outline"
@@ -466,7 +555,7 @@ function ActionBar({ model }: { model: StylingModel }) {
         ) : (
           <button
             type="button"
-            class="btn btn-primary flex-1"
+            class="btn btn-primary flex-1 lg:flex-none"
             onclick="document.getElementById('styling-save').showModal()"
           >
             {t(model.outfit ? SAVE_CHANGES_KEY : 'SAVE')}
