@@ -70,7 +70,7 @@ separates foreground from background, and it cannot say what the foreground is. 
 narrow thing, a **colour read of a tagged piece**: the owner taps a region, and the cutout's pixels
 give a dominant colour mapped onto `GARMENT_COLORS`. That is a possible slice after v1 (see 6),
 not a promise. A hosted vision model is an outbound call with the owner's photos: a decision for
-section 7, and it would go through `createOutboundÂFetcher` or an MCP route, never the client.
+section 7, and it would go through `createOutboundFetcher` or an MCP route, never the client.
 
 **Matching a piece to the closet** is a pure module, `src/wardrobe/recreate.ts`, beside `goes-with.ts`:
 - candidates are the closet's garments of the piece's role (`inCloset`, available ones first);
