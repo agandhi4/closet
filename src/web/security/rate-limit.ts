@@ -11,8 +11,9 @@ import type { Logger } from '../../logger';
  * once at the root by createApp() with `global: false`: nothing is limited
  * unless its route opts in with `config: { rateLimit: SIGN_IN_LIMIT }` (or
  * ACCOUNT_LIMIT, LINK_IMPORT_LIMIT, WEATHER_SEARCH_LIMIT, WEATHER_LOCATION_LIMIT,
- * VITALS_LIMIT, CLIENT_ERROR_LIMIT, MCP_LIMIT; HEALTH_LIMIT through one
- * createRateLimit checker). Every limited route counts on its own. Counters live in
+ * VITALS_LIMIT, CLIENT_ERROR_LIMIT, MCP_LIMIT; HEALTH_LIMIT, SIGN_IN_LIMIT's
+ * two sign-in doors, SIGN_IN_ACCOUNT_LIMIT and API_LIMIT through one
+ * createRateLimit checker each). Every limited route counts on its own. Counters live in
  * process memory, which is right for the single container this runs as.
  *
  * The client address is `request.ip`, which Fastify takes from
@@ -33,6 +34,7 @@ export async function registerRateLimit(
       new HttpError(
         context.statusCode,
         t('TOO_MANY_ATTEMPTS', { after: context.after }),
+        { retryAfterSeconds: Math.ceil(context.ttl / 1000) },
       ),
     onExceeded: (request: FastifyRequest, key: string) => {
       logger.warn(
@@ -57,7 +59,30 @@ export function tooManyAttempts(ttlInSeconds: number): HttpError {
     t('TOO_MANY_ATTEMPTS', {
       after: `${count} ${unit}${count === 1 ? '' : 's'}`,
     }),
+    { retryAfterSeconds: Math.ceil(ttlInSeconds) },
   );
+}
+
+/** A `createRateLimit` checker: one budget, however many routes count on it. */
+export type RateLimitChecker = ReturnType<FastifyInstance['createRateLimit']>;
+
+/**
+ * Counts `request` against `checker` and throws the 429 past its limit,
+ * logged naming `who` (an address, a token row id; never a secret). For the
+ * budgets several routes share, which route config cannot express.
+ */
+export async function enforceLimit(
+  checker: RateLimitChecker,
+  request: FastifyRequest,
+  { logger, who }: { logger: Logger; who: string },
+): Promise<void> {
+  const verdict = await checker(request);
+  // `isAllowed` is the plugin's allow list; the count is isExceeded.
+  if (verdict.isAllowed || !verdict.isExceeded) return;
+  logger.warn(
+    `Rate limit reached: ${request.method} ${loggableUrl(request)} for ${who}`,
+  );
+  throw tooManyAttempts(verdict.ttlInSeconds);
 }
 
 /**
@@ -69,11 +94,30 @@ export function tooManyAttempts(ttlInSeconds: number): HttpError {
  */
 const MINUTE_MS = 60_000;
 
-/** Login and registration: per client address, before the body is read. */
+/**
+ * Signing in with a password: per client address, before the body is read.
+ * ONE checker for both doors, the login page and the API's device sign-in
+ * (`signInLimit`, built in webPlugin), so an address gets 5 guesses a minute
+ * in all, the 6th a 429, whichever door it knocks on. Registration counts
+ * the same limit as its own route config.
+ */
 export const SIGN_IN_LIMIT = {
   max: 5,
   timeWindow: MINUTE_MS,
+  keyGenerator: (request: FastifyRequest) => request.ip,
 } satisfies RateLimitOptions;
+
+/**
+ * The API's device sign-in, per account as well as per address: a sign-in
+ * mints a token that lasts until revoked, so guesses spread over many
+ * addresses are capped per account too. Keyed by the SHA-256 of the
+ * normalized email (src/web/auth/api-routes.ts), never the address itself.
+ * A preHandler: the email is in the body.
+ */
+export const SIGN_IN_ACCOUNT_LIMIT = {
+  max: 5,
+  timeWindow: MINUTE_MS,
+};
 
 /**
  * Every route that checks the current password: change password, change
@@ -190,6 +234,19 @@ export const MCP_LIMIT = {
   hook: 'preHandler',
   keyGenerator: (request) => `token ${request.accessToken!.tokenId}`,
 } satisfies RateLimitOptions;
+
+/**
+ * Every authenticated /api/v1 route (src/web/api/plugin.ts): per device
+ * token, counted after the token is authenticated (an unauthenticated
+ * request is the 401 and never counted), as MCP_LIMIT is. One checker for
+ * the whole API: a client's budget, not a route's.
+ */
+export const API_LIMIT = {
+  max: 120,
+  timeWindow: MINUTE_MS,
+  keyGenerator: (request: FastifyRequest) =>
+    `token ${request.accessToken!.tokenId}`,
+};
 
 /**
  * The MCP tool that imports a link (add_garment_from_link) fetches a

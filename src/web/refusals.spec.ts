@@ -12,6 +12,7 @@ describe('refusals', () => {
     expect(describeError(refusal)).toEqual({
       status: 404,
       message: 'Garment not found',
+      code: 'not_found',
       logDetail: 'garment 9',
       unexpected: false,
     });

@@ -1,10 +1,12 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { Db } from '../db/client';
+import { registerApi } from './api/plugin';
 import { createSessionHook } from './auth/require-session';
 import { authRoutes } from './auth/routes';
 import { tokenRoutes } from './auth/token-routes';
 import { sizesRoutes } from './sizes/routes';
 import { mcpRoutes } from './mcp/routes';
+import { SIGN_IN_LIMIT } from './security/rate-limit';
 import type { SessionTokens } from './auth/tokens';
 import { calendarRoutes } from './calendar/routes';
 import { capsuleRoutes } from './capsules/routes';
@@ -108,6 +110,8 @@ export interface WebOptions {
   weather: WeatherService | undefined;
   /** Context `Mcp`: one line per MCP tool call (src/web/mcp). */
   mcpLogger: Logger;
+  /** Context `Api`: the JSON API's credentials and sign-ins (src/web/api). */
+  apiLogger: Logger;
   /**
    * The process's one Web Push sender (src/web/push/sender.ts), built by
    * createApp() exactly when PWA_ENABLED (with `config.vapid`): the
@@ -151,6 +155,11 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
 ) => {
   const { logger } = options;
   app.addHook('preValidation', createSessionHook(logger));
+  // The two sign-in doors' one SIGN_IN_LIMIT budget (src/web/auth/sign-in.ts).
+  const signIn = {
+    ...options,
+    signInLimit: app.createRateLimit(SIGN_IN_LIMIT),
+  };
 
   await app.register(healthRoutes, options);
   await app.register(shellRoutes, options);
@@ -176,7 +185,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(stylingRoutes, options);
   await app.register(galleryRoutes, options);
   await app.register(inspirationRoutes, options);
-  await app.register(authRoutes, options);
+  await app.register(authRoutes, signIn);
   await app.register(tokenRoutes, options);
   await app.register(sizesRoutes, options);
   await app.register(sharingRoutes, options);
@@ -192,8 +201,10 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   // WEATHER_ENABLED=false: no /weather route, so nothing stores a location.
   const { weather } = options;
   if (weather) await app.register(weatherRoutes, { ...options, weather });
-  // Bearer-authenticated (config.bearer): the session gate above passes it.
+  // The bearer surfaces (src/web/surface.ts): the session gate above passes
+  // them, each authenticates its own kind of token.
   await app.register(mcpRoutes, options);
+  await registerApi(app, signIn);
   const { vapid } = options.config;
   if (vapid && options.push) {
     await app.register(pushRoutes, {

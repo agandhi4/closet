@@ -20,18 +20,26 @@ describe('bypassesWorker', () => {
     '/mcp',
     '/mcp/',
     '/mcp/anything',
+    '/api',
+    '/api/v1/me',
+    '/api/v1/auth/token',
+    '/API/v1/me',
     '/wardrobe/export.csv',
     '/wardrobe/export.json',
   ])('leaves %s alone', (path) => {
     expect(bypassesWorker(new URL(`${ORIGIN}${path}`))).toBe(true);
   });
 
-  it.each(['/wardrobe', '/wardrobe/export', '/mcpx', '/auth/tokens', '/'])(
-    'handles %s as the app',
-    (path) => {
-      expect(bypassesWorker(new URL(`${ORIGIN}${path}`))).toBe(false);
-    },
-  );
+  it.each([
+    '/wardrobe',
+    '/wardrobe/export',
+    '/mcpx',
+    '/apix',
+    '/auth/tokens',
+    '/',
+  ])('handles %s as the app', (path) => {
+    expect(bypassesWorker(new URL(`${ORIGIN}${path}`))).toBe(false);
+  });
 });
 
 describe('servesStaleWhileRevalidate', () => {

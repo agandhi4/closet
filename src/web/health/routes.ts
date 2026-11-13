@@ -5,9 +5,8 @@ import type {
 } from 'fastify';
 import { lastMigrationAt, newestMigrationAt } from '../../db/migrate';
 import { ownershipFix, probeWritable } from '../../storage-probe';
-import { loggableUrl } from '../loggable-url';
 import type { WebOptions } from '../plugin';
-import { HEALTH_LIMIT, tooManyAttempts } from '../security/rate-limit';
+import { enforceLimit, HEALTH_LIMIT } from '../security/rate-limit';
 import {
   checkCutoutQueue,
   checkDatabase,
@@ -55,14 +54,7 @@ export const healthRoutes: FastifyPluginCallback<WebOptions> = (
   );
 
   const ready = async (request: FastifyRequest, reply: FastifyReply) => {
-    const verdict = await limit(request);
-    // `isAllowed` is the plugin's allow list; the count is isExceeded.
-    if (!verdict.isAllowed && verdict.isExceeded) {
-      log.warn(
-        `Rate limit reached: ${request.method} ${loggableUrl(request)} for ${request.ip}`,
-      );
-      throw tooManyAttempts(verdict.ttlInSeconds);
-    }
+    await enforceLimit(limit, request, { logger: log, who: request.ip });
     const body = readiness(config.release, {
       ...(await checkDatabase(() => lastMigrationAt(db), buildSchemaAt, log)),
       storage: await storage(),

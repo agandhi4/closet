@@ -2,6 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { LOGIN_PATH } from './login-path';
 import { decideSessionAccess } from './session-access';
 import { loggableUrl } from '../loggable-url';
+import { surfaceOf } from '../surface';
 import type { Logger } from '../../logger';
 
 declare module 'fastify' {
@@ -11,15 +12,6 @@ declare module 'fastify' {
      * Every route is protected unless it says `config: { public: true }`.
      */
     public?: boolean;
-    /**
-     * An API route authenticated by a personal access token in
-     * `Authorization: Bearer`, never by the session cookie: the MCP endpoint
-     * (src/web/mcp). The session gate and the page context leave it alone
-     * (its errors are JSON), its plugin authenticates every request, and the
-     * same-origin check lets a request without Origin through (a non-browser
-     * client), still refusing a foreign one.
-     */
-    bearer?: boolean;
     /**
      * The route checks the current password (the step-up rule, Auth): the
      * session lookup then reads the hash with the rest of the row, and the
@@ -48,10 +40,9 @@ export function createSessionHook(logger: Logger) {
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<FastifyReply | undefined> {
-    const { config } = request.routeOptions;
-    // A bearer route authenticates itself (a token, never this session).
-    if (config.bearer === true) return;
-    const isPublic = config.public === true;
+    // /mcp and /api authenticate themselves (a token, never this session).
+    if (surfaceOf(request) !== 'page') return;
+    const isPublic = request.routeOptions.config.public === true;
     // Answering from an async hook means returning the reply: Fastify then
     // skips the handler.
     switch (decideSessionAccess(request, isPublic)) {

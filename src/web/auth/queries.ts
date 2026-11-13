@@ -360,6 +360,7 @@ export class OwnerLockTimeout extends HttpError {
   ) {
     super(503, t('WARDROBE_BUSY'), {
       logDetail: `${writer} for owner ${ownerId} waited ${OWNER_LOCK_TIMEOUT_MS} ms for a lock`,
+      retryAfterSeconds: OWNER_LOCK_TIMEOUT_MS / 1000,
     });
     this.name = 'OwnerLockTimeout';
   }

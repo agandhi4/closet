@@ -14,7 +14,7 @@ Capabilities: pwa, push, scheduled-jobs
 - **Views**: server-rendered typed JSX (`hono/jsx` to strings, no Hono server) in `src/web/`, htmx 2, a few modules in `public/js/`. Not a SPA; no JSON API for the UI.
 - **CSS**: Tailwind v4 + daisyUI (`views/assets/main.css` to `public/bundle.css`; `views/assets/AGENTS.md`).
 - **Data**: PostgreSQL 18 only (production, pgvault-dev, and the throwaway containers check_tree and CI test on). **Drizzle ORM owns the schema, the migrations and every query** (`src/db/schema.ts`, `drizzle/`, applied at boot).
-- **Auth**: a JWT in an httpOnly `access_token` cookie, into `req.auth` per request; `/mcp` takes personal access tokens. Every route that changes or hands out a credential asks for the current password (`src/web/auth/AGENTS.md`).
+- **Auth**: a JWT in an httpOnly `access_token` cookie, into `req.auth` per request; `/mcp` takes agent tokens, `/api/v1` device tokens (`src/web/api/AGENTS.md`). Every route that changes or hands out a credential asks for the current password (`src/web/auth/AGENTS.md`).
 - **PWA**: Workbox `injectManifest` over `views/assets/src-sw.ts` (to `public/sw.js`), Web Push via `web-push` + VAPID; gated by `PWA_ENABLED`.
 - **Images**: `sharp`, `heic-decode`; background removal on the server only (BiRefNet, `onnxruntime-node`, a child process). Storage: local disk under `DATA_PATH`, the only backend.
 - **i18n**: English only, `src/i18n/en/lang.json`, `t('KEY')` typed to its keys. **Logging**: one pino logger (`src/logger.ts`), a child per module.
@@ -90,6 +90,7 @@ Each area's detail lives in an `AGENTS.md` beside its code, with `CLAUDE.md` a s
 | Weekly auto-plan | `src/web/week-plan/AGENTS.md` | "Plan my week", the daily re-plan, `planned_by` |
 | Web Push | `src/push/AGENTS.md` | subscriptions, notifications, reminders |
 | MCP server | `src/web/mcp/AGENTS.md` | `/mcp`, its tools, personal access tokens |
+| JSON API | `src/web/api/AGENTS.md` | `/api/v1`, the device sign-in, problem+json, the OpenAPI spec, adding an API route |
 | Health | `src/web/health/AGENTS.md` | `/health/live`, `/health/ready`, `/healthz`, a readiness check, the image `HEALTHCHECK` |
 | PWA and the service worker | `src/web/shell/AGENTS.md` | the service worker, caching, offline, queued writes (the outbox), install, updates, static delivery |
 | Styles and fonts | `views/assets/AGENTS.md` | the theme, colours, fonts |
@@ -104,7 +105,7 @@ Each area's detail lives in an `AGENTS.md` beside its code, with `CLAUDE.md` a s
 
 ### Routes
 
-In full, with every route's owner: `docs/architecture.md#routes`. `GET /` is Today. A route is public only with `config: { public: true }` (login, registration, `/health/*` and `/healthz`, `/share`, most `/file/**` images; never an outfit selfie's); `/mcp` takes a personal access token, never the cookie (`config: { bearer: true }`); everything else needs a session and is the user's own. `/weather/*` exists only with `WEATHER_ENABLED`, `/push/*` only with `PWA_ENABLED`.
+In full, with every route's owner: `docs/architecture.md#routes`. `GET /` is Today. A route is public only with `config: { public: true }` (login, registration, `/health/*` and `/healthz`, `/share`, most `/file/**` images; never an outfit selfie's); `/mcp` and `/api/v1` take a token, never the cookie (their `surface`, `src/web/surface.ts`); everything else needs a session and is the user's own. `/weather/*` exists only with `WEATHER_ENABLED`, `/push/*` only with `PWA_ENABLED`.
 
 ### Request flow
 
@@ -124,6 +125,7 @@ Each rule in full, with its story: `docs/web-layer.md`. A feature lives whole (r
 - **Rendering** only through `renderPage` / `renderFragment` / `renderToString` (`src/web/render.ts`), which await it: `String(<Page />)` can be `[object Promise]`. Specs read markup through `unescapeHtml`.
 - **Errors**: `throw new HttpError(status)` (`src/web/errors.tsx`); the root error handler renders `ErrorPage`, anything else a detail-free 500. A 404 or 403 is `NotFound(resource)` / `Forbidden()` (`src/web/refusals.ts`), thrown by the domain function, which takes an `Actor` (`actorOf`), never by a route or tool (guards.conf `[refusals]`, #188). The root hook must stay at preValidation (validation runs after it, so a 400 keeps its page).
 - **Hooks**: an async hook that answers must `return reply` or the handler sends again; one without async work takes `done` (`@typescript-eslint/require-await`). `createApp()` registers every root piece before `webPlugin`: a plugin inherits only what existed when it was registered.
+- **An API route** (`/api/v1`, #190) lives in `src/web/<feature>/api-routes.ts`, registered in `apiPlugin`, calling the page's own domain function; it declares `operationId`, `tags` and `apiResponses(...)` (the boot refuses one without), and its PR runs `npm run api:spec` and commits `openapi.json` (the drift test). In full: `src/web/api/AGENTS.md`.
 - **Escaping**: the only raw-markup hatch is `dangerouslySetInnerHTML`, fed `tHtml()` or `jsonForScript()`, never a raw value, with a reason at each site. `hono/html` is banned by ESLint.
 - **Forms**: every post form is `PostForm` (`src/web/auth/form.tsx`), a native post: htmx swaps no 4xx, and boosted forms lose password saving (`expectNativePostForms`); uploads too, never `hx-post`. It submits once (`public/js/submit-once.js`); the server stays the guard where a duplicate matters. Fields: `FormField` + `inputAttributes` (`src/web/form-field.tsx`), the one spelling of an invalid field (`@field-invalid`).
 - **Autosave**: every control saved on change is built by `src/web/autosave.tsx` (`AutosaveForm`, `autosaveAttributes`), never by hand with `hx-trigger="change"` (`expectAutosaveControls`); **no other swap may replace an autosave form**, or its queued save dies.
@@ -133,8 +135,8 @@ Each rule in full, with its story: `docs/web-layer.md`. A feature lives whole (r
 
 The detail of each rule, its code and its spec: `src/web/security/AGENTS.md`. What every change keeps:
 
-- **CSRF**: the root same-origin hook 403s a POST, PUT, PATCH or DELETE whose `Origin` (or `Referer`) is not this site, before the body is read. Nothing changes state on a GET. The harness sends an Origin; Playwright posts use `SAME_ORIGIN` / `signUpHeaders()`.
-- **Rate limits** are per route, opt-in: `SIGN_IN_LIMIT`, `ACCOUNT_LIMIT` (every route that checks the current password), `LINK_IMPORT_LIMIT`, `WEATHER_SEARCH_LIMIT`, `WEATHER_LOCATION_LIMIT`, `MCP_LIMIT`, `HEALTH_LIMIT` (`/health/ready`, per address).
+- **CSRF**: the root same-origin hook 403s a POST, PUT, PATCH or DELETE whose `Origin` (or `Referer`) is not this site, before the body is read. Nothing changes state on a GET. The bearer surfaces (`/mcp`, `/api`) accept no Origin and refuse a foreign one. The harness sends an Origin; Playwright posts use `SAME_ORIGIN` / `signUpHeaders()`.
+- **Rate limits** are per route, opt-in: `SIGN_IN_LIMIT` (one budget for the login page and the API sign-in, which adds `SIGN_IN_ACCOUNT_LIMIT`), `API_LIMIT`, `ACCOUNT_LIMIT` (every route that checks the current password), `LINK_IMPORT_LIMIT`, `WEATHER_SEARCH_LIMIT`, `WEATHER_LOCATION_LIMIT`, `MCP_LIMIT`, `HEALTH_LIMIT` (`/health/ready`, per address).
 - **Refusals do not reveal ids**: unseeable is a 404 like an unknown id; seeable but not changeable is a 403 (`WardrobeAccess`; the matrix is `test/integration/authorization-*.routes.ts`).
 - **Outbound fetches** of a user-supplied URL or a third-party API go only through `createOutboundFetcher` (`make guard-check`).
 - **Redirect targets** from the user go through `safeReturnTo`; a path carrying a secret sets `config: { secretPath: true }`; log lines name requests through `loggableUrl()`; public pages never show an email.

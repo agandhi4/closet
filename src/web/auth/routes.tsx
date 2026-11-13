@@ -16,6 +16,12 @@ import { findWeatherSettings } from '../weather/queries';
 import { deleteAccount } from './account';
 import { InlineErrors } from './form';
 import { LOGOUT_PATH } from './logout';
+import {
+  checkSignIn,
+  failedSignInFor,
+  type SignInLimit,
+  signInGate,
+} from './sign-in';
 import { PROFILE_PATH, revokeNotice } from './urls';
 import {
   ChangePasswordPage,
@@ -30,12 +36,7 @@ import {
 } from './pages';
 import { hashPassword, setPassword, verifyPassword } from './passwords';
 import { listTokens } from './personal-tokens';
-import {
-  findUserByEmail,
-  insertUser,
-  normalizeEmail,
-  updateEmail,
-} from './queries';
+import { insertUser, normalizeEmail, updateEmail } from './queries';
 import { sessionUserId } from './require-session';
 import { findWeekTemplate } from '../week-plan/template';
 import {
@@ -83,9 +84,11 @@ const replacedNote = (replaced: number | undefined) =>
  * the account pages need a session like every route. Every form is a native
  * POST (see form.tsx); a refusal re-renders its page with a 4xx.
  */
-export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
+export const authRoutes: FastifyPluginCallbackTypebox<
+  WebOptions & SignInLimit
+> = (
   app,
-  { config, db, tokens, photos, logger, weather },
+  { config, db, tokens, photos, logger, weather, signInLimit },
   done,
 ) => {
   // DISABLE_REGISTRATION: every registration route sends the visitor to the
@@ -104,25 +107,24 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app.post(
     '/auth/login',
     {
-      config: { public: true, rateLimit: SIGN_IN_LIMIT },
+      config: { public: true },
+      // SIGN_IN_LIMIT, shared with the API's device sign-in (sign-in.ts).
+      onRequest: signInGate(signInLimit, logger),
       schema: { body: LoginBody },
     },
     async (request, reply) => {
       const { email, password } = request.body;
-      const account = await findUserByEmail(db, normalizeEmail(email));
-      // verifyPassword costs the same without an account, so the answer's
-      // timing does not tell which addresses exist; the message is one for
-      // both cases.
-      if (!(await verifyPassword(password, account?.password)) || !account) {
-        logger.warn(
-          `Failed login for ${account ? `user ${account.id}` : 'an unknown email'}`,
-        );
+      // One message for an unknown email and a wrong password, at one cost.
+      const check = await checkSignIn(db, email, password);
+      if (!check.ok) {
+        logger.warn(`Failed login for ${failedSignInFor(check)}`);
         return renderPage(
           reply,
           <LoginPage ctx={viewContext(reply)} failed={{ email }} />,
           { status: 401 },
         );
       }
+      const { account } = check;
       const replaced = startSession(
         request,
         reply,

@@ -5,6 +5,7 @@ import type {
   FastifyReply,
   FastifyRequest,
 } from 'fastify';
+import { presentedBearer } from '../auth/bearer';
 import { authenticateToken } from '../auth/personal-tokens';
 import { errorBody } from '../errors';
 import { MAX_OPTIONS_PER_GROUP } from '../../wardrobe/suggestions';
@@ -14,8 +15,6 @@ import { MCP_LIMIT, MCP_LINK_IMPORT_LIMIT } from '../security/rate-limit';
 import { requestOrigin } from '../security/origin';
 import { registerTools, type ToolContext } from './tool';
 import { mcpTools } from './tools';
-
-const BEARER = /^Bearer\s+(\S+)\s*$/i;
 
 // Array elements and object keys one tool call's arguments may hold, checked
 // by the SDK before any schema runs (GHSA-46jr-4wx8-v453: unbounded input
@@ -49,7 +48,7 @@ const INSTRUCTIONS = [
  * server and transport per request. The tools (./tools) call the page's
  * query and write functions as the token's user (src/web/mcp/tool.ts).
  *
- * An API, not a page (`config.bearer`, src/web/auth/require-session.ts):
+ * An API, not a page (`config.surface: 'mcp'`, src/web/surface.ts):
  * authenticated by a personal access token (src/web/auth/personal-tokens.ts)
  * in `Authorization: Bearer`, never the session cookie; no page context, so
  * errors are JSON; the same-origin check lets a request without Origin
@@ -79,16 +78,16 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
   const linkImportLimit = app.createRateLimit(MCP_LINK_IMPORT_LIMIT);
 
   async function requireToken(request: FastifyRequest, reply: FastifyReply) {
-    const header = request.headers.authorization;
-    const presented = header ? BEARER.exec(header)?.[1] : undefined;
+    const presented = presentedBearer(request);
     // Agent tokens only: a native client's device token is refused here as
     // an unknown one would be (#189).
-    const auth = presented
-      ? await authenticateToken(db, presented, 'mcp')
-      : undefined;
+    const auth =
+      'token' in presented
+        ? await authenticateToken(db, presented.token, 'mcp')
+        : undefined;
     if (!auth) {
       mcpLogger.warn(
-        `MCP ${request.method} refused: ${presented ? 'unknown, revoked or non-MCP token' : 'no bearer token'} from ${request.ip}`,
+        `MCP ${request.method} refused: ${'token' in presented ? 'unknown, revoked or non-MCP token' : presented.refused} from ${request.ip}`,
       );
       return (
         reply
@@ -104,7 +103,7 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
   }
 
   const route = {
-    config: { bearer: true, secretPath: true },
+    config: { surface: 'mcp', secretPath: true },
     preValidation: requireToken,
   } as const;
 

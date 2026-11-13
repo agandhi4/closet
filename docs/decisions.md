@@ -547,6 +547,30 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Decision:** `capsules/capsule-actions.ts` (`requireCapsule`, `capsuleIn`, create, rename, delete, `setCapsuleMembers`, `setGarmentCapsules`; `capsuleNotFound` moved there) and `wishlist/suggestion-actions.ts` (`requireNeed`, `makeDecision` over decide's page decisions, and Muse's `checkSuggestionRoom`, `markSuggestedPick`, `createNeed`, whose 409 wordings moved from the tool) take `(db, actor, address, input)` and throw the typed refusals; `goesWithCloset(db, actor, id)` throws `NotFound('wishlistItem')` ("Not on your wishlist", unchanged). Create and rename still ask the guard (rename the capsule) before the form, so a refused form is drawn only for the owner; the writer's own check is then free, and statement counts hold.
 **Consequence:** an unseen wardrobe now reads as what the URL names: a decision's "Garment not found" or "Need not found" (was "Not found" or "Wardrobe not found"), the garment page's capsule toggles "Garment not found" (was "Capsule not found"); statuses unchanged. suggest_outfit's refusals are the outfit writer's (`proposeOutfit`) and move with outfits (188d). `[refusals]` known: 24 lines (37 sites) to 19 (29).
 
+## 2026-11-13 — The API is a surface, named by the route or its path, and answers problem+json (#190)
+
+**Why:** `config.bearer` was read in three hooks, each deciding alone that a request was not a page; a second bearer client (`/api`) and its unmatched paths needed the same answer everywhere. A first build read the cookie on `GET /api/v2/x`: the static files' `GET /*` wildcard matched it, so `is404` was false.
+**Decision:** `config.surface` (`page`|`mcp`|`api`) replaces `bearer`. The root onRoute hook `assignSurface` stamps `api` on every `/api/v1` route and stops the boot on any disagreement. `surfaceOf` reads the route's surface, else the path, in any case, so any `/api` request no route matched is `api`. The error handler answers `api` with RFC 9457 `{ type: about:blank, title, status, detail, code, requestId, errors? }`, built in `errors.tsx` (the guard's one `node:http` importer); `HttpError.retryAfterSeconds` sets `Retry-After`.
+**Consequence:** a new bearer client is a new surface value, never a flag; `src/web/surface.ts`'s readers are the list to extend. An unknown `/api` path never echoes its URL.
+
+## 2026-11-13 — One sign-in budget for both doors, and a per-account cap on the API's (#190)
+
+**Why:** route-config limits are a counter per route, so the login page and the API sign-in would each give an address 5 guesses a minute. An API sign-in mints a token that lasts until revoked, so guesses spread over many addresses matter more there.
+**Decision:** `SIGN_IN_LIMIT` is one `createRateLimit` checker (`signInLimit`, built in `webPlugin`) that both doors count on in onRequest: 5 a minute per address in all, the 6th a 429. The API door also counts `SIGN_IN_ACCOUNT_LIMIT`, 5 a minute per SHA-256 of the normalized email (preHandler, after the body). Both doors check through `checkSignIn`, one bcrypt comparison on every path.
+**Consequence:** the page login has no per-account cap yet (an owner call: it would let anyone slow one person's browser sign-in). Registration keeps its own route-config counter.
+
+## 2026-11-13 — The OpenAPI spec is committed and served as committed; swagger is a devDependency (#190)
+
+**Why:** a Swift client generated from the spec needs every contract change to be a reviewed diff, and generating at boot would put a dev tool in the image and serve whatever the build happened to produce.
+**Decision:** `npm run api:spec` (`scripts/api-spec.ts`) registers `apiPlugin` on a bare Fastify with `@fastify/swagger` (OpenAPI 3.1, `info.version: v1`) and writes `src/web/api/openapi.json`. `GET /api/v1/openapi.json` serves that file, imported. `scripts/api-spec.spec.ts` (unit) fails when the file differs from what the routes generate, and validates it. `requireContract` refuses a route at boot that lacks its operationId, tags, 2xx and problem responses.
+**Consequence:** every `/api/v1` change runs `npm run api:spec` and commits the file. `Problem` is one shared schema (`addSchema`, by `$id`); a new shared resource schema can join it the same way.
+
+## 2026-11-13 — Only our own words reach an error's answer and log line; the API authenticates before the body (#190)
+
+**Why:** `describeError` passed any Fastify 4xx message through to the page, the problem's `detail`, MCP and the warn line; a body parser's message can quote the request (JSON.parse's SyntaxError names the bytes, a password's included; Fastify 5.12's default JSON parser happens not to). And the device-token check ran at preValidation, after the body was read, so a stranger got a 400 or 413 instead of the 401.
+**Decision:** an HttpError's message and ajv's validation messages (rule and field, never the value) pass; every other 4xx gets a fixed `refusal.request.*` message by status, its `code` (or class name) as the log detail. `createDeviceTokenHook` is an onRequest hook, after `refuseQueryToken`. `isApiPath` (`src/web/api-path.ts`) is the one "is this /api" rule, read by `surfaceOf` and the worker's `bypassesWorker`.
+**Consequence:** a 4xx that needs its own wording throws an HttpError. A multipart "request file too large" now reads "The request is too large".
+
 ## 2026-11-13 — Outfits, the calendar and the week plan take an Actor and refuse themselves (#188d)
 
 **Why:** #188 section 4, order item 4: the outfit, calendar and week-plan routes and their MCP tools each turned an owner-only outcome (`'not-found'`, `'no-such-outfit'`, `ReplaceRefused`, `ProposeOutcome`) into their own 404 or 409, `'Outfit not found'` spelled five ways.

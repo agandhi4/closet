@@ -1,0 +1,95 @@
+import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
+import { Type } from '@sinclair/typebox';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { authApiRoutes } from '../auth/api-routes';
+import type { SignInLimit } from '../auth/sign-in';
+import type { WebOptions } from '../plugin';
+import { Problem } from '../problem';
+import { API_LIMIT, enforceLimit } from '../security/rate-limit';
+import { API_PREFIX } from '../surface';
+import { apiResponses, requireContract } from './contract';
+import spec from './openapi.json';
+import { createDeviceTokenHook, refuseQueryToken } from './token-auth';
+
+export type ApiOptions = WebOptions & SignInLimit;
+
+/**
+ * Registers apiPlugin under API_PREFIX (webPlugin, scripts/api-spec.ts).
+ * The prefix belongs to a scope around it, never to apiPlugin's own
+ * options: Fastify hands a plugin's `prefix` option on to every plugin it
+ * registers with those options, which would double it on the feature routes.
+ */
+export async function registerApi(
+  app: FastifyInstance,
+  options: ApiOptions,
+): Promise<void> {
+  await app.register(
+    async (scope) => {
+      await scope.register(apiPlugin, options);
+    },
+    { prefix: API_PREFIX },
+  );
+}
+
+/** The committed spec as served: what was reviewed is what clients read. */
+const SPEC_BODY = JSON.stringify(spec);
+
+/**
+ * /api/v1, the native clients' JSON API (#190; docs/plans/2026-11-12-
+ * json-api.md, src/web/api/AGENTS.md). Registered by webPlugin with the
+ * prefix; every route under it is the `api` surface (assignSurface, the
+ * root onRoute hook), so the cookie is never read, the same-origin check
+ * lets a request without Origin through, and every error is problem+json.
+ * In this scope, for every route:
+ *  - registration refuses a route without its contract (requireContract);
+ *  - onRequest: a token in the query string is a 400, then a device token,
+ *    unless `config.public` (before the body is read);
+ *  - preHandler: API_LIMIT per token, one budget for the whole API.
+ * A feature's API routes live beside its pages (`src/web/<feature>/
+ * api-routes.ts`) and register here.
+ */
+export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
+  app,
+  options,
+) => {
+  const { db, apiLogger } = options;
+  // Every route's 4xx and 5xx refer to it (apiResponses).
+  app.addSchema(Problem);
+  app.addHook('onRoute', requireContract);
+  app.addHook('onRequest', refuseQueryToken);
+  app.addHook('onRequest', createDeviceTokenHook({ db, logger: apiLogger }));
+  const apiLimit = app.createRateLimit(API_LIMIT);
+  app.addHook('preHandler', async (request: FastifyRequest) => {
+    if (request.routeOptions.config.public === true) return;
+    await enforceLimit(apiLimit, request, {
+      logger: apiLogger,
+      who: `token ${request.accessToken!.tokenId}`,
+    });
+  });
+
+  app.get(
+    '/openapi.json',
+    {
+      config: { public: true },
+      schema: {
+        operationId: 'getOpenApi',
+        tags: ['meta'],
+        summary: 'This API, as OpenAPI 3.1',
+        security: [],
+        response: apiResponses({
+          200: Type.Object(
+            {},
+            {
+              additionalProperties: true,
+              description: 'The OpenAPI document',
+            },
+          ),
+        }),
+      },
+    },
+    // A string is sent as it is, never through the response schema.
+    async (_request, reply) => reply.type('application/json').send(SPEC_BODY),
+  );
+
+  await app.register(authApiRoutes, options);
+};
