@@ -57,6 +57,11 @@ interface WebConfig {
   timeZone: string;
   /** DISABLE_REGISTRATION: the registration routes redirect to the login page. */
   registrationDisabled: boolean;
+  /**
+   * PWA_ENABLED: the service worker is registered, so the manifest may name
+   * the share target only it can answer (src/web/shell/manifest.ts).
+   */
+  pwaEnabled: boolean;
   /** Web Push identity; set exactly when PWA_ENABLED (no /push routes otherwise). */
   vapid: VapidConfig | undefined;
   /**

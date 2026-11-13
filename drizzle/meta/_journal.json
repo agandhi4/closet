@@ -351,6 +351,13 @@
       "when": 1794559926950,
       "tag": "0049_inspiration",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1794572736602,
+      "tag": "0050_inspiration-next-piece-position",
+      "breakpoints": true
     }
   ]
 }

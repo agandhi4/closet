@@ -4,6 +4,7 @@ import { t } from '../../i18n';
 import { AppBar } from '../../layout/app-bar';
 import { Dock } from '../../layout/dock';
 import { Layout } from '../../layout/layout';
+import { INSPIRATION_LINK_PATH } from '../../inspiration/urls';
 import type { ViewContext } from '../../view-context';
 import {
   type Destination,
@@ -12,7 +13,7 @@ import {
   wardrobeUrl,
   WISHLIST_PATH,
 } from '../urls';
-import { LINK_INPUT_MAX } from './import';
+import { LINK_INPUT_MAX } from './link-text';
 
 export interface LinkPageModel {
   /** The link in the field: shared into the app, or as last typed. */
@@ -25,16 +26,21 @@ export interface LinkPageModel {
 }
 
 /**
- * GET /wardrobe/new/from-link (and the manifest's share target), and the
- * same page again with the message when the link was refused. A native post
- * (PostForm): a refusal answers 4xx or 5xx, which htmx would not swap, and
- * success is the whole garment form page.
+ * GET /wardrobe/new/from-link (and where the manifest's share target sends
+ * a link), and the same page again with the message when the link was
+ * refused. A native post (PostForm): a refusal answers 4xx or 5xx, which
+ * htmx would not swap, and success is the whole garment form page. On the
+ * person's own closet (a share lands there) the same field can instead be
+ * saved as a look (#22d, "Save as inspiration": POST /inspiration/link,
+ * the Inspiration tab's paste); never on a wishlist's or a shared
+ * wardrobe's page, since looks are the signed-in person's own.
  */
 export function LinkPage(props: { ctx: ViewContext; model: LinkPageModel }) {
   const { ctx, model } = props;
   const { viewOwner, destination } = model;
   const messages = model.error ? [model.error] : undefined;
   const wishlist = destination.to === 'wishlist';
+  const offersInspiration = !wishlist && viewOwner === undefined;
   const title = t(
     wishlist ? 'wishlist.ADD_FROM_LINK_TITLE' : 'linkImport.TITLE',
   );
@@ -86,6 +92,22 @@ export function LinkPage(props: { ctx: ViewContext; model: LinkPageModel }) {
           <p class="text-xs text-muted text-center">
             {t('linkImport.FETCH_HINT')}
           </p>
+          {offersInspiration && (
+            <>
+              {/* After Fetch, so Enter still fetches (the form's default
+                  button is its first). */}
+              <button
+                type="submit"
+                formaction={INSPIRATION_LINK_PATH}
+                class="btn btn-outline"
+              >
+                {t('linkImport.SAVE_AS_INSPIRATION')}
+              </button>
+              <p class="text-xs text-muted text-center">
+                {t('linkImport.SAVE_AS_INSPIRATION_HINT')}
+              </p>
+            </>
+          )}
         </PostForm>
       </main>
       <Dock ctx={ctx} />

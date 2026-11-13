@@ -2,7 +2,7 @@ import { FormField, inputAttributes } from '../form-field';
 import { t } from '../i18n';
 import { FormPage } from '../layout/form-page';
 import type { ViewContext } from '../view-context';
-import { LINK_INPUT_MAX } from '../wardrobe/link-import/import';
+import { LINK_INPUT_MAX } from '../wardrobe/link-import/link-text';
 import { LookPhotoUpload } from './photo-upload';
 import { INSPIRATION_LINK_PATH, INSPIRATION_PATH } from './urls';
 

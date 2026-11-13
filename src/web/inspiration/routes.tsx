@@ -2,11 +2,6 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { type Static, Type } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { todayIn } from '../../calendar-date';
-import {
-  type Recreation,
-  type RecreateRequest,
-  recreateLook,
-} from '../../wardrobe/recreate';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
 import { HttpError } from '../errors';
@@ -16,19 +11,17 @@ import { t } from '../i18n';
 import { alreadySavedParam } from '../gallery/urls';
 import { loggableUrl } from '../loggable-url';
 import { outfitUrl } from '../outfits/urls';
-import type { RecreatePoolGarment } from '../gallery/queries';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { RowId } from '../schemas';
 import { LINK_IMPORT_LIMIT, tooManyAttempts } from '../security/rate-limit';
 import { viewContext } from '../view-context';
 import {
-  LINK_INPUT_MAX,
-  linkIn,
   LinkImportError,
   type LinkImportRefusal,
   REFUSALS,
 } from '../wardrobe/link-import/import';
+import { LINK_INPUT_MAX, linkIn } from '../wardrobe/link-import/link-text';
 import { InspirationListPage } from './list-page';
 import { NewInspirationPage } from './new-page';
 import { PieceBody, pieceKindValue, readPiece } from './piece-input';
@@ -42,14 +35,20 @@ import {
   INSPIRATION_TITLE_MAX,
   isOwnInspirationPhoto,
   listInspirations,
-  recreateInputs,
-  type StoredPiece,
-  wishlisted,
+  MAX_PIECE_POSITION,
   updateInspirationPiece,
   updateInspirationText,
 } from './queries';
 import { RecreatePage } from './recreate-page';
 import { type PostedChoice, saveRecreation } from './recreate-writes';
+import { recreateOwnLook } from './recreation';
+import { ShareConfirmPage } from './share-confirm-page';
+import { shareFallback } from './share-fallback';
+import {
+  INSPIRATION_SHARE_PATH,
+  SHARE_CONFIRM_PATH,
+  SHARE_PHOTO_MAX_BYTES,
+} from './share-target';
 import { InspirationPage } from './show-page';
 import {
   INSPIRATION_LINK_PATH,
@@ -72,7 +71,10 @@ const LOOK_ROUTE = `${INSPIRATION_PATH}/:id`;
 
 const LookParams = Type.Object({ id: RowId });
 /** A piece's place in its look (inspiration_piece.position, a smallint). */
-const PIECE_POSITION = Type.Integer({ minimum: 0, maximum: 32_767 });
+const PIECE_POSITION = Type.Integer({
+  minimum: 0,
+  maximum: MAX_PIECE_POSITION,
+});
 const PieceParams = Type.Object({ id: RowId, position: PIECE_POSITION });
 // The match view's save (#22c): each strip's piece and its choice, pairs in
 // document order ('' is None; a single strip posts scalars, which ajv's
@@ -114,32 +116,6 @@ const FileParams = Type.Object({ fileName: Type.String() });
  * with a 303 to the look's page, the list after a delete; the autosave is
  * answered with its status line.
  */
-/**
- * recreateLook over the pieces still to match: a piece already on the
- * wishlist has its choice made, so it takes no part in the assignment (it
- * would reserve a garment a later piece needs). Results come back in the
- * look's piece order, a wishlisted piece with no matches.
- */
-function recreateClosetPieces(
-  pieces: readonly StoredPiece[],
-  request: Omit<RecreateRequest<RecreatePoolGarment>, 'pieces' | 'saved'>,
-): Recreation<RecreatePoolGarment> {
-  const open = pieces.flatMap((piece, index) =>
-    wishlisted(piece) ? [] : [index],
-  );
-  const found = recreateLook({
-    ...request,
-    pieces: open.map((index) => pieces[index]),
-    saved: open.map((index) => pieces[index].matched?.id ?? null),
-  });
-  const result: Recreation<RecreatePoolGarment> = {
-    pieces: pieces.map(() => ({ matches: [], repicked: false })),
-    unfixed: found.unfixed.map((at) => open[at]),
-  };
-  open.forEach((index, at) => (result.pieces[index] = found.pieces[at]));
-  return result;
-}
-
 export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
   { db, photos, logger, fetcher, config },
@@ -193,16 +169,50 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     ),
   );
 
-  // The camera or library button of the add page: a native multipart post.
+  // The camera or library button of the add page, and the share
+  // confirmation's Save: a native multipart post. One file, the photo (a
+  // second is a 413), and none past the share's cap (a 413 too): the add
+  // page's photo is prepared on the phone first, a shared one as it came.
+  // The confirmation also posts the share's `url` and `title`
+  // (addUploadedInspiration checks them).
   app.post(INSPIRATION_PATH, async (request, reply) => {
     const id = await addUploadedInspiration(
       deps,
       sessionUserId(request),
-      // One file: the photo (a second is a 413).
-      request.files({ limits: { files: 1 } }),
+      request.parts({
+        limits: {
+          files: 1,
+          fileSize: SHARE_PHOTO_MAX_BYTES,
+          fieldSize: LINK_INPUT_MAX,
+        },
+      }),
     );
     return reply.redirect(inspirationUrl(id), 303);
   });
+
+  // The share target when no service worker answered it (share-fallback.ts):
+  // writes nothing, so it is the same-origin hook's one `stateless`
+  // exemption (Android's post has no Origin). A link or text goes to the
+  // link page, a photo to "open the app and share again".
+  app.post(
+    INSPIRATION_SHARE_PATH,
+    { config: { stateless: true } },
+    async (request, reply) => {
+      const { outcome, path } = await shareFallback(request);
+      logger.info(
+        `Share target reached the server without the service worker, for user ${sessionUserId(request)}: ${outcome}`,
+      );
+      return reply.redirect(path, 303);
+    },
+  );
+
+  // Where the service worker sends a shared photo (share-target.ts): the
+  // photo is on the device (the URL's fragment names it), so the page holds
+  // nothing of it and the server keeps no state; its module shows it and
+  // its Save is the post above, genuinely same-origin.
+  app.get(SHARE_CONFIRM_PATH, async (_request, reply) =>
+    renderPage(reply, <ShareConfirmPage ctx={viewContext(reply)} />),
+  );
 
   // A pasted link: fetched here (importLink), then the look's page. A link
   // the server will not fetch is the add page again with the reason; past
@@ -346,25 +356,17 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // "Recreate this look": one statement for the look, the closet and its
-  // rules (recreateInputs), then the pure matching.
+  // "Recreate this look": one statement, then the pure matching.
   app.get(
     `${LOOK_ROUTE}/recreate`,
     { schema: { params: LookParams } },
     async (request, reply) => {
-      const userId = sessionUserId(request);
-      const today = todayIn(config.timeZone, new Date());
-      const { look, closet, avoid, rules } = await recreateInputs(
+      const { look, recreation } = await recreateOwnLook(
         db,
         request.params.id,
-        userId,
-        today,
+        sessionUserId(request),
+        todayIn(config.timeZone, new Date()),
       );
-      const recreation = recreateClosetPieces(look.pieces, {
-        closet,
-        avoid,
-        rules,
-      });
       return renderPage(
         reply,
         <RecreatePage

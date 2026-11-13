@@ -13,12 +13,17 @@ import {
 } from '../../src/db/schema';
 import { reconcileStorage } from '../../src/maintenance/reconcile';
 import { updateInspirationPiece } from '../../src/web/inspiration/queries';
+import {
+  SHARE_BODY_MAX_BYTES,
+  SHARE_PHOTO_MAX_BYTES,
+} from '../../src/web/inspiration/share-target';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { t as text } from '../../src/web/i18n';
 import { createGarment, jpegPhoto, photoRow } from './garments';
 import {
   createTestApp,
   extractImgSrcs,
+  multipart,
   recordQueries,
   TEST_PASSWORD,
   type TestApp,
@@ -40,8 +45,8 @@ import { silentLogger } from './logger';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Saved looks (#22, slices 22a to 22c): adding one from a photo or a
- * pasted link, its page's title and note, its photo added, replaced and
+ * Saved looks (#22, slices 22a to 22d): adding one from a photo, a
+ * pasted link or a share's confirmation (22d), its page's title and note, its photo added, replaced and
  * deleted with it, the photo's references (private like a selfie's; never
  * an orphan to reconciliation), its pieces tagged, "Recreate this look"
  * over the closet, saving it as an outfit and "Find this". Who may reach them is the authorization matrix's
@@ -223,6 +228,260 @@ describe('inspiration', () => {
       expect(await t.db.$count(inspiration)).toBe(before);
     },
   );
+
+  // A share is saved only by the confirmation page's own post (#22d): the
+  // service worker answers the share target on the device and never sends
+  // it on (share-target.spec.ts), because a cross-site page can submit the
+  // same navigation. So a cross-site post is the same-origin hook's 403.
+  it.each([
+    ['POST /inspiration', '/inspiration'],
+    ['the share target', '/inspiration/share'],
+  ])('saves nothing for %s from another site', async (_case, url) => {
+    const looks = await t.db.$count(inspiration);
+    const files = await t.db.$count(file);
+    const body = await multipart(
+      { title: 'A look' },
+      {
+        photo: {
+          data: photo,
+          filename: 'shared.jpg',
+          contentType: 'image/jpeg',
+        },
+      },
+    );
+    const res = await t.inject({
+      method: 'POST',
+      url,
+      payload: body.payload,
+      headers: { ...body.headers, origin: 'https://evil.example' },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(await t.db.$count(inspiration)).toBe(looks);
+    expect(await t.db.$count(file)).toBe(files);
+  });
+
+  // With no worker to answer it (storage cleared, not installed), Android's
+  // share reaches the server with no Origin: the hook's one `stateless`
+  // exemption (same-origin.spec.ts holds the list to this route). So the
+  // route must write nothing and read only the text fields, never a photo.
+  it.each([
+    [
+      'a link',
+      { title: 'Shop', text: 'Look: https://shop.test/look' },
+      false,
+      '/wardrobe/new/from-link?url=https%3A%2F%2Fshop.test%2Flook',
+    ],
+    [
+      'text without a link',
+      { text: 'no link here' },
+      false,
+      '/wardrobe/new/from-link?text=no+link+here',
+    ],
+    [
+      'a photo with its link',
+      { url: 'https://shop.test/look' },
+      true,
+      '/inspiration/share/confirm#not-opened',
+    ],
+    ['nothing', {}, false, '/inspiration/share/confirm#not-opened'],
+  ])(
+    'answers a share no worker took (%s) with a 303, writing nothing',
+    async (_case, fields, withPhoto, location) => {
+      const before = await stored();
+      const pending = await t.db.$count(pendingPhoto);
+      const body = await multipart(
+        fields,
+        withPhoto
+          ? {
+              photo: {
+                data: photo,
+                filename: 'shared.jpg',
+                contentType: 'image/jpeg',
+              },
+            }
+          : {},
+      );
+      let res!: Awaited<ReturnType<typeof t.inject>>;
+      const { sql } = await recordQueries(async () => {
+        res = await t.inject({
+          method: 'POST',
+          url: '/inspiration/share',
+          payload: body.payload,
+          headers: body.headers,
+          sameOrigin: false,
+        });
+      });
+      expect(res.statusCode).toBe(303);
+      expect(res.headers.location).toBe(location);
+      // The session's row, and nothing else.
+      expect(sql).toHaveLength(1);
+      expect(sql[0]).toMatch(/^select /i);
+      expect(await stored()).toEqual(before);
+      expect(await t.db.$count(pendingPhoto)).toBe(pending);
+    },
+  );
+
+  it('refuses a share no worker took that is declared past the cap, before reading it', async () => {
+    const res = await t.inject({
+      method: 'POST',
+      url: '/inspiration/share',
+      payload: 'x',
+      headers: {
+        'content-type': 'multipart/form-data; boundary=x',
+        'content-length': String(SHARE_BODY_MAX_BYTES + 1),
+      },
+      sameOrigin: false,
+    });
+    expect(res.statusCode).toBe(413);
+  });
+
+  // Whatever the order: the confirmation page puts the fields first, but the
+  // route must not depend on it (an older cached page posts the file first).
+  it("keeps a shared look's link and title when the photo is posted before them", async () => {
+    const form = new FormData();
+    form.append(
+      'photo',
+      new Blob([new Uint8Array(photo)], { type: 'image/jpeg' }),
+      'shared.jpg',
+    );
+    form.append('url', 'https://shop.test/file-first');
+    form.append('title', 'File first');
+    const encoded = new Response(form);
+    const res = await t.inject({
+      method: 'POST',
+      url: '/inspiration',
+      payload: Buffer.from(await encoded.arrayBuffer()),
+      headers: { 'content-type': encoded.headers.get('content-type')! },
+    });
+    expect(res.statusCode).toBe(303);
+    expect(await lookRow(lookIdOf(res.headers.location))).toMatchObject({
+      sourceUrl: 'https://shop.test/file-first',
+      title: 'File first',
+    });
+  });
+
+  // The confirmation posts the share's link and title beside its photo.
+  it('saves a shared photo with its link and title, and refuses a link that is not http(s)', async () => {
+    const post = async (fields: Record<string, string>) => {
+      const body = await multipart(fields, {
+        photo: {
+          data: photo,
+          filename: 'shared.jpg',
+          contentType: 'image/jpeg',
+        },
+      });
+      return t.inject({
+        method: 'POST',
+        url: '/inspiration',
+        payload: body.payload,
+        headers: body.headers,
+      });
+    };
+    const saved = await post({
+      url: 'https://shop.test/look?a=1',
+      title: 'Linen suit',
+    });
+    expect(saved.statusCode).toBe(303);
+    const row = await lookRow(lookIdOf(saved.headers.location));
+    expect(row).toMatchObject({
+      sourceUrl: 'https://shop.test/look?a=1',
+      title: 'Linen suit',
+    });
+    // Where the save lands, which deletes the share from the device.
+    const page = await t.inject({
+      method: 'GET',
+      url: String(saved.headers.location),
+    });
+    expect(page.body).toContain('href="https://shop.test/look?a=1"');
+    expect(page.body).toContain(
+      "import { forgetSavedShare } from 'share-saved';",
+    );
+    const blank = await post({ url: '', title: '' });
+    expect(await lookRow(lookIdOf(blank.headers.location))).toMatchObject({
+      sourceUrl: null,
+      title: null,
+    });
+
+    const looks = await t.db.$count(inspiration);
+    const files = await stored();
+    const refused: Record<string, string>[] = [
+      { url: 'javascript:alert(1)' },
+      { url: 'http:no-slashes' },
+      { url: 'https://shop.test/a b' },
+      { title: 'x'.repeat(256) },
+    ];
+    for (const fields of refused) {
+      const res = await post(fields);
+      expect(res.statusCode, JSON.stringify(fields)).toBe(400);
+    }
+    expect(await t.db.$count(inspiration)).toBe(looks);
+    expect(await stored()).toEqual(files);
+  });
+
+  // The photo is on the device (the fragment names it), so the server
+  // renders one page for every share and reads nothing but the session.
+  it('renders the share confirmation from no state: Save disabled, posting the photo to POST /inspiration', async () => {
+    let res!: Awaited<ReturnType<typeof t.inject>>;
+    const { statements } = await recordQueries(async () => {
+      res = await t.inject({
+        method: 'GET',
+        url: '/inspiration/share/confirm',
+      });
+    });
+    expect(res.statusCode).toBe(200);
+    expect(statements).toBe(1);
+    const body = unescapeHtml(res.body);
+    expect(body).toMatch(
+      /<form method="post" action="\/inspiration" enctype="multipart\/form-data"/,
+    );
+    expect(body).toMatch(/<button type="submit" class="[^"]*" disabled="">/);
+    expect(body).toContain('<input type="file" name="photo" accept="image/*"');
+    // The link and title precede the file: a browser posts fields in
+    // document order, so they never wait behind the photo.
+    expect(body.indexOf('name="url"')).toBeGreaterThan(-1);
+    expect(body.indexOf('name="url"')).toBeLessThan(
+      body.indexOf('type="file"'),
+    );
+    expect(body.indexOf('name="title"')).toBeLessThan(
+      body.indexOf('type="file"'),
+    );
+    expect(body).toContain('data-stash-cache="shares-v1"');
+    expect(body).toContain("import { confirmShare } from 'share-confirm';");
+    expect(body).toContain(text('inspiration.SAVE_SHARED'));
+  });
+
+  // The share's cap, which the worker keeps to as well: a 413 storing nothing.
+  it('refuses a photo past the share cap with a 413, storing nothing', async () => {
+    const looks = await t.db.$count(inspiration);
+    const files = await t.db.$count(file);
+    const huge = Buffer.concat([
+      photo,
+      Buffer.alloc(SHARE_PHOTO_MAX_BYTES + 1 - photo.length),
+    ]);
+    const res = await postLookPhoto(t, huge);
+    expect(res.statusCode).toBe(413);
+    expect(await t.db.$count(inspiration)).toBe(looks);
+    expect(await t.db.$count(file)).toBe(files);
+  });
+
+  // The button posts the page's one field, `url`, to the paste's route
+  // (POST /inspiration/link, above).
+  it('offers "Save as inspiration" on the link page of the own closet only', async () => {
+    const own = await t.inject({
+      method: 'GET',
+      url: `/wardrobe/new/from-link?url=${encodeURIComponent(sites.url('/lookbook'))}`,
+    });
+    expect(own.statusCode).toBe(200);
+    const body = unescapeHtml(own.body);
+    expect(body).toContain('formaction="/inspiration/link"');
+    expect(body).toContain(text('linkImport.SAVE_AS_INSPIRATION'));
+    const wishlist = await t.inject({
+      method: 'GET',
+      url: '/wardrobe/new/from-link?to=wishlist',
+    });
+    expect(wishlist.statusCode).toBe(200);
+    expect(wishlist.body).not.toContain('formaction="/inspiration/link"');
+  });
 
   it('saves the title and note as they change; a blank is none, too long a 400', async () => {
     const { id } = await addLook(t, photo);
@@ -709,6 +968,44 @@ describe('inspiration', () => {
       expect(res.statusCode, JSON.stringify(payload)).toBe(status);
     }
     expect(await t.db.$count(outfit, eq(outfit.ownerId, userId))).toBe(0);
+    expect(await matchedOf(id)).toEqual([null, null, null]);
+  });
+
+  it("never gives a removed piece's position to a new one: a stale save is a 409, not applied to the replacement", async () => {
+    const cookie = await t.register('look-positions@example.com');
+    const { id, whiteTee } = await closetAndLook(cookie);
+    const sneakers = await wear(
+      cookie,
+      'White sneakers',
+      'footwear',
+      'sneakers',
+      'white',
+    );
+    const post = (url: string, payload: Record<string, unknown> = {}) =>
+      t.inject({ method: 'POST', url, payload, headers: { cookie } });
+    // The look has pieces 0 to 2; the match view (stale) will post piece 2.
+    expect((await post(`/inspiration/${id}/pieces/2/delete`)).statusCode).toBe(
+      303,
+    );
+    const added = await post(
+      `/inspiration/${id}/pieces`,
+      piece('footwear/sneakers', 'white', '', 'solid'),
+    );
+    expect(added.statusCode).toBe(303);
+    const positions = (
+      await t.db
+        .select({ position: inspirationPiece.position })
+        .from(inspirationPiece)
+        .where(eq(inspirationPiece.inspirationId, id))
+        .orderBy(inspirationPiece.position)
+    ).map((row) => row.position);
+    expect(positions).toEqual([0, 1, 3]);
+
+    const stale = await post(`/inspiration/${id}/recreate/outfit`, {
+      position: ['1', '2'],
+      garment: [String(whiteTee), String(sneakers)],
+    });
+    expect(stale.statusCode).toBe(409);
     expect(await matchedOf(id)).toEqual([null, null, null]);
   });
 

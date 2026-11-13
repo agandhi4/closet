@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { GarmentCategory } from '../../../wardrobe/properties';
 import { t } from '../../i18n';
 import type { ExtractedProduct } from './extract';
-import { linkIn } from './import';
+import { linkIn } from './link-text';
 import { importedForm } from './prefill';
 
 const LINK = 'https://shop.test/p/tee';

@@ -4,8 +4,8 @@ import {
   CACHED_AT_HEADER,
   cachedAt,
   endedSession,
-  isNavigationPost,
   isRenderedPage,
+  navigationPostAnswer,
   PAGE_ACCOUNT_HEADER,
   pageAccount,
   revalidationOutcome,
@@ -44,26 +44,61 @@ describe('bypassesWorker', () => {
   });
 });
 
-describe('isNavigationPost', () => {
-  // Every method a form or a share target can navigate with but GET: the
-  // worker stops each one before any route (#542), the share target's
-  // POST included, so no route can relay a cross-site post with this
-  // site's Origin.
-  it.each(['POST', 'PUT', 'DELETE', 'PATCH'])(
-    'keeps the worker out of a %s navigation',
-    (method) => {
-      expect(isNavigationPost({ method, mode: 'navigate' })).toBe(true);
-    },
-  );
+describe('navigationPostAnswer', () => {
+  const nav = (method: string, path: string, mode = 'navigate') => ({
+    method,
+    mode,
+    url: `${ORIGIN}${path}`,
+  });
+
+  // The worker never sends a navigation post to the server (#542): every
+  // one is stopped before any route, and the only one it answers itself is
+  // the share target, on the device (receiveShare fetches nothing:
+  // share-target.spec.ts). Everything else is the browser's own post.
+  it('answers only the share target itself', () => {
+    expect(
+      navigationPostAnswer(nav('POST', '/inspiration/share'), ORIGIN),
+    ).toBe('share-target');
+  });
+
+  it.each([
+    ['POST', '/auth/login'],
+    ['POST', '/auth/logout'],
+    ['POST', '/inspiration'],
+    ['POST', '/inspiration/share/confirm'],
+    ['POST', '/inspiration/share/'],
+    ['PUT', '/inspiration/share'],
+    ['DELETE', '/inspiration/share'],
+    ['PATCH', '/wardrobe/1'],
+  ])('leaves a %s navigation to %s to the browser', (method, path) => {
+    expect(navigationPostAnswer(nav(method, path), ORIGIN)).toBe('browser');
+  });
+
+  it('leaves a share-target navigation to another origin to the browser', () => {
+    expect(
+      navigationPostAnswer(
+        {
+          method: 'POST',
+          mode: 'navigate',
+          url: 'https://evil.example/inspiration/share',
+        },
+        ORIGIN,
+      ),
+    ).toBe('browser');
+  });
 
   it('leaves the worker a GET navigation (its page routes)', () => {
-    expect(isNavigationPost({ method: 'GET', mode: 'navigate' })).toBe(false);
+    expect(navigationPostAnswer(nav('GET', '/inspiration/share'), ORIGIN)).toBe(
+      undefined,
+    );
   });
 
   it.each(['cors', 'same-origin', 'no-cors'])(
     'leaves the worker a %s POST (only our own pages’ fetches reach it)',
     (mode) => {
-      expect(isNavigationPost({ method: 'POST', mode })).toBe(false);
+      expect(
+        navigationPostAnswer(nav('POST', '/inspiration/share', mode), ORIGIN),
+      ).toBe(undefined);
     },
   );
 });

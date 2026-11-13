@@ -18,14 +18,13 @@ import { discardPendingPhoto, type WardrobeDeps } from '../writes';
 import {
   fetchLinkPhoto,
   importLink,
-  LINK_INPUT_MAX,
-  linkIn,
   LinkImportError,
   type LinkImportLimit,
   type LinkImportRefusal,
   REFUSALS,
 } from './import';
 import { LinkPage } from './link-page';
+import { LINK_INPUT_MAX, linkIn } from './link-text';
 import { LinkPhotoSlot } from './photo-choice';
 import { importedForm } from './prefill';
 
@@ -33,9 +32,11 @@ import { importedForm } from './prefill';
 // scanned for the link (linkIn, linear), never stored.
 const SHARED_TEXT_MAX = 16_384;
 
-// The link page's query: the wardrobe, and the manifest's share target
-// (src/web/shell/manifest.ts), which sends `title`, `text` and `url`
-// (Android puts the link in either of the last two). Navigation state.
+// The link page's query: the wardrobe, and a shared link (the manifest's
+// share target, src/web/shell/manifest.ts: the service worker's redirect
+// for a share without a photo, or the target itself without PWA_ENABLED),
+// as `title`, `text` and `url` (Android puts the link in either of the
+// last two). Navigation state.
 const LinkQuery = Type.Object({
   ...DestinationQuery.properties,
   url: Type.Optional(Type.String({ maxLength: SHARED_TEXT_MAX })),

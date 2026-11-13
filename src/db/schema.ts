@@ -1272,6 +1272,9 @@ export const inspiration = pgTable(
     // The pasted link as linkIn read it: only ever http(s).
     sourceUrl: text('source_url'),
     photoId: integer('photo_id'),
+    // The next piece's position: only ever grows, so a removed piece's
+    // position is never given to another (a stale match view posts them).
+    nextPiecePosition: integer('next_piece_position').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),

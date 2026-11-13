@@ -24,8 +24,8 @@ import {
   cachedAt,
   endedSession,
   type FreshPage,
-  isNavigationPost,
   isRenderedPage,
+  navigationPostAnswer,
   pageAccount,
   type Revalidation,
   revalidationOutcome,
@@ -43,6 +43,10 @@ import {
   type WarmList,
 } from '../../src/web/shell/offline-warm';
 import { WARM_REQUEST_HEADER } from '../../src/warm-request';
+import {
+  receiveShare,
+  SHARE_STASH_CACHE,
+} from '../../src/web/inspiration/share-target';
 import {
   OUTBOX_SYNCED,
   PAGES_RENEWED,
@@ -91,7 +95,8 @@ import { parsePushPayload, type PushPayload } from '../../src/web/push/payload';
  *    and refetches the cached pages a sync changed (OUTBOX_SYNCED;
  *    src/web/shell/outbox.md).
  *  - A navigation that is not a GET (a form post: signing in or out) is
- *    never the worker's (isNavigationPost, below); our own pages announce a
+ *    never sent on by the worker (navigationPostAnswer, below; it answers
+ *    only the share target, on the device); our own pages announce a
  *    sign-in or sign-out first (SESSION_ENDING), which drops the session
  *    caches.
  *  - Anything unmatched (other POSTs, /health/live) goes straight to the network.
@@ -129,9 +134,29 @@ navigationPreload.enable();
 // keeps every route, the precache's included, from ever seeing one: this
 // listener must stay above precacheAndRoute and the first registerRoute,
 // which add Workbox's own fetch listener.
+//
+// The one navigation post it answers is the manifest's share target (#22d,
+// src/web/shell/manifest.ts), and on the device: receiveShare
+// (src/web/inspiration/share-target.ts) keeps a photo for the confirmation
+// page's own same-origin post, or sends a link to the link page, a 303
+// either way and no fetch. With no worker in control the post reaches the
+// server's fallback, which writes nothing.
 self.addEventListener('fetch', (event) => {
-  if (isNavigationPost(event.request)) event.stopImmediatePropagation();
+  const answer = navigationPostAnswer(event.request, self.location.origin);
+  if (answer === undefined) return;
+  event.stopImmediatePropagation();
+  if (answer === 'share-target') event.respondWith(answerShare(event.request));
 });
+
+async function answerShare(request: Request): Promise<Response> {
+  const { outcome, response } = await receiveShare(
+    request,
+    self.caches,
+    Date.now(),
+  );
+  console.info(`[sw] share target: ${outcome}`);
+  return response;
+}
 
 const FALLBACK_HTML_URL = '/offline.html';
 // v2 since 2026-09-26: copies are stamped and owned (pageStore below);
@@ -148,8 +173,10 @@ const IMAGES_CACHE = 'images-v2';
  * cache added here is dropped on every session change; one that holds an
  * account's pages or photos and is missing here outlives the session. Each
  * strategy writing into one refuses an answer from an older generation.
+ * The share stash (a photo shared into the app, awaiting its confirmation)
+ * is no strategy's, but is the signed-in person's: it goes too.
  */
-const SESSION_CACHES = [PAGES_CACHE, IMAGES_CACHE];
+const SESSION_CACHES = [PAGES_CACHE, IMAGES_CACHE, SHARE_STASH_CACHE];
 
 // Static URLs carry `?v=<build>` (src/web/layout/layout.tsx); the precache is already keyed
 // by content hash, so the query must not stop a precached file matching.

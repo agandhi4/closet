@@ -1,4 +1,8 @@
-import type { MultipartFile } from '@fastify/multipart';
+import type {
+  Multipart,
+  MultipartFile,
+  MultipartValue,
+} from '@fastify/multipart';
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
 import { HttpError } from '../errors';
@@ -13,6 +17,7 @@ import {
   type LinkImportRefusal,
   REFUSALS,
 } from '../wardrobe/link-import/import';
+import { isStorableLink } from '../wardrobe/link-import/link-text';
 import {
   deleteInspiration,
   findInspiration,
@@ -49,22 +54,64 @@ export type UnreadReason = LinkImportRefusal | 'no-photo';
 /**
  * POST /inspiration: the multipart `photo` becomes a new look of the
  * owner's. HEIC and every other format go through Photos' one pipeline;
- * the look keeps its whole picture (no cutout is queued). Answers its id.
+ * the look keeps its whole picture (no cutout is queued). The share
+ * confirmation also posts the share's `url` and `title` (sharedSource);
+ * any other field is ignored. Answers its id.
  */
 export async function addUploadedInspiration(
   { db, photos, logger }: InspirationDeps,
   ownerId: number,
-  parts: AsyncIterable<MultipartFile>,
+  parts: AsyncIterable<Multipart>,
 ): Promise<number> {
-  const photo = await photos.storeUploadParts(parts, ownerId);
+  const fields = new Map<string, MultipartValue>();
+  const photo = await photos.storeUploadParts(filesOf(parts, fields), ownerId);
   if (!photo) throw new HttpError(400, 'No file uploaded');
+  // Inside the commit, so a refused field deletes the stored bytes.
   const id = await commitPhoto({ photos, logger }, photo, () =>
-    saveInspiration(db, ownerId, photo, { title: null, sourceUrl: null }),
+    saveInspiration(db, ownerId, photo, sharedSource(fields)),
   );
   logger.info(
     `Inspiration ${id} saved by user ${ownerId} from an upload: ${photo.fileName}`,
   );
   return id;
+}
+
+/** The parts' files, in order, noting the text fields as they pass. */
+async function* filesOf(
+  parts: AsyncIterable<Multipart>,
+  fields: Map<string, MultipartValue>,
+): AsyncIterable<MultipartFile> {
+  for await (const part of parts) {
+    if (part.type === 'file') yield part;
+    else fields.set(part.fieldname, part);
+  }
+}
+
+/**
+ * The look's link and title from the share confirmation's fields. Stored
+ * data, so a link that is not one absolute http(s) URL, a title past the
+ * column, or a value busboy cut at LINK_INPUT_MAX is a 400; blank is none.
+ */
+function sharedSource(fields: Map<string, MultipartValue>): {
+  title: string | null;
+  sourceUrl: string | null;
+} {
+  const text = (name: string): string => {
+    const field = fields.get(name);
+    if (!field) return '';
+    if (typeof field.value !== 'string' || field.valueTruncated) {
+      throw new HttpError(400, `The ${name} is too long`);
+    }
+    return field.value.trim();
+  };
+  const url = text('url');
+  const title = text('title');
+  if (url && !isStorableLink(url))
+    throw new HttpError(400, 'Not an http(s) link');
+  if (title.length > INSPIRATION_TITLE_MAX) {
+    throw new HttpError(400, 'The title is too long');
+  }
+  return { title: title || null, sourceUrl: url || null };
 }
 
 /**
