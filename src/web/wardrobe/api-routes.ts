@@ -104,7 +104,12 @@ import { linkIn } from './link-import/link-text';
 import { saveGarmentFromLink } from './link-import/save';
 import { bulkSetProperty } from './queries';
 import { readRepairForm, RepairParams } from './repairs';
-import { cloneGarment, createGarment, type WardrobeDeps } from './writes';
+import {
+  cloneGarment,
+  createGarment,
+  createGarmentOnce,
+  type WardrobeDeps,
+} from './writes';
 
 const flag = (description: string) =>
   Type.Boolean({ default: false, description });
@@ -271,10 +276,10 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         tags: ['garments'],
         summary: 'Adds a garment, without its photo',
         description:
-          "To your wardrobe or one shared with you to MANAGE (VIEW is a 403). Saved by the garment form's rules: a blank category or a bad date is a 400 naming the field. The photo is its own upload.",
+          "To your wardrobe or one shared with you to MANAGE (VIEW is a 403). Saved by the garment form's rules: a blank category or a bad date is a 400 naming the field. The photo is its own upload. With a `clientId`, a retry answers the first garment of that id (200, its `Location`) and creates nothing; the id of a garment deleted since is a 410 `gone`.",
         querystring: GarmentQuery,
         body: NewGarment,
-        response: apiResponses({ 201: GarmentRef }),
+        response: apiResponses({ 200: GarmentRef, 201: GarmentRef }),
       },
     },
     async (request, reply) => {
@@ -305,20 +310,34 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         { to: destination, forNeed: boughtForNeedId },
         access,
       );
-      const id = await createGarment(
-        deps,
-        access.ownerId,
-        form.fields,
-        destination,
-        withGarment,
-      );
+      const { id, created } = clientId
+        ? await createGarmentOnce(
+            deps,
+            access.ownerId,
+            form.fields,
+            destination,
+            clientId,
+            withGarment,
+          )
+        : {
+            id: await createGarment(
+              deps,
+              access.ownerId,
+              form.fields,
+              destination,
+              withGarment,
+            ),
+            created: true,
+          };
       logger.info(
-        `Garment ${id} created (${destination}) by user ${actorOf(request).userId} in wardrobe ${access.ownerId} (API)${
-          boughtForNeedId ? `, bought for Muse need ${boughtForNeedId}` : ''
+        `Garment ${id} ${created ? `created (${destination})` : 'already created, retry answered'} by user ${actorOf(request).userId} in wardrobe ${access.ownerId} (API)${
+          boughtForNeedId && created
+            ? `, bought for Muse need ${boughtForNeedId}`
+            : ''
         }${clientId ? `, client id ${clientId.slice(0, 8)}` : ''}`,
       );
       return reply
-        .status(201)
+        .status(created ? 201 : 200)
         .header('Location', apiGarmentUrl(id, viewOwner))
         .send({ id });
     },

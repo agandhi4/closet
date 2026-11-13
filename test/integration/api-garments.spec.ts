@@ -1,4 +1,7 @@
+import { randomUUID } from 'node:crypto';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { garment } from '../../src/db/schema';
 import { deviceToken, expectProblem } from './api';
 import {
   createGarment,
@@ -8,6 +11,8 @@ import {
   uploadPhoto,
 } from './garments';
 import { createTestApp, type TestApp } from './harness';
+import { insertGarmentOnce } from '../../src/web/wardrobe/queries';
+import { interleave } from './interleave';
 
 /**
  * The wardrobe on /api/v1. Reads (#192a): GET /garments (the grid's
@@ -294,6 +299,121 @@ describe('the garment writes', () => {
     expect(await garmentRow(t, wish)).toMatchObject({
       status: 'wishlist',
       replacesGarmentId: id,
+    });
+  });
+
+  describe('a clientId (#563)', () => {
+    const rowsOf = (ownerId: number, clientId: string) =>
+      t.db
+        .select({ id: garment.id, name: garment.name })
+        .from(garment)
+        .where(
+          and(eq(garment.ownerId, ownerId), eq(garment.clientId, clientId)),
+        );
+
+    it('stores it, answers a retry with the first row (200, its Location) and creates nothing', async () => {
+      const clientId = randomUUID();
+      const id = await created({ name: 'Once', category: 'tops', clientId });
+      expect(await rowsOf(t.owner.id, clientId)).toEqual([
+        { id, name: 'Once' },
+      ]);
+      // The retry may follow the client's own edit: the id names the create.
+      const retry = await send('POST', '/garments', {
+        name: 'Once, retried',
+        category: 'tops',
+        clientId,
+      });
+      expect(retry.statusCode, retry.body).toBe(200);
+      expect(retry.json()).toEqual({ id });
+      expect(retry.headers.location).toBe(`/api/v1/garments/${id}`);
+      expect(await rowsOf(t.owner.id, clientId)).toEqual([
+        { id, name: 'Once' },
+      ]);
+    });
+
+    it('stores none for a create without one', async () => {
+      const id = await created({ name: 'Anonymous', category: 'tops' });
+      expect((await garmentRow(t, id))?.clientId).toBeNull();
+    });
+
+    it("answers a deleted garment's id 410 gone and never creates it again", async () => {
+      const clientId = randomUUID();
+      const id = await created({
+        name: 'Short-lived',
+        category: 'tops',
+        clientId,
+      });
+      expect((await send('DELETE', `/garments/${id}`)).statusCode).toBe(204);
+      const retry = await send('POST', '/garments', {
+        name: 'Short-lived',
+        category: 'tops',
+        clientId,
+      });
+      expectProblem(retry, 410, 'gone');
+      expect(await rowsOf(t.owner.id, clientId)).toEqual([]);
+    });
+
+    it('is scoped to the wardrobe it lands in: a manager creates into the owner’s, their own is another', async () => {
+      const manager = await signUp('api-garments-manager@example.com');
+      await share(manager.cookie, 'MANAGE');
+      const clientId = randomUUID();
+      const body = { name: 'Managed', category: 'tops', clientId };
+      const into = `/garments?ownerId=${t.owner.id}`;
+      const first = await send('POST', into, body, manager.token);
+      expect(first.statusCode, first.body).toBe(201);
+      const { id } = first.json<{ id: number }>();
+      expect((await garmentRow(t, id))?.ownerId).toBe(t.owner.id);
+      // The retry, and the owner's own create of that id, find the owner's row.
+      for (const [url, token] of [
+        [into, manager.token],
+        ['/garments', ownerToken],
+      ] as const) {
+        const again = await send('POST', url, body, token);
+        expect(again.statusCode, again.body).toBe(200);
+        expect(again.json()).toEqual({ id });
+      }
+      // In the manager's own wardrobe the same id is a different row.
+      const own = await send('POST', '/garments', body, manager.token);
+      expect(own.statusCode, own.body).toBe(201);
+      expect(own.json<{ id: number }>().id).not.toBe(id);
+      expect(await rowsOf(t.owner.id, clientId)).toHaveLength(1);
+    });
+
+    it('makes two concurrent creates of one id one row: the second waits on the owner lock, then answers the first’s row', async () => {
+      const clientId = randomUUID();
+      let held!: number;
+      const [, retry] = await interleave(
+        t.db,
+        async (tx) => {
+          held = (await insertGarmentOnce(
+            tx,
+            t.owner.id,
+            {
+              name: 'Held',
+              category: 'tops',
+              brand: null,
+              colors: null,
+              size: null,
+              notes: null,
+              washingDetails: null,
+              acquiredOn: null,
+            },
+            'closet',
+            clientId,
+          ))!;
+        },
+        () =>
+          send('POST', '/garments', {
+            name: 'Racer',
+            category: 'tops',
+            clientId,
+          }),
+      );
+      expect(retry.statusCode, retry.body).toBe(200);
+      expect(retry.json()).toEqual({ id: held });
+      expect(await rowsOf(t.owner.id, clientId)).toEqual([
+        { id: held, name: 'Held' },
+      ]);
     });
   });
 
