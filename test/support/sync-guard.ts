@@ -88,15 +88,11 @@ function triggersOf(entry: GuardedTable): string {
       : [entry.key, entry.parent, entry.match, entry.parentOwner]
           .map(literal)
           .join(', ');
-  const events =
+  const when =
     'updateWhen' in entry && entry.updateWhen
-      ? [
-          `create trigger ${name} before update on "${entry.table}" for each row when (${entry.updateWhen}) execute function closet_test_sync_guard(${args});`,
-        ]
-      : [
-          `create trigger ${name} before insert or update or delete on "${entry.table}" for each row execute function closet_test_sync_guard(${args});`,
-        ];
-  return events.join('\n');
+      ? `before update on "${entry.table}" for each row when (${entry.updateWhen})`
+      : `before insert or update or delete on "${entry.table}" for each row`;
+  return `create trigger ${name} ${when} execute function closet_test_sync_guard(${args});`;
 }
 
 /** The guard's DDL: one function, a trigger per synced table. Part of the template's name. */

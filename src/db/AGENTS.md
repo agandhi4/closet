@@ -25,11 +25,21 @@ How to change the schema is in the root `AGENTS.md` (Changing the schema). This 
                        DbTimeouts (see Timeouts). Db, and Queryable (Db or a transaction) for writes
                        that must commit with others
     errors.ts          isUniqueViolation, isLockTimeout: a driver error through drizzle's cause chain
+    owner-lock.ts      ownerLockCte / ownersLockCte / ownerLockSql: the owner lock's one statement shape,
+                       folded into a writer's first statement, marking the transaction once the row is
+                       held (Calendar's Owner lock; the sync guard reads the mark)
     select-scalars.ts  selectScalars(): independent scalar subqueries (counts, JSON lists) in one
                        statement, one round trip (the wardrobe grid's context, #159)
     migrate.ts         runMigrations(): boot-time runner (legacy adoption, advisory lock);
                        requireCurrentSchema(): the CLIs' check instead of migrating
 ```
+
+## The owner lock's statement (#196a)
+
+- **Every write to a synced table takes its owner's lock before any other row lock** (Calendar's Owner lock, extended): the roots and children of `docs/plans/2026-11-12-json-api.md` §7, listed as `SYNCED_TABLES` in `test/support/sync-guard.ts` (garments, outfits and slots, entries, wears, selfies, capsules and members, trips and their rows, the week plan and template, sizes, the style profile, measurements, a garment's photo row). The sync triggers (#196a-2) bump the owner's revision with an UPDATE of the user row from inside the write, after the row is locked; a writer that held a garment, trip or photo row first would deadlock with one that holds the owner and waits for that row (`pickIdea`, `deleteOutfit`'s cascade into a trip, `swapPhoto`).
+- **A writer outside `ownerTransaction` folds the lock into its first statement** (`owner-lock.ts`), so it costs no round trip: `ownerLockCte` + `ownerLocked` (an uncorrelated `exists`, a one-time filter run before the scan) or `lockedOwnerId` (an insert's owner column) in a builder, `ownerLockSql` + `OWNER_LOCKED` in SQL, `ownersLockCte` for several owners (id order) or one learnt from the row. `lockGarment`, `lockTrip`/`lockedTripCte`, `lockMembers` and `lockCutoutRow` take it that way, so their callers do; `owner-lock.spec.ts` EXPLAINs each.
+- **The mark is set only once the row is held.** The statement sets `closet.locked_owners` (SET LOCAL) in a select above its LockRows, over the row returned, never in the scan below it where `lock_timeout` must sit. A **test-only guard** (`test/support/sync-guard.ts`, BEFORE row triggers installed on the migrated template, never by a migration) raises on a synced write in a transaction without the owner's mark, so ci-db proves every writer; spec fixtures write through `asFixture` (`test/integration/harness.ts`). It catches a writer that forgot the lock, not one that sets the mark by hand: forgetfulness, not malice.
+- **A photo's owner is fixed for its row's life** (`garmentOwnersOf`, `src/cutout/queries.ts`): a garment only points at a `file` row its own transaction inserted, and the row goes in the transaction that stops pointing at it, so the cutout writers lock the owner they read before the lock; `applyCutoutEvent` checks it again in its write and throws if it moved.
 
 ## Gotchas
 

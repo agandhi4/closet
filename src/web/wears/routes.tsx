@@ -39,7 +39,7 @@ const WoreTodayBody = Type.Object({
   worn: Type.Union([Type.Literal('1'), Type.Literal('0')]),
   day: Type.Optional(IsoDateSchema),
   // The queued create's id (the outbox record's). Accepted and unused
-  // until garment_wear.client_id lands with #196a; the (garment, day)
+  // until garment_wear.client_id lands with #196a-2; the (garment, day)
   // unique index already makes a retried wear a no-op.
   clientId: Type.Optional(Type.String({ format: 'uuid' })),
 });

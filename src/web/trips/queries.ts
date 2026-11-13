@@ -416,9 +416,9 @@ function notATripDay(trip: {
  * snapshot may still hold one deleted meanwhile: a row locked after a wait
  * is read again, so a deleted outfit drops out and the answer is
  * 'no-outfit', never the foreign key's 500. `exists (select 1 from
- * locked)` is a one-time filter that takes the trip lock before the
- * outfit's, the order every trip write keeps (deleteOutfit locks the
- * outfit and never a trip, so they cannot deadlock).
+ * locked)` is a one-time filter that takes the owner's and the trip's
+ * locks before the outfit's, the order every trip write keeps (deleteOutfit
+ * takes the owner's lock first too, so the two take turns on it).
  */
 export function addTripOutfit(
   db: Queryable,
