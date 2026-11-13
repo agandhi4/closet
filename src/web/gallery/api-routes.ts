@@ -49,7 +49,7 @@ export const galleryApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         operationId: 'listIdeas',
         tags: ['ideas'],
         summary: 'Outfit ideas from your closet for a day and an occasion',
-        description: `The Ideas tab's cards, and Styling's Shuffle (its locked rows in \`with\`, one idea: \`limit=1\`, another \`seed\` per shuffle). Each says what is off about it, if anything. At most ${IDEAS_DEPTH} ideas deep. Save one with POST /outfit-picks.`,
+        description: `The Ideas tab's cards, and Styling's Shuffle (its locked rows in \`with\`, one idea: \`limit=1\`, another \`seed\` per shuffle). Each says what is off about it, if anything. At most ${IDEAS_DEPTH} ideas deep; a \`cursor\` carries the seed, so send the same day, occasion, capsule and garments with it. Save one with POST /outfit-picks.`,
         querystring: IdeaQuery,
         response: apiResponses({ 200: IdeaList }),
       },

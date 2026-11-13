@@ -77,12 +77,8 @@ export const IdeaQuery = Type.Object({
         "Which ideas: the day's unless given (the answer says which). The same seed and page are the same ideas; Shuffle is another seed",
     }),
   ),
-  cursor: Type.Optional(
-    CloneType(ListCursor, {
-      description:
-        "The previous page's `pagination.nextCursor`: it carries the seed, so send the same day, occasion, capsule and garments",
-    }),
-  ),
+  // Its note (resend the rest) is the route's: CloneType keeps ListCursor's own description.
+  cursor: Type.Optional(ListCursor),
   limit: ListLimit(IDEAS_PAGE_SIZE),
 });
 
@@ -155,7 +151,8 @@ const IdeaWeather = Type.Object(
   },
   {
     title: 'IdeaWeather',
-    description: 'The weather the ideas were matched to',
+    description:
+      'The weather the ideas were matched to. Absent: no forecast that day (weather off, no location, a past day or one past the forecast)',
   },
 );
 
@@ -167,12 +164,7 @@ export const IdeaList = ListOf(IdeaResource, {
     day: IsoDateSchema,
     occasion: Occasion,
     seed: Type.Integer({ description: 'The seed these ideas were drawn by' }),
-    weather: Type.Optional(
-      CloneType(IdeaWeather, {
-        description:
-          'Absent: no forecast that day (weather off, no location, a past day or one past the forecast)',
-      }),
-    ),
+    weather: Type.Optional(IdeaWeather),
   },
 });
 

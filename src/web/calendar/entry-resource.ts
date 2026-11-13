@@ -76,12 +76,13 @@ export function toCalendarEntryResource(
 export const CalendarEntryQuery = Type.Object({
   from: Type.Optional(
     CloneType(IsoDateSchema, {
-      description: 'The first day; today unless given',
+      description:
+        'The first day; today unless given, or six days before `to` when only it is sent',
     }),
   ),
   to: Type.Optional(
     CloneType(IsoDateSchema, {
-      description: `The last day (inclusive), at most ${MAX_CALENDAR_DAYS} days in all; six days after \`from\` unless given`,
+      description: `The last day (inclusive), at most ${MAX_CALENDAR_DAYS} days in all; six days after \`from\` unless given (sent alone, \`from\` is six days before it)`,
     }),
   ),
 });

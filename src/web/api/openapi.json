@@ -9094,7 +9094,7 @@
             "in": "query",
             "name": "from",
             "required": false,
-            "description": "The first day; today unless given"
+            "description": "The first day; today unless given, or six days before `to` when only it is sent"
           },
           {
             "schema": {
@@ -9104,7 +9104,7 @@
             "in": "query",
             "name": "to",
             "required": false,
-            "description": "The last day (inclusive), at most 62 days in all; six days after `from` unless given"
+            "description": "The last day (inclusive), at most 62 days in all; six days after `from` unless given (sent alone, `from` is six days before it)"
           }
         ],
         "responses": {
@@ -16654,7 +16654,7 @@
         "tags": [
           "ideas"
         ],
-        "description": "The Ideas tab's cards, and Styling's Shuffle (its locked rows in `with`, one idea: `limit=1`, another `seed` per shuffle). Each says what is off about it, if anything. At most 300 ideas deep. Save one with POST /outfit-picks.",
+        "description": "The Ideas tab's cards, and Styling's Shuffle (its locked rows in `with`, one idea: `limit=1`, another `seed` per shuffle). Each says what is off about it, if anything. At most 300 ideas deep; a `cursor` carries the seed, so send the same day, occasion, capsule and garments with it. Save one with POST /outfit-picks.",
         "parameters": [
           {
             "schema": {
@@ -17054,8 +17054,8 @@
                       "type": "integer"
                     },
                     "weather": {
-                      "description": "The weather the ideas were matched to",
                       "title": "IdeaWeather",
+                      "description": "The weather the ideas were matched to. Absent: no forecast that day (weather off, no location, a past day or one past the forecast)",
                       "type": "object",
                       "required": [
                         "feelsLikeC",
