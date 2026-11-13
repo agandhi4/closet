@@ -27,7 +27,7 @@ import {
   type Occasion,
 } from './occasions';
 import type { OutfitRule } from './outfit-rules';
-import type { GarmentRole } from './properties';
+import type { GarmentRole, Warmth } from './properties';
 import type { GarmentStatus } from './status';
 import { occasionsOn, type TemplateSlot } from './week';
 
@@ -269,6 +269,12 @@ export interface PlannedNeeds {
   limbs: number;
   layer: boolean;
   rain: boolean;
+  /**
+   * The too-warm bound for legs and feet, which `limbs` (capped on the cold
+   * side) cannot show. Null for an entry planned before it was stored: never
+   * judged on it.
+   */
+  limbsCeiling: number | null;
 }
 
 export function plannedNeeds(needs: WeatherNeeds | null): PlannedNeeds | null {
@@ -278,6 +284,7 @@ export function plannedNeeds(needs: WeatherNeeds | null): PlannedNeeds | null {
       limbs: needs.limbs,
       layer: needs.layer,
       rain: needs.rain,
+      limbsCeiling: needs.limbsCeiling,
     }
   );
 }
@@ -321,6 +328,28 @@ const LIMBS_TOO_WARM: readonly FitProblem[] = [
   'legs-too-warm',
   'feet-too-warm',
 ];
+
+/**
+ * Legs or feet too warm against today's needs but not against the ceiling
+ * the entry was planned with. Only a fallen ceiling can make that so (same
+ * garments, same tolerances); an entry stored without one is never judged.
+ */
+function limbsTurnedTooWarm(
+  needs: WeatherNeeds,
+  plannedFor: PlannedNeeds | null,
+  garments: readonly { weather: MatchGarment }[],
+): boolean {
+  if (!plannedFor || plannedFor.limbsCeiling === null) return false;
+  const tooWarm = (n: WeatherNeeds) =>
+    assessOutfit(
+      n,
+      garments.map((g) => g.weather),
+    ).problems.some((p) => LIMBS_TOO_WARM.includes(p));
+  return (
+    tooWarm(needs) &&
+    !tooWarm({ ...needs, limbsCeiling: plannedFor.limbsCeiling as Warmth })
+  );
+}
 
 /** An entry the planner wrote and still owns (planned_by 'auto'). */
 export interface AutoEntry {
@@ -407,15 +436,15 @@ export function replanWeek<G extends PlannerGarment>(
       ledger.wear(entry.day, entry.garments, { asOutfit: false });
     }
     if (!needs || !now) return { entryId, kind: 'unchanged' };
-    // The stored targets cannot see `limbsCeiling` (the too-warm bound,
-    // uncapped where `limbs` is capped), so a forecast warming from -5 to
-    // 10 C leaves them equal while boots planned for the cold turn too warm:
-    // an entry whose targets held is still judged when its limbs now are.
-    const limbsTooWarm = assessOutfit(
-      needs,
-      entry.garments.map((g) => g.weather),
-    ).problems.some((p) => LIMBS_TOO_WARM.includes(p));
-    if (sameNeeds(plannedFor, now) && !limbsTooWarm) {
+    // `sameNeeds` cannot see the ceiling (the too-warm bound, uncapped where
+    // `limbs` is capped), so boots planned for 5 C that turn too warm at 12 C
+    // leave the targets equal. Judged when the legs or feet are too warm now
+    // and were not against the ceiling it was planned with: a near miss the
+    // planner chose knowingly is not re-judged every morning.
+    const warmedPast =
+      sameNeeds(plannedFor, now) &&
+      limbsTurnedTooWarm(needs, plannedFor, entry.garments);
+    if (sameNeeds(plannedFor, now) && !warmedPast) {
       return { entryId, kind: 'unchanged' };
     }
     const current = weatherScore(needs, entry.garments);
@@ -430,11 +459,10 @@ export function replanWeek<G extends PlannerGarment>(
         slot,
         idea,
         needs: now,
+        // Equal targets and judged anyway: the ceiling fell (limbsTurnedTooWarm).
         cause: {
           kind: 'weather',
-          change: sameNeeds(plannedFor, now)
-            ? 'warmer'
-            : needsChange(plannedFor, now),
+          change: warmedPast ? 'warmer' : needsChange(plannedFor, now),
         },
       };
     }

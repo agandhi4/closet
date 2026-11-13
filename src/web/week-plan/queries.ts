@@ -139,10 +139,11 @@ type EntryRow = Omit<AutoEntryRow, 'plannedFor'> & {
   limbs: number | null;
   layer: boolean | null;
   rain: boolean | null;
+  limbsCeiling: number | null;
 };
 
 function autoEntryOf(row: EntryRow): AutoEntryRow {
-  const { torso, limbs, layer, rain } = row;
+  const { torso, limbs, layer, rain, limbsCeiling } = row;
   return {
     entryId: row.entryId,
     day: row.day,
@@ -153,7 +154,7 @@ function autoEntryOf(row: EntryRow): AutoEntryRow {
     plannedFor:
       torso === null || limbs === null || layer === null || rain === null
         ? null
-        : { torso, limbs, layer, rain },
+        : { torso, limbs, layer, rain, limbsCeiling },
   };
 }
 
@@ -187,7 +188,8 @@ export async function claimAutoEntries(
         ${weekPlanEntry.torso} as "torso",
         ${weekPlanEntry.limbs} as "limbs",
         ${weekPlanEntry.layer} as "layer",
-        ${weekPlanEntry.rain} as "rain"
+        ${weekPlanEntry.rain} as "rain",
+        ${weekPlanEntry.limbsCeiling} as "limbsCeiling"
       from ${weekPlanEntry}
       inner join ${outfitCalendar} on ${outfitCalendar.id} = ${weekPlanEntry.entryId}
       where ${outfitCalendar.ownerId} = ${ownerId}
@@ -264,7 +266,15 @@ export async function updatePlannedNeeds(
 }
 
 function needsColumns(needs: PlannedNeeds | null) {
-  return needs ?? { torso: null, limbs: null, layer: null, rain: null };
+  return (
+    needs ?? {
+      torso: null,
+      limbs: null,
+      layer: null,
+      rain: null,
+      limbsCeiling: null,
+    }
+  );
 }
 
 /**

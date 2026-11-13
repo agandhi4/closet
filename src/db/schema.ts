@@ -1791,6 +1791,9 @@ export const weekPlanEntry = pgTable(
     limbs: smallint('limbs'),
     layer: boolean('layer'),
     rain: boolean('rain'),
+    // The too-warm bound for legs and feet it was planned against (uncapped,
+    // unlike `limbs`). Null: planned before it was kept, never judged on it.
+    limbsCeiling: smallint('limbs_ceiling'),
   },
   (table) => [
     index('week_plan_entry_week_plan_id_index').on(table.weekPlanId),
