@@ -21,7 +21,7 @@ import type { OutfitRule } from '../../wardrobe/outfit-rules';
 import { takePendingPhoto } from '../files/pending-photos';
 import {
   insertPhotoRow,
-  lockOwnerAndPhotoName,
+  lockOwnersAndPhotoName,
   type NewPhotoRow,
 } from '../files/queries';
 import { HttpError } from '../errors';
@@ -280,8 +280,9 @@ export function saveInspirationWithPendingPhoto(
   fields: NewInspiration,
 ): Promise<number | undefined> {
   return db.transaction(async (tx) => {
-    // The owner first (lockOwnerAndPhotoName says why), then the take.
-    if (!(await lockOwnerAndPhotoName(tx, ownerId, photo.fileName))) {
+    // The owner first (lockOwnersAndPhotoName says why), then the take:
+    // a look's pending photo is always its owner's own.
+    if (!(await lockOwnersAndPhotoName(tx, [ownerId], photo.fileName))) {
       return undefined;
     }
     const scope = { userId: ownerId, ownerId };
