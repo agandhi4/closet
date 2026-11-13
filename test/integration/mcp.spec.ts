@@ -1,4 +1,6 @@
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { and, eq } from 'drizzle-orm';
+import { z } from 'zod';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   capsuleGarment,
@@ -10,7 +12,9 @@ import {
 } from '../../src/db/schema';
 import { createCapsule } from '../../src/web/capsules/queries';
 import { t as text } from '../../src/web/i18n';
+import { HttpError } from '../../src/web/errors';
 import { MAX_TOOL_INPUT_ELEMENTS } from '../../src/web/mcp/routes';
+import { defineTool, registerTools } from '../../src/web/mcp/tool';
 import { acceptInvite, createInvite } from '../../src/web/sharing/queries';
 import { deleteGarment } from '../../src/web/wardrobe/queries';
 import {
@@ -1363,6 +1367,44 @@ describe('the MCP endpoint', () => {
           /^MCP update_garment by user \d+ \(token \d+\): refused 403: Forbidden /,
         ),
       );
+    });
+
+    it('logs one line per call: a refusal at info, a chosen 5xx at warn', async () => {
+      const failing = (name: string, status: number) =>
+        defineTool({
+          name,
+          title: name,
+          description: name,
+          input: z.object({}),
+          writes: false,
+          run: () => Promise.reject(new HttpError(status)),
+        });
+      const handlers = new Map<string, () => Promise<unknown>>();
+      const server = {
+        registerTool: (name: string, _config: unknown, handler: never) =>
+          handlers.set(name, handler),
+      } as unknown as McpServer;
+      registerTools(
+        server,
+        [failing('probe_503', 503), failing('probe_403', 403)],
+        {
+          userId: t.owner.id,
+          tokenId: 1,
+        } as Parameters<typeof registerTools>[2],
+        { logger: t.logger.child({ logger: 'Mcp' }), metrics: t.metrics },
+      );
+      t.logs.clear();
+      await handlers.get('probe_503')!();
+      await handlers.get('probe_403')!();
+      const warned = t.logs.messages('warn', 'Mcp');
+      expect(warned).toHaveLength(1);
+      expect(warned[0]).toMatch(/^MCP probe_503 by user \d+ .*: failed 503: /);
+      const informed = t.logs.messages('info', 'Mcp');
+      expect(informed).toHaveLength(1);
+      expect(informed[0]).toMatch(
+        /^MCP probe_403 by user \d+ .*: refused 403: /,
+      );
+      expect(t.logs.messages('error', 'Mcp')).toHaveLength(0);
     });
 
     it('never writes a token, or its prefix, to a log line', () => {
