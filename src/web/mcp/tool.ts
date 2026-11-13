@@ -8,7 +8,11 @@ import { describeError } from '../errors';
 import type { Photos } from '../files/photos';
 import type { PushSender } from '../push/sender';
 import type { OutboundFetcher } from '../security/outbound-fetch';
-import { authorizeWardrobe, type WardrobeNeed } from '../sharing/access';
+import {
+  type Actor,
+  authorizeWardrobe,
+  type WardrobeNeed,
+} from '../sharing/access';
 import type { WeatherService } from '../weather/service';
 
 /**
@@ -72,6 +76,11 @@ export function defineTool<Input extends z.ZodObject>(
   tool: ClosetTool<Input>,
 ): ClosetTool<Input> {
   return tool;
+}
+
+/** The token's user as a domain function's Actor: no session, so no share read ahead. */
+export function actorOf(ctx: Pick<ToolContext, 'userId'>): Actor {
+  return { userId: ctx.userId };
 }
 
 /**
