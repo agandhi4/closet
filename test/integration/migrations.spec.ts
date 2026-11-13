@@ -1,5 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { GARMENT_WEAR_CLIENT_ID_UNIQUE } from '../../src/db/schema';
+import { SYNC_ROOTS } from '../../src/db/sync-tables';
 import { schemaDrift } from '../support/schema-drift';
 import { createTestApp, TestApp } from './harness';
 
@@ -139,6 +141,15 @@ describe('migrations', () => {
         'garment_owner_id_suggested_at_index',
         'outfit_owner_id_proposed_at_index',
         'muse_round_owner_id_finished_at_index',
+        // The sync (#196a): the feed's keyset per root and of the
+        // tombstones (#196b), a replayed create's tombstone lookup, and a
+        // retried create's client id.
+        ...SYNC_ROOTS.filter((root) => root.id === 'id').map(
+          (root) => `${root.table}_${root.owner}_revision_index`,
+        ),
+        'sync_tombstone_owner_id_revision_index',
+        'sync_tombstone_owner_id_client_id_index',
+        GARMENT_WEAR_CLIENT_ID_UNIQUE,
       ]),
     );
   });

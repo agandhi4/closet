@@ -77,6 +77,12 @@
               {
                 "type": "string",
                 "enum": [
+                  "gone"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
                   "stale"
                 ]
               },

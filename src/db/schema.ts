@@ -1,6 +1,7 @@
 import { relations, sql } from 'drizzle-orm';
 import {
   type AnyPgColumn,
+  bigint,
   boolean,
   check,
   date,
@@ -129,6 +130,7 @@ import {
   type Warmth,
   WARMTHS,
 } from '../wardrobe/properties';
+import { SYNC_ROOTS } from './sync-tables';
 
 /**
  * The database schema, and the only source of migrations: edit it, run
@@ -167,11 +169,35 @@ export const CAPSULE_NAME_UNIQUE = 'capsule_owner_id_lower_name_unique';
 export const SHARE_GRANTEE_UNIQUE =
   'wardrobe_share_grantor_id_grantee_id_unique';
 export const BRAND_SIZE_UNIQUE = 'brand_size_user_id_brand_key_unique';
+export const GARMENT_WEAR_CLIENT_ID_UNIQUE =
+  'garment_wear_owner_id_client_id_unique';
 export type UniqueConstraint =
   | typeof USER_EMAIL_UNIQUE
   | typeof CAPSULE_NAME_UNIQUE
   | typeof SHARE_GRANTEE_UNIQUE
-  | typeof BRAND_SIZE_UNIQUE;
+  | typeof BRAND_SIZE_UNIQUE
+  | typeof GARMENT_WEAR_CLIENT_ID_UNIQUE;
+
+/**
+ * The sync columns (#196a; docs/plans/2026-11-12-json-api.md section 7,
+ * src/db/sync-tables.ts): every synced root carries the owner's revision
+ * of its last write and when that was, both set by the sync triggers
+ * (drizzle/0052_sync-triggers.sql), never by a writer. The revision is
+ * the sync cursor; updated_at is information only (now(): the
+ * transaction's start, not its commit). Rows from before the triggers
+ * have revision 0 ("before sync") and updated_at the migration's instant.
+ */
+const syncRevision = () =>
+  bigint('revision', { mode: 'number' }).default(0).notNull();
+const syncUpdatedAt = () =>
+  timestamp('updated_at', { withTimezone: true }).defaultNow().notNull();
+
+/**
+ * The client's id for a row it created offline (an outbox record's, an
+ * API create's `clientId`): a retried create finds its row by it, and a
+ * deleted one by its tombstone. Unique per owner (nulls distinct).
+ */
+const clientId = () => uuid('client_id');
 
 export const user = pgTable(
   'user',
@@ -188,6 +214,18 @@ export const user = pgTable(
     // are "new from Muse" (src/wardrobe/suggestions.ts). Never rendered into
     // a cached page; null: never opened since suggestions came.
     suggestionsSeenAt: timestamp('suggestions_seen_at', { withTimezone: true }),
+    // The sync (#196a, src/db/sync-tables.ts): the newest revision of the
+    // user's synced data, bumped once per transaction that writes it by
+    // closet_sync_revision (drizzle/0052_sync-triggers.sql), under the
+    // owner lock (src/db/owner-lock.ts); the newest revision whose
+    // tombstones were pruned (a cursor below it must sync in full, #196b);
+    // and the revision of the week template's last save (it has no row of
+    // its own to stamp).
+    revision: bigint('revision', { mode: 'number' }).default(0).notNull(),
+    syncFloor: bigint('sync_floor', { mode: 'number' }).default(0).notNull(),
+    weekTemplateRevision: bigint('week_template_revision', { mode: 'number' })
+      .default(0)
+      .notNull(),
   },
   (table) => [uniqueIndex(USER_EMAIL_UNIQUE).on(sql`lower(${table.email})`)],
 );
@@ -584,8 +622,17 @@ export const garment = pgTable(
     // the owner says, which may be any day). Written only by
     // setGarmentStatus's buy; null for anything bought before 0042.
     boughtAt: timestamp('bought_at', { withTimezone: true }),
+    revision: syncRevision(),
+    updatedAt: syncUpdatedAt(),
+    clientId: clientId(),
   },
   (table) => [
+    // The sync feed's keyset (#196b), by owner and revision.
+    index('garment_owner_id_revision_index').on(table.ownerId, table.revision),
+    unique('garment_owner_id_client_id_unique').on(
+      table.ownerId,
+      table.clientId,
+    ),
     check(
       'garment_type_check',
       sql`${table.type} in (${sqlList(ALL_GARMENT_TYPES)})`,
@@ -932,8 +979,17 @@ export const outfit = pgTable(
     ownerNote: text('owner_note'),
     dismissedReason: text('dismissed_reason').$type<OutfitDismissReason>(),
     reactedAt: timestamp('reacted_at', { withTimezone: true }),
+    revision: syncRevision(),
+    updatedAt: syncUpdatedAt(),
+    clientId: clientId(),
   },
   (table) => [
+    // The sync feed's keyset (#196b), by owner and revision.
+    index('outfit_owner_id_revision_index').on(table.ownerId, table.revision),
+    unique('outfit_owner_id_client_id_unique').on(
+      table.ownerId,
+      table.clientId,
+    ),
     index('outfit_owner_id_index').on(table.ownerId),
     uniqueIndex('outfit_shareable_id_unique').on(table.shareableId),
     foreignKey({
@@ -1050,8 +1106,20 @@ export const outfitCalendar = pgTable(
       .$type<PlannedBy>()
       .default(DEFAULT_PLANNED_BY)
       .notNull(),
+    revision: syncRevision(),
+    updatedAt: syncUpdatedAt(),
+    clientId: clientId(),
   },
   (table) => [
+    // The sync feed's keyset (#196b), by owner and revision.
+    index('outfit_calendar_owner_id_revision_index').on(
+      table.ownerId,
+      table.revision,
+    ),
+    unique('outfit_calendar_owner_id_client_id_unique').on(
+      table.ownerId,
+      table.clientId,
+    ),
     check(
       'outfit_calendar_occasion_check',
       sql`${table.occasion} in (${sqlList(OCCASIONS)})`,
@@ -1105,8 +1173,17 @@ export const garmentWear = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
+    revision: syncRevision(),
+    updatedAt: syncUpdatedAt(),
+    clientId: clientId(),
   },
   (table) => [
+    // The sync feed's keyset (#196b), by owner and revision.
+    index('garment_wear_owner_id_revision_index').on(
+      table.ownerId,
+      table.revision,
+    ),
+    unique(GARMENT_WEAR_CLIENT_ID_UNIQUE).on(table.ownerId, table.clientId),
     // One entry counts a garment once (an outfit may hold it in two
     // slots). Also the index of the outfit_calendar_id foreign key.
     unique('garment_wear_outfit_calendar_id_garment_id_unique').on(
@@ -1217,8 +1294,12 @@ export const selfie = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
+    revision: syncRevision(),
+    updatedAt: syncUpdatedAt(),
   },
   (table) => [
+    // The sync feed's keyset (#196b), by owner and revision.
+    index('selfie_owner_id_revision_index').on(table.ownerId, table.revision),
     // One selfie per entry (a new one replaces it); detached looks, null
     // here, are distinct. Also the outfit_calendar_id foreign key's index.
     unique('selfie_outfit_calendar_id_unique').on(table.outfitCalendarId),
@@ -1387,8 +1468,17 @@ export const capsule = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
+    revision: syncRevision(),
+    updatedAt: syncUpdatedAt(),
+    clientId: clientId(),
   },
   (table) => [
+    // The sync feed's keyset (#196b), by owner and revision.
+    index('capsule_owner_id_revision_index').on(table.ownerId, table.revision),
+    unique('capsule_owner_id_client_id_unique').on(
+      table.ownerId,
+      table.clientId,
+    ),
     // "Office" once per wardrobe, compared as the list sorts it; the
     // writers answer a violation as 'name-taken'. Also the index of the
     // owner_id foreign key and of every capsule query (owner first).
@@ -1464,6 +1554,7 @@ export const styleProfile = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
+    revision: syncRevision(),
   },
   (table) => [
     check(
@@ -1514,6 +1605,7 @@ export const bodyMeasurements = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
+    revision: syncRevision(),
   },
   (table) => [
     foreignKey({
@@ -1570,8 +1662,17 @@ export const brandSize = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
+    revision: syncRevision(),
+    updatedAt: syncUpdatedAt(),
+    clientId: clientId(),
   },
   (table) => [
+    // The sync feed's keyset (#196b), by owner and revision.
+    index('brand_size_user_id_revision_index').on(table.userId, table.revision),
+    unique('brand_size_user_id_client_id_unique').on(
+      table.userId,
+      table.clientId,
+    ),
     // Also the index of the user_id foreign key and of every read (user
     // first).
     uniqueIndex(BRAND_SIZE_UNIQUE).on(table.userId, table.brandKey),
@@ -1644,8 +1745,15 @@ export const weekPlan = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
+    revision: syncRevision(),
+    updatedAt: syncUpdatedAt(),
   },
   (table) => [
+    // The sync feed's keyset (#196b), by owner and revision.
+    index('week_plan_owner_id_revision_index').on(
+      table.ownerId,
+      table.revision,
+    ),
     index('week_plan_owner_id_index').on(table.ownerId),
     foreignKey({
       name: 'week_plan_owner_id_foreign',
@@ -1967,8 +2075,14 @@ export const trip = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
+    revision: syncRevision(),
+    updatedAt: syncUpdatedAt(),
+    clientId: clientId(),
   },
   (table) => [
+    // The sync feed's keyset (#196b), by owner and revision.
+    index('trip_owner_id_revision_index').on(table.ownerId, table.revision),
+    unique('trip_owner_id_client_id_unique').on(table.ownerId, table.clientId),
     // The list (upcoming first) and the owner_id foreign key's index.
     index('trip_owner_id_starts_on_index').on(table.ownerId, table.startsOn),
     check('trip_dates_check', sql`${table.endsOn} >= ${table.startsOn}`),
@@ -2052,6 +2166,8 @@ export const tripItem = pgTable(
     // Trimmed, never blank; bounded by the route (TRIP_ITEM_MAX).
     label: text('label').notNull(),
     packed: boolean('packed').default(false).notNull(),
+    // No client_id: a child table has no tombstone trigger, so a replayed
+    // create could not be refused after a delete (src/db/AGENTS.md, sync triggers).
   },
   (table) => [
     // Also the index of the trip_id foreign key. trip_id as an expression,
@@ -2101,6 +2217,54 @@ export const tripGarmentPacked = pgTable(
       name: 'trip_garment_packed_garment_id_foreign',
       columns: [table.garmentId],
       foreignColumns: [garment.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+// A synced root's deletion (#196a; docs/plans/2026-11-12-json-api.md section
+// 7): what the changes feed (#196b) answers as a deletion, and what keeps a
+// replayed offline create from bringing a deleted row back (its client_id).
+// Written only by the sync triggers' AFTER DELETE (closet_sync_tombstone,
+// drizzle/0052_sync-triggers.sql), so a cascade leaves one too; none for
+// rows deleted with their owner, and the owner's go with it. Not soft
+// delete: the row itself is gone. Pruned after 90 days (#196b), raising
+// user.sync_floor.
+export const syncTombstone = pgTable(
+  'sync_tombstone',
+  {
+    id: serial('id').primaryKey(),
+    ownerId: integer('owner_id').notNull(),
+    // The root's table name (src/db/sync-tables.ts SYNC_ROOTS).
+    resource: text('resource').notNull(),
+    // The deleted row's id (the user's for the one-row-per-user roots).
+    resourceId: integer('resource_id').notNull(),
+    clientId: uuid('client_id'),
+    // The owner's revision of the deleting transaction.
+    revision: bigint('revision', { mode: 'number' }).notNull(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      'sync_tombstone_resource_check',
+      sql`${table.resource} in (${sqlList(SYNC_ROOTS.map((root) => root.table))})`,
+    ),
+    // The feed's keyset, and the owner_id foreign key's index.
+    index('sync_tombstone_owner_id_revision_index').on(
+      table.ownerId,
+      table.revision,
+    ),
+    // A replayed create's "was this deleted?" (deletedClientId).
+    index('sync_tombstone_owner_id_client_id_index')
+      .on(table.ownerId, table.clientId)
+      .where(sql`${table.clientId} is not null`),
+    foreignKey({
+      name: 'sync_tombstone_owner_id_foreign',
+      columns: [table.ownerId],
+      foreignColumns: [user.id],
     })
       .onUpdate('cascade')
       .onDelete('cascade'),

@@ -305,7 +305,13 @@ describe('tagging mode', () => {
     // A tap that changes one field writes that field alone.
     t.logs.clear();
     await tag(id, { type: 't-shirt', warmth: '3', formality: '4' });
-    expect(await row(id)).toEqual({ ...before, formality: 4 });
+    expect(await row(id)).toEqual({
+      ...before,
+      formality: 4,
+      // Stamped by the sync triggers (#196a).
+      revision: expect.any(Number),
+      updatedAt: expect.any(Date),
+    });
     expect(t.logs.messages('info', 'Web')).toContainEqual(
       `Garment ${id} tagged by user ${t.owner.id}: formality`,
     );

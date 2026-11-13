@@ -103,13 +103,15 @@ describe('seed personas', () => {
       .update(await readFile(join(t.dataPath, name)))
       .digest('hex');
 
-  // Differ between runs by design: ids, UUIDs, the photo row's id.
+  // Differ between runs by design: ids, UUIDs, the photo row's id, when
+  // the sync triggers last stamped it.
   const VARYING = [
     'id',
     'shareableId',
     'photoId',
     'ownerId',
     'replacesGarmentId',
+    'updatedAt',
   ] as const;
 
   /**

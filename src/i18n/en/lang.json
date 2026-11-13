@@ -57,6 +57,8 @@
   "EMAIL_IN_USE": "Another account already uses this email address",
   "TOO_MANY_ATTEMPTS": "Too many attempts. Try again in {after}.",
   "WARDROBE_BUSY": "Another change to this wardrobe is still saving. Try again in a moment.",
+  "WEAR_DELETED": "This wear was removed since, so it was not saved again.",
+  "WEAR_CLIENT_ID_TAKEN": "This saved wear was already used for another garment.",
   "ERROR": "Error",
   "PATH": "Path",
   "TIME": "Time",

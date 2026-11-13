@@ -25,6 +25,8 @@ const CODE_OF_STATUS: Readonly<Record<number, ErrorCode>> = {
   403: 'forbidden',
   404: 'not_found',
   409: 'conflict',
+  // A replayed create of a row deleted since (its client id's tombstone, #196a).
+  410: 'gone',
   412: 'stale',
   429: 'rate_limited',
   503: 'busy',

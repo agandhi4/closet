@@ -1,7 +1,8 @@
 import type { IsoDate } from '../../calendar-date';
 import type { AwayReason } from '../../wardrobe/availability';
 import type { Db } from '../../db/client';
-import type { HttpError } from '../errors';
+import { HttpError } from '../errors';
+import { t } from '../i18n';
 import type { Actor } from '../sharing/access';
 import { garmentNotOwnedYet } from '../wardrobe/garment-actions';
 import {
@@ -26,6 +27,16 @@ import { markWashed, setAway, setWoreToday } from './queries';
  * judge (today, or a queued tap's within the window).
  */
 
+/** A queued wear's client id refused; the page route logs it with the replay's key. */
+export class WearClientIdRefusal extends HttpError {
+  constructor(readonly outcome: 'gone' | 'client-id-taken') {
+    super(
+      outcome === 'gone' ? 410 : 409,
+      t(outcome === 'gone' ? 'WEAR_DELETED' : 'WEAR_CLIENT_ID_TAKEN'),
+    );
+  }
+}
+
 /** What a wear or wash did, in whose wardrobe (always the actor's own). */
 export interface WearWrite {
   ownerId: number;
@@ -38,7 +49,7 @@ export async function wearGarment(
   db: Db,
   actor: Actor,
   address: GarmentAddress,
-  change: { day: IsoDate; worn: boolean },
+  change: { day: IsoDate; worn: boolean; clientId?: string },
 ): Promise<WearWrite> {
   const { access } = await garmentWardrobe(db, actor, address, 'own');
   const outcome = await setWoreToday(db, {
@@ -48,6 +59,11 @@ export async function wearGarment(
   });
   if (outcome === 'not-found') throw garmentNotFound();
   if (outcome === 'wishlist') throw garmentNotOwnedYet();
+  // A queued wear's client id (#196a): its wear was deleted since (410), or
+  // the id names another wear (409).
+  if (outcome === 'gone' || outcome === 'client-id-taken') {
+    throw new WearClientIdRefusal(outcome);
+  }
   return { ownerId: access.ownerId, changed: outcome === 'changed' };
 }
 

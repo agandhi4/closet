@@ -21,7 +21,12 @@ import { garmentUrl, LAUNDRY_PATH } from '../wardrobe/urls';
 import { CARE_NOTE_MAX } from '../wardrobe/garment-input';
 import { LaundryPage } from './laundry-page';
 import { laundryList, markWashed, wearStatusOf } from './queries';
-import { putGarmentAway, washGarment, wearGarment } from './wear-actions';
+import {
+  putGarmentAway,
+  washGarment,
+  WearClientIdRefusal,
+  wearGarment,
+} from './wear-actions';
 import { WearStatus } from './wear-section';
 
 // `day` is a queued tap's own day (#178), else today: requestedDay
@@ -29,9 +34,9 @@ import { WearStatus } from './wear-section';
 const WoreTodayBody = Type.Object({
   worn: Type.Union([Type.Literal('1'), Type.Literal('0')]),
   day: Type.Optional(IsoDateSchema),
-  // The queued create's id (the outbox record's). Accepted and unused
-  // until garment_wear.client_id lands with #196a-2; the (garment, day)
-  // unique index already makes a retried wear a no-op.
+  // A queued wear's id (the outbox record's), stored on the wear it
+  // creates (setWoreToday): a replay of a wear deleted since is a 410,
+  // the id on another wear a 409. Ignored with worn=0.
   clientId: Type.Optional(Type.String({ format: 'uuid' })),
 });
 
@@ -118,12 +123,20 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { id } = request.params;
       const worn = request.body.worn === '1';
       const day = requestedDay(reply, request.body.day, today());
+      const { clientId } = request.body;
       const { ownerId, changed } = await wearGarment(
         db,
         actorOf(request),
         garmentAddress(request),
-        { day, worn },
-      );
+        { day, worn, clientId: worn ? clientId : undefined },
+      ).catch((error: unknown) => {
+        if (error instanceof WearClientIdRefusal) {
+          logger.info(
+            `Garment ${id} wear on ${day} by user ${sessionUserId(request)} refused: client id ${clientId!.slice(0, 8)} ${error.outcome === 'gone' ? 'was deleted' : 'names another wear'}${replayNote(request)}`,
+          );
+        }
+        throw error;
+      });
       logger.info(
         `Garment ${id} ${worn ? 'worn' : 'wear undone'} on ${day} by user ${ownerId}${changed ? '' : ', already so'}${replayNote(request)}`,
       );

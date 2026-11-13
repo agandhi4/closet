@@ -6,10 +6,12 @@ import {
   ownerLocked,
   ownerLockSql,
 } from '../../db/owner-lock';
+import { isDeletedClientId, isUniqueViolation } from '../../db/errors';
 import { selectScalars } from '../../db/select-scalars';
 import {
   file,
   garment,
+  GARMENT_WEAR_CLIENT_ID_UNIQUE,
   garmentWear,
   outfitCalendar,
   outfitSlot,
@@ -493,15 +495,38 @@ export async function detachOutfitWears(
  * `day` is today, or a queued tap's own day. One statement: the lookup is
  * a CTE the write reads, so the garment page's tap costs one round trip,
  * not two (#160), the owner lock its first CTE (src/db/owner-lock.ts).
+ *
+ * `clientId` is a queued wear's (the outbox record's, #196a), stored on the
+ * row it creates. A wear already there for (garment, day) is kept with its
+ * own client id, whatever this one says: the retry is 'unchanged'. Refused
+ * without writing: 'gone' when the client id's wear was deleted since (its
+ * tombstone; the sync triggers refuse it), 'client-id-taken' when it names
+ * another wear (a reused id).
  */
 export async function setWoreToday(
   db: Queryable,
-  input: { garmentId: number; ownerId: number; day: IsoDate; worn: boolean },
-): Promise<'changed' | 'unchanged' | 'not-found' | 'wishlist'> {
+  input: {
+    garmentId: number;
+    ownerId: number;
+    day: IsoDate;
+    worn: boolean;
+    clientId?: string;
+  },
+): Promise<
+  | 'changed'
+  | 'unchanged'
+  | 'not-found'
+  | 'wishlist'
+  | 'gone'
+  | 'client-id-taken'
+> {
+  // The conflict target is the day's single wear alone: a client id taken
+  // by another wear is a unique violation, never a silent no-op.
   const write = input.worn
-    ? sql`insert into ${garmentWear} (garment_id, owner_id, day)
-        select id, owner_id, ${input.day}::date from owned where not wishlist
-        on conflict do nothing
+    ? sql`insert into ${garmentWear} (garment_id, owner_id, day, client_id)
+        select id, owner_id, ${input.day}::date, ${input.clientId ?? null}::uuid
+        from owned where not wishlist
+        on conflict (garment_id, day) where outfit_calendar_id is null do nothing
         returning 1`
     : sql`delete from ${garmentWear}
         where ${and(
@@ -511,10 +536,9 @@ export async function setWoreToday(
         )}
         and exists (select 1 from owned where not wishlist)
         returning 1`;
-  const { rows } = await db.execute<{
-    wishlist: boolean;
-    changed: boolean;
-  }>(sql`
+  let written;
+  try {
+    written = await db.execute<{ wishlist: boolean; changed: boolean }>(sql`
     with ${ownerLockSql(db, input.ownerId)},
     owned as (
       select ${garment.id} as id, ${garment.ownerId} as owner_id,
@@ -525,7 +549,14 @@ export async function setWoreToday(
     ),
     written as (${write})
     select wishlist, exists (select 1 from written) as changed from owned`);
-  const [owned] = rows;
+  } catch (error) {
+    if (isDeletedClientId(error)) return 'gone';
+    if (isUniqueViolation(error, GARMENT_WEAR_CLIENT_ID_UNIQUE)) {
+      return 'client-id-taken';
+    }
+    throw error;
+  }
+  const [owned] = written.rows;
   if (!owned) return 'not-found';
   if (owned.wishlist) return 'wishlist';
   return owned.changed ? 'changed' : 'unchanged';

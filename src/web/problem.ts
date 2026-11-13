@@ -21,6 +21,7 @@ export const ERROR_CODES = [
   'forbidden',
   'not_found',
   'conflict',
+  'gone',
   'stale',
   'rate_limited',
   'busy',
