@@ -44,14 +44,14 @@
 # a fallback to another devkit.
 #
 # Make, at the top of every pinned Makefile (GNU make remakes an included file, then restarts;
-# SHELL is /bin/sh here because the repo's SHELL lives under devkit/bin). The stamp and devkit/bin
-# are prerequisites with empty rules, so a deleted stamp or a removed devkit/bin remakes the include
-# and re-runs the bootstrap (silent when current; a missing bin drops the stamp first, since its
-# fast path reads only the stamp). A half-filled devkit/ heals on the next make:
+# SHELL is /bin/sh here because the repo's SHELL lives under devkit/bin). The stamp file is a
+# prerequisite with an empty rule, so a deleted stamp remakes the include and re-runs the bootstrap
+# (silent when current). A tree damaged by hand with the stamp left in place is not detected:
+# `rm -rf devkit` heals it. devkit-check requires these lines exactly:
 #   include devkit/.devkit-materialized.mk
 #   devkit/.devkit-materialized.mk: SHELL := /bin/sh
-#   devkit/.devkit-materialized.mk: .devkit-rev .devkit-bootstrap.sh devkit/.devkit-materialized devkit/bin ; @[ -d devkit/bin ] || rm -f devkit/.devkit-materialized; ./.devkit-bootstrap.sh && touch $@
-#   devkit/.devkit-materialized devkit/bin: ;
+#   devkit/.devkit-materialized.mk: .devkit-rev .devkit-bootstrap.sh devkit/.devkit-materialized ; @./.devkit-bootstrap.sh && touch $@
+#   devkit/.devkit-materialized: ;
 # macOS's make 3.81 says `devkit/.devkit-materialized.mk: No such file or directory` once in a
 # fresh worktree before remaking it; harmless. Not `-include`: that would hide a failed bootstrap.
 set -uo pipefail
