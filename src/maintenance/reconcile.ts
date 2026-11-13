@@ -502,7 +502,7 @@ export function guardRefusal({
   return undefined;
 }
 
-// One listing serves every finding; files that are not photos (app.log) are
+// One listing serves every finding; files that are not photos are
 // counted and otherwise ignored.
 async function scanStorage(photos: Photos): Promise<{
   photoSets: Map<string, StoredPhotoSet>;

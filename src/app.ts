@@ -228,8 +228,8 @@ export async function createApp(
     fetcher,
     options.orderMail,
   );
-  // loadConfig requires both keys when PWA_ENABLED; the sender checks them
-  // (and SITE_URL as the https subject) here, so a bad pair fails the boot.
+  // loadConfig requires both keys and an https SITE_URL when PWA_ENABLED; the
+  // sender checks the pair's shape here, so a malformed one fails the boot.
   const vapid = config.PWA_ENABLED
     ? {
         subject: config.SITE_URL,

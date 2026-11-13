@@ -22,19 +22,19 @@ import {
 } from './harness';
 
 /**
- * /file/** serves photos from DATA_PATH without a session, and DATA_PATH also
- * holds app.log. Until 2026-09-25 the route accepted any "safe-looking" name,
- * so /file/app.log served the request log, session cookies included, to
- * anyone on the public hostname. Two independent guards now: the route takes
- * only photo base names, and the logger never writes a credential.
+ * /file/** serves photos from DATA_PATH without a session. Until 2026-09-25
+ * the route accepted any "safe-looking" name, and DATA_PATH held app.log, so
+ * /file/app.log served the request log, session cookies included, to anyone
+ * on the public hostname. The log no longer lives there, but two independent
+ * guards stay: the route takes only photo base names, and the logger never
+ * writes a credential.
  */
 describe('/file route and request logging', () => {
   let t: TestApp;
   let photoName: string;
 
   beforeAll(async () => {
-    // The real outputs: the assertions below read app.log.
-    t = await createTestApp({ LOG_LEVEL: 'info' }, { appLog: true });
+    t = await createTestApp({ LOG_LEVEL: 'info' });
     const garmentId = await createGarment(t, { name: 'Wool coat' });
     await uploadPhoto(t, garmentId, await jpegPhoto());
     photoName = await photoFileName(t, garmentId);
@@ -122,18 +122,6 @@ describe('/file route and request logging', () => {
     );
   });
 
-  /** Polls app.log (pino writes through a worker thread) for `marker`. */
-  const logContaining = async (marker: string): Promise<string> => {
-    for (let attempt = 0; attempt < 50; attempt++) {
-      const log = await readFile(join(t.dataPath, 'app.log'), 'utf8').catch(
-        () => '',
-      );
-      if (log.includes(marker)) return log;
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    throw new Error(`app.log never logged ${marker}`);
-  };
-
   it('never writes a cookie or authorization header, and skips static paths', async () => {
     await t.inject({
       method: 'GET',
@@ -161,9 +149,11 @@ describe('/file route and request logging', () => {
       headers: credentials,
     });
 
-    // One transport, in order: once the page is logged, the earlier static
-    // requests would be too if they were logged at all.
-    const log = await logContaining('page-marker');
+    // In order: once the page is logged, the earlier static requests would
+    // be too if they were logged at all.
+    // Whole records, not messages: a credential in any field counts.
+    const log = JSON.stringify(t.logs.records);
+    expect(log).toContain('page-marker');
     expect(log).toContain('web-marker');
     expect(log).not.toContain('cookie-secret-sentinel');
     expect(log).not.toContain('auth-secret-sentinel');

@@ -334,14 +334,12 @@ function IdeaCard(props: {
               <input type="hidden" name="garmentId" value={String(g.id)} />
             ))}
             <StateFields state={model.state} />
-            <button type="submit" class="btn btn-primary btn-sm w-full">
+            <button type="submit" class="btn btn-primary w-full">
               {pickLabel(destination)}
             </button>
           </PostForm>
           <details class="dropdown dropdown-top dropdown-end">
-            <summary class="btn btn-ghost btn-sm">
-              {t('gallery.NOT_THIS')}
-            </summary>
+            <summary class="btn btn-ghost">{t('gallery.NOT_THIS')}</summary>
             <div class="dropdown-content bg-base-100 rounded-box shadow-md z-20 w-72 p-3 mb-1 flex flex-col gap-2">
               <div class="flex flex-wrap gap-2">
                 {model.weather && (

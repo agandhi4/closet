@@ -62,7 +62,7 @@ export function variantFileName(
 }
 
 // Stored names are `<uuid>.webp` plus the two derived suffixes, each with an
-// optional variant key (see above). Anything else under DATA_PATH (app.log)
+// optional variant key (see above). Anything else under DATA_PATH
 // is not a photo: the /file routes never serve it and reconciliation never
 // touches it.
 const STORED_NAME =

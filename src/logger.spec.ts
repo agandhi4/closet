@@ -2,9 +2,10 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import pino from 'pino';
 import { describe, expect, it } from 'vitest';
 import { LogCapture } from '../test/support/log-capture';
-import { createLogger, createLoggerTo } from './logger';
+import { createLogger, createLoggerTo, PRETTY } from './logger';
 
 describe('createLoggerTo', () => {
   it('never writes a credential header, whoever logs a request', () => {
@@ -141,43 +142,114 @@ describe('the line shape', () => {
 });
 
 describe('createLogger', () => {
-  // app.log is written by a worker thread: wait for the line to land.
-  async function appLogOf(format: 'json' | 'text'): Promise<string> {
-    const dataPath = await mkdtemp(join(tmpdir(), 'closet-logger-'));
-    try {
-      const logger = createLogger({
-        LOG_LEVEL: 'info',
-        LOG_FORMAT: format,
-        DATA_PATH: dataPath,
-        APP_VERSION: 'abc1234',
-      });
-      logger.child({ logger: 'Spec' }).info('format check');
-      for (let waited = 0; waited < 5000; waited += 50) {
-        const text = await readFile(join(dataPath, 'app.log'), 'utf8').catch(
-          () => '',
-        );
-        if (text.includes('format check')) return text;
-        await sleep(50);
-      }
-      throw new Error(`app.log never got the ${format} line`);
-    } finally {
-      await rm(dataPath, { recursive: true, force: true });
+  const base = {
+    LOG_LEVEL: 'info',
+    LOG_FORMAT: 'json',
+    APP_VERSION: 'abc1234',
+  } as const;
+
+  // Async destinations land their lines later: wait for them.
+  async function until(done: () => boolean | Promise<boolean>): Promise<void> {
+    for (let waited = 0; waited < 5000; waited += 20) {
+      if (await done()) return;
+      await sleep(20);
     }
+    throw new Error('the log never got there');
   }
 
-  it('writes one JSON object per line with LOG_FORMAT=json (production)', async () => {
-    const [line] = (await appLogOf('json')).trim().split('\n');
-    expect(JSON.parse(line)).toMatchObject({
-      level: 'info',
-      version: 'abc1234',
-      logger: 'Spec',
-      msg: 'format check',
-    });
+  it('writes to stdout alone by default: one line per entry, no file to open', () => {
+    const stdout = new LogCapture();
+    createLogger({ ...base }, stdout)
+      .child({ logger: 'Spec' })
+      .info('console only');
+    expect(stdout.records).toMatchObject([
+      { level: 'info', logger: 'Spec', msg: 'console only' },
+    ]);
   });
 
-  it('writes pretty lines with LOG_FORMAT=text (a terminal)', async () => {
-    const text = await appLogOf('text');
-    expect(text).toMatch(/INFO.*format check/);
-    expect(() => JSON.parse(text.trim())).toThrow();
+  it('adds JSON lines to LOG_FILE when it is set, beside stdout', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'closet-logger-'));
+    try {
+      const file = join(dir, 'debug.log');
+      const stdout = new LogCapture();
+      createLogger({ ...base, LOG_FILE: file }, stdout)
+        .child({ logger: 'Spec' })
+        .info('both sinks');
+      await until(async () =>
+        (await readFile(file, 'utf8').catch(() => '')).includes('both sinks'),
+      );
+      expect(JSON.parse((await readFile(file, 'utf8')).trim())).toMatchObject({
+        level: 'info',
+        logger: 'Spec',
+        msg: 'both sinks',
+      });
+      expect(stdout.messages('info', 'Spec')).toEqual(['both sinks']);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  // A write error is an `error` event on the file's stream: with no listener it
+  // would end the process. The file here is a directory, which fails to open.
+  it('reports an unwritable LOG_FILE to stdout once, keeps logging, and never throws', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'closet-logger-'));
+    try {
+      const stdout = new LogCapture();
+      const logger = createLogger({ ...base, LOG_FILE: dir }, stdout).child({
+        logger: 'Spec',
+      });
+      logger.info('first');
+      await until(() => stdout.messages('error', 'Logger').length > 0);
+      for (let i = 0; i < 20; i++) logger.info(`later ${i}`);
+      await sleep(100);
+      expect(stdout.messages('error', 'Logger')).toEqual([
+        'LOG_FILE is not writable; its lines are dropped',
+      ]);
+      expect(stdout.messages('info', 'Spec')).toHaveLength(21);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('caps the LOG_FILE buffer and reports the drops once per stall', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'closet-logger-'));
+    try {
+      const stdout = new LogCapture();
+      // A cap below one line: nothing is ever buffered, so nothing drains.
+      const logger = createLogger(
+        { ...base, LOG_FILE: join(dir, 'debug.log') },
+        stdout,
+        1,
+      ).child({ logger: 'Spec' });
+      for (let i = 0; i < 5; i++) logger.info(`line ${i}`);
+      expect(stdout.messages('warn', 'Logger')).toEqual([
+        'LOG_FILE is not keeping up; lines are dropped',
+      ]);
+      expect(stdout.messages('info', 'Spec')).toHaveLength(5);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('prints a readable line with LOG_FORMAT=text: level name and message together', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'closet-logger-'));
+    try {
+      const out = join(dir, 'pretty.txt');
+      // The console destination, pointed at a file so the spec can read it.
+      const logger = createLogger(
+        { ...base, LOG_FORMAT: 'text' },
+        pino.transport({
+          target: 'pino-pretty',
+          options: { ...PRETTY, colorize: false, destination: out },
+        }),
+      );
+      logger.info('format check');
+      await until(async () =>
+        (await readFile(out, 'utf8').catch(() => '')).includes('format check'),
+      );
+      expect(await readFile(out, 'utf8')).toMatch(/INFO.*format check/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

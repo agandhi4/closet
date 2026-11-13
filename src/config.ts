@@ -1,7 +1,7 @@
 import { KindGuard, type Static, type TSchema, Type } from '@sinclair/typebox';
 import { Value, ValueErrorType } from '@sinclair/typebox/value';
 import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parseEnv } from 'node:util';
 import { isValidTimeZone } from './calendar-date';
 
@@ -48,13 +48,13 @@ const ConfigSchema = Type.Object({
     [Type.Literal('production'), Type.Literal('dev'), Type.Literal('gate')],
     { default: 'production' },
   ),
-  // The shape of the console's and app.log's lines (src/logger.ts): `json`, one object per
+  // The shape of the console's lines (src/logger.ts): `json`, one object per
   // line (production: Docker hands each to Loki whole), or `text`, pino-pretty for a terminal
   // (`npm run start:dev` sets it).
   LOG_FORMAT: Type.Union([Type.Literal('json'), Type.Literal('text')], {
     default: 'json',
   }),
-  // pino level for both the console and app.log.
+  // pino level for the console and LOG_FILE.
   LOG_LEVEL: Type.Union(
     [
       Type.Literal('trace'),
@@ -67,6 +67,10 @@ const ConfigSchema = Type.Object({
     ],
     { default: 'info' },
   ),
+  // Opt-in JSON lines for hand debugging, beside the console (unset: stdout only, which
+  // production's Loki reads). Never under DATA_PATH: /file serves it and backups carry it
+  // (crossFieldProblems).
+  LOG_FILE: Type.Optional(NonEmpty()),
   // Comma-separated IPs/CIDRs whose X-Forwarded-* headers are trusted
   // (Fastify trustProxy): the client IP the rate limits count and the origin
   // the same-origin check compares. Behind a reverse proxy it must include
@@ -97,8 +101,9 @@ const ConfigSchema = Type.Object({
   // Required when PWA_ENABLED (checked below).
   PUBLIC_VAPID_KEY: Type.Optional(NonEmpty()),
   PRIVATE_VAPID_KEY: Type.Optional(NonEmpty()),
-  // Also the VAPID subject of Web Push (src/web/push/sender.ts), which
-  // web-push requires to be https: when PWA_ENABLED is true.
+  // Also the VAPID subject of Web Push (src/web/push/sender.ts): web-push
+  // refuses anything but https: or mailto:, and a site address is not a mailto:, so
+  // PWA_ENABLED requires an https SITE_URL (checked below).
   SITE_URL: NonEmpty({ default: 'http://localhost:3000' }),
   // Full-size PNG under public/assets/ for Open Graph previews and the
   // share-link watermark. The manifest and apple-touch-icon use its
@@ -306,15 +311,33 @@ function crossFieldProblems(config: Config): string[] {
       `PASSWORD_HASH_ROUNDS: at least ${PASSWORD_HASH_ROUNDS_PRODUCTION} when APP_ENV is production`,
     );
   }
+  if (config.LOG_FILE && isInside(config.DATA_PATH, config.LOG_FILE)) {
+    problems.push('LOG_FILE: must not be under DATA_PATH');
+  }
   if (config.PWA_ENABLED) {
     for (const key of ['PUBLIC_VAPID_KEY', 'PRIVATE_VAPID_KEY'] as const) {
       if (!config[key]) {
         problems.push(`${key}: is required when PWA_ENABLED is true`);
       }
     }
+    // The value stays out of the message (it can carry credentials in a URL).
+    if (
+      !URL.canParse(config.SITE_URL) ||
+      new URL(config.SITE_URL).protocol !== 'https:'
+    ) {
+      problems.push(
+        'SITE_URL: must be an https: URL when PWA_ENABLED is true (it is the Web Push VAPID subject)',
+      );
+    }
   }
   problems.push(...orderMailProblems(config));
   return problems;
+}
+
+// Both resolved, so `data/../data/x` and a trailing slash cannot slip past.
+function isInside(directory: string, path: string): boolean {
+  const from = relative(resolve(directory), resolve(path));
+  return from !== '..' && !from.startsWith(`..${sep}`) && !isAbsolute(from);
 }
 
 // Order mail is optional: its token switches it on, and then needs who may send and who owns.

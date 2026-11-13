@@ -64,7 +64,7 @@ COPY .env .
 #
 # The process runs as `node` (uid/gid 1000, shipped by node:22-slim), never
 # root. What it writes at runtime is exactly these two directories: DATA_PATH
-# (/app/data: photos, .incoming/, app.log) and MODELS_PATH (/app/models: the
+# (/app/data: photos, .incoming/) and MODELS_PATH (/app/models: the
 # model's download), so only they are its own; the code and node_modules stay
 # root-owned and read-only to it. Production mounts host directories over
 # both, and a mount keeps the HOST's ownership: chown them to 1000:1000 there

@@ -2,7 +2,7 @@ import { SESSION_COOKIE, TOKEN_PREFIX } from './credential-names';
 
 // Credential shapes inside free text. Used by src/metrics/error-tracker.ts (every string of an
 // event) and src/logger.ts (errorFields' message and stack): one list, so a shape added here
-// leaves neither Bugsink nor app.log/Loki. Closet leaked session JWTs to Loki once
+// leaves neither Bugsink nor Loki. Closet leaked session JWTs to Loki once
 // (docs/audits/2026-09-25-closet-stack-and-backups.md): the session token is a JWT, so every
 // JWT goes, whatever carried it.
 

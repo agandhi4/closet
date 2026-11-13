@@ -3,17 +3,25 @@ import { addDays } from '../src/calendar-date';
 import { createGarment } from './support/e2e-data';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { householdToday } from './support/household-today';
+import {
+  expectNoZoomingFields,
+  expectTouchTargets,
+} from './support/touch-targets';
 
 /**
  * Trips (#10) at phone width, what only a browser shows: the trip form, the
  * destination found through the weather's search and its forecast loaded
  * into the page, an outfit added for a day, the packing list's and the
  * extras' checkboxes saved on change (htmx, the summary swapped out of
- * band), "Wore it" and its Undo, nothing wider than the phone.
+ * band), "Wore it" and its Undo, nothing wider than the phone. With a
+ * touch screen, the phone's sizing (#636) on the pages it passes: no field
+ * under 16 px (login, the trip and garment forms, Profile) and no control
+ * under 44 px (Today, the week, the trip, Profile). In the Safari projects
+ * (nightly) the field check is WebKit's.
  * test/integration/trips.spec.ts has the behavior.
  */
 
-test.use({ viewport: { width: 390, height: 844 } });
+test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
 /** A tee (×3), jeans and sneakers, and an outfit of the three. */
 async function closet(page: Page): Promise<{ outfit: number }> {
@@ -57,6 +65,8 @@ async function expectPhoneWidth(page: Page): Promise<void> {
 
 test.describe('Trips', () => {
   test('a trip from the form to a packed bag', async ({ page }) => {
+    await page.goto('/auth/login');
+    await expectNoZoomingFields(page);
     await signIn(page, 'trips');
     const { outfit } = await closet(page);
     const today = householdToday();
@@ -66,6 +76,7 @@ test.describe('Trips', () => {
     await page.getByRole('tab', { name: 'Trips' }).click();
     await expect(page).toHaveURL(/\/trips$/);
     await page.getByRole('link', { name: 'New trip' }).first().click();
+    await expectNoZoomingFields(page);
     await page.getByLabel('Name').fill('Austin conference');
     await page.getByLabel('Destination').fill('Austin');
     await page.getByLabel('First day').fill(today);
@@ -98,6 +109,7 @@ test.describe('Trips', () => {
       page.locator(`[data-trip-day="${today}"] [data-trip-outfit]`),
     ).toHaveCount(1);
     await expectPhoneWidth(page);
+    await expectTouchTargets(page);
 
     // The packing list: a checkbox saved on change, the summary out of band.
     await expect(page.locator('#trip-packed-summary')).toContainText(
@@ -140,5 +152,16 @@ test.describe('Trips', () => {
     await expect(
       page.locator(`a[href^="/styling?outfit=${outfit}&"]`),
     ).toHaveCount(1);
+    await expectTouchTargets(page);
+
+    // The rest of the phone's sizing: Today (the trip's outfit on it), the
+    // garment form, Profile.
+    await page.goto('/');
+    await expectTouchTargets(page);
+    await page.goto('/wardrobe/new');
+    await expectNoZoomingFields(page);
+    await page.goto('/auth/profile');
+    await expectNoZoomingFields(page);
+    await expectTouchTargets(page);
   });
 });
