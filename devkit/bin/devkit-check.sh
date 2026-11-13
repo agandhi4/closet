@@ -32,9 +32,8 @@
 # no scorecard.json, 2026-10-23), each named with the one command that creates it
 # (baseline_file): docs/metrics/scorecard.json, the WIRED ratchet's record, which ci-metrics
 # skips when absent, and docs/metrics/ratchet.json where scripts/ci/metrics.conf declares
-# collectors. A warning before BASELINE_FAILS_FROM, a failure from it (docs_check's scheme), so
-# the sync that brings the rule breaks no consumer's ci-quick. DEVKIT_CHECK_TODAY overrides
-# today (tests). The docs set, hooks, Renovate and the gate plan have their own checks.
+# collectors. A warning only (owner 2026-11-13; metrics are report-only). DEVKIT_CHECK_TODAY
+# overrides today (tests, the retired-owner date). The docs set, hooks, Renovate and the gate plan have their own checks.
 #
 # Also: no tracked file outside devkit/, docs/decisions.md, docs/reports/ and docs/audits/ names
 # a retired GitHub owner (DEVKIT_RETIRED_OWNERS; agandhi4 became kashhq on 2026-11-12). A slug,
@@ -350,27 +349,20 @@ check_clone_config() {
   echo "devkit-check: scripts/ci/gate_plan.sh: GATE_SLUG=$plan_slug is not origin's repo ($origin); the gate and make merge act on GATE_SLUG, so set it to origin's" >&2
   exit 1
 }
-# baseline_file <path> <the command that creates it> <why>: the header's warn-then-fail rule. The
-# index under --staged, else the working tree, as the plan is read.
-readonly BASELINE_FAILS_FROM=2026-11-01
-baseline_missing=0
+# baseline_file <path> <the command that creates it> <why>: a warning, never a failure (owner
+# 2026-11-13: the ratchet is a cleanup-round report, so a missing record blocks no PR). The index
+# under --staged, else the working tree, as the plan is read.
 baseline_file() {
   tracked_exists "$1" && return 0
-  if [[ "${DEVKIT_CHECK_TODAY:-$(date +%F)}" < "$BASELINE_FAILS_FROM" ]]; then
-    warn "no $1 ($3); create it with \`$2\` and commit it (fails from $BASELINE_FAILS_FROM)"
-  else
-    echo "devkit-check: no $1 ($3); create it with \`$2\` and commit it" >&2
-    baseline_missing=1
-  fi
+  warn "no $1 ($3); create it with \`$2\` and commit it to run a cleanup round"
 }
 check_baselines() {
   baseline_file docs/metrics/scorecard.json 'devkit/bin/python.sh -I devkit/bin/scorecard.py . --mode rebaseline' \
-    "the WIRED ratchet's record, which devkit new writes; ci-metrics holds no check without it"
+    "the WIRED ratchet's record, which devkit new writes; make ci-metrics reports nothing without it"
   if tracked_exists scripts/ci/metrics.conf; then
     baseline_file docs/metrics/ratchet.json 'make metrics-rebaseline' \
-      "the bounds scripts/ci/metrics.conf's collectors are held to; ci-metrics cannot run without it"
+      "the bounds scripts/ci/metrics.conf's collectors are reported against"
   fi
-  [ "$baseline_missing" = 0 ] || exit 1
 }
 check_tsbuildinfo() {
   git ls-files --error-unmatch .dockerignore >/dev/null 2>&1 || return 0

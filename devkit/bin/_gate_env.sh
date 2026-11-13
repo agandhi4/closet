@@ -31,6 +31,8 @@
 # gate.env stays valid for tier_guard.sh.
 # shellcheck disable=SC2034  # read by tier_guard.sh, which sources this file
 GATE_REMOTE_KEYS='GATE_REMOTE|GATE_REMOTE_HOST|GATE_REMOTE_ROOT|GATE_REMOTE_SSH_OPTS'
+# GATE_BUDGET_ENFORCE is retired (budgets only report): accepted and ignored so a machine's gate.env
+# that still sets it keeps loading.
 # Gotcha: an older vendored copy exits 2 on a key it does not know, so never drop a key from
 # these lists while a repo may still vendor a copy that reads gate.env.
 # shellcheck disable=SC2034  # same

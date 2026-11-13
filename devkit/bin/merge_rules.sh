@@ -63,9 +63,6 @@
 # above still holds. Why (owner, 2026-11-02): an escape hatch only a person can open.
 # CODEX_FALLBACK=1 is gone (exit 2): `make review PR=<n>` is the round Codex could not give.
 # A draft that passes is marked ready (`gh pr ready`), then merged: GitHub refuses a draft.
-# A PR labelled metrics-rebaseline gets one `Metrics-Rebaseline: <key>=<old>→<new>` trailer per
-# bound its head loosens in docs/metrics/ratchet.json against main (metrics_ratchet.py loosened)
-# in the squash body: the label is not in git, the trailer is (instalite 2026-10-19).
 # Every squash body carries one `Kind: product|tooling` trailer, the scorecard's OUTPUT readout
 # (owner 2026-11-04: the share of the fleet's work that is product), and `Kind-By: <rule>`, the
 # rule that decided it: `kit` (tooling) when the plan has the literal `GATE_KIT=1` (devkit,
@@ -470,26 +467,8 @@ resolve_conflict() {
 settle_mergeable
 [ "$mergeable" != CONFLICTING ] || resolve_conflict
 
-readonly BOUNDS=docs/metrics/ratchet.json
-trailers=""
-case ",$labels," in
-  *,metrics-rebaseline,*)
-    fetch_main "$ROOT" "pull/$PR/head" \
-      || { echo "merge: cannot fetch PR #$PR's head and main to read its loosened bounds (git above)" >&2; exit 2; }
-    loosened=$("$DEVKIT_PYTHON" -I "$HERE/metrics_ratchet.py" loosened --repo "$ROOT" --bounds "$BOUNDS" \
-      --base-ref "$main_now" --head-ref "$head") \
-      || { echo "merge: cannot compare $BOUNDS at ${head:0:12} with main (python above)" >&2; exit 2; }
-    if [ -n "$loosened" ]; then
-      trailers=$(awk '{ print "Metrics-Rebaseline: " $0 }' <<<"$loosened")
-      echo "merge: PR #$PR carries metrics-rebaseline; the squash body names what it loosens: $(paste -sd ' ' - <<<"$loosened")"
-    else
-      echo "merge: PR #$PR carries metrics-rebaseline but loosens no bound in $BOUNDS; no trailer"
-    fi
-    ;;
-esac
-
 nl=$'\n'
-trailers="${trailers:+$trailers$nl}Kind: $kind${nl}Kind-By: $kind_by"
+trailers="Kind: $kind${nl}Kind-By: $kind_by"
 # The commits' subjects (the body of a PR with none) and co-authors (header), in one read.
 # shellcheck disable=SC2016  # jq's $a and \(…), not the shell's
 commit_lines=$(gh pr view "$PR" --repo "$SLUG" --json author,commits --jq '.author.login as $a | .commits[]

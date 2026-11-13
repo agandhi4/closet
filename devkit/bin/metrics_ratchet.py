@@ -1,97 +1,45 @@
 #!/usr/bin/env python3
-"""Metrics ratchet: a committed bound per metric that can only move in the good direction.
+"""Metrics report: a committed bound per metric, and how far the tree is from each.
 
-Why a ratchet, not a threshold (settled): an absolute threshold is either already met (and
-then guards nothing) or already broken (and then blocks every PR). Comparing against the
-bounds committed on main asks the only question a PR can answer: "did this change make the
-codebase worse than main?" Comparing against a committed file rather than re-measuring main
-keeps the gate deterministic and pays for one snapshot, not two.
+REPORT ONLY (owner, 2026-11-13; devkit docs/decisions.md): nothing here gates a PR, a deploy or
+a push. The numbers are for cleanup rounds: run `make ci-metrics` and read what moved against the
+bounds, then `tighten` the gains you want to keep. Why it was a gate before, and why it is not:
+a per-PR ratchet cost every PR a tighten commit, a label for a tool-driven loosening and a red
+main for noise, to guard numbers that a periodic round can read just as well.
 
-Who tightens (owner decision A, 2026-10-13): the PR that improves a number. The author runs
-`tighten` (`make metrics-tighten`) and commits the bounds in the same PR; nothing writes to main
-after a merge. Gains lock in (2026-10-18): `check` FAILS on a BETTER key, printing `ratchet <key>
-<value> vs <bound> BETTER — run make metrics-tighten and commit <bounds>`, because a hint was
-ignored: a gain left unlocked is headroom the next PR spends unseen. Integer keys get no
-tolerance; a float key (coverage, bundle KiB) better by at most LOCK_IN_TOLERANCE is printed
-`BETTER (within tolerance ...)` and passes, so run-to-run noise never costs a commit, and
-`tighten` leaves that bound where it is: both read gain_to_lock_in, so a noise gain is never
-committed and then read WORSE by the next run (closet coverage 92.47 -> 92.48 -> 92.47). The
-`metrics-rebaseline` label does not exempt it. `tighten` also prints every WORSE and MISSING
-key with check's line and exits 1 after writing the BETTER bounds: it is the command an author
-runs before the gate, so it must show what the gate will refuse (finplat #660 learned of a
-regression only from a gate run).
+`check` prints one line per tracked metric and exits 0 whatever it finds. `tighten` and
+`rebaseline` stay as the tools that write bounds; nothing requires running them.
 
-Report-only keys (`vuln.*`, `meta.*`, `coupling.<scope>.fan_in_max`, `duplication.<scope>.jscpd_percent`,
+Report-only keys (`vuln.*`, `meta.*`, `coupling.<scope>.fan_in_max`,
+`duplication.<scope>.jscpd_percent`,
 `size.<scope>.max_lines`, `size.<scope>.over_600`, `images.<scope>.refs` and
 `images.<scope>.unpinned`; is_report_only), plus any key its collector
 declares report-only (a top-level `"report_only": [<its keys>]` list in its output, carried into
 the snapshot by `merge`: ts.mjs declares a Next build's `bundle.<scope>.kb_total`, while a vite
-build's stays gated; Snapshot.is_report_only): collected and printed, never gated, even when a
-bounds file still holds one.
-`check` prints such a bound as REPORT-ONLY with a note to drop it and ignores it in the
-comparison with main (dropping one needs no label); `tighten` and `rebaseline` drop it and seed
-none. With `--report-only FILE`,
-`tighten` and `rebaseline` also write the snapshot's report-only keys to FILE, a schema 2
-snapshot (metrics_collect.sh passes docs/metrics/report-only.json): the bounds never hold them
-and build/metrics.json is untracked, so this committed copy is what a fresh clone's scorecard
-reads (devkit #76). `check` never writes it and never reads it. Why fan-in (lead decision
-2026-10-17): a models or core hub has many importers by design, so its count is architecture,
-not drift; finplat #659 failed its gate because a new module imported the models hub. Fan-out
-(a god module) stays gated. Why jscpd_percent (2026-10-17): it is duplicated over scanned
-lines, so deleting code with the clone count unchanged raises it (orbit #86, #88 had to label
-deletions); `duplication.<scope>.clones` is the ratcheted duplication key. Why size (owner
-2026-10-18): every key is a signal judged before acting, and size alone never justifies a split
-(the 2026-10-17 T2 decision), so a long file is printed for a reader, never a gate failure.
+build's is a plain key; Snapshot.is_report_only): collected and printed as REPORT-ONLY, never
+compared, even when a bounds file still holds one. `tighten` and `rebaseline` drop such a bound
+and seed none. With `--report-only FILE`, `tighten` and `rebaseline` also write the snapshot's
+report-only keys to FILE, a schema 2 snapshot (metrics_collect.sh passes
+docs/metrics/report-only.json): build/metrics.json is untracked, so this committed copy is what a
+fresh clone's scorecard reads. `check` never writes it and never reads it. Why fan-in
+(2026-10-17): a models or core hub has many importers by design, so its count is architecture, not
+drift. Why jscpd_percent (2026-10-17): it rises when unduplicated lines are deleted;
+`duplication.<scope>.clones` is the duplication key. Why size (owner 2026-10-18): a long file is
+printed for a reader, and size alone never justifies a split.
 
-Why `check` reads MAIN's bounds too: the gate checks the merged tree, so the bounds file it
-sees is the PR's own copy. Without a second reference a PR could loosen a bound by editing it.
-`check` therefore loads the base bounds (`git show <base-ref>:<path>`, default origin/main)
-and fails when the PR's file is looser than main's: a bound moved the bad way, a direction
-flipped, or a tracked metric removed. A base ref without the file is first adoption (no
-guard). A base ref that does not resolve is an error, never "no guard".
-
-Why a fail-closed label for loosening: tool knobs (jscpd min-tokens, a vulture whitelist)
-move numbers without code moving, so a legitimate reset must exist. It is granted only when
-the gate plan reads the `metrics-rebaseline` PR label and passes `--rebaseline-ok`; an
-unreadable label means no flag, so the ratchet holds. The author produces the looser file with
-`rebaseline` (`make metrics-rebaseline`) and commits it.
-
-Why `rebaseline --keys` (2026-10-17): the whole-file rebaseline also moves every other bound
-to today's value (a skipped collector's keys aside) and seeds and drops keys, so a PR that
-meant to loosen one bundle bound loosened unrelated ones; five lanes (finplat #663 #665 #669,
-Orbit #84, locus #127) hand-edited ratchet.json instead. With `--keys K1,K2` only the named
-bounds move, each only when the snapshot is WORSE than it (loosened to the value); a named key
-that is SAME or BETTER is left and reported (`tighten` locks in a better one). A named key with
-no bound yet is seeded at its value (`ratchet <key> SEEDED <value>`), as `tighten --seed` would.
-A report-only or never-seeded key, or one the snapshot did not measure, is exit 2. Nothing else
-is seeded or dropped. Without `--keys` the whole file is rewritten as before, ending with a
-WARNING that names every bound it loosened: that path is for a label-approved loosening only
-(a tool change that moves everything), never to add a bound.
-
-Why `tighten --seed` (2026-10-18): adding a bound for a key the collectors started emitting is
-a tightening (`check` reads it as ADDED, no label), yet the only command that wrote one was the
-whole-file rebaseline, which also loosens; rollcall #74 rebaselined every bound to add two
-bundle keys. With `--seed` (`make metrics-tighten SEED=1`), every snapshot key without a bound
-is added at its value with its domain's direction (seed_bounds, the rule rebaseline seeds by),
-printing `ratchet <key> SEEDED <value>`. Without it, tighten counts the seedable keys and names
-the flag; `check` still reports them as untracked and passes, and its MISSING failure names the
-flag, since a renamed key is a MISSING old name plus an untracked new one. First adoption from
-`{}` or the starter's nulls is `tighten --seed` too.
-
-What the label permits (Orbit #78/#79): COMMITTING bounds looser than main's, nothing else.
-Every measured value is still held to the PR's own bounds file in both modes, so a key the PR
-did not loosen cannot regress under the label. Before this, the label passed every WORSE key:
-#78 loosened two size bounds and merged with an unrelated coverage drop, and main then failed
-its own bounds on the next PR. The gate verifies the committed file; it never trusts the label
-for a number the file does not admit.
+`tighten` moves each bound the snapshot beats to its value; a float key better by at most
+LOCK_IN_TOLERANCE, or a floor by at most FLOOR_SLACK, stays (gain_to_lock_in), so noise is never
+committed. `rebaseline --keys K1,K2` loosens only the named bounds, each only when the snapshot
+is WORSE (a named key with no bound is seeded); without `--keys` the whole file is rewritten and
+a WARNING names every bound it loosened. `tighten --seed` adds a bound at today's value for every
+snapshot key without one, with its domain's direction (seed_bounds); first adoption from `{}` is
+`tighten --seed` too.
 
 Usage:
-  metrics_ratchet.py check --snapshot S --bounds B [--base-ref REF | --base-bounds F]
-                           [--rebaseline-ok] [--show-untracked]
+  metrics_ratchet.py check --snapshot S --bounds B [--show-untracked]
   metrics_ratchet.py tighten --snapshot S --bounds B [--report-only F] [--seed]
   metrics_ratchet.py rebaseline --snapshot S --bounds B [--report-only F] [--keys K1,K2]
   metrics_ratchet.py merge --out OUT [--skipped NAME]... [--] [INPUT.json...]
-  metrics_ratchet.py loosened --base-ref REF --head-ref REF [--repo DIR] [--bounds REL]
   metrics_ratchet.py tightens --base-bounds F --head-bounds F
   metrics_ratchet.py floors --bounds B [--tier T]
 
@@ -108,63 +56,42 @@ collector that did not run from a metric that vanished:
   {"schema_version": 2, "metrics": {<flat>}, "sources": {"<key>": "<collector>"},
    "skipped": ["<collector>", ...][, "report_only": ["<key>", ...]]}
 `report_only` (absent when empty) is the union of the inputs' declarations; a collector may
-declare only keys it emits.
-`<collector>` is the input file's stem (`build/metrics/python-backend.json` -> `python-backend`;
-the gate's `gate.json` and tier_guard's `tier-unit.json` are sources too). `skipped` is what
-metrics_collect.sh did not run because the PR changed no path in the collector's area. `check`,
-`tighten` and `rebaseline` read schema 2, schema 1 and a flat file alike; only schema 2 carries
-sources and skips, so a schema 1 or flat snapshot gets the old all-MISSING behaviour.
+declare only keys it emits. `<collector>` is the input file's stem
+(`build/metrics/python-backend.json` -> `python-backend`; tier_guard's `tier-unit.json` is a
+source too). `skipped` lists collectors a caller marked as not run (`merge --skipped`). `check`,
+`tighten` and `rebaseline` read schema 2, schema 1 and a flat file alike; only
+schema 2 carries sources and skips, so a schema 1 or flat snapshot gets the all-MISSING reading.
 
 Bounds (`docs/metrics/ratchet.json`): `{"<metric>": {"direction": "lower"|"higher",
-"bound": <number>|null[, "source": "<collector>"]}}`. "lower" fails when value > bound;
-"higher" fails when value < bound. `null` exists only in the starter
-(templates/metrics/ratchet.json): `rebaseline` fills it, `check` refuses it, so a copied
-template never gates on a placeholder such as coverage 0. `rebaseline` also seeds every
-snapshot key the bounds do not track yet (except the `gate` and `tier` domains, never
-seeded, and the report-only keys, which it also drops from the bounds) with the direction
-its domain fixes (DOMAIN_DIRECTIONS, the docs/metrics-keys.md table); a key of an unknown
-domain is an error naming it, so a repo-specific domain is added by hand with its direction.
-`rebaseline` and `tighten` copy `source` from the snapshot into every bound they write; `check` uses it only to recognise a
-skipped collector, and a bound whose `source` alone differs from main's has not moved. An
-empty bounds file `{}` is valid everywhere: a repo whose metrics.conf declares no collector
-yet still runs `check` and passes.
+"bound": <number>|null[, "source": "<collector>"]}}`. "lower" reads WORSE when value > bound;
+"higher" when value < bound. `null` exists only in the starter (templates/metrics/ratchet.json):
+`rebaseline` fills it, `check` refuses it (exit 2: a copied template has no bounds to compare).
+`rebaseline` also seeds every snapshot key the bounds do not track yet (except the `gate` and
+`tier` domains and the report-only keys, which it drops) with the direction its domain fixes
+(DOMAIN_DIRECTIONS, the docs/metrics-keys.md table); a key of an unknown domain is an error
+naming it. `rebaseline` and `tighten` copy `source` from the snapshot into every bound they write;
+`check` uses it only to recognise a skipped collector. An empty bounds file `{}` is valid.
 
-Output: `ratchet base <ref>:<path>|<file>|none (...)`; then one `ratchet-bound <metric> <main>
--> <pr> LOOSENED|REMOVED|DIRECTION|TIGHTENED|ADDED` line per bound that differs from main; then
-one `ratchet <metric> <value> vs <bound> SAME|BETTER|WORSE|MISSING` line per tracked metric, or
-`ratchet <metric> - vs <bound> SKIPPED (collector <name> did not run)` when the bound's source
-is in the snapshot's `skipped`, `ratchet <metric> <value>|- vs <bound> REPORT-ONLY (...)` for a
-report-only bound; `ratchet untracked <n>` (each listed with --show-untracked) and a summary
-line. BETTER fails past the tolerance (above). SKIPPED never fails: a frontend-only PR cannot have changed backend coverage.
-A tracked metric absent for any other reason (no `source`, or its collector ran) is MISSING
-and fails even with --rebaseline-ok: a renamed or removed metric is fixed by editing the
-bounds file (which itself needs the label).
-WORSE fails with or without --rebaseline-ok; the label only accepts LOOSENED, REMOVED and
-DIRECTION bound lines, and under it each WORSE key prints a `metrics-rebaseline: ...` fix line.
+Output: one `ratchet <metric> <value> vs <bound> SAME|BETTER|WORSE|MISSING` line per tracked
+metric, or `ratchet <metric> - vs <bound> SKIPPED (collector <name> did not run)` when the bound's
+source is in the snapshot's `skipped`, `ratchet <metric> <value>|- vs <bound> REPORT-ONLY (...)`
+for a report-only bound, `ratchet <metric> <value> UNSEEDED` for a floor with no bound;
+`ratchet untracked <n>` (each listed with --show-untracked), a summary line and a closing
+`ratchet report only: ...` line. A tracked metric absent for a reason other than a skipped
+collector is MISSING.
 
 Floors (2026-10-26): `tests.<tier>.<runner>`, tier_guard.sh's count of the tests a tier ran, is
-bounded `higher`: the bound IS the tier's floor, and tier_guard.sh reads it less the slack
-(`floors`). Why:
-devkit's UNIT_BATS_FLOOR sat at 638 while 820 ran (#231), so 180 tests could vanish unseen; a
-Makefile floor raised by hand is never raised. Floors now ratchet like code metrics, with three
-differences. A gain locks in only past FLOOR_SLACK of the bound (gain_to_lock_in), so a PR that
-adds a few tests commits nothing, while a suite that grew by more than 5% fails until tightened.
-`tighten` seeds an unbounded floor key without --seed and `check` prints it `UNSEEDED` and passes,
-so a consumer that syncs this is never failed by the sync, only held from its first tighten on.
-A tier the gate did not run (area-scoped) writes no tier-<tier> file, so a floor whose tier-*
-source emitted nothing reads SKIPPED, not MISSING (skipped_collector); a tier that ran without
-the runner's count is MISSING. Lowering a floor is `rebaseline --keys` under the label, in the
-PR that removes the tests.
+bounded `higher`: the bound IS the tier's floor, which tier_guard.sh reads (`floors`) and reports
+against (a FLOOR line, never a failure: 2026-11-13). A gain locks in only past FLOOR_SLACK of the
+bound. `tighten` seeds an unbounded floor key without --seed. A tier the gate did not run writes
+no tier-<tier> file, so a floor whose tier-* source emitted nothing reads SKIPPED, not MISSING.
 
-A devkit sync's bounds (2026-10-28): a sync may carry tightened bounds beside the vendored
-tree. `tightens` is the test the sync's exemptions apply to the bounds file (_vendor_paths.sh
-devkit_sync_only): exit 0 when the head file differs from the base only by TIGHTENED bounds,
-else exit 1 naming each other move. Its writer, `lock-in` (the gate's gains, fed by the nightly
-sync), went with the gate on 2026-11-02.
+`tightens` (a devkit sync's bounds, 2026-10-28) exits 0 when the head file differs from the base
+only by TIGHTENED bounds, else 1 naming each other move (_vendor_paths.sh devkit_sync_only).
 
-Exit codes: 0 ok, 1 ratchet failed (`tighten`: a WORSE or MISSING key, after writing the
-tightened bounds; `tightens`: a move that is not a tightening), 2 usage error or
-unreadable/invalid file or base ref.
+Exit codes: 0 ok (`check` and `tighten` report and exit 0 whatever the numbers), 1 `rebaseline`
+cannot run because a tracked metric is absent, or `tightens` found a move that is not a
+tightening, 2 usage error or unreadable/invalid file.
 """
 
 from __future__ import annotations
@@ -172,7 +99,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Iterable
@@ -229,7 +155,6 @@ REPORT_ONLY_STATS = frozenset(  # (domain, last key segment)
         ("size", "over_600"),
     }
 )
-DEFAULT_BASE_REF = "origin/main"
 # How far a float key may beat its bound before check demands a tighten (module docstring).
 # Integer keys (counts) have none: any gain is real and deterministic.
 LOCK_IN_TOLERANCE = 0.05
@@ -389,46 +314,6 @@ def parse_bounds(doc: object, where: str) -> dict[str, Bound]:
 
 def load_bounds(path: Path) -> dict[str, Bound]:
     return parse_bounds(_read_json(path, "bounds"), str(path))
-
-
-def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    try:
-        return subprocess.run(
-            ["git", "-C", str(cwd), *args], capture_output=True, text=True, check=False
-        )
-    except OSError as exc:
-        raise InputError(f"cannot run git: {exc.strerror}") from exc
-
-
-def bounds_at(root: Path, ref: str, rel: str, what: str = "base ref") -> dict[str, Bound] | None:
-    """The bounds file `rel` as committed at `ref` in the checkout `root`, or None when that
-    commit has no such file. A ref that does not resolve is an error, never "no file": an
-    unfetched main must never read as "nothing to compare against"."""
-    if _git(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}").returncode != 0:
-        raise InputError(f"{what} {ref} does not resolve; fetch it (git fetch origin main)")
-    shown = _git(root, "show", f"{ref}:{rel}")
-    if shown.returncode != 0:
-        return None
-    return parse_bounds(_parse_json(shown.stdout, f"{ref}:{rel}"), f"{ref}:{rel}")
-
-
-def load_base_bounds(bounds_path: Path, ref: str) -> tuple[dict[str, Bound] | None, str]:
-    """Main's copy of the bounds file, or None when main has none yet (first adoption).
-
-    Returns the bounds and the label printed on the `ratchet base` line.
-    """
-    where = bounds_path.resolve().parent
-    top = _git(where, "rev-parse", "--show-toplevel")
-    if top.returncode != 0:
-        raise InputError(
-            f"{bounds_path} is not inside a git checkout; pass --base-bounds to compare "
-            "against main's bounds"
-        )
-    rel = bounds_path.resolve().relative_to(Path(top.stdout.strip()).resolve()).as_posix()
-    base = bounds_at(where, ref, rel)
-    if base is None:
-        return None, f"none ({rel} is not on {ref}: first adoption)"
-    return base, f"{ref}:{rel}"
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -613,82 +498,9 @@ def _fmt(value: float | None) -> str:
     return str(value) if isinstance(value, int) else repr(value)
 
 
-@dataclass(frozen=True)
-class BoundMove:
-    """One bound that differs between main's file and the PR's (`ratchet-bound` line)."""
-
-    metric: str
-    old: Bound | None
-    new: Bound | None
-    status: str  # LOOSENED REMOVED DIRECTION TIGHTENED ADDED
-
-    @property
-    def loosens(self) -> bool:
-        """Needs the metrics-rebaseline label (module docstring)."""
-        return self.status in ("REMOVED", "DIRECTION", "LOOSENED")
-
-
-def bound_moves(
-    base: dict[str, Bound], bounds: dict[str, Bound], report_only: Callable[[str], bool]
-) -> list[BoundMove]:
-    """Every bound that moved from `base` to `bounds`, a report-only one aside: it is never
-    gated, so moving or dropping its bound loosens nothing."""
-    moves = []
-    for metric in sorted(set(base) | set(bounds)):
-        if report_only(metric):
-            continue
-        old, new = base.get(metric), bounds.get(metric)
-        if new is None:
-            status = "REMOVED"
-        elif old is None:
-            status = "ADDED"
-        elif new.direction != old.direction:
-            status = "DIRECTION"
-        elif new.bound == old.bound:
-            continue
-        elif old.bound is None:
-            status = "TIGHTENED"  # main still had the placeholder; any value is a first bound
-        elif new.bound is None or not is_better(new.bound, old.bound, old.direction):
-            status = "LOOSENED"
-        else:
-            status = "TIGHTENED"
-        moves.append(BoundMove(metric, old, new, status))
-    return moves
-
-
-def compare_to_base(base: dict[str, Bound], bounds: dict[str, Bound], snapshot: Snapshot) -> dict[str, int]:
-    """Print one `ratchet-bound` line per bound that moved from main; count loosenings."""
-    counts = {"loosened": 0, "tightened": 0, "added": 0}
-    for move in bound_moves(base, bounds, snapshot.is_report_only):
-        old, new = move.old, move.new
-        old_s = f"{old.direction}:{_fmt(old.bound)}" if old else "-"
-        new_s = f"{new.direction}:{_fmt(new.bound)}" if new else "-"
-        print(f"ratchet-bound {move.metric} {old_s} -> {new_s} {move.status}")
-        if move.loosens:
-            counts["loosened"] += 1
-        elif move.status == "TIGHTENED":
-            counts["tightened"] += 1
-        else:
-            counts["added"] += 1
-    return counts
-
-
-def trailer_value(move: BoundMove) -> str:
-    """`<key>=<old>→<new>` for the squash body's Metrics-Rebaseline trailer (pr_merge.sh); a
-    flipped direction names both, a removed bound reads `→removed`."""
-    def side(b: Bound | None, with_direction: bool) -> str:
-        if b is None:
-            return "removed"
-        return f"{b.direction}:{_fmt(b.bound)}" if with_direction else _fmt(b.bound)
-
-    flipped = move.status == "DIRECTION"
-    return f"{move.metric}={side(move.old, flipped)}→{side(move.new, flipped)}"
-
-
-def _status_line(metric: str, bound: Bound, snapshot: Snapshot, bounds_path: Path) -> str:
-    """Print check's `ratchet <metric> ...` line for a gated bound and return its status
-    (SAME, BETTER, WORSE, MISSING, SKIPPED). `tighten` prints the same lines, so an author sees
-    before the gate exactly what the gate will say."""
+def _status_line(metric: str, bound: Bound, snapshot: Snapshot) -> str:
+    """Print check's `ratchet <metric> ...` line for a compared bound and return its status
+    (SAME, BETTER, WORSE, MISSING, SKIPPED). `tighten` prints the same lines for what it leaves."""
     if metric not in snapshot.values:
         collector = skipped_collector(metric, bound, snapshot)
         if collector is None:
@@ -700,92 +512,22 @@ def _status_line(metric: str, bound: Bound, snapshot: Snapshot, bounds_path: Pat
         return "SKIPPED"
     value = snapshot.values[metric]
     if bound.bound is None:  # check refuses unset bounds first; tighten fills them
-        raise InputError(f"bounds {bounds_path}: {metric} unset")
+        raise InputError(f"{metric}: bound unset")
     status = classify(value, bound.bound, bound.direction)
     note = ""
     if status == "BETTER":  # tighten reaches here only with a gain within the tolerance
         note = (
-            f" — run make metrics-tighten and commit {bounds_path}"
+            " — make metrics-tighten locks it in"
             if gain_to_lock_in(metric, value, bound.bound)
-            else f" (within tolerance {_fmt(lock_in_slack(metric, value, bound.bound))}; "
-            "not a failure)"
+            else f" (within tolerance {_fmt(lock_in_slack(metric, value, bound.bound))})"
         )
     print(f"ratchet {metric} {_fmt(value)} vs {_fmt(bound.bound)} {status}{note}")
     return status
 
 
-def _within_main(
-    worse: list[tuple[str, float, float]], base: dict[str, Bound] | None
-) -> list[tuple[str, float, float, float]]:
-    """The WORSE keys whose bound is stricter than main's while the value still meets main's:
-    a bound tightened past what this tree measures, which a merge of two moved bounds settles
-    to (the driver's stricter wins). Raising it to the value loosens nothing against main, so
-    `make metrics-rebaseline KEYS=` fixes it with no label. Each is (metric, value, bound,
-    main's bound)."""
-    out = []
-    for metric, value, bound in worse:
-        main = base.get(metric) if base is not None else None
-        if main is None or main.bound is None:
-            continue
-        if is_better(bound, main.bound, main.direction) and classify(
-            value, main.bound, main.direction
-        ) != "WORSE":
-            out.append((metric, value, bound, main.bound))
-    return out
-
-
-def _rebaseline_command(keys: Iterable[str]) -> str:
-    """The command a fix line names: keyed to the WORSE keys, so it moves no other bound."""
-    named = ",".join(sorted(keys))
-    return f"`make metrics-rebaseline KEYS={named or '<key>[,<key>]'}`"
-
-
-def _worse_failed(
-    worse: list[tuple[str, float, float]],
-    loosened: int,
-    base: dict[str, Bound] | None,
-    rebaseline_ok: bool,
-    bounds_path: Path,
-) -> bool:
-    """check's verdict on the WORSE keys and the bounds looser than main: the fix lines it prints,
-    and whether they fail the run. Three causes, three fixes: under the label a value past its
-    committed bound; a bound stricter than main's that this tree misses (_within_main: a
-    rebaseline with no label); anything else, a regression or an unlabelled loosening."""
-    if worse and rebaseline_ok:
-        # The label admits a looser committed bound, never a value past the committed one.
-        for metric, value, bound_value in worse:
-            _fail(
-                f"metrics-rebaseline: {metric} {_fmt(value)} is past its bound "
-                f"{_fmt(bound_value)}; `make metrics-rebaseline KEYS={metric}` and commit "
-                f"{bounds_path}, or fix the regression"
-            )
-        return True
-    settled = _within_main(worse, base) if not loosened else []
-    if worse and len(settled) == len(worse):
-        for metric, value, bound_value, main_bound in settled:
-            _fail(
-                f"ratchet: {metric} {_fmt(value)} is past this PR's bound {_fmt(bound_value)} but "
-                f"within main's {_fmt(main_bound)}: a bound tightened past this tree, as a merge "
-                "of two moved bounds settles (the stricter wins, measured on neither tree)"
-            )
-        _fail(
-            f"ratchet FAIL: {len(worse)} bound(s) stricter than main's that this tree does not "
-            f"meet; {_rebaseline_command(m for m, _, _ in worse)} and commit {bounds_path} "
-            "(no label: each stays within main's bound)"
-        )
-        return True
-    if worse or (loosened and not rebaseline_ok):
-        _fail(
-            f"ratchet FAIL: {len(worse)} metric(s) worse than their bound, "
-            f"{loosened} bound(s) looser than main; fix them, or, if a tool change "
-            f"moved the numbers, commit the looser {bounds_path} "
-            f"({_rebaseline_command(m for m, _, _ in worse)}) and label the PR metrics-rebaseline"
-        )
-        return True
-    return False
-
-
 def cmd_check(args: argparse.Namespace) -> int:
+    """Print every tracked metric against its bound, and exit 0 whatever it finds (module
+    docstring: report only). Only an unreadable file or a placeholder bound is an error."""
     snapshot = load_snapshot(Path(args.snapshot), allow_empty=True)
     bounds_path = Path(args.bounds)
     bounds = load_bounds(bounds_path)
@@ -796,17 +538,7 @@ def cmd_check(args: argparse.Namespace) -> int:
             "to take the first bounds from a snapshot"
         )
 
-    if args.base_bounds:
-        base: dict[str, Bound] | None = load_bounds(Path(args.base_bounds))
-        base_label = args.base_bounds
-    else:
-        base, base_label = load_base_bounds(bounds_path, args.base_ref)
-    print(f"ratchet base {base_label}")
-    moved = compare_to_base(base, bounds, snapshot) if base is not None else {"loosened": 0}
-
     counts = {"SAME": 0, "BETTER": 0, "WORSE": 0, "MISSING": 0, "SKIPPED": 0, "REPORT-ONLY": 0}
-    worse: list[tuple[str, float, float]] = []
-    unlocked: list[str] = []
     for metric in sorted(bounds):
         bound = bounds[metric]
         if snapshot.is_report_only(metric):
@@ -814,56 +546,32 @@ def cmd_check(args: argparse.Namespace) -> int:
             value = snapshot.values.get(metric)
             print(
                 f"ratchet {metric} {'-' if value is None else _fmt(value)} vs {_fmt(bound.bound)} "
-                "REPORT-ONLY (moved to report-only, never gated; run make metrics-tighten to drop it)"
+                "REPORT-ONLY (moved to report-only, never compared; "
+                "run make metrics-tighten to drop it)"
             )
             continue
-        status = _status_line(metric, bound, snapshot, bounds_path)
-        counts[status] += 1
-        if status == "WORSE":
-            worse.append((metric, snapshot.values[metric], bound.bound))
-        elif status == "BETTER" and gain_to_lock_in(metric, snapshot.values[metric], bound.bound):
-            unlocked.append(metric)
+        counts[_status_line(metric, bound, snapshot)] += 1
 
     untracked = sorted(set(snapshot.values) - set(bounds))
     if args.show_untracked:
         for metric in untracked:
             print(f"ratchet {metric} {_fmt(snapshot.values[metric])} UNTRACKED")
-    # A floor a repo has not seeded yet (module docstring, Floors): named, never failed, so the
-    # devkit-sync that brings floors in passes and the author's next tighten seeds them.
     for metric in untracked:
         if is_floor(metric):
             print(
                 f"ratchet {metric} {_fmt(snapshot.values[metric])} UNSEEDED (a test-count floor: "
-                f"make metrics-tighten seeds it into {bounds_path}; not a failure)"
+                f"make metrics-tighten seeds it into {bounds_path})"
             )
     print(
         f"ratchet summary same={counts['SAME']} better={counts['BETTER']} "
         f"worse={counts['WORSE']} missing={counts['MISSING']} skipped={counts['SKIPPED']} "
-        f"untracked={len(untracked)} loosened={moved['loosened']} "
-        f"report_only={counts['REPORT-ONLY']}"
+        f"untracked={len(untracked)} report_only={counts['REPORT-ONLY']}"
     )
-
-    failed = False
-    if counts["MISSING"]:
-        _fail(
-            f"ratchet FAIL: {counts['MISSING']} tracked metric(s) absent from the snapshot; "
-            f"remove or rename them in {bounds_path} (a renamed key's new name: run {SEED_HINT})"
-        )
-        failed = True
-    if _worse_failed(worse, moved["loosened"], base, args.rebaseline_ok, bounds_path):
-        failed = True
-    if unlocked:
-        # Not exempted by --rebaseline-ok: the label admits looser bounds, never stale ones.
-        _fail(
-            f"ratchet FAIL: {len(unlocked)} metric(s) better than their bound "
-            f"({', '.join(unlocked)}); run `make metrics-tighten` and commit {bounds_path} "
-            "to lock the gain in"
-        )
-        failed = True
-    if failed:
-        return EXIT_RATCHET
-    if moved["loosened"]:
-        print(f"ratchet rebaseline accepted: {moved['loosened']} bound(s) looser than main")
+    print(
+        f"ratchet report only: {counts['WORSE']} worse and {counts['MISSING']} missing vs "
+        f"{bounds_path}; nothing fails on them (a cleanup round reads this; make metrics-tighten "
+        "locks in the gains)"
+    )
     return EXIT_OK
 
 
@@ -871,8 +579,7 @@ def cmd_tighten(args: argparse.Namespace) -> int:
     """Move every bound the snapshot beats to the snapshot value; never loosen any. A
     report-only bound is dropped (no label needed: check ignores it against main). With --seed,
     every seedable key without a bound gains one at its value, and every floor key does without
-    it. Every WORSE and MISSING key prints
-    check's line and makes the exit 1, after the write."""
+    it. Every WORSE and MISSING key prints check's line; the exit is 0 (report only)."""
     snapshot = load_snapshot(Path(args.snapshot), allow_empty=True)
     bounds_path = Path(args.bounds)
     bounds = load_bounds(bounds_path)
@@ -882,7 +589,6 @@ def cmd_tighten(args: argparse.Namespace) -> int:
     tightened = dict(bounds)
     changed = dropped = 0
     failing = {"WORSE": 0, "MISSING": 0}
-    worse: list[str] = []
     for metric in sorted(bounds):
         bound = bounds[metric]
         if snapshot.is_report_only(metric):
@@ -903,11 +609,9 @@ def cmd_tighten(args: argparse.Namespace) -> int:
             changed += 1
             print(f"ratchet {metric} {_fmt(bound.bound)} -> {_fmt(value)}")
             continue
-        status = _status_line(metric, bound, snapshot, bounds_path)
+        status = _status_line(metric, bound, snapshot)
         if status in failing:
             failing[status] += 1
-        if status == "WORSE":
-            worse.append(metric)
     for metric, seed in seeds.items():
         tightened[metric] = seed
         print(f"ratchet {metric} SEEDED {_fmt(seed.bound)}")
@@ -928,18 +632,12 @@ def cmd_tighten(args: argparse.Namespace) -> int:
             )
     if args.report_only:
         write_report_only(Path(args.report_only), snapshot)
-    if not any(failing.values()):
-        return EXIT_OK
-    _fail(
-        f"ratchet FAIL: {failing['WORSE']} metric(s) worse than their bound and "
-        f"{failing['MISSING']} absent from the snapshot; `make ci-metrics` and the gate will "
-        "fail on them. Fix each WORSE regression (build/metrics/*.findings.txt names the code), "
-        f"remove or rename a MISSING key in {bounds_path} ({SEED_HINT} bounds a renamed key's new "
-        "name), or, if a tool change moved the "
-        f"numbers, run {_rebaseline_command(worse)}, commit the bounds and label the PR "
-        "metrics-rebaseline"
-    )
-    return EXIT_RATCHET
+    if any(failing.values()):
+        print(
+            f"ratchet report only: {failing['WORSE']} worse and {failing['MISSING']} missing "
+            f"vs {bounds_path}; nothing fails on them ({SEED_HINT} bounds a renamed key's new name)"
+        )
+    return EXIT_OK
 
 
 def _parse_keys(text: str) -> list[str]:
@@ -1138,18 +836,6 @@ REPORT_ONLY_HELP = (
 )
 
 
-def cmd_loosened(args: argparse.Namespace) -> int:
-    """Print `<key>=<old>→<new>` per bound `--head-ref` loosens against `--base-ref` (the
-    label-admitted moves: LOOSENED, REMOVED, DIRECTION), nothing when none does."""
-    root = Path(args.repo)
-    base = bounds_at(root, args.base_ref, args.bounds) or {}
-    head = bounds_at(root, args.head_ref, args.bounds, "head ref") or {}
-    for move in bound_moves(base, head, is_report_only):
-        if move.loosens:
-            print(trailer_value(move))
-    return EXIT_OK
-
-
 def _not_a_tightening(metric: str, old: Bound | None, new: Bound | None) -> str | None:
     """Why an entry that differs between base and head is not a tightening, or None when it
     is: the same gated key, direction and source, its bound strictly better. Stricter than
@@ -1190,7 +876,7 @@ def cmd_tightens(args: argparse.Namespace) -> int:
 # GOTCHA: that stricter value is one nobody measured on the merged tree (kitchen #25: base 1,
 # main's labelled rebaseline 7, the PR's own tighten 0 -> 0, and the merged tree measured 1), so
 # the driver prints one `ratchet merge:` line per bound it settled, and check names the cause
-# when such a bound is WORSE yet within main's (_within_main).
+# when such a bound reads WORSE.
 # Installed by hooks_check.sh --fix (the .gitattributes lines and the per-clone driver config);
 # git runs it from the worktree's top level as `merge-driver %O %A %B %P` and reads the result
 # from %A. Exit 1 is a conflict git reports: it leaves %A as ours, and the configured fallback
@@ -1313,22 +999,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    check = sub.add_parser("check", help="compare a snapshot and the bounds against main's bounds")
+    check = sub.add_parser(
+        "check", help="print a snapshot against the bounds (report only: always exit 0)"
+    )
     check.add_argument("--snapshot", required=True, help="metrics snapshot JSON")
     check.add_argument("--bounds", required=True, help="bounds JSON (docs/metrics/ratchet.json)")
-    base = check.add_mutually_exclusive_group()
-    base.add_argument(
-        "--base-ref",
-        default=DEFAULT_BASE_REF,
-        help=f"git ref holding main's bounds at the same path (default {DEFAULT_BASE_REF})",
-    )
-    base.add_argument("--base-bounds", help="main's bounds as a file instead of a git ref")
-    check.add_argument(
-        "--rebaseline-ok",
-        action="store_true",
-        help="accept bounds looser than main's (values still meet the PR's bounds); pass "
-        "only when the PR carries the metrics-rebaseline label",
-    )
     check.add_argument(
         "--show-untracked",
         action="store_true",
@@ -1364,19 +1039,6 @@ def build_parser() -> argparse.ArgumentParser:
         "moves, nothing is seeded or dropped",
     )
     rebaseline.set_defaults(func=cmd_rebaseline)
-
-    loosened = sub.add_parser(
-        "loosened",
-        help="print key=old→new per bound one commit loosens against another (make merge's "
-        "Metrics-Rebaseline trailers)",
-    )
-    loosened.add_argument("--base-ref", required=True, help="the commit holding main's bounds")
-    loosened.add_argument("--head-ref", required=True, help="the commit holding the PR's bounds")
-    loosened.add_argument("--repo", default=".", help="the git checkout holding both (default .)")
-    loosened.add_argument(
-        "--bounds", default="docs/metrics/ratchet.json", help="the bounds file's repo-relative path"
-    )
-    loosened.set_defaults(func=cmd_loosened)
 
     _add_sync_parsers(sub)
 

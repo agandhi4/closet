@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # One test tier under a wall-clock budget and per-runner floors on the number of tests it ran.
 # The test-value standard made executable (owner directive 2026-10-13: a fast, lean, useful
-# suite): a tier that outgrows its budget fails even when every test passed, and a tier that
-# silently stopped running part of its suite fails even when what is left is green.
+# suite): a tier that outgrows its budget, or silently stopped running part of its suite, says so
+# in a line, even when every test passed. Both are reports (2026-11-13: floors are no gate).
 #
 # Usage: devkit/bin/tier_guard.sh <tier> --budget <seconds> [--floor <runner>=<min>]... -- <command...>
 #   <tier>     [A-Za-z0-9_-]+, the metrics key's scope (unit, db, e2e, ...)
@@ -16,10 +16,9 @@
 # Output (an API). The command's own output streams through
 # unchanged (stderr merged into stdout); a copy is kept only to read the summaries. Then:
 #   TIER <tier> FAIL (exit <rc>, <s>s)                   the command failed: exits <rc>
-#   TIER <tier> FLOOR <runner> <n> < <min>               ran fewer tests than the floor: exit 1
-#   TIER <tier> FLOOR <runner> no summary line (floor <min>)                           exit 1
-#   TIER <tier> OVERBUDGET <s>s (budget <b>s)            exit 1 only under TIER_BUDGET_ENFORCE=1,
-#                                                        never under DEVKIT_CLOCK_SHIFT (Clock shift)
+#   TIER <tier> FLOOR <runner> <n> < <min>               ran fewer tests than the floor: reported
+#   TIER <tier> FLOOR <runner> no summary line (floor <min>)                           reported
+#   TIER <tier> OVERBUDGET <s>s (budget <b>s)            over the budget: reported, never a failure
 #   TIER <tier>: <s>s (budget <b>s) <runner>=<n>...      every check held: exit 0
 # The seconds are devkit_now's (bin/_load_lib.sh; DEVKIT_CLOCK_CMD is the test hook).
 # Under load the budget stretches (bin/_load_lib.sh: min(max(1-minute load / cores, gate slots
@@ -42,13 +41,12 @@
 # runs on its units, silently; TIER_SLOT=0 (default 1) stays out of the pool for a deliberately
 # quick single test.
 # A bad invocation exits 2 before the command runs. A budget is reported, not failed (owner
-# 2026-10-29: load, not code, failed half the gates): TIER_BUDGET_ENFORCE=1 (default 0) makes the
-# OVERBUDGET line exit 1, for a run on an idle box that should fail on a slowdown. Floors have no such switch: a count
-# is deterministic, so a floor that fails is a real loss.
+# 2026-10-29: load, not code, failed half the gates; 2026-11-13: no switch makes it fail, a slowdown
+# is read in a cleanup round). A floor is reported the same way (a count that drops does not stop a PR).
 #
 # Counted = tests that RAN: passed + failed (+ pytest xfailed/xpassed/error, vitest "expected
 # fail", Playwright flaky). Skipped, todo and deselected tests do not count, so a tier whose
-# tests all skip (finplat's db tier without TEST_DATABASE_URL) fails its floor. Each runner's
+# tests all skip (finplat's db tier without TEST_DATABASE_URL) reads under its floor. Each runner's
 # summary lines are summed, so a command may run a runner more than once. The parser table is
 # tier_count() below, one rule per runner, each pinned by a real captured summary in
 # tests/fixtures/tier_guard/.
@@ -83,7 +81,7 @@
 # all. Coverage's own files are the shifted run's alone (instalite-relay #18: the raw .coverage
 # a collector never names was the real-clock run's, overwritten): COVERAGE_FILE (coverage.py,
 # under pytest-cov or `coverage run`) and DEVKIT_CLOCK_SHIFT_COVERAGE (vitest's reportsDirectory,
-# set by clockShift()) name a scratch dir the guard removes on exit. Its budget is reported, not enforced (the unshifted run holds it). The success line ends
+# set by clockShift()) name a scratch dir the guard removes on exit. The success line ends
 # ` shift=+<n>d`, and
 #   TIER <tier> NOSHIFT <runner> (no shifted <runner> process: it ran on the real clock)  exit 1
 # when the command passed but no process of a floored runner recorded its shift in the guard's
@@ -93,13 +91,11 @@
 #
 # Floors (devkit decisions 2026-10-26): when <root>/docs/metrics/ratchet.json bounds
 # tests.<tier>.<runner> (metrics_ratchet.py, Floors), that bound less 5% is the runner's floor
-# (the gate's ratchet holds the exact bound; a run off the gate's box may skip a test that needs
-# its environment), and the larger of it and a --floor number wins; a runner only the bounds name is floored too, so
+# (a run off the reference box may skip a test that needs its environment), and the larger of it and a --floor number wins; a runner only the bounds name is floored too, so
 # dropping it from the recipe cannot drop its floor. `make metrics-tighten` seeds the bound from
-# this tier's count and raises it once the count is past it by more than 5%; the gate's metrics
-# job fails until then. It moves down only through `make metrics-rebaseline KEYS=<key>` and the
-# metrics-rebaseline label, in the PR that removes the tests (UNIT_BATS_FLOOR sat at 638 while
-# 820 ran: a Makefile floor raised by hand never was). Budgets are set from GATE timings with
+# this tier's count and raises it once the count is past it by more than 5%. It moves down through
+# `make metrics-rebaseline KEYS=<key>` (UNIT_BATS_FLOOR sat at 638 while 820 ran: a Makefile
+# floor raised by hand never was). Budgets are set from GATE timings with
 # headroom and only ever go down.
 set -uo pipefail
 # shellcheck source=bin/_load_lib.sh
@@ -246,8 +242,6 @@ parse_args() {
 }
 parse_args "$@"
 shift "$ARG_WORDS"
-ENFORCE=${TIER_BUDGET_ENFORCE:-0}
-[[ "$ENFORCE" =~ ^[01]$ ]] || die "TIER_BUDGET_ENFORCE must be 0 or 1 (got '$ENFORCE')"
 TAKE_SLOT=${TIER_SLOT:-1}
 [[ "$TAKE_SLOT" =~ ^[01]$ ]] || die "TIER_SLOT must be 0 or 1 (got '$TAKE_SLOT')"
 
@@ -425,7 +419,7 @@ counts=""   # " <runner>=<n>" for the success line
 metrics="  \"tier.$TIER.seconds\": $secs"
 stripped=$(strip_ansi <"$LOG")
 # judge_floor <runner> <min>: the runner's count from the log onto metrics and counts; failed=1
-# when it ran unshifted under a shift, printed no summary or fell under its floor.
+# when it ran unshifted under a shift. No summary or a count under the floor is printed only.
 judge_floor() {
   local runner=$1 min=$2 n
   if [ -n "$SHIFT" ] && ! grep -q "^$runner +$SHIFT " "$PROOF"; then
@@ -440,15 +434,13 @@ judge_floor() {
   if [ -z "$n" ]; then
     echo "TIER $TIER FLOOR $runner no summary line (floor $min)"
     echo "tier_guard: $runner printed no summary: it did not run, or a reporter replaced its default one (keep the default reporter alongside json)" >&2
-    failed=1
     return
   fi
   metrics="$metrics,"$'\n'"  \"tests.$TIER.$runner\": $n"
   counts="$counts $runner=$n"
   if [ "$n" -lt "$min" ]; then
     echo "TIER $TIER FLOOR $runner $n < $min"
-    echo "tier_guard: a test file, marker or glob stopped being picked up, or tests now skip; lower a floor only in the PR that removes tests (make metrics-rebaseline KEYS=tests.$TIER.$runner and the metrics-rebaseline label)" >&2
-    failed=1
+    echo "tier_guard: a test file, marker or glob stopped being picked up, or tests now skip; a PR that removes tests lowers the floor with make metrics-rebaseline KEYS=tests.$TIER.$runner (reported, not failed)" >&2
   fi
 }
 for f in ${FLOORS[@]+"${FLOORS[@]}"}; do judge_floor "${f%% *}" "${f#* }"; done
@@ -461,21 +453,12 @@ write_tier_json() {
 }
 write_tier_json
 
-# A shifted run is reported, never failed, on its budget: the unshifted run of the same suite
-# holds it, and the CLOCK group runs every shifted tier at once, in bursts shorter than the
-# 1-minute load average the stretch reads (locus #148 and Orbit #118: clock-unit-30d 25 s and
-# 38 s against 20 s and 30 s, unstretched, while their unshifted unit-backend passed).
+# A budget is a warning (owner 2026-11-13); find the new cost with pytest --durations=30 or
+# vitest's slowest files, and never raise the budget per run.
 judge_budget() {
   [ "$secs" -gt "$LOAD_BUDGET" ] || return 0
   echo "TIER $TIER OVERBUDGET ${secs}s ($budget_text)"
-  if [ -n "$SHIFT" ]; then
-    echo "TIER $TIER: over budget, not enforced (shifted: the unshifted run holds the budget)"
-  elif [ "$ENFORCE" = 1 ]; then
-    echo "tier_guard: over budget even though the tests passed; find the new cost (pytest --durations=30, vitest's slowest files) and cut it or move it down a tier, never raise the budget per run" >&2
-    failed=1
-  else
-    echo "TIER $TIER: over budget, reported (budgets fail only under TIER_BUDGET_ENFORCE=1)"
-  fi
+  echo "TIER $TIER: over budget, reported (a time budget warns, it never fails)"
 }
 judge_budget
 

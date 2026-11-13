@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# Provide the exact Node version a repo declares in .nvmrc, for gates and hooks on machines
-# whose PATH node differs (the Mac runs 25, CI and the images run 22; Node 25's default
+# Provide the Node a repo declares in .nvmrc, for gates and hooks on machines whose PATH node
+# is another MAJOR (the Mac runs 25, CI and the images run 22; Node 25's default
 # Web Storage stub broke every vitest suite in Orbit #40 / locus #91).
 #
 # Usage: devkit/bin/node_toolchain.sh <repo-root>
-#   Prints the bin directory to prepend to PATH, or nothing when PATH's node already matches.
+#   Prints the bin directory to prepend to PATH, or nothing when PATH's node is the same major
+#   (owner 2026-11-13: a 22.20 runs what a 22.23.3 does; a minor mismatch caught nothing).
 #   Exit 0 ok, 1 cannot provide (no .nvmrc, a download or checksum failure), 2 usage, 3 the
 #   tree's own fault: .nvmrc holds no exact version (check_tree.sh calls that commit red).
 #
 # Installs land in $XDG_DATA_HOME/devkit/node/v<ver> (default ~/.local/share/devkit/node),
 # downloaded from nodejs.org over HTTPS and verified against that release's SHASUMS256.txt.
-# .nvmrc must hold an exact version (22.23.3 or v22.23.3): a major alone would make two
-# machines resolve two different Nodes, which is the drift this script exists to end.
+# .nvmrc must hold an exact version (22.23.3 or v22.23.3): it names what a machine WITHOUT the
+# major downloads, so two such machines still resolve one Node.
 # DEVKIT_OFFLINE=1 refuses to download and fails loudly when the cache is cold.
 set -euo pipefail
 
@@ -25,7 +26,8 @@ case "$VERSION" in
   *) echo "node_toolchain: .nvmrc must hold an exact version (got '$VERSION')" >&2; exit 3 ;;
 esac
 
-if command -v node >/dev/null && [ "$(node --version 2>/dev/null)" = "v$VERSION" ]; then
+MAJOR=${VERSION%%.*}
+if command -v node >/dev/null && [ "$(node --version 2>/dev/null | sed -E 's/^v([0-9]+)\..*/\1/')" = "$MAJOR" ]; then
   exit 0
 fi
 
