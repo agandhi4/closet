@@ -17,6 +17,7 @@ import {
   type CapsuleDetail,
   capsuleNamesSql,
   type CapsuleRef,
+  capsuleRefSql,
   findCapsule,
 } from '../capsules/queries';
 import { capsuleNotFound } from '../capsules/capsule-actions';
@@ -55,6 +56,7 @@ import {
   readGeneratorMemory,
   readPool,
   styledGarment,
+  styledGarmentsSql,
   type WishlistGarment,
 } from './queries';
 import { NotFound } from '../refusals';
@@ -271,6 +273,44 @@ export async function ideasPage(
     now,
   );
   return { ...result, more: result.more && page < MAX_IDEAS_PAGE };
+}
+
+/**
+ * Ideas with any of the owner's closet garments in every one (`lockIds`):
+ * the API's GET /ideas (#193c), which asks what Styling's Shuffle does (its
+ * locked rows) and the gallery's `?with=` (one). ideasFor's one statement,
+ * with the capsule's check and the locked garments beside ideasColumns as
+ * Styling reads them (ideaReads), judged after it: reading before the
+ * check shows nothing, since inCapsule matches no garment of another's
+ * capsule. A capsule not the owner's is a 404, and so is a garment not in
+ * their closet, as ideasScope refuses them (ideas are private: a share
+ * never reaches one).
+ */
+export async function ideasWith(
+  deps: { db: Db; weather: WeatherService | undefined },
+  ownerId: number,
+  input: Omit<IdeasInput, 'locked' | 'capsuleMenu'> & {
+    lockIds: readonly number[];
+  },
+  now: Date,
+): Promise<IdeasResult> {
+  const { lockIds, ...ask } = input;
+  const wanted = [...new Set(lockIds)];
+  const row = await selectScalars(deps.db, {
+    ...ideasColumns(deps, ownerId, ask, now),
+    capsule:
+      ask.capsuleId === undefined
+        ? undefined
+        : capsuleRefSql(ask.capsuleId, ownerId),
+    lockable:
+      wanted.length === 0
+        ? undefined
+        : styledGarmentsSql(ownerId, wanted, ask.today),
+  });
+  if (ask.capsuleId !== undefined && !row.capsule) throw capsuleNotFound();
+  const locked = row.lockable ? readPool(row.lockable) : [];
+  if (locked.length !== wanted.length) throw garmentNotFound();
+  return ideasFrom(deps, { ...ask, locked }, row, now);
 }
 
 /** What the aimed day's weather is read for: IdeasInput's day, occasion and place. */

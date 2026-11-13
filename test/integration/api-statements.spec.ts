@@ -6,6 +6,7 @@ import {
   optionGroup,
   outfit,
   outfitCalendar,
+  selfie,
   tripItem,
   tripOutfit,
   weekPlan,
@@ -1459,6 +1460,191 @@ describe('API statements per route', () => {
           }),
         ),
       ).toMatchObject({ status: 200, statements: 2 });
+    });
+  });
+
+  describe('ideas, the pick, clashes and selfies: what their page twins cost (#193c)', () => {
+    let token: string;
+    let photo: Buffer;
+
+    beforeAll(async () => {
+      token = await twinToken();
+      photo = await jpegPhoto(320, 240);
+    });
+
+    const selfieUpload = () =>
+      multipart(
+        {},
+        {
+          photo: {
+            data: photo,
+            filename: 'mirror.jpg',
+            contentType: 'image/jpeg',
+          },
+        },
+      );
+
+    /** One run's rows: two loose garments, avoided together, and an outfit planned today with a selfie. */
+    interface Setup {
+      top: number;
+      bottom: number;
+      entryId: number;
+      selfieId: number;
+      today: string;
+    }
+
+    const setup = async (): Promise<Setup> => {
+      const today = t.today();
+      const top = await createGarment(t, {
+        name: 'Idea tee',
+        category: 'tops',
+      });
+      const bottom = await createGarment(t, {
+        name: 'Idea jeans',
+        category: 'bottoms',
+      });
+      await t.inject({
+        method: 'POST',
+        url: '/outfits/ideas/avoid',
+        payload: { garmentId: [String(top), String(bottom)] },
+      });
+      const held = await createGarment(t, { name: 'Mirror', category: 'tops' });
+      const made = await t.inject({
+        method: 'POST',
+        url: '/outfits',
+        payload: { category: 'shirt', garmentId: String(held) },
+      });
+      const outfitId = Number(
+        /^\/outfits\/(\d+)$/.exec(made.headers.location as string)![1],
+      );
+      await t.inject({
+        method: 'POST',
+        url: '/calendar',
+        payload: { date: today, outfitId: String(outfitId) },
+      });
+      const [entry] = await t.db
+        .select({ id: outfitCalendar.id })
+        .from(outfitCalendar)
+        .where(eq(outfitCalendar.outfitId, outfitId));
+      await t.inject({
+        method: 'POST',
+        url: `/calendar/${entry.id}/selfie`,
+        ...(await selfieUpload()),
+      });
+      const [taken] = await t.db
+        .select({ id: selfie.id })
+        .from(selfie)
+        .where(eq(selfie.outfitCalendarId, entry.id));
+      return { top, bottom, entryId: entry.id, selfieId: taken.id, today };
+    };
+
+    /**
+     * Each route's page twin and its API request, each on a setup of its
+     * own: the same domain function, so the same statements; GET /ideas
+     * with garments locked reads them in the ideas' statement, where the
+     * page's `?with=` reads its garment first (one fewer).
+     */
+    const CASES: {
+      name: string;
+      ok: [page: number, api: number];
+      fewer?: number;
+      page: (s: Setup) => InjectOptions | Promise<InjectOptions>;
+      api: (s: Setup) => InjectOptions | Promise<InjectOptions>;
+    }[] = [
+      {
+        name: 'GET /ideas (GET /outfits/ideas)',
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: '/outfits/ideas' }),
+        api: () => ({ method: 'GET', url: '/api/v1/ideas' }),
+      },
+      {
+        name: 'GET /ideas?with= (GET /outfits/ideas?with=)',
+        ok: [200, 200],
+        fewer: 1,
+        page: (s) => ({ method: 'GET', url: `/outfits/ideas?with=${s.top}` }),
+        api: (s) => ({ method: 'GET', url: `/api/v1/ideas?with=${s.top}` }),
+      },
+      {
+        name: 'POST /outfit-picks (POST /outfits/ideas/pick)',
+        ok: [303, 201],
+        page: (s) => ({
+          method: 'POST',
+          url: '/outfits/ideas/pick',
+          payload: {
+            garmentId: [String(s.top), String(s.bottom)],
+            for: `day:${addDays(s.today, 2)}`,
+          },
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: '/api/v1/outfit-picks',
+          payload: {
+            garmentIds: [s.top, s.bottom],
+            plan: { day: addDays(s.today, 2) },
+          },
+        }),
+      },
+      {
+        name: 'PUT /garments/{id}/clashes/{otherId} (POST /outfits/ideas/avoid)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: '/outfits/ideas/avoid',
+          payload: { garmentId: [String(s.top), String(s.bottom)] },
+        }),
+        api: (s) => ({
+          method: 'PUT',
+          url: `/api/v1/garments/${s.top}/clashes/${s.bottom}`,
+        }),
+      },
+      {
+        name: 'DELETE /garments/{id}/clashes/{otherId} (POST /outfits/ideas/allow)',
+        ok: [303, 204],
+        page: (s) => ({
+          method: 'POST',
+          url: '/outfits/ideas/allow',
+          payload: { garmentId: [String(s.top), String(s.bottom)] },
+        }),
+        api: (s) => ({
+          method: 'DELETE',
+          url: `/api/v1/garments/${s.top}/clashes/${s.bottom}`,
+        }),
+      },
+      {
+        name: 'PUT /calendar-entries/{id}/selfie (POST /calendar/:id/selfie)',
+        ok: [303, 200],
+        page: async (s) => ({
+          method: 'POST',
+          url: `/calendar/${s.entryId}/selfie`,
+          ...(await selfieUpload()),
+        }),
+        api: async (s) => ({
+          method: 'PUT',
+          url: `/api/v1/calendar-entries/${s.entryId}/selfie`,
+          ...(await selfieUpload()),
+        }),
+      },
+      {
+        name: 'DELETE /selfies/{id} (POST /selfies/:id/delete)',
+        ok: [303, 204],
+        page: (s) => ({ method: 'POST', url: `/selfies/${s.selfieId}/delete` }),
+        api: (s) => ({
+          method: 'DELETE',
+          url: `/api/v1/selfies/${s.selfieId}`,
+        }),
+      },
+    ];
+
+    it.each(CASES)('$name', async ({ ok, fewer = 0, page, api }) => {
+      const [onPage, onApi] = [await setup(), await setup()];
+      const pageRequest = await page(onPage);
+      const pageRun = await statementsOf(() => t.inject(pageRequest));
+      // A second call of the minute: no last-use write.
+      await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      const apiRequest = await api(onApi);
+      const apiRun = await statementsOf(() => t.api(token, apiRequest));
+      expect([pageRun.status, apiRun.status]).toEqual(ok);
+      expect(apiRun.statements).toBe(pageRun.statements - fewer);
     });
   });
 

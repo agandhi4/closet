@@ -1,7 +1,7 @@
 import { seededRandom } from '../random';
 import {
   assessOutfit,
-  type FitProblem,
+  FIT_PROBLEMS,
   type MatchGarment,
   type WeatherNeeds,
 } from '../weather/match';
@@ -206,11 +206,14 @@ export interface IdeaRequest<G extends IdeaGarment = IdeaGarment> {
 }
 
 /** 'breaks-rule': the locked garments break an outfit rule (Idea.brokenRules says which). */
-export type IdeaProblem =
-  | FitProblem
-  | 'too-casual'
-  | 'too-dressy'
-  | 'breaks-rule';
+/** Every problem an idea may name: the API's enum lists them (gallery/idea-resource.ts). */
+export const IDEA_PROBLEMS = [
+  ...FIT_PROBLEMS,
+  'too-casual',
+  'too-dressy',
+  'breaks-rule',
+] as const;
+export type IdeaProblem = (typeof IDEA_PROBLEMS)[number];
 
 export interface Idea<G extends IdeaGarment = IdeaGarment> {
   /** In OUTFIT_ORDER. */
