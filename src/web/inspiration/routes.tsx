@@ -2,7 +2,11 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { type Static, Type } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { todayIn } from '../../calendar-date';
-import { recreateLook } from '../../wardrobe/recreate';
+import {
+  type Recreation,
+  type RecreateRequest,
+  recreateLook,
+} from '../../wardrobe/recreate';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
 import { HttpError } from '../errors';
@@ -12,6 +16,7 @@ import { t } from '../i18n';
 import { alreadySavedParam } from '../gallery/urls';
 import { loggableUrl } from '../loggable-url';
 import { outfitUrl } from '../outfits/urls';
+import type { RecreatePoolGarment } from '../gallery/queries';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { RowId } from '../schemas';
@@ -38,6 +43,8 @@ import {
   isOwnInspirationPhoto,
   listInspirations,
   recreateInputs,
+  type StoredPiece,
+  wishlisted,
   updateInspirationPiece,
   updateInspirationText,
 } from './queries';
@@ -107,6 +114,31 @@ const FileParams = Type.Object({ fileName: Type.String() });
  * with a 303 to the look's page, the list after a delete; the autosave is
  * answered with its status line.
  */
+/**
+ * recreateLook over the pieces still to match: a piece already on the
+ * wishlist has its choice made, so it takes no part in the assignment (it
+ * would reserve a garment a later piece needs). Results come back in the
+ * look's piece order, a wishlisted piece with no matches.
+ */
+function recreateClosetPieces(
+  pieces: readonly StoredPiece[],
+  request: Omit<RecreateRequest<RecreatePoolGarment>, 'pieces'>,
+): Recreation<RecreatePoolGarment> {
+  const open = pieces.flatMap((piece, index) =>
+    wishlisted(piece) ? [] : [index],
+  );
+  const found = recreateLook({
+    ...request,
+    pieces: open.map((index) => pieces[index]),
+  });
+  const result: Recreation<RecreatePoolGarment> = {
+    pieces: pieces.map(() => ({ matches: [], repicked: false })),
+    unfixed: found.unfixed.map((at) => open[at]),
+  };
+  open.forEach((index, at) => (result.pieces[index] = found.pieces[at]));
+  return result;
+}
+
 export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
   { db, photos, logger, fetcher, config },
@@ -327,8 +359,7 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         userId,
         today,
       );
-      const recreation = recreateLook({
-        pieces: look.pieces,
+      const recreation = recreateClosetPieces(look.pieces, {
         closet,
         avoid,
         rules,

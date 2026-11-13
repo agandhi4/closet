@@ -12,6 +12,7 @@ import {
   pendingPhoto,
 } from '../../src/db/schema';
 import { reconcileStorage } from '../../src/maintenance/reconcile';
+import { updateInspirationPiece } from '../../src/web/inspiration/queries';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { t as text } from '../../src/web/i18n';
 import { createGarment, jpegPhoto, photoRow } from './garments';
@@ -24,6 +25,7 @@ import {
   unescapeHtml,
   userIdOf,
 } from './harness';
+import { interleave } from './interleave';
 import { addLook, lookIdOf, lookPhotoName, postLookPhoto } from './inspiration';
 import {
   html,
@@ -616,10 +618,10 @@ describe('inspiration', () => {
       });
     });
     expect(res.statusCode, res.body).toBe(303);
-    // The session, begin, the owner lock, the look locked with its pieces,
+    // The session, begin, the owner lock, the look locked, its pieces' roles,
     // the garments locked (with the outfit they already are), the outfit
     // and its slots, the choices recorded, commit.
-    expect(statements).toBe(9);
+    expect(statements).toBe(10);
     const outfitId = Number(
       /^\/outfits\/(\d+)$/.exec(String(res.headers.location))?.[1],
     );
@@ -705,6 +707,76 @@ describe('inspiration', () => {
     }
     expect(await t.db.$count(outfit, eq(outfit.ownerId, userId))).toBe(0);
     expect(await matchedOf(id)).toEqual([null, null, null]);
+  });
+
+  it('a piece already on the wishlist takes no garment from the closet assignment: the next piece keeps the only match', async () => {
+    const cookie = await t.register('look-wishlisted@example.com');
+    const tee = await wear(cookie, 'Only tee', 'tops', 't-shirt', 'white');
+    const { id } = await addLook(t, photo, cookie);
+    for (const payload of [
+      piece('top/t-shirt', 'white'),
+      piece('top/t-shirt', 'white'),
+    ]) {
+      const res = await t.inject({
+        method: 'POST',
+        url: `/inspiration/${id}/pieces`,
+        payload,
+        headers: { cookie },
+      });
+      expect(res.statusCode).toBe(303);
+    }
+    const found = await t.inject({
+      method: 'POST',
+      url: `/inspiration/${id}/pieces/0/find`,
+      headers: { cookie },
+    });
+    expect(found.statusCode).toBe(303);
+
+    const page = unescapeHtml(
+      (
+        await t.inject({
+          method: 'GET',
+          url: `/inspiration/${id}/recreate`,
+          headers: { cookie },
+        })
+      ).body,
+    );
+    const second = page
+      .split('data-recreate-piece="1"')[1]
+      ?.split('data-recreate-piece=')[0];
+    expect(page).toContain('data-wishlisted=');
+    expect(second).toContain(`data-snap-value="${tee}"`);
+    expect(page).not.toContain('data-missing=""');
+    expect(page).toContain(text('inspiration.SAVE_OUTFIT'));
+  });
+
+  it('a piece edit and the save take turns on the look: a role changed under the save refuses it, recording nothing', async () => {
+    const email = 'look-raced@example.com';
+    const cookie = await t.register(email);
+    const userId = await userIdOf(t, email);
+    const { id, whiteTee } = await closetAndLook(cookie);
+    // The autosave holds the look's lock with piece 1 (a top) now a bottom;
+    // the save, posted for a top, waits, then reads the role as it is.
+    const [, res] = await interleave(
+      t.db,
+      (tx) =>
+        updateInspirationPiece(tx, id, 1, userId, {
+          role: 'bottom',
+          type: null,
+          colors: ['white'],
+          pattern: null,
+        }),
+      () =>
+        t.inject({
+          method: 'POST',
+          url: `/inspiration/${id}/recreate/outfit`,
+          payload: { position: ['1'], garment: [String(whiteTee)] },
+          headers: { cookie },
+        }),
+    );
+    expect(res.statusCode).toBe(409);
+    expect(await matchedOf(id)).toEqual([null, null, null]);
+    expect(await t.db.$count(outfit, eq(outfit.ownerId, userId))).toBe(0);
   });
 
   it('finds a missing piece: one wishlist item with its kind and colours, noting the look, shown on the match view; a double tap makes one', async () => {

@@ -18,7 +18,12 @@ import { categoryLabel } from '../wardrobe/garment';
 import { garmentUrl } from '../wardrobe/urls';
 import { lookName } from './look-name';
 import { pieceName } from './piece-form';
-import type { InspirationDetail, MatchedGarment, StoredPiece } from './queries';
+import {
+  wishlisted,
+  type InspirationDetail,
+  type MatchedGarment,
+  type StoredPiece,
+} from './queries';
 import {
   findPiecePath,
   inspirationPiecesUrl,
@@ -130,11 +135,6 @@ export function RecreatePage(props: {
   );
 }
 
-/** The piece's match is a wishlist item ("Find this" made it): nothing left to choose. */
-function wishlisted(piece: StoredPiece): MatchedGarment | undefined {
-  return piece.matched?.status === 'wishlist' ? piece.matched : undefined;
-}
-
 /** Whether the piece is drawn as a strip, whose choice the save posts. */
 function hasStrip(
   piece: StoredPiece,
@@ -157,7 +157,7 @@ function PieceMatches(props: {
       class="flex flex-col gap-2"
       aria-labelledby={headingId}
       data-recreate-piece={piece.position}
-      data-missing={matches.length === 0 ? '' : undefined}
+      data-missing={matches.length === 0 && !wishlisted(piece) ? '' : undefined}
     >
       <h2 id={headingId} class="font-medium scroll-mt-20">
         {name}

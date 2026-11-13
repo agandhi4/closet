@@ -398,7 +398,16 @@ export async function isOwnInspirationPhoto(
   return row !== undefined;
 }
 
-/** The owner's look `id`, locked for a change to its pieces; NotFound when not theirs. */
+/** The piece's match is a wishlist item ("Find this" made it): nothing left to choose. */
+export function wishlisted(piece: StoredPiece): MatchedGarment | undefined {
+  return piece.matched?.status === 'wishlist' ? piece.matched : undefined;
+}
+
+/**
+ * The owner's look `id`, locked for a change to its pieces: the one lock
+ * every piece write and the match view's save take, so they take turns.
+ * NotFound when not theirs.
+ */
 async function lockOwnLook(q: Queryable, id: number, ownerId: number) {
   const [look] = await q
     .select({ id: inspiration.id })
@@ -466,21 +475,26 @@ function ownPiece(id: number, position: number, ownerId: number): SQL {
 /**
  * What the owner reads in a piece now (the piece's autosave). The garment
  * chosen for it is cleared: it was chosen for what the piece was.
- * NotFound when it is not a piece of one of their looks.
+ * NotFound when it is not a piece of one of their looks. Takes the
+ * look's lock (lockOwnLook) like the match view's save, so the save never
+ * records a garment against a role this changes under it.
  */
-export async function updateInspirationPiece(
-  db: Db,
+export function updateInspirationPiece(
+  db: Queryable,
   id: number,
   position: number,
   ownerId: number,
   piece: LookPiece,
 ): Promise<void> {
-  const updated = await db
-    .update(inspirationPiece)
-    .set({ ...pieceColumns(piece), matchedGarmentId: null })
-    .where(ownPiece(id, position, ownerId))
-    .returning({ position: inspirationPiece.position });
-  if (updated.length === 0) throw new NotFound('inspirationPiece');
+  return db.transaction(async (tx) => {
+    await lockOwnLook(tx, id, ownerId);
+    const updated = await tx
+      .update(inspirationPiece)
+      .set({ ...pieceColumns(piece), matchedGarmentId: null })
+      .where(ownPiece(id, position, ownerId))
+      .returning({ position: inspirationPiece.position });
+    if (updated.length === 0) throw new NotFound('inspirationPiece');
+  });
 }
 
 /** Removes a piece of the owner's look; the rest keep their positions. NotFound when not theirs. */
@@ -506,35 +520,35 @@ export interface LookToSave {
 
 /**
  * The owner's look `id`, its row locked, with its pieces' roles: what the
- * match view's save checks its choices against. One statement; NotFound
- * when the look is not theirs. The lock is the one a piece's add takes, so
- * the pieces read are the ones the save records against.
+ * match view's save checks its choices against. NotFound when the look is
+ * not theirs. The lock is the one every piece write takes (lockOwnLook),
+ * and the roles are read after it.
  */
 export async function lockLookForSave(
   q: Queryable,
   id: number,
   ownerId: number,
 ): Promise<LookToSave> {
-  const rows = await q
+  const [look] = await q
+    .select({ title: inspiration.title })
+    .from(inspiration)
+    .where(and(eq(inspiration.id, id), eq(inspiration.ownerId, ownerId)))
+    .for('update');
+  if (!look) throw new NotFound('inspiration');
+  // A second statement, after the lock: a piece edit that held the lock
+  // committed before this snapshot, so these are the roles as they are now
+  // (one joined statement would read the pieces as they were at its start).
+  const pieces = await q
     .select({
-      title: inspiration.title,
       position: inspirationPiece.position,
       role: inspirationPiece.role,
     })
-    .from(inspiration)
-    .leftJoin(
-      inspirationPiece,
-      eq(inspirationPiece.inspirationId, inspiration.id),
-    )
-    .where(and(eq(inspiration.id, id), eq(inspiration.ownerId, ownerId)))
-    .for('update', { of: inspiration });
-  const [first] = rows;
-  if (!first) throw new NotFound('inspiration');
-  const roles = new Map<number, InspirationPieceRole>();
-  for (const { position, role } of rows) {
-    if (position !== null && role !== null) roles.set(position, role);
-  }
-  return { title: first.title, roles };
+    .from(inspirationPiece)
+    .where(eq(inspirationPiece.inspirationId, id));
+  return {
+    title: look.title,
+    roles: new Map(pieces.map(({ position, role }) => [position, role])),
+  };
 }
 
 /** The garment the owner chose for the piece at `position` (null: none), and the category a match of it has. */
