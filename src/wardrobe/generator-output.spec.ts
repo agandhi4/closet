@@ -18,6 +18,7 @@ import {
   type GarmentColor,
   type GarmentRole,
   PATTERNS,
+  type Warmth,
   WARMTHS,
 } from './properties';
 
@@ -260,7 +261,7 @@ describe('the layer, drawn like the other roles (#646)', () => {
   let id = 0;
   const garment = (
     role: GarmentRole,
-    warmth: (typeof WARMTHS)[number],
+    warmth: Warmth,
     idleDays = 2,
   ): IdeaGarment => ({
     id: (id += 1),
@@ -279,9 +280,9 @@ describe('the layer, drawn like the other roles (#646)', () => {
     garment('layer', 3, 30),
     garment('layer', 4, 12),
     garment('layer', 4, 40),
-    ...[2, 2, 2, 2, 2, 3].map((warmth) => garment('top', warmth)),
-    ...[3, 3, 3].map((warmth) => garment('bottom', warmth)),
-    ...[2, 2].map((warmth) => garment('footwear', warmth)),
+    ...([2, 2, 2, 2, 2, 3] as const).map((warmth) => garment('top', warmth)),
+    ...([3, 3, 3] as const).map((warmth) => garment('bottom', warmth)),
+    ...([2, 2] as const).map((warmth) => garment('footwear', warmth)),
   ];
   // A dozen gallery openings, each its first page.
   const pages = Array.from({ length: 12 }, (_, seed) =>
