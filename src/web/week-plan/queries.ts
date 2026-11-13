@@ -622,6 +622,40 @@ export async function claimReplan(
   return rows.length > 0;
 }
 
+/** A "Plan my week" batch as the changes feed carries it (weekPlansByIds, week-plan-resource.ts). */
+export interface WeekPlanRow {
+  id: number;
+  createdAt: Date;
+  entries: { entryId: number; outfitCreated: boolean }[];
+}
+
+/**
+ * The batches with these ids and their entries, in one statement whatever
+ * their owners (the changes feed's page, src/web/sync/feed.ts, which read
+ * the ids from the owner's own wardrobe in the same snapshot: the weekly
+ * plan is owner-only). week_plan_entry is the batch's sync child, so an
+ * entry deleted (Undo, Change, a swap) resends the batch.
+ */
+export function weekPlansByIds(
+  db: Queryable,
+  ids: readonly number[],
+): Promise<WeekPlanRow[]> {
+  return db
+    .select({
+      id: weekPlan.id,
+      createdAt: weekPlan.createdAt,
+      entries: sql<WeekPlanRow['entries']>`(
+        select coalesce(json_agg(json_build_object(
+          'entryId', ${weekPlanEntry.entryId},
+          'outfitCreated', ${weekPlanEntry.outfitCreated}
+        ) order by ${weekPlanEntry.entryId}), '[]')
+        from ${weekPlanEntry} where ${weekPlanEntry.weekPlanId} = ${weekPlan.id}
+      )`,
+    })
+    .from(weekPlan)
+    .where(inArray(weekPlan.id, [...ids]));
+}
+
 /**
  * Removes claims of days before `before`: a claim only ever guards its own
  * day. Every owner's at once, without the owner lock: no writer judges a

@@ -1,8 +1,24 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { garment, garmentWear, user, wardrobeShare } from '../../src/db/schema';
+import { addDays } from '../../src/calendar-date';
+import {
+  garment,
+  garmentWear,
+  outfit,
+  user,
+  wardrobeShare,
+  weekPlan,
+  weekPlanEntry,
+} from '../../src/db/schema';
 import { deviceToken, expectProblem } from './api';
-import { asFixture, createTestApp, type TestApp, userIdOf } from './harness';
+import { jpegPhoto } from './garments';
+import {
+  asFixture,
+  createTestApp,
+  multipart,
+  type TestApp,
+  userIdOf,
+} from './harness';
 
 /**
  * The changes feed (#196b-1, GET /api/v1/changes; src/web/sync/AGENTS.md):
@@ -340,6 +356,315 @@ describe('the delta', () => {
   });
 });
 
+async function newOutfit(token: string, garmentIds: number[]) {
+  const res = await api(token, 'POST', '/outfits', {
+    name: 'Office',
+    slots: garmentIds.map((garmentId) => ({ category: 'shirt', garmentId })),
+  });
+  expect(res.statusCode, res.body).toBe(201);
+  return res.json<{ id: number }>().id;
+}
+
+async function plan(token: string, outfitId: number): Promise<number> {
+  const res = await api(token, 'POST', '/calendar-entries', {
+    outfitId,
+    day: t.today(),
+  });
+  expect(res.statusCode, res.body).toBe(201);
+  return res.json<{ id: number }>().id;
+}
+
+async function newTrip(token: string): Promise<number> {
+  const res = await api(token, 'POST', '/trips', {
+    name: 'Lisbon',
+    startsOn: t.today(),
+    endsOn: addDays(t.today(), 2),
+  });
+  expect(res.statusCode, res.body).toBe(201);
+  return res.json<{ id: number }>().id;
+}
+
+async function newBrand(token: string): Promise<number> {
+  const res = await api(token, 'POST', '/sizes/brands', {
+    brand: 'Uniqlo',
+    size: 'xl',
+  });
+  expect(res.statusCode, res.body).toBe(201);
+  return res.json<{ id: number }>().id;
+}
+
+/** The page's changes of `resource`, by id, as data. */
+const dataOf = (pages: Page[], resource: string) =>
+  pages
+    .flatMap((page) => page.changes)
+    .filter((change) => change.resource === resource)
+    .map((change) => change.data);
+
+describe("the owner's own resources (#196b-2)", () => {
+  it('outfits, entries, selfies and a week plan: each write is its delta; a slot resends its outfit, a garment edit does not', async () => {
+    const a = await account('changes-planning@example.com');
+    const [top, bottom] = [
+      await newGarment(a.other, 'Top'),
+      await newGarment(a.other, 'Bottom'),
+    ];
+    const outfitId = await newOutfit(a.other, [top, bottom]);
+    const entryId = await plan(a.other, outfitId);
+    // "Plan my week"'s batch over the entry, as the planner records it.
+    const weekPlanId = await asFixture(t.db, async (tx) => {
+      const [row] = await tx
+        .insert(weekPlan)
+        .values({ ownerId: a.id })
+        .returning({ id: weekPlan.id });
+      await tx
+        .insert(weekPlanEntry)
+        .values({ entryId, weekPlanId: row.id, outfitCreated: false });
+      return row.id;
+    });
+    const first = await syncAll(a.device, { limit: 2 });
+    expect(changeKeys(first.pages).sort()).toEqual(
+      [
+        `calendarEntry:${entryId}`,
+        `garment:${bottom}`,
+        `garment:${top}`,
+        `outfit:${outfitId}`,
+        `weekPlan:${weekPlanId}`,
+      ].sort(),
+    );
+    expect(dataOf(first.pages, 'outfit')).toEqual([
+      {
+        id: outfitId,
+        name: 'Office',
+        slots: [
+          { category: 'shirt', garmentId: top },
+          { category: 'shirt', garmentId: bottom },
+        ],
+      },
+    ]);
+    expect(dataOf(first.pages, 'calendarEntry')).toEqual([
+      {
+        id: entryId,
+        day: t.today(),
+        occasion: 'all-day',
+        worn: false,
+        plannedBy: 'user',
+        outfitId,
+      },
+    ]);
+    expect(dataOf(first.pages, 'weekPlan')).toEqual([
+      {
+        id: weekPlanId,
+        createdAt: expect.any(String),
+        entries: [{ entryId, outfitCreated: false }],
+      },
+    ]);
+
+    // A garment renamed moves no outfit: the feed's outfit names it by id.
+    await api(a.other, 'PATCH', `/garments/${top}`, { name: 'Top again' });
+    const renamed = await syncAll(a.device, {
+      cursor: first.cursor,
+      limit: 100,
+    });
+    expect(changeKeys(renamed.pages)).toEqual([`garment:${top}`]);
+
+    // Its rows are its sync child: one replaced resends the outfit alone.
+    const edited = await api(a.other, 'PATCH', `/outfits/${outfitId}`, {
+      slots: [{ category: 'shirt', garmentId: top }],
+    });
+    expect(edited.statusCode, edited.body).toBe(200);
+    const slots = await syncAll(a.device, {
+      cursor: renamed.cursor,
+      limit: 100,
+    });
+    expect(changeKeys(slots.pages)).toEqual([`outfit:${outfitId}`]);
+    expect(dataOf(slots.pages, 'outfit')[0].slots).toEqual([
+      { category: 'shirt', garmentId: top },
+    ]);
+
+    // A selfie is its own row and marks its entry worn, logging the wear.
+    const taken = await t.api(a.other, {
+      method: 'PUT',
+      url: `/api/v1/calendar-entries/${entryId}/selfie`,
+      ...(await multipart(
+        {},
+        {
+          photo: {
+            data: await jpegPhoto(320, 480),
+            filename: 'mirror.jpg',
+            contentType: 'image/jpeg',
+          },
+        },
+      )),
+    });
+    expect(taken.statusCode, taken.body).toBe(200);
+    const { selfieId } = taken.json<{ selfieId: number }>();
+    const worn = await syncAll(a.device, {
+      cursor: slots.cursor,
+      limit: 100,
+    });
+    const [wearId] = (
+      await t.db
+        .select({ id: garmentWear.id })
+        .from(garmentWear)
+        .where(eq(garmentWear.garmentId, top))
+    ).map((row) => row.id);
+    expect(changeKeys(worn.pages).sort()).toEqual(
+      [
+        `calendarEntry:${entryId}`,
+        `selfie:${selfieId}`,
+        `wear:${wearId}`,
+      ].sort(),
+    );
+    expect(dataOf(worn.pages, 'calendarEntry')[0]).toMatchObject({
+      worn: true,
+    });
+    expect(dataOf(worn.pages, 'selfie')).toEqual([
+      {
+        id: selfieId,
+        day: t.today(),
+        calendarEntryId: entryId,
+        photo: {
+          version: 1,
+          originalUrl: expect.stringMatching(/^\/api\/v1\/selfie-photos\//),
+          thumbUrl: expect.stringMatching(/^\/api\/v1\/selfie-photos\//),
+        },
+      },
+    ]);
+
+    // The entry deleted takes its selfie and wear; the batch loses its row.
+    expect(
+      (await api(a.other, 'DELETE', `/calendar-entries/${entryId}`)).statusCode,
+    ).toBe(204);
+    const deleted = await syncAll(a.device, {
+      cursor: worn.cursor,
+      limit: 100,
+    });
+    expect(deletionKeys(deleted.pages).sort()).toEqual(
+      [
+        `calendarEntry:${entryId}`,
+        `selfie:${selfieId}`,
+        `wear:${wearId}`,
+      ].sort(),
+    );
+    expect(changeKeys(deleted.pages)).toEqual([`weekPlan:${weekPlanId}`]);
+    expect(dataOf(deleted.pages, 'weekPlan')[0].entries).toEqual([]);
+
+    // Muse's proposal is the owner's to answer: in their feed with its
+    // reaction (an outfit nothing holds now, as a proposal must be).
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(outfit)
+        .set({
+          proposedAt: new Date(),
+          reaction: 'proposed',
+          proposalNote: 'For Monday',
+        })
+        .where(eq(outfit.id, outfitId)),
+    );
+    const proposed = await syncAll(a.device, {
+      cursor: deleted.cursor,
+      limit: 100,
+    });
+    expect(changeKeys(proposed.pages)).toEqual([`outfit:${outfitId}`]);
+    expect(dataOf(proposed.pages, 'outfit')[0].proposal).toEqual({
+      reaction: 'proposed',
+      note: 'For Monday',
+    });
+  });
+
+  it('a trip carries its outfits, extras and packed marks: a tick resends the trip alone', async () => {
+    const a = await account('changes-trip@example.com');
+    const shirt = await newGarment(a.other, 'Linen');
+    const outfitId = await newOutfit(a.other, [shirt]);
+    const tripId = await newTrip(a.other);
+    const added = await api(a.other, 'POST', `/trips/${tripId}/outfits`, {
+      outfitId,
+      day: t.today(),
+    });
+    expect(added.statusCode, added.body).toBe(201);
+    expect(
+      (
+        await api(a.other, 'POST', `/trips/${tripId}/items`, {
+          label: 'Charger',
+        })
+      ).statusCode,
+    ).toBe(201);
+    const first = await syncAll(a.device, { limit: 100 });
+    const [trip] = dataOf(first.pages, 'trip');
+    expect(trip).toEqual({
+      id: tripId,
+      name: 'Lisbon',
+      located: false,
+      startsOn: t.today(),
+      endsOn: addDays(t.today(), 2),
+      outfits: [{ id: expect.any(Number), outfitId, day: t.today() }],
+      extras: [{ id: expect.any(Number), label: 'Charger', packed: false }],
+      packedGarmentIds: [],
+    });
+
+    const packed = await api(
+      a.other,
+      'PUT',
+      `/trips/${tripId}/packing/${shirt}`,
+      {
+        packed: true,
+      },
+    );
+    expect(packed.statusCode, packed.body).toBe(200);
+    const delta = await syncAll(a.device, { cursor: first.cursor, limit: 100 });
+    expect(changeKeys(delta.pages)).toEqual([`trip:${tripId}`]);
+    expect(dataOf(delta.pages, 'trip')[0].packedGarmentIds).toEqual([shirt]);
+
+    expect((await api(a.other, 'DELETE', `/trips/${tripId}`)).statusCode).toBe(
+      204,
+    );
+    const gone = await syncAll(a.device, { cursor: delta.cursor, limit: 100 });
+    expect(deletionKeys(gone.pages)).toEqual([`trip:${tripId}`]);
+    expect(changeKeys(gone.pages)).toEqual([]);
+  });
+
+  it('the style profile, measurements and brand notes: one row per user keyed by the user, each write its delta', async () => {
+    const a = await account('changes-sizes@example.com');
+    const style = await api(a.other, 'PUT', '/style-profile', {
+      styles: ['classic'],
+      palette: ['black'],
+    });
+    expect(style.statusCode, style.body).toBe(200);
+    const measured = await api(a.other, 'PUT', '/sizes/measurements', {
+      waist: 80,
+    });
+    expect(measured.statusCode, measured.body).toBe(200);
+    const brandId = await newBrand(a.other);
+    const first = await syncAll(a.device, { limit: 100 });
+    expect(changeKeys(first.pages).sort()).toEqual(
+      [
+        `brandSize:${brandId}`,
+        `measurements:${a.id}`,
+        `styleProfile:${a.id}`,
+      ].sort(),
+    );
+    expect(dataOf(first.pages, 'styleProfile')).toEqual([
+      { styles: ['classic'], palette: ['black'] },
+    ]);
+    expect(dataOf(first.pages, 'measurements')).toEqual([
+      { unit: 'in', measurements: { waist: 80 } },
+    ]);
+    expect(dataOf(first.pages, 'brandSize')).toEqual([
+      { id: brandId, brand: 'Uniqlo', size: 'X-Large' },
+    ]);
+
+    expect(
+      (await api(a.other, 'PUT', '/sizes/unit', { unit: 'cm' })).statusCode,
+    ).toBe(200);
+    expect(
+      (await api(a.other, 'DELETE', `/sizes/brands/${brandId}`)).statusCode,
+    ).toBe(204);
+    const delta = await syncAll(a.device, { cursor: first.cursor, limit: 100 });
+    expect(changeKeys(delta.pages)).toEqual([`measurements:${a.id}`]);
+    expect(dataOf(delta.pages, 'measurements')[0].unit).toBe('cm');
+    expect(deletionKeys(delta.pages)).toEqual([`brandSize:${brandId}`]);
+  });
+});
+
 describe('the cursor', () => {
   it('a forged cursor is a 400; one from before a resource joined the feed is expired', async () => {
     const a = await account('changes-forged@example.com');
@@ -549,6 +874,11 @@ describe("a grantee's feed", () => {
       waist: 80,
     });
     expect(measured.statusCode, measured.body).toBe(200);
+    // The owner's planning: outfits, the calendar, trips and sizes are theirs alone.
+    const ownersOutfit = await newOutfit(owner.device, [shared]);
+    await plan(owner.device, ownersOutfit);
+    await newTrip(owner.device);
+    await newBrand(owner.device);
     const own = await newGarment(grantee.device, 'Mine');
     await t.db.insert(wardrobeShare).values({
       grantorId: owner.id,
@@ -577,7 +907,8 @@ describe("a grantee's feed", () => {
       'validation',
     );
 
-    // The owner's wear deletion never reaches the grantee; the garment's does.
+    // The owner's wear deletion and their outfit's emptied slot never reach
+    // the grantee; the garment's deletion does.
     expect(
       (await api(owner.device, 'DELETE', `/garments/${shared}`)).statusCode,
     ).toBe(204);

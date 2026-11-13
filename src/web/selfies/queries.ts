@@ -19,6 +19,44 @@ import { type EntryWornOutcome, setEntryWorn } from '../wears/queries';
  * unlinked by the callers after commit (writes.ts, removeEntry).
  */
 
+/** A selfie as the changes feed carries it (selfiesByIds, selfie-resource.ts). */
+export interface SelfieRow {
+  id: number;
+  day: IsoDate;
+  /** Null once its outfit was deleted: a look kept on its own. */
+  entryId: number | null;
+  photo: PrivatePhoto;
+}
+
+/**
+ * The selfies with these ids and their photos, in one statement whatever
+ * their owners (the changes feed's page, src/web/sync/feed.ts, which read
+ * the ids from the owner's own wardrobe in the same snapshot: selfies are
+ * owner-only). The photo row is never rewritten in place (a replacement is
+ * another photo, repointing the selfie), so its name and version move only
+ * with the selfie's revision.
+ */
+export async function selfiesByIds(
+  db: Queryable,
+  ids: readonly number[],
+): Promise<SelfieRow[]> {
+  const rows = await db
+    .select({
+      id: selfie.id,
+      day: selfie.day,
+      entryId: selfie.outfitCalendarId,
+      fileName: file.fileName,
+      version: file.version,
+    })
+    .from(selfie)
+    .innerJoin(file, eq(file.id, selfie.photoId))
+    .where(inArray(selfie.id, [...ids]));
+  return rows.map(({ fileName, version, ...row }) => ({
+    ...row,
+    photo: { fileName, version },
+  }));
+}
+
 /** A selfie as a view draws it: its id (removal) and its photo (the URLs). */
 export interface SelfieRef {
   id: number;

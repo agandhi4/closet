@@ -20,7 +20,7 @@ import {
 } from '../weather/weather-resource';
 import type { TripForecast } from './forecast';
 import type { TripModel, TripOutfitView } from './model';
-import type { TripRow, TripSummary } from './queries';
+import type { SyncedTripRow, TripRow, TripSummary } from './queries';
 import {
   TRIP_DESTINATION_MAX,
   TRIP_ITEM_MAX,
@@ -44,7 +44,8 @@ const TRIP_PHASES = [
   'past',
 ] as const satisfies readonly TripPhase[];
 
-const tripFields = {
+/** A trip's own fields: also the changes feed's (SyncedTrip). */
+const storedTripFields = {
   id: Type.Integer(),
   name: Type.String(),
   destination: Type.Optional(Type.String()),
@@ -53,6 +54,10 @@ const tripFields = {
   startsOn: IsoDateSchema,
   endsOn: IsoDateSchema,
   notes: Type.Optional(Type.String()),
+};
+
+const tripFields = {
+  ...storedTripFields,
   phase: CloneType(literals(TRIP_PHASES), {
     description:
       "Where the trip stands on the household's today (GET /me): packing warnings are only for one upcoming or current",
@@ -204,6 +209,57 @@ export const Trip = Type.Object(
   },
 );
 type Trip = Static<typeof Trip>;
+
+/**
+ * The changes feed's trip (#196b-2, GET /changes): its own fields and the
+ * rows of its sync children (outfits, extras, packed marks). No `phase`
+ * (it moves with the day, not the trip), no `days` or `anyDay` grouping
+ * (the outfits' days, flat here), no outfit names or garments (the
+ * outfits'), no `wornTodayEntryId` (the calendar's) and no `packing`: the
+ * list is derived from the outfits' slots and the garments, whose edits
+ * never move the trip's revision; the client derives it as the server does.
+ */
+export const SyncedTrip = Type.Object(
+  {
+    ...storedTripFields,
+    outfits: Type.Array(
+      Type.Object(
+        {
+          id: TripOutfitResource.properties.id,
+          outfitId: Type.Integer(),
+          day: Type.Optional(IsoDateSchema),
+          occasion: Type.Optional(literals(OCCASIONS)),
+        },
+        { title: 'SyncedTripOutfit' },
+      ),
+      { description: 'In the order added; absent `day`: for any day' },
+    ),
+    extras: Type.Array(TripItemResource),
+    packedGarmentIds: Type.Array(Type.Integer(), {
+      description:
+        'The garments marked packed. A mark whose garment is no longer on the list (its outfit taken off or edited) is ignored, and goes at the next write that prunes it',
+    }),
+  },
+  {
+    title: 'SyncedTrip',
+    description:
+      'One of your trips as stored: its packing list is derived from its outfits’ garments',
+  },
+);
+
+export function toSyncedTrip(row: SyncedTripRow): Static<typeof SyncedTrip> {
+  return {
+    id: row.id,
+    name: row.name,
+    ...withoutNulls({ destination: row.destination, notes: row.notes }),
+    located: row.location !== null,
+    startsOn: row.startsOn,
+    endsOn: row.endsOn,
+    outfits: row.outfits.map((outfit) => withoutNulls(outfit)),
+    extras: row.extras,
+    packedGarmentIds: row.packedGarmentIds,
+  };
+}
 
 function toTripFields(trip: TripRow, phase: TripPhase) {
   return {

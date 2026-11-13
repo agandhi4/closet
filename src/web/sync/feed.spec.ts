@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { SYNC_ROOTS } from '../../db/sync-tables';
 import { endOf, isExpired, KIND, type Position, startOf } from './cursor';
-import { FEED, PENDING_FEED_RESOURCES } from './feed';
+import { FEED } from './feed';
 
 describe('the feed registry', () => {
-  it('registers every synced root, or lists it pending #608', () => {
-    const unregistered = SYNC_ROOTS.map((root) => root.table).filter(
-      (table) => !(table in FEED),
-    );
-    expect(unregistered).toEqual([...PENDING_FEED_RESOURCES]);
+  // tsc holds FEED's keys to SYNC_ROOTS (a Record of SyncResource).
+  it('carries only garments and capsules to a grantee (src/web/sharing/AGENTS.md)', () => {
+    const shared = Object.entries(FEED)
+      .filter(([, entry]) => entry.shared)
+      .map(([table]) => table);
+    expect(shared.sort()).toEqual(['capsule', 'garment']);
   });
 
   it('names each resource once, with a titled schema for the spec', () => {

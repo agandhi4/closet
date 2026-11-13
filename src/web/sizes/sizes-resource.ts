@@ -109,6 +109,27 @@ export const SizesResource = Type.Object(
 );
 type SizesResource = Static<typeof SizesResource>;
 
+/**
+ * The changes feed's measurements (#196b-2, GET /changes): the one row a
+ * user has once they save any, the `id` of its change the user's. Nothing
+ * dropped; a brand note is its own resource (`BrandSize` as GET answers it).
+ */
+export const SyncedMeasurements = Type.Object(
+  { unit: Unit, measurements: MeasurementsResource },
+  {
+    title: 'SyncedMeasurements',
+    description:
+      'Your body measurements and how you read them: never anyone else’s',
+  },
+);
+
+export function toSyncedMeasurements({
+  unit,
+  lengths,
+}: BodyMeasurements): Static<typeof SyncedMeasurements> {
+  return { unit, measurements: toMeasurementsResource(lengths) };
+}
+
 export const BrandSizeQuery = Type.Object({
   brand: Type.Optional(
     Type.String({
