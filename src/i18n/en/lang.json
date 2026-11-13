@@ -682,6 +682,8 @@
     "URL_PLACEHOLDER": "https://…",
     "FETCH": "Fetch",
     "FETCH_HINT": "Fetching can take a few seconds.",
+    "SAVE_AS_INSPIRATION": "Save as inspiration",
+    "SAVE_AS_INSPIRATION_HINT": "A look to recreate rather than a garment: it goes to Outfits › Inspiration.",
     "NO_LINK": "Paste a link that starts with http:// or https://.",
     "INVALID_URL": "That doesn't look like a link. Paste the whole address.",
     "UNSUPPORTED_SCHEME": "Only web links (http or https) can be added.",

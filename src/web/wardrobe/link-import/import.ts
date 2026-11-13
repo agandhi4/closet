@@ -63,6 +63,13 @@ export const CHOICE_PIXEL_BUDGET = MAX_INPUT_PIXELS;
  */
 export const LINK_INPUT_MAX = 4096;
 
+/**
+ * A share sheet's text field: it can be a whole paragraph around the link,
+ * and is only scanned for the link (linkIn, linear), never stored. The
+ * share target's fields (the link page's query, POST /inspiration/share).
+ */
+export const SHARED_TEXT_MAX = 16_384;
+
 export type LinkImportRefusal =
   | OutboundFetchRefusal
   /** The text holds no http(s) link. */

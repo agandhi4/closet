@@ -6,6 +6,7 @@ import { coverageTools } from './coverage';
 import { galleryTools } from './gallery';
 import { garmentTools } from './garments';
 import { insightTools } from './insights';
+import { inspirationTools } from './inspiration';
 import { outfitTools } from './outfits';
 import { sharingTools } from './sharing';
 import { sizeTools } from './sizes';
@@ -30,7 +31,7 @@ import { weekPlanTools } from './week-plan';
  * wardrobe_stats, Today (#15) tools/today.ts. A garment's photo for
  * tagging (#90) is tools/garments.ts's get_garment_photo, its queue
  * search_garments' needsTagging. Sizes (#24) are tools/sizes.ts's
- * get_sizes, read only.
+ * get_sizes, read only. Saved looks (#22d) are tools/inspiration.ts's.
  */
 export function mcpTools(options: {
   weather: boolean;
@@ -40,6 +41,7 @@ export function mcpTools(options: {
     ...capsuleTools,
     ...outfitTools,
     ...galleryTools,
+    ...inspirationTools,
     ...todayTools,
     ...calendarTools,
     ...weekPlanTools,

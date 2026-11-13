@@ -1,6 +1,39 @@
 import { APP_ICON_SIZES, appIconFile } from '../app-icon';
 import { THEME_BASE_100 } from '../theme-colors';
+import {
+  INSPIRATION_SHARE_PATH,
+  SHARE_PHOTO_FIELD,
+  SHARED_TEXT_FIELDS,
+} from '../inspiration/share-target';
 import { LINK_IMPORT_PATH } from '../wardrobe/urls';
+
+/**
+ * Android's share sheet (iOS has no share targets). A manifest has one
+ * `share_target`, so one target takes both links and photos: a POST
+ * (multipart, the only way a file is shared) that the service worker
+ * relays (views/assets/src-sw.ts: the browser's own post names no Origin
+ * the same-origin check accepts) to POST /inspiration/share, where a photo
+ * becomes a saved look and a link opens the link import, fetching nothing
+ * until Fetch. Without the worker (PWA_ENABLED off) nothing could relay
+ * it, so the target stays the link import's GET, links only.
+ */
+function shareTarget(pwaEnabled: boolean): Record<string, unknown> {
+  const params = Object.fromEntries(
+    SHARED_TEXT_FIELDS.map((field) => [field, field]),
+  );
+  if (!pwaEnabled) {
+    return { action: LINK_IMPORT_PATH, method: 'GET', params };
+  }
+  return {
+    action: INSPIRATION_SHARE_PATH,
+    method: 'POST',
+    enctype: 'multipart/form-data',
+    params: {
+      ...params,
+      files: [{ name: SHARE_PHOTO_FIELD, accept: ['image/*'] }],
+    },
+  };
+}
 
 /**
  * The web app manifest, served at GET /manifest.json (routes.tsx). Built
@@ -11,6 +44,7 @@ import { LINK_IMPORT_PATH } from '../wardrobe/urls';
 export function webManifest(config: {
   appName: string;
   iconName: string;
+  pwaEnabled: boolean;
 }): Record<string, unknown> {
   const { appName, iconName } = config;
   return {
@@ -63,15 +97,9 @@ export function webManifest(config: {
         url: '/wardrobe/new',
       },
     ],
-    // Android's share sheet: "Share" on a product page in any app opens the
-    // link import with the page's link (in `url`, or inside `text` after
-    // the title, depending on the app). GET, so the link page fetches
-    // nothing until the person taps Fetch. iOS has no share targets.
-    share_target: {
-      action: LINK_IMPORT_PATH,
-      method: 'GET',
-      params: { title: 'title', text: 'text', url: 'url' },
-    },
+    // A shared link arrives in `url`, or inside `text` after the title,
+    // depending on the app.
+    share_target: shareTarget(config.pwaEnabled),
     description: 'Wardrobe organizer: garments, outfits, and a calendar.',
     // No `screenshots` (issue #4): the install dialogs (the browser's and
     // <pwa-install>) would fetch them for a household whose phones already

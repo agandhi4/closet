@@ -1,4 +1,4 @@
-import { and, desc, eq, max, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, max, type SQL, sql } from 'drizzle-orm';
 import type { IsoDate } from '../../calendar-date';
 import { initialCutoutState } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
@@ -57,6 +57,11 @@ export interface InspirationSummary {
   photo: PrivatePhoto | null;
 }
 
+/** A look as the list reads it: with how many pieces it is tagged with (MCP's tagging queue). */
+export interface ListedInspiration extends InspirationSummary {
+  pieceCount: number;
+}
+
 /** A piece of a look as the owner read it, at its place in the look. */
 export interface StoredPiece extends LookPiece {
   position: number;
@@ -109,14 +114,18 @@ function photoOf(row: {
 
 /**
  * The owner's looks, newest first: the Inspiration tab's one statement
- * after the session's (inspiration_owner_id_id_index, read backward).
+ * after the session's (inspiration_owner_id_id_index, read backward), and
+ * list_inspiration's.
  */
 export async function listInspirations(
   db: Db,
   ownerId: number,
-): Promise<InspirationSummary[]> {
+): Promise<ListedInspiration[]> {
   const rows = await db
-    .select(SUMMARY_COLUMNS)
+    .select({
+      ...SUMMARY_COLUMNS,
+      pieceCount: sql<number>`(select count(*)::int from ${inspirationPiece} where ${eq(inspirationPiece.inspirationId, inspiration.id)})`,
+    })
     .from(inspiration)
     .leftJoin(file, eq(file.id, inspiration.photoId))
     .where(eq(inspiration.ownerId, ownerId))
@@ -509,6 +518,91 @@ export async function deleteInspirationPiece(
     .where(ownPiece(id, position, ownerId))
     .returning({ position: inspirationPiece.position });
   if (deleted.length === 0) throw new NotFound('inspirationPiece');
+}
+
+/** What set_inspiration_pieces did to a look's pieces. */
+export interface PiecesSet {
+  kept: number;
+  removed: number;
+  added: number;
+}
+
+/**
+ * The owner's look `id` holds exactly `pieces` (MCP's
+ * set_inspiration_pieces, #22d: Muse tagging a look). A stored piece equal
+ * to one asked for (role, type, colours in order, pattern; each matched
+ * once) stays as it is, its position and its chosen garment with it; the
+ * other stored pieces are removed, and the rest asked for added after the
+ * highest position the look had, in the order given, so no position is
+ * reused for another piece (the match view posts positions). Under the
+ * look's lock (lockOwnLook), like every piece write. NotFound when the
+ * look is not theirs; a 400 past INSPIRATION_MAX_PIECES.
+ */
+export function setInspirationPieces(
+  db: Db,
+  id: number,
+  ownerId: number,
+  pieces: readonly LookPiece[],
+): Promise<PiecesSet> {
+  if (pieces.length > INSPIRATION_MAX_PIECES) {
+    throw new HttpError(400, `At most ${INSPIRATION_MAX_PIECES} pieces`);
+  }
+  return db.transaction(async (tx) => {
+    await lockOwnLook(tx, id, ownerId);
+    const stored = await tx
+      .select({
+        position: inspirationPiece.position,
+        role: inspirationPiece.role,
+        type: inspirationPiece.type,
+        colors: inspirationPiece.colors,
+        pattern: inspirationPiece.pattern,
+      })
+      .from(inspirationPiece)
+      .where(eq(inspirationPiece.inspirationId, id));
+    const unmatched = [...stored];
+    const added = pieces.filter((piece) => {
+      const at = unmatched.findIndex((row) => samePiece(row, piece));
+      if (at === -1) return true;
+      unmatched.splice(at, 1);
+      return false;
+    });
+    if (unmatched.length > 0) {
+      await tx.delete(inspirationPiece).where(
+        and(
+          eq(inspirationPiece.inspirationId, id),
+          inArray(
+            inspirationPiece.position,
+            unmatched.map((row) => row.position),
+          ),
+        ),
+      );
+    }
+    if (added.length > 0) {
+      const next = Math.max(-1, ...stored.map((row) => row.position)) + 1;
+      await tx.insert(inspirationPiece).values(
+        added.map((piece, index) => ({
+          inspirationId: id,
+          position: next + index,
+          ...pieceColumns(piece),
+        })),
+      );
+    }
+    return {
+      kept: stored.length - unmatched.length,
+      removed: unmatched.length,
+      added: added.length,
+    };
+  });
+}
+
+function samePiece(a: LookPiece, b: LookPiece): boolean {
+  return (
+    a.role === b.role &&
+    a.type === b.type &&
+    a.pattern === b.pattern &&
+    a.colors.length === b.colors.length &&
+    a.colors.every((color, index) => color === b.colors[index])
+  );
 }
 
 /** A look locked for its match view's save (lockLookForSave). */

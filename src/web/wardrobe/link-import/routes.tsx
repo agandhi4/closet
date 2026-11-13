@@ -23,18 +23,16 @@ import {
   LinkImportError,
   type LinkImportRefusal,
   REFUSALS,
+  SHARED_TEXT_MAX,
 } from './import';
 import { LinkPage } from './link-page';
 import { LinkPhotoSlot } from './photo-choice';
 import { importedForm } from './prefill';
 
-// A share sheet's text can be a whole paragraph around the link; it is only
-// scanned for the link (linkIn, linear), never stored.
-const SHARED_TEXT_MAX = 16_384;
-
-// The link page's query: the wardrobe, and the manifest's share target
-// (src/web/shell/manifest.ts), which sends `title`, `text` and `url`
-// (Android puts the link in either of the last two). Navigation state.
+// The link page's query: the wardrobe, and a shared link (the manifest's
+// share target, src/web/shell/manifest.ts: by POST /inspiration/share's
+// redirect, or by GET itself without PWA_ENABLED), as `title`, `text` and
+// `url` (Android puts the link in either of the last two). Navigation state.
 const LinkQuery = Type.Object({
   ...DestinationQuery.properties,
   url: Type.Optional(Type.String({ maxLength: SHARED_TEXT_MAX })),

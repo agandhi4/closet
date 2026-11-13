@@ -45,6 +45,8 @@ import {
   type WarmList,
 } from '../../src/web/shell/offline-warm';
 import { WARM_REQUEST_HEADER } from '../../src/warm-request';
+import { LOGIN_PATH } from '../../src/web/auth/login-path';
+import { INSPIRATION_SHARE_PATH } from '../../src/web/inspiration/share-target';
 import {
   OUTBOX_SYNCED,
   PAGES_RENEWED,
@@ -733,6 +735,40 @@ async function deleteQueuedWrites(
 // POST only: GET /auth/logout is the confirmation page old cached pages
 // link to, and GET /auth/login the form; neither changes a session.
 registerRoute(isSessionBoundary, sessionBoundaryHandler, 'POST');
+
+// The manifest's share target (#22d, src/web/shell/manifest.ts): Android
+// opens the app with a POST navigation the browser itself starts, whose
+// Origin is not one the server's same-origin check accepts. The worker
+// posts the same body itself (its own origin, the session's cookie) and
+// answers the navigation with where the server's 303 landed, a look's page
+// or the link import's (answerFor, as for an auth post). Without a session
+// the server answers this fetch a bodiless 401, which would be a blank
+// page: the worker sends it to sign in instead, dropping the session's
+// caches as a page sent to the login page does. No answer at all is the
+// catch handler's offline page; the share is not kept (a photo is not a
+// queued write, docs/plans/2026-11-12-offline-queued-writes.md).
+const isShareTarget = ({ request, url }: { request: Request; url: URL }) =>
+  url.origin === self.location.origin &&
+  url.pathname === INSPIRATION_SHARE_PATH &&
+  request.mode === 'navigate';
+
+const shareTargetHandler = async ({
+  request,
+  event,
+}: RouteHandlerCallbackOptions) => {
+  const response = await fetchFollowingRedirects(request);
+  if (response.status === 401) {
+    console.info('[sw] share target: signed out, to the login page');
+    await dropSession(event, 'share target found nobody signed in');
+    return Response.redirect(LOGIN_PATH, 303);
+  }
+  console.info(
+    `[sw] share target relayed: ${response.status}${response.redirected ? ` to ${new URL(response.url).pathname}` : ''}`,
+  );
+  return answerFor(request, response);
+};
+
+registerRoute(isShareTarget, shareTargetHandler, 'POST');
 
 registerRoute(
   ({ request }) => servesStaleWhileRevalidate(request, self.location.origin),

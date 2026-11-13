@@ -417,6 +417,7 @@ export async function createApp(
       iconName: config.ICON_NAME,
       timeZone: config.APP_TIMEZONE,
       registrationDisabled: config.DISABLE_REGISTRATION,
+      pwaEnabled: config.PWA_ENABLED,
       vapid,
       orderMailOwner: orderMail?.ownerEmail,
       release: build.release,

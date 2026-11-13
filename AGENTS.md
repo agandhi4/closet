@@ -86,7 +86,7 @@ Each area's detail lives in an `AGENTS.md` beside its code, with `CLAUDE.md` a s
 | Styling | `src/web/styling/AGENTS.md` | the outfit composer |
 | Snap strip | `src/web/strip/AGENTS.md` | the scroll-snap carousel (`SnapStrip`, `snap-strip.js`) Styling and the plan review share |
 | Outfit gallery | `src/web/gallery/AGENTS.md` | the Ideas tab and anything that suggests outfits (`ideasFor`) |
-| Inspiration | `src/web/inspiration/AGENTS.md` | saved looks (the Inspiration tab), their private photos, "recreate this look" |
+| Inspiration | `src/web/inspiration/AGENTS.md` | saved looks (the Inspiration tab), their private photos, "recreate this look", the share target, their MCP tools |
 | Today | `src/web/today/AGENTS.md` | the home screen |
 | Weekly auto-plan | `src/web/week-plan/AGENTS.md` | "Plan my week", the daily re-plan, `planned_by` |
 | Web Push | `src/push/AGENTS.md` | subscriptions, notifications, reminders |

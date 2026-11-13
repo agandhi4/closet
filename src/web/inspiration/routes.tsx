@@ -2,11 +2,6 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { type Static, Type } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { todayIn } from '../../calendar-date';
-import {
-  type Recreation,
-  type RecreateRequest,
-  recreateLook,
-} from '../../wardrobe/recreate';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
 import { HttpError } from '../errors';
@@ -16,7 +11,6 @@ import { t } from '../i18n';
 import { alreadySavedParam } from '../gallery/urls';
 import { loggableUrl } from '../loggable-url';
 import { outfitUrl } from '../outfits/urls';
-import type { RecreatePoolGarment } from '../gallery/queries';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { RowId } from '../schemas';
@@ -28,7 +22,9 @@ import {
   LinkImportError,
   type LinkImportRefusal,
   REFUSALS,
+  SHARED_TEXT_MAX,
 } from '../wardrobe/link-import/import';
+import { LINK_IMPORT_PATH, wardrobeUrl } from '../wardrobe/urls';
 import { InspirationListPage } from './list-page';
 import { NewInspirationPage } from './new-page';
 import { PieceBody, pieceKindValue, readPiece } from './piece-input';
@@ -42,14 +38,13 @@ import {
   INSPIRATION_TITLE_MAX,
   isOwnInspirationPhoto,
   listInspirations,
-  recreateInputs,
-  type StoredPiece,
-  wishlisted,
   updateInspirationPiece,
   updateInspirationText,
 } from './queries';
 import { RecreatePage } from './recreate-page';
 import { type PostedChoice, saveRecreation } from './recreate-writes';
+import { recreateOwnLook } from './recreation';
+import { INSPIRATION_SHARE_PATH, SHARED_TEXT_FIELDS } from './share-target';
 import { InspirationPage } from './show-page';
 import {
   INSPIRATION_LINK_PATH,
@@ -61,9 +56,11 @@ import {
 } from './urls';
 import {
   addLinkedInspiration,
+  addSharedInspiration,
   addUploadedInspiration,
   attachInspirationPhoto,
   removeInspiration,
+  type SharedText,
   unreadReasonOf,
 } from './writes';
 
@@ -114,32 +111,6 @@ const FileParams = Type.Object({ fileName: Type.String() });
  * with a 303 to the look's page, the list after a delete; the autosave is
  * answered with its status line.
  */
-/**
- * recreateLook over the pieces still to match: a piece already on the
- * wishlist has its choice made, so it takes no part in the assignment (it
- * would reserve a garment a later piece needs). Results come back in the
- * look's piece order, a wishlisted piece with no matches.
- */
-function recreateClosetPieces(
-  pieces: readonly StoredPiece[],
-  request: Omit<RecreateRequest<RecreatePoolGarment>, 'pieces' | 'saved'>,
-): Recreation<RecreatePoolGarment> {
-  const open = pieces.flatMap((piece, index) =>
-    wishlisted(piece) ? [] : [index],
-  );
-  const found = recreateLook({
-    ...request,
-    pieces: open.map((index) => pieces[index]),
-    saved: open.map((index) => pieces[index].matched?.id ?? null),
-  });
-  const result: Recreation<RecreatePoolGarment> = {
-    pieces: pieces.map(() => ({ matches: [], repicked: false })),
-    unfixed: found.unfixed.map((at) => open[at]),
-  };
-  open.forEach((index, at) => (result.pieces[index] = found.pieces[at]));
-  return result;
-}
-
 export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
   { db, photos, logger, fetcher, config },
@@ -202,6 +173,44 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       request.files({ limits: { files: 1 } }),
     );
     return reply.redirect(inspirationUrl(id), 303);
+  });
+
+  // The manifest's share target (#22d), relayed by the service worker
+  // with the session's cookie and the worker's own Origin: the browser's
+  // own post is browser-initiated, with no Origin the same-origin hook
+  // can trust. A photo is a new look, its page next; a share without one
+  // (a link) is the link import's page, which fetches nothing until Fetch,
+  // as the GET target did. At most one field per name.
+  app.post(INSPIRATION_SHARE_PATH, async (request, reply) => {
+    const userId = sessionUserId(request);
+    const shared = await addSharedInspiration(
+      deps,
+      userId,
+      request.parts({
+        limits: {
+          fields: SHARED_TEXT_FIELDS.length,
+          fieldSize: SHARED_TEXT_MAX,
+        },
+      }),
+    );
+    if ('look' in shared)
+      return reply.redirect(inspirationUrl(shared.look), 303);
+    const sharedText = sharedTextOf(shared.text);
+    const link = linkIn(sharedText);
+    logger.info(
+      `Share by user ${userId} without a photo: ${link ? 'its link' : 'text without a link'} to the link import`,
+    );
+    // Its link, or (none found) its text cut to the link field, so the page
+    // says it holds no link: never the whole text, which a redirect's URL
+    // could not carry.
+    return reply.redirect(
+      wardrobeUrl(
+        undefined,
+        link ? { url: link } : { text: sharedText.slice(0, LINK_INPUT_MAX) },
+        LINK_IMPORT_PATH,
+      ),
+      303,
+    );
   });
 
   // A pasted link: fetched here (importLink), then the look's page. A link
@@ -346,25 +355,17 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // "Recreate this look": one statement for the look, the closet and its
-  // rules (recreateInputs), then the pure matching.
+  // "Recreate this look": one statement, then the pure matching.
   app.get(
     `${LOOK_ROUTE}/recreate`,
     { schema: { params: LookParams } },
     async (request, reply) => {
-      const userId = sessionUserId(request);
-      const today = todayIn(config.timeZone, new Date());
-      const { look, closet, avoid, rules } = await recreateInputs(
+      const { look, recreation } = await recreateOwnLook(
         db,
         request.params.id,
-        userId,
-        today,
+        sessionUserId(request),
+        todayIn(config.timeZone, new Date()),
       );
-      const recreation = recreateClosetPieces(look.pieces, {
-        closet,
-        avoid,
-        rules,
-      });
       return renderPage(
         reply,
         <RecreatePage
@@ -478,4 +479,9 @@ function postedChoices(body: Static<typeof ChoicesBody>): PostedChoice[] {
     const garment = body.garment[index];
     return { position, garmentId: garment === '' ? null : garment };
   });
+}
+
+/** A share's text as the link page's GET scans it for the link: `url`, then `text`. */
+function sharedTextOf({ url = '', text = '' }: SharedText): string {
+  return `${url} ${text}`.trim();
 }

@@ -89,6 +89,10 @@ const WEB_PUSH = {
 const BROWSER_TELEMETRY = {
   webOnly: "the browser's own telemetry: web vitals and client errors",
 } as const;
+const SHARE_TARGET = {
+  webOnly:
+    "the installed web app's share target: a native client shares into its own extension, which posts the upload's twin",
+} as const;
 const FORM_FRAGMENT = {
   webOnly: "redraws part of a page's form and writes nothing",
 } as const;
@@ -168,6 +172,7 @@ export const PAGE_WRITES: Readonly<
   // Saved looks (#22): outfits' inspiration, so outfits' endpoint issue.
   'POST /inspiration': { pending: '#193' },
   'POST /inspiration/link': { pending: '#193' },
+  'POST /inspiration/share': SHARE_TARGET,
   'POST /inspiration/:id': { pending: '#193' },
   'POST /inspiration/:id/delete': { pending: '#193' },
   'POST /inspiration/:id/photo': { pending: '#193' },
@@ -267,6 +272,8 @@ export const MCP_WRITES: Readonly<Record<string, ToolParity>> = {
   mark_worn: { pending: '#193' },
   mark_washed: { pending: '#193' },
   plan_week: { pending: '#193' },
+  add_inspiration: { pending: '#193' },
+  set_inspiration_pieces: { pending: '#193' },
   set_capsule_membership: { pending: '#194' },
   plan_trip_outfit: { pending: '#194' },
   create_option_group: MUSE_ROUND,

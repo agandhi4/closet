@@ -14,6 +14,10 @@ import {
 } from '../../src/db/schema';
 import { runSeed } from '../../src/seed/seed';
 import { addDays } from '../../src/calendar-date';
+import {
+  addInspirationPiece,
+  saveInspiration,
+} from '../../src/web/inspiration/queries';
 import { createOptionGroup } from '../../src/web/wishlist/decisions';
 import {
   STUB_WEATHER_NOW,
@@ -78,6 +82,7 @@ describe('MCP statements per tool (#172)', () => {
     danaCapsule: 0,
     trip: 0,
     need: 0,
+    look: 0,
   };
   let lookSets = 0;
   /** A closet garment with the wishlist item: a new set at every call. */
@@ -149,6 +154,16 @@ describe('MCP statements per tool (#172)', () => {
 
   async function findIds() {
     ids.theo = await userIdOf(t, DEMO_EMAIL);
+    ids.look = await saveInspiration(t.db, ids.theo, null, {
+      title: 'Statements look',
+      sourceUrl: sites.url('/products/tee'),
+    });
+    await addInspirationPiece(t.db, ids.look, ids.theo, {
+      role: 'top',
+      type: 't-shirt',
+      colors: ['blue'],
+      pattern: null,
+    });
     const [repaired] = await t.db
       .select({ id: garment.id })
       .from(garmentRepair)
@@ -315,6 +330,23 @@ describe('MCP statements per tool (#172)', () => {
       6, // 7: the day's entries read again for the occasion kept
     ],
     ['suggest_outfits', () => ({ date: day(1), occasion: 'work' }), 2],
+    // Saved looks (#22d): the list's one statement, the match view's one.
+    ['list_inspiration', () => ({}), 2],
+    ['get_inspiration', () => ({ id: ids.look }), 2],
+    // The paste's: the pending photo kept (begin, insert, the cap's
+    // eviction, commit), then claimed with the look (begin, the name's
+    // lock, the pending row taken, the file, the look, commit), read back.
+    ['add_inspiration', () => ({ url: sites.url('/products/tee') }), 12],
+    // begin, the look's lock, its pieces (the same ones: no write),
+    // commit, then get_inspiration's read.
+    [
+      'set_inspiration_pieces',
+      () => ({
+        id: ids.look,
+        pieces: [{ role: 'top', type: 't-shirt', colors: ['blue'] }],
+      }),
+      6,
+    ],
     ['goes_with_closet', () => ({ garmentId: ids.wishlist }), 2],
     [
       'pick_outfit',

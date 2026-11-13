@@ -56,16 +56,4 @@ describe('GET /manifest.json', () => {
       '<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#191512"/>',
     );
   });
-
-  // Android's share sheet: a shared product page opens the link import,
-  // whose GET takes the link from `url` or from inside `text`
-  // (link-import.spec.ts).
-  it('names the link import as the share target, by GET', async () => {
-    const res = await t.inject({ method: 'GET', url: '/manifest.json' });
-    expect(res.json().share_target).toEqual({
-      action: '/wardrobe/new/from-link',
-      method: 'GET',
-      params: { title: 'title', text: 'text', url: 'url' },
-    });
-  });
 });
