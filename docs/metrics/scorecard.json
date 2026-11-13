@@ -4,6 +4,7 @@
     "clock_shift": true,
     "codex_review": true,
     "contract_probe": true,
+    "deploy_kinds": true,
     "gate_plan": true,
     "guards": true,
     "hooks": true,

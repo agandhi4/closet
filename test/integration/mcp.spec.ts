@@ -12,6 +12,7 @@ import { createCapsule } from '../../src/web/capsules/queries';
 import { t as text } from '../../src/web/i18n';
 import { MAX_TOOL_INPUT_ELEMENTS } from '../../src/web/mcp/routes';
 import { acceptInvite, createInvite } from '../../src/web/sharing/queries';
+import { deleteGarment } from '../../src/web/wardrobe/queries';
 import {
   createTestApp,
   type TestApp,
@@ -20,6 +21,7 @@ import {
   uniqueClient,
   userIdOf,
 } from './harness';
+import { interleave } from './interleave';
 import {
   html,
   jpeg,
@@ -674,6 +676,24 @@ describe('the MCP endpoint', () => {
         category: 'footwear',
         role: 'footwear',
       });
+    });
+
+    // Read, then written: a delete committed between the two is the
+    // refusal it would have been before the read, never an answer for a
+    // garment that is gone.
+    it('update_garment on a garment deleted meanwhile is Garment not found', async () => {
+      const { id } = await addGarment('Deleted Midway', { category: 'tops' });
+      const [deleted, answer] = await interleave(
+        t.db,
+        (tx) => deleteGarment(tx, id, t.owner.id),
+        () => callTool(t, token, 'update_garment', { id, name: 'Too Late' }),
+      );
+      expect(deleted.ok).toBe(true);
+      expect(answer).toEqual({
+        isError: true,
+        value: { error: 'Garment not found' },
+      });
+      expect(await t.db.$count(garment, eq(garment.id, id))).toBe(0);
     });
 
     // A product link is usually something being considered (#18): the

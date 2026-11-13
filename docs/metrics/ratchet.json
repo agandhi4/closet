@@ -30,7 +30,7 @@
     "source": "layers"
   },
   "coverage.backend.branches": {
-    "bound": 92.46,
+    "bound": 92.56,
     "direction": "higher",
     "source": "cov"
   },
@@ -498,5 +498,15 @@
     "bound": 2,
     "direction": "lower",
     "source": "statements"
+  },
+  "tests.db.vitest": {
+    "bound": 4559,
+    "direction": "higher",
+    "source": "tier-db"
+  },
+  "tests.unit.vitest": {
+    "bound": 1544,
+    "direction": "higher",
+    "source": "tier-unit"
   }
 }

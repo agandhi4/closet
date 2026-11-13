@@ -3,10 +3,10 @@
     "coupling.backend.fan_in_max": 123,
     "duplication.repo.jscpd_percent": 0.04,
     "size.backend.max_lines": 2279,
-    "size.backend.over_600": 15,
+    "size.backend.over_600": 16,
     "vuln.backend.critical": 0,
     "vuln.backend.high": 0,
-    "vuln.backend.packages": 404,
+    "vuln.backend.packages": 405,
     "vuln.backend.total": 0
   },
   "schema_version": 2,
