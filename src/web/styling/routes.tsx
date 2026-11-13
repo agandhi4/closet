@@ -27,17 +27,19 @@ import {
   OutfitGarmentsGone,
   OutfitIncomplete,
 } from '../outfits/gone-garments';
-import {
-  createOutfit,
-  OUTFIT_NAME_MAX,
-  updateOutfit,
-} from '../outfits/queries';
+import { editOutfit, outfitNotFound } from '../outfits/outfit-actions';
+import { createOutfit, OUTFIT_NAME_MAX } from '../outfits/queries';
 import { piecesToBuy } from '../outfits/references';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { IsoDateSchema, OccasionSchema, OwnerQuery, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
-import { type WardrobeRequest, wardrobeGuard } from '../sharing/access';
+import {
+  type Actor,
+  actorOf,
+  type WardrobeRequest,
+  wardrobeGuard,
+} from '../sharing/access';
 import { brokenRuleLabels } from '../style/labels';
 import { viewContext } from '../view-context';
 import {
@@ -437,9 +439,7 @@ function checkedOutfit(
   asked: number | undefined,
   found: SavedOutfit | undefined,
 ): SavedOutfit | undefined {
-  if (asked !== undefined && !found) {
-    throw new HttpError(404, 'Outfit not found');
-  }
+  if (asked !== undefined && !found) throw outfitNotFound();
   return found;
 }
 
@@ -921,10 +921,9 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     STYLING_PATH,
     { schema: { body: SaveBody } },
     async (request, reply) => {
-      const userId = sessionUserId(request);
       const { body } = request;
       try {
-        return await save(reply, userId, body);
+        return await save(reply, actorOf(request), body);
       } catch (error) {
         const states = savedStates(body);
         const refused =
@@ -938,9 +937,10 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   async function save(
     reply: FastifyReply,
-    userId: number,
+    actor: Actor,
     body: Static<typeof SaveBody>,
   ) {
+    const { userId } = actor;
     const garmentIds = chosenIds(body.garmentId);
     if (garmentIds.length === 0) {
       throw new HttpError(400, 'Choose at least one garment to save');
@@ -949,7 +949,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     const destination = postedDestination(body);
     const schedule = scheduled(body);
     if (body.outfit !== undefined) {
-      return saveEdit(reply, userId, body.outfit, {
+      return saveEdit(reply, actor, body.outfit, {
         garmentIds,
         name,
         destination,
@@ -970,7 +970,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       destination.kind === 'none' && schedule
         ? { kind: 'day', ...schedule }
         : destination;
-    return pickTo({ db, logger }, reply, userId, planned, garmentIds, {
+    return pickTo({ db, logger }, reply, actor, planned, garmentIds, {
       source: 'styling',
       name,
     });
@@ -1076,7 +1076,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
    */
   async function saveEdit(
     reply: FastifyReply,
-    userId: number,
+    actor: Actor,
     outfitId: number,
     input: {
       garmentIds: number[];
@@ -1086,6 +1086,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       returnTo: string | undefined;
     },
   ) {
+    const { userId } = actor;
     const { destination } = input;
     if (
       destination.kind === 'trip' ||
@@ -1106,12 +1107,11 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     if (garments.length !== input.garmentIds.length) {
       throw await garmentsGoneError(db, userId, input.garmentIds, 'wardrobe');
     }
-    const result = await updateOutfit(db, outfitId, userId, {
+    const result = await editOutfit(db, actor, outfitId, {
       name: input.name ?? ideaName(garments),
       slots: garments.map((g) => ({ category: g.category, garmentId: g.id })),
       plan,
     });
-    if (result === 'not-found') throw new HttpError(404, 'Outfit not found');
     const planned = plan
       ? `, ${result.schedule} ${plan.day} (${plan.occasion})`
       : '';

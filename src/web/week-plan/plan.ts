@@ -18,6 +18,8 @@ import { ownerTransaction } from '../auth/queries';
 import { addDays, type IsoDate } from '../../calendar-date';
 import { entryOf } from '../calendar/queries';
 import { pickIdea } from '../outfits/pick';
+import { NotFound } from '../refusals';
+import type { Actor } from '../sharing/access';
 import {
   generatorMemorySql,
   readGeneratorMemory,
@@ -310,19 +312,21 @@ export async function writeAutoPick(
  * removed (removeBatchAutoEntries), with the outfits it created for them
  * that nothing else holds (removeUnheldOutfits); entries the person took
  * over since (edited, worn) stay theirs. The batch goes once it has no
- * entry left. 'not-found' for a batch that is not the owner's.
+ * entry left. The actor's own batches only (#188): another's, whatever
+ * share they hold, is NotFound like an unknown id.
  */
 export function undoWeekPlan(
   db: Queryable,
-  ownerId: number,
+  actor: Actor,
   weekPlanId: number,
-): Promise<{ entries: number; outfits: number } | 'not-found'> {
+): Promise<{ entries: number; outfits: number }> {
+  const ownerId = actor.userId;
   return ownerTransaction(db, ownerId, 'undoWeekPlan', async (tx) => {
     const removed = await removeBatchAutoEntries(tx, ownerId, weekPlanId);
     // Nothing removed: an own batch whose entries were all taken over (or
     // undone already), or not the owner's at all. Only then is it asked.
     if (removed.length === 0 && !(await weekPlanOf(tx, ownerId, weekPlanId))) {
-      return 'not-found';
+      throw new NotFound('weekPlan');
     }
     const outfits = await removeUnheldOutfits(
       tx,

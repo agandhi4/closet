@@ -9,13 +9,9 @@ import {
   weatherWithForecastSql,
 } from '../../weather/queries';
 import { userWeatherFrom } from '../../weather/service';
-import {
-  laundryList,
-  markWashed,
-  setEntryWorn,
-  setWoreToday,
-} from '../../wears/queries';
-import { defineTool, wardrobeFor } from '../tool';
+import { markEntryWorn } from '../../calendar/entry-actions';
+import { laundryList, markWashed, setWoreToday } from '../../wears/queries';
+import { actorOf, defineTool, wardrobeFor } from '../tool';
 import { isoDate, ownerIdInput, rowId } from './common';
 import { reachesForecast, weatherOfDays } from './weather';
 import { garmentNotFound } from '../../wardrobe/garment-access';
@@ -145,16 +141,12 @@ export const calendarTools = [
       const now = new Date();
       const today = todayIn(ctx.timeZone, now);
       if (entryId !== undefined) {
-        const outcome = await setEntryWorn(ctx.db, {
+        const outcome = await markEntryWorn(ctx.db, actorOf(ctx), {
           entryId,
-          ownerId: ctx.userId,
           worn: true,
           at: now,
           today,
         });
-        if (outcome === 'not-found') {
-          throw new HttpError(404, 'Calendar entry not found');
-        }
         if (outcome === 'future') {
           throw new HttpError(400, 'A day still to come cannot be worn yet');
         }

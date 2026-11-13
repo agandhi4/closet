@@ -3,7 +3,6 @@ import { type Static, Type } from '@sinclair/typebox';
 import { FEELINGS } from '../../weather/temperature';
 import { sessionUserId } from '../auth/require-session';
 import { type IsoDate, todayIn } from '../../calendar-date';
-import { HttpError } from '../errors';
 import {
   DestinationBody,
   DestinationQuery,
@@ -13,6 +12,7 @@ import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
+import { actorOf } from '../sharing/access';
 import { viewContext } from '../view-context';
 import { nudgeTemperatureOffset } from '../weather/queries';
 import { aimIdeas } from './aim';
@@ -226,7 +226,7 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       return pickTo(
         { db, logger },
         reply,
-        sessionUserId(request),
+        actorOf(request),
         postedDestination(request.body),
         request.body.garmentId,
         { source: 'idea' },
@@ -236,25 +236,27 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // "Too warm" / "too cold" on a card: the personal offset moves (the
   // weather's one writer), and the gallery comes back matched to it. Only
-  // with the weather: the offset means nothing without it.
-  app.post(
-    `${IDEAS_PATH}/feedback`,
-    { schema: { body: FeedbackBody } },
-    async (request, reply) => {
-      if (!weather) throw new HttpError(404, 'Weather is off');
-      const ownerId = sessionUserId(request);
-      const state = postedState(request.body);
-      const offset = await nudgeTemperatureOffset(
-        db,
-        ownerId,
-        request.body.feeling,
-      );
-      logger.info(
-        `Temperature feedback from user ${ownerId} in the gallery: ${request.body.feeling}, offset now ${offset}`,
-      );
-      return reply.redirect(ideasUrl(state), 303);
-    },
-  );
+  // with the weather, as /weather/* (the offset means nothing without it):
+  // otherwise the route does not exist, the app's own 404.
+  if (weather) {
+    app.post(
+      `${IDEAS_PATH}/feedback`,
+      { schema: { body: FeedbackBody } },
+      async (request, reply) => {
+        const ownerId = sessionUserId(request);
+        const state = postedState(request.body);
+        const offset = await nudgeTemperatureOffset(
+          db,
+          ownerId,
+          request.body.feeling,
+        );
+        logger.info(
+          `Temperature feedback from user ${ownerId} in the gallery: ${request.body.feeling}, offset now ${offset}`,
+        );
+        return reply.redirect(ideasUrl(state), 303);
+      },
+    );
+  }
 
   // "Clashes": the pair is never generated together again. htmx removes
   // the card (a 200 swapped as delete; a 204 would swap nothing); a plain
@@ -285,13 +287,11 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     IDEAS_ALLOW_PATH,
     { schema: { body: AllowBody } },
     async (request, reply) => {
-      const ownerId = sessionUserId(request);
+      const actor = actorOf(request);
       const [a, b] = request.body.garmentId;
-      if (!(await allowPair(db, ownerId, a, b))) {
-        throw new HttpError(404, 'No such pair');
-      }
+      await allowPair(db, actor, a, b);
       logger.info(
-        `Garments ${a} and ${b} allowed together again by user ${ownerId}`,
+        `Garments ${a} and ${b} allowed together again by user ${actor.userId}`,
       );
       return reply.redirect(
         safeReturnTo(request.body.returnTo, `/wardrobe/${a}`),

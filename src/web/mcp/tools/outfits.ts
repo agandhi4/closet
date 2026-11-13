@@ -1,18 +1,12 @@
 import * as z from 'zod';
 import { DEFAULT_OCCASION } from '../../../wardrobe/occasions';
-import { scheduleOutfit } from '../../calendar/queries';
-import {
-  isRefused,
-  replaceEntryOutfit,
-  replaceMessage,
-  replaceRefusal,
-} from '../../calendar/replace';
-import { HttpError } from '../../errors';
+import { planOutfit } from '../../calendar/entry-actions';
+import { replaceEntryOutfit, replaceMessage } from '../../calendar/replace';
 import { newOutfitSlots } from '../../outfits/gone-garments';
+import { requireOutfit } from '../../outfits/outfit-actions';
 import {
   type CreateResult,
   createOutfit,
-  findOutfit,
   listOutfits,
   OUTFIT_GARMENTS_MAX,
   OUTFIT_NAME_MAX,
@@ -20,10 +14,8 @@ import {
   type ToolOutfit,
 } from '../../outfits/queries';
 import { piecesToBuy } from '../../outfits/references';
-import { defineTool } from '../tool';
+import { actorOf, defineTool } from '../tool';
 import { isoDate, occasionInput, rowId } from './common';
-
-const OUTFIT_NOT_FOUND = 'Outfit not found';
 
 function outfitOut(outfit: ToolOutfit) {
   return {
@@ -81,9 +73,7 @@ export const outfitTools = [
     input: z.object({ id: rowId().describe('The outfit id.') }),
     writes: false,
     async run({ id }, ctx) {
-      const outfit = await findOutfit(ctx.db, id, ctx.userId);
-      if (!outfit) throw new HttpError(404, OUTFIT_NOT_FOUND);
-      return outfitOut(outfit);
+      return outfitOut(await requireOutfit(ctx.db, actorOf(ctx), id));
     },
   }),
 
@@ -156,13 +146,15 @@ export const outfitTools = [
     async run({ outfitId, date, occasion, replaceEntryId }, ctx) {
       if (replaceEntryId !== undefined) {
         const target = { entryId: replaceEntryId, day: date, occasion };
-        const replaced = await replaceEntryOutfit(ctx.db, ctx.userId, target, {
-          outfitId,
-        });
+        const replaced = await replaceEntryOutfit(
+          ctx.db,
+          actorOf(ctx),
+          target,
+          { outfitId },
+        );
         ctx.webLogger.info(
           replaceMessage(ctx.userId, target, replaced, ' (MCP)'),
         );
-        if (isRefused(replaced)) throw replaceRefusal(replaced);
         return {
           outcome: replaced.outcome,
           date,
@@ -173,16 +165,11 @@ export const outfitTools = [
           plannerOutfitRemoved: replaced.outfitsRemoved > 0,
         };
       }
-      const planned = occasion ?? DEFAULT_OCCASION;
-      const scheduled = await scheduleOutfit(ctx.db, {
-        ownerId: ctx.userId,
+      const scheduled = await planOutfit(ctx.db, actorOf(ctx), {
         outfitId,
         day: date,
-        occasion: planned,
+        occasion: occasion ?? DEFAULT_OCCASION,
       });
-      if (scheduled === 'no-such-outfit') {
-        throw new HttpError(404, OUTFIT_NOT_FOUND);
-      }
       // Already there: the occasion it kept.
       const { outcome, occasion: kept } = scheduled;
       ctx.webLogger.info(

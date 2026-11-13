@@ -6,7 +6,7 @@ import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { inCloset, offeredToStyle } from '../wardrobe/status';
 import { outfitIsHeld, type PieceToBuy } from './references';
-import { garmentNotFound } from '../wardrobe/garment-access';
+import { NotFound } from '../refusals';
 
 /**
  * A save that names a garment it cannot hold is refused whole (#219):
@@ -218,9 +218,13 @@ function refusalMessage(gone: readonly GoneGarment[]): string {
  * error.
  */
 export class OutfitGarmentsGone extends HttpError {
-  constructor(readonly gone: readonly GoneGarment[]) {
+  /** `context` leads the log detail: who was refused, doing what. */
+  constructor(
+    readonly gone: readonly GoneGarment[],
+    context?: string,
+  ) {
     super(gone.every((g) => g.garment) ? 409 : 404, refusalMessage(gone), {
-      logDetail: `garments ${describeGone(gone)}`,
+      logDetail: `${context ? `${context}: ` : ''}garments ${describeGone(gone)}`,
     });
     this.name = 'OutfitGarmentsGone';
   }
@@ -261,8 +265,13 @@ export function describeGone(gone: readonly GoneGarment[]): string {
  * read them. Should none be gone by then (restored between the refusal and
  * the lookup), the plain 404 a pick has always answered.
  */
-export function garmentsGoneRefusal(gone: readonly GoneGarment[]): HttpError {
-  return gone.length > 0 ? new OutfitGarmentsGone(gone) : garmentNotFound();
+export function garmentsGoneRefusal(
+  gone: readonly GoneGarment[],
+  context?: string,
+): HttpError {
+  return gone.length > 0
+    ? new OutfitGarmentsGone(gone, context)
+    : new NotFound('garment', { logDetail: context });
 }
 
 /**

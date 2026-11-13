@@ -12,6 +12,7 @@ import {
   uploadPhoto,
 } from './garments';
 import { TestApp } from './harness';
+import { addLook } from './inspiration';
 import { planEntry, takeSelfie } from './selfies';
 
 /**
@@ -37,6 +38,8 @@ export interface PageFixture {
   selfieFileName: string;
   /** A trip (#10) on now, the outfit on today, packed, with an extra. */
   tripId: number;
+  /** A saved look (#22) with a photo. */
+  inspirationId: number;
 }
 
 /**
@@ -129,6 +132,8 @@ export async function createPageFixture(
     expect(res.statusCode, url).toBe(303);
   }
 
+  const look = await addLook(t, await jpegPhoto(), cookie);
+
   const garment = (await garmentRow(t, garmentId))!;
   const [outfit] = await t.db
     .select({ shareableId: outfitTable.shareableId })
@@ -143,6 +148,7 @@ export async function createPageFixture(
     outfitShareableId: outfit.shareableId,
     selfieFileName,
     tripId,
+    inspirationId: look.id,
   };
 }
 
@@ -215,6 +221,10 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     form('/styling?for=day:2030-10-09&occasion=evening'),
     form(`/styling?for=trip:${f.tripId}`),
     app('/outfits/ideas'),
+    app('/inspiration'),
+    form('/inspiration/new'),
+    app(`/inspiration/${f.inspirationId}`),
+    app(`/inspiration/${f.inspirationId}?unread=blocked-by-site`),
     app('/outfits/ideas?for=day:2030-10-09&occasion=evening'),
     app(`/outfits/ideas?capsule=${f.capsuleId}&with=${f.garmentId}`),
     app('/trips'),

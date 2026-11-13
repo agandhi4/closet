@@ -6,6 +6,7 @@ import {
   selfie,
   tripOutfit,
   weekPlan,
+  weekPlanEntry,
 } from '../../src/db/schema';
 import type { Occasion } from '../../src/wardrobe/occasions';
 import { addDays, type IsoDate } from '../../src/calendar-date';
@@ -247,6 +248,39 @@ describe('changing a planned outfit in place', () => {
       ]);
     });
 
+    it('rolls back a pick’s takeover of a planner outfit when the outfit is already on the day', async () => {
+      const day = addDays(t.today(), 3);
+      const entry = await planAuto(
+        [tops[0], bottoms[0], shoes[0]],
+        day,
+        'work',
+      );
+      const other = await planAuto(
+        [tops[1], bottoms[1], shoes[1]],
+        day,
+        'evening',
+      );
+      const created = () =>
+        t.db
+          .select({ outfitCreated: weekPlanEntry.outfitCreated })
+          .from(weekPlanEntry)
+          .where(eq(weekPlanEntry.entryId, other.entryId));
+      expect(await created()).toEqual([{ outfitCreated: true }]);
+
+      // The pick reuses the evening's planner outfit (taking it over), which is already on the day.
+      const res = await post('/outfits/ideas/pick', {
+        garmentId: [tops[1], bottoms[1], shoes[1]].map(String),
+        for: `day:${day}`,
+        occasion: 'work',
+        replace: String(entry.entryId),
+      });
+      expect(res.statusCode).toBe(409);
+      expect(await created()).toEqual([{ outfitCreated: true }]);
+      expect(await entriesFor(day, 'work')).toMatchObject([
+        { id: entry.entryId, outfitId: entry.outfitId },
+      ]);
+    });
+
     it('answers 404 for another user’s entry, and for the entry named on another day or occasion', async () => {
       const day = addDays(t.today(), 1);
       const mine = await outfitOf([tops[0], bottoms[0], shoes[0]]);
@@ -336,13 +370,14 @@ describe('changing a planned outfit in place', () => {
       const entryId = await plan(planned, day, 'evening');
       const idea = [tops[1], bottoms[1], shoes[0]];
       const target = { entryId, day, occasion: 'evening' as const };
+      const owner = { userId: t.owner.id };
       // A holds its transaction open, as a slow first tap would.
       let replaced!: () => void;
       const aReplaced = new Promise<void>((resolve) => (replaced = resolve));
       let release!: () => void;
       const aReleased = new Promise<void>((resolve) => (release = resolve));
       const a = t.db.transaction(async (tx) => {
-        const result = await replaceEntryOutfit(tx, t.owner.id, target, {
+        const result = await replaceEntryOutfit(tx, owner, target, {
           garmentIds: idea,
         });
         replaced();
@@ -350,7 +385,7 @@ describe('changing a planned outfit in place', () => {
         return result;
       });
       await aReplaced;
-      const b = replaceEntryOutfit(t.db, t.owner.id, target, {
+      const b = replaceEntryOutfit(t.db, owner, target, {
         garmentIds: idea,
       });
       await expect
@@ -645,6 +680,28 @@ describe('changing a planned outfit in place', () => {
   });
 
   describe('MCP: schedule_outfit with replaceEntryId', () => {
+    it('logs a refused replace with the tool and the refusal’s detail', async () => {
+      const token = await createAccessToken(t);
+      const day = addDays(t.today(), 2);
+      const lunch = await outfitOf([tops[0], bottoms[0], shoes[0]]);
+      const dinner = await outfitOf([tops[1], bottoms[1], shoes[1]]);
+      const entryId = await plan(lunch, day, 'daytime');
+      await plan(dinner, day, 'evening');
+
+      t.logs.clear();
+      const refused = await callTool(t, token, 'schedule_outfit', {
+        outfitId: dinner,
+        date: day,
+        replaceEntryId: entryId,
+      });
+      expect(refused.isError).toBe(true);
+      expect(t.logs.messages('warn', 'Mcp')).toContainEqual(
+        expect.stringContaining(
+          `MCP schedule_outfit -> 409: ${'That outfit is already planned on this day (Evening).'} (Calendar entry ${entryId}`,
+        ),
+      );
+    });
+
     it('changes the entry, refuses a worn one, and is a 404 for another’s', async () => {
       const token = await createAccessToken(t);
       const day = t.today();

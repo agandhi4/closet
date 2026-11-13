@@ -15,12 +15,14 @@ import { t, type StringKey } from './i18n';
 
 /** One message per resource, so every surface words a refusal the same way. */
 const NOT_FOUND_MESSAGE = {
+  avoidedPair: 'refusal.notFound.avoidedPair',
   brand: 'refusal.notFound.brand',
   calendarEntry: 'refusal.notFound.calendarEntry',
   capsule: 'refusal.notFound.capsule',
   draft: 'refusal.notFound.draft',
   garment: 'refusal.notFound.garment',
   garmentPhoto: 'refusal.notFound.garmentPhoto',
+  inspiration: 'refusal.notFound.inspiration',
   need: 'refusal.notFound.need',
   orderItem: 'refusal.notFound.orderItem',
   outfit: 'refusal.notFound.outfit',
@@ -28,6 +30,7 @@ const NOT_FOUND_MESSAGE = {
   repair: 'refusal.notFound.repair',
   trip: 'refusal.notFound.trip',
   wardrobe: 'refusal.notFound.wardrobe',
+  weekPlan: 'refusal.notFound.weekPlan',
   wishlistItem: 'refusal.notFound.wishlistItem',
 } as const satisfies Record<string, StringKey>;
 

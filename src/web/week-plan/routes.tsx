@@ -2,9 +2,9 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { Type } from '@sinclair/typebox';
 import { sessionUserId } from '../auth/require-session';
 import { hourIn, todayIn } from '../../calendar-date';
-import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { RowId } from '../schemas';
+import { actorOf } from '../sharing/access';
 import { planDays, planMyWeek, undoWeekPlan, weekForecast } from './plan';
 import {
   readWeekTemplateForm,
@@ -70,12 +70,11 @@ export const weekPlanRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/calendar/plan-week/:id/undo',
     { schema: { params: Type.Object({ id: RowId }) } },
     async (request, reply) => {
-      const ownerId = sessionUserId(request);
+      const actor = actorOf(request);
       const { id } = request.params;
-      const undone = await undoWeekPlan(db, ownerId, id);
-      if (undone === 'not-found') throw new HttpError(404, 'Plan not found');
+      const undone = await undoWeekPlan(db, actor, id);
       logger.info(
-        `Week plan ${id} undone by user ${ownerId}: ${undone.entries} entr(ies) and ${undone.outfits} outfit(s) removed`,
+        `Week plan ${id} undone by user ${actor.userId}: ${undone.entries} entr(ies) and ${undone.outfits} outfit(s) removed`,
       );
       return reply.redirect(`/calendar?${UNDONE_FLAG}=${undone.entries}`, 303);
     },

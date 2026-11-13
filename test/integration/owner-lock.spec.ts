@@ -18,6 +18,7 @@ import {
   replaceMessage,
 } from '../../src/web/calendar/replace';
 import { pickIdea } from '../../src/web/outfits/pick';
+import type { Actor } from '../../src/web/sharing/access';
 import { deleteGarment } from '../../src/web/wardrobe/queries';
 import { setGarmentStatus } from '../../src/web/wardrobe/status';
 import {
@@ -60,6 +61,8 @@ interface PlanNode {
 
 describe('the owner lock', () => {
   let t: TestApp;
+  /** The owner as replaceEntryOutfit's actor (#188). */
+  let owner: Actor;
   let tops: number[];
   let bottoms: number[];
   let shoes: number[];
@@ -143,6 +146,7 @@ describe('the owner lock', () => {
 
   beforeAll(async () => {
     t = await createTestApp();
+    owner = { userId: t.owner.id };
     tops = [
       await garmentIn('White tee', 'tops', 'white'),
       await garmentIn('Grey tee', 'tops', 'grey'),
@@ -191,16 +195,19 @@ describe('the owner lock', () => {
         () =>
           replaceEntryOutfit(
             t.db,
-            t.owner.id,
+            owner,
             { entryId, day, occasion: 'work' },
             { outfitId: chosen },
-          ),
+          ).catch((refusal: unknown) => refusal),
       );
       expect(schedule).toMatchObject({ outcome: 'scheduled' });
-      expect(replace).toEqual({
-        outcome: 'already-on-day',
-        outfitId: chosen,
-        occasion: 'evening',
+      // Refused under the lock, naming the occasion it kept.
+      expect(replace).toMatchObject({
+        statusCode: 409,
+        message: expect.stringContaining('Evening'),
+        logDetail: expect.stringContaining(
+          `outfit ${chosen} is already on the day (evening)`,
+        ),
       });
       expect(
         (await entriesOn(day)).map((e) => [e.outfitId, e.occasion]),
@@ -220,7 +227,7 @@ describe('the owner lock', () => {
         (tx) =>
           replaceEntryOutfit(
             tx,
-            t.owner.id,
+            owner,
             { entryId, day, occasion: 'work' },
             { outfitId: chosen },
           ),
@@ -272,7 +279,7 @@ describe('the owner lock', () => {
         'all-day',
       );
       const target = { entryId, day, occasion: 'all-day' as const };
-      const outcome = await replaceEntryOutfit(t.db, t.owner.id, target, {
+      const outcome = await replaceEntryOutfit(t.db, owner, target, {
         outfitId,
       });
       expect(outcome).toMatchObject({
@@ -288,7 +295,7 @@ describe('the owner lock', () => {
       );
 
       // The person's own entry: nothing to take over.
-      const again = await replaceEntryOutfit(t.db, t.owner.id, target, {
+      const again = await replaceEntryOutfit(t.db, owner, target, {
         outfitId,
       });
       expect(again).toMatchObject({ outcome: 'unchanged', adopted: false });
@@ -300,7 +307,7 @@ describe('the owner lock', () => {
       const { entryId, outfitId } = await autoEntry(garmentIds, day, 'work');
       const outcome = await replaceEntryOutfit(
         t.db,
-        t.owner.id,
+        owner,
         { entryId, day, occasion: 'work' },
         { garmentIds },
       );

@@ -1,7 +1,6 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
 import { sessionUserId } from '../auth/require-session';
-import { HttpError } from '../errors';
 import { alreadySavedOf } from '../gallery/urls';
 import type { WebOptions } from '../plugin';
 import {
@@ -21,8 +20,8 @@ import { selectScalars } from '../../db/select-scalars';
 import { savedOutfitsSql } from '../outfits/queries';
 import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
+import { actorOf } from '../sharing/access';
 import { viewContext } from '../view-context';
-import { setEntryWorn } from '../wears/queries';
 import {
   hourIn,
   parseIsoDate,
@@ -43,17 +42,13 @@ import { PlanPage } from './plan-page';
 import { dayChoice } from './day-choice';
 import { OccasionRow } from './occasion-row';
 import {
-  findEntries,
-  findEntry,
-  type Scheduled,
-  scheduleOutfit,
-} from './queries';
-import {
-  isRefused,
-  replaceEntryOutfit,
-  replaceMessage,
-  replaceRefusal,
-} from './replace';
+  markEntryWorn,
+  planOutfit,
+  removeEntry,
+  requireEntry,
+} from './entry-actions';
+import { findEntries, type Scheduled } from './queries';
+import { replaceEntryOutfit, replaceMessage } from './replace';
 import {
   CALENDAR_MONTH_PATH,
   CALENDAR_PATH,
@@ -61,7 +56,6 @@ import {
   weekUrl,
 } from './urls';
 import { weekContext } from './week-context';
-import { removeEntry } from './writes';
 
 /**
  * Validation, decided per route:
@@ -74,7 +68,7 @@ import { removeEntry } from './writes';
  *   (parseDestination): no day is today, an unknown occasion all day, and
  *   a `replace` that is not the user's entry there plans one more outfit.
  * - POST /calendar's `replace` is data (RowId, else a 400); the entry must
- *   be the user's on `date` for `occasion` (else a 404, replaceRefusal).
+ *   be the user's on `date` for `occasion` (else a 404, replaceEntryOutfit's).
  * - The writes validate their bodies strictly through the route schema: a
  *   malformed date, outfit id, occasion or week is a 400 error page and
  *   writes nothing (IsoDateSchema: the rule parseIsoDate also applies). A
@@ -101,12 +95,6 @@ const WornBody = Type.Union([
   }),
   Type.Null(),
 ]);
-
-// Someone else's entry is not found, like a missing one: ids reveal nothing
-// (test/integration/authorization-outfits.spec.ts).
-function entryNotFound(): HttpError {
-  return new HttpError(404, 'Calendar entry not found');
-}
 
 /** The log line for what POST /calendar/:id/worn did. */
 function wornMessage(
@@ -319,30 +307,20 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const ownerId = sessionUserId(request);
+      const actor = actorOf(request);
       const { date, outfitId, week, replace } = request.body;
       const occasion = request.body.occasion ?? DEFAULT_OCCASION;
       if (replace !== undefined) {
         const target = { entryId: replace, day: date, occasion };
-        const replaced = await replaceEntryOutfit(db, ownerId, target, {
+        const replaced = await replaceEntryOutfit(db, actor, target, {
           outfitId,
         });
-        logger.info(replaceMessage(ownerId, target, replaced));
-        if (isRefused(replaced)) throw replaceRefusal(replaced);
+        logger.info(replaceMessage(actor.userId, target, replaced));
         return reply.redirect(weekUrl(week ?? date), 302);
       }
-      const scheduled = await scheduleOutfit(db, {
-        ownerId,
-        outfitId,
-        day: date,
-        occasion,
-      });
-      if (scheduled === 'no-such-outfit') {
-        throw new HttpError(404, 'Outfit not found');
-      }
-      logger.info(
-        scheduleMessage(ownerId, { outfitId, day: date, occasion }, scheduled),
-      );
+      const entry = { outfitId, day: date, occasion };
+      const scheduled = await planOutfit(db, actor, entry);
+      logger.info(scheduleMessage(actor.userId, entry, scheduled));
       return reply.redirect(weekUrl(week ?? date), 302);
     },
   );
@@ -353,11 +331,11 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/calendar/:id/delete',
     { schema: { params: EntryParams, body: WeekBody } },
     async (request, reply) => {
-      const ownerId = sessionUserId(request);
-      const { id } = request.params;
-      if (!(await removeEntry({ db, photos, logger }, id, ownerId))) {
-        throw entryNotFound();
-      }
+      await removeEntry(
+        { db, photos, logger },
+        actorOf(request),
+        request.params.id,
+      );
       const target = weekUrl(request.body?.week);
       if (request.headers['hx-request']) return navigateTo(reply, target);
       return reply.redirect(target, 303);
@@ -379,26 +357,26 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       schema: { params: EntryParams, body: WornBody },
     },
     async (request, reply) => {
-      const ownerId = sessionUserId(request);
+      const actor = actorOf(request);
       const { id } = request.params;
       const posted = request.body?.worn;
       const now = new Date();
       const today = todayIn(config.timeZone, now);
-      const outcome = await setEntryWorn(db, {
+      const outcome = await markEntryWorn(db, actor, {
         entryId: id,
-        ownerId,
         worn: posted === undefined ? undefined : posted === '1',
         at: now,
         today,
       });
-      if (outcome === 'not-found') throw entryNotFound();
       if (outcome === 'future') {
         logger.info(`Calendar entry ${id}: not marked worn, its day is ahead`);
         throw replayRefused(reply, 'future', {
           message: 'A planned day cannot be marked worn yet',
         });
       }
-      logger.info(`${wornMessage(id, ownerId, outcome)}${replayNote(request)}`);
+      logger.info(
+        `${wornMessage(id, actor.userId, outcome)}${replayNote(request)}`,
+      );
       if (isReplay(request)) return answerReplay(reply, outcome.changed);
       const back = safeReturnTo(
         request.body?.returnTo,
@@ -407,13 +385,12 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if (request.headers['hx-request']) {
         // The whole row replaces the posted one: its marks, label and
         // Change depend on the worn state too. Read as the week reads it.
-        const entry = await findEntry(
+        const entry = await requireEntry(
           db,
-          ownerId,
+          actor,
           { id, day: outcome.day },
           today,
         );
-        if (!entry) throw entryNotFound();
         // The headers, not the posted markup, decide where it lands: a
         // cached pre-#369 page has a pill targeting itself, which would
         // nest the row inside the row. Every generation of the row carries

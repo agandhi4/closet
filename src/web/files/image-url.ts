@@ -16,8 +16,9 @@ declare const signable: unique symbol;
  * plinthPhoto, readPhotoRef, pendingPhotoRef), so a plain object with the
  * same fields does not compile as one. The signature is what lets /file/**
  * serve without asking the database whether a name is a selfie's; an
- * outfit selfie's queries (src/web/selfies) never import those helpers
- * (photo-ref-guard.spec.ts) and draw through selfieUrl (SelfiePhoto).
+ * outfit selfie's or a saved look's queries (src/web/selfies,
+ * src/web/inspiration) never import those helpers (photo-ref-guard.spec.ts)
+ * and draw through selfieUrl or inspirationPhotoUrl (PrivatePhoto).
  */
 export type SignablePhotoRef = PhotoRefFields & { readonly [signable]: true };
 
@@ -29,16 +30,19 @@ export type PlinthPhoto = SignablePhotoRef & {
   cutout: boolean;
 };
 
-/** An outfit selfie's photo (#19): never keyed, never under /file/**. */
-export interface SelfiePhoto {
+/**
+ * A photo only its owner is served (an outfit selfie, #19; a saved look,
+ * #22): never keyed (no cutout), never under /file/**, never signed.
+ */
+export interface PrivatePhoto {
   fileName: string;
   version?: number;
 }
 
-// The single source of truth for photo paths (/file/** and /selfies/*), for
-// JSX views and view-models that pre-build URLs. The routes are in
-// routes.ts beside this file and src/web/selfies/routes.ts, and must stay
-// in step.
+// The single source of truth for photo paths (/file/**, /selfies/* and
+// /inspiration/photo/*), for JSX views and view-models that pre-build URLs.
+// The routes are in routes.ts beside this file, src/web/selfies/routes.ts
+// and src/web/inspiration/routes.tsx, and must stay in step.
 //
 // A /file URL names the exact files it shows: `v` (File.version), `k` (the
 // variant key, absent while unkeyed) and `s`, a signature over the name,
@@ -63,10 +67,33 @@ export function imageUrl(
  * refuses selfie names). A selfie keeps its background, so it has no nobg.
  */
 export function selfieUrl(
-  image: SelfiePhoto,
+  image: PrivatePhoto,
   variant: Exclude<ImageVariant, 'nobg'>,
 ): string {
-  return `${variantPath('/selfies', image.fileName, variant)}?v=${image.version ?? 1}`;
+  return privateUrl('/selfies', image, variant);
+}
+
+/** The root of a saved look's photo URLs (#22): its route's prefix. */
+export const INSPIRATION_PHOTO_ROOT = '/inspiration/photo';
+
+/**
+ * A saved look's photo URL (#22): served only to its owner by
+ * src/web/inspiration/routes.tsx, never under the public /file/** (which
+ * refuses their names). A look keeps its whole picture, so it has no nobg.
+ */
+export function inspirationPhotoUrl(
+  image: PrivatePhoto,
+  variant: Exclude<ImageVariant, 'nobg'>,
+): string {
+  return privateUrl(INSPIRATION_PHOTO_ROOT, image, variant);
+}
+
+function privateUrl(
+  root: string,
+  image: PrivatePhoto,
+  variant: Exclude<ImageVariant, 'nobg'>,
+): string {
+  return `${variantPath(root, image.fileName, variant)}?v=${image.version ?? 1}`;
 }
 
 function variantPath(
