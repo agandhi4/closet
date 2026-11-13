@@ -882,3 +882,20 @@ Consequence: a route throws to refuse an htmx request; the link photo choice's 2
 **Why:** every list was "all the owner's outfits", so after a few weeks of Plan my week and Wear this, curated outfits sat under dozens of machine-named one-offs in Saved, the calendar's plan page and a trip's add page; the calendar's x also left the planner's outfit behind.
 **Decision:** `outfit.origin` (`person`, `agent`, `idea`, `planner`; `src/wardrobe/outfit-origin.ts`), required by `createOutfit`/`pickIdea`. A reuse only raises it (`adoptOutfit`), any edit makes it `person`. `keptOutfit()` (`person`, `agent`) is the one predicate, read only through `savedOutfitsSql(owner, list)` and the API's `show`; the rest sit behind "Worn and planned" (`?show=one-offs`, lenient). `deleteEntry` applies Undo's rule. Migration 0053 moves only provable rows (proposals to `agent`; unadopted, untouched planner outfits to `planner`) under the owners' locks; everything else stays `person`.
 **Consequence:** older one-offs (Wear this, planner outfits whose entries were already removed) stay on Saved; a no-op save of a planner outfit before 0053 backfills `planner`. A synced copy without `origin` is `person`. Not pruned: an idea one-off whose entry is removed, a planner outfit whose entry the person took over; both stay under "Worn and planned".
+
+## 2026-11-13 — The error page names what the person can do, by status class (#644)
+
+**Why:** upstream's debug view (Path, Time, a lone Return to Home in `p-20`) made a deleted garment look like a crash with no way back.
+**Decision:** `ErrorPage` (`src/web/error-page.tsx`) classes the status (missing, refused, retry, rejected, failed): a human h1, Back plus the section's home link, Try again only for the retry class on a plain GET with nothing secret in its URL, the request id on a 5xx only. Strings are `errorPage.*`; the refusal sentences stay `refusal.*`.
+**Consequence:** a new status that needs its own shape is a new `ErrorClass`; the h1 is no longer "Error NNN", so specs find the page by its title.
+
+## 2026-11-13 — Limb targets stop at 3 above a cold snap; a layer is judged on its own too (#645)
+Why: legs and feet asked 4-5 below about 8 °C, which only heavy denim and boots reach, so on an ordinary New York January day one pair of jeans and one of boots filled every idea and no office outfit fit; the torso was a plain sum, so a parka over a linen shirt "fit" at 44-61 °F; one limb tolerance let suede boots through at 32 °C.
+Decision (`src/weather/match.ts`, pinned by `src/weather/real-days.spec.ts`: four real 2025 Central Park days, ERA5, against the demo closet): `limbTarget` is capped at 3 above `COLD_SNAP` (-10 °C feels-like, 8 of January 2025's 31 days) and at 4 below it, never 5, so ordinary trousers and closed shoes pass an ordinary winter. The cap judges only too-cold: too-warm is judged against the uncapped target (`limbsCeiling`, up to 5), so warmth-5 boots still fit a winter day (review of #743). Legs keep +2 above the target, feet get +1. A layer may be at most one step warmer than the coolest hours' torso target less a tee (too-warm), and at most `LAYER_SPREAD` (3) warmer than the tops under it (too-cold). Every part stays non-negative and additive (scoreFloor). GENERATOR_VERSION 2.
+Consequence: thresholds came from the real days, not from tuning; a new real-world complaint gets a row in real-days.spec.ts first. Which fitting layer is chosen (#646), workout (#647) and rain (#648) are untouched.
+
+## 2026-11-13 — The re-plan judges the limb ceiling on fresh needs, not a stored column
+
+**Why:** #743 capped `limbs` and added `limbsCeiling` (the too-warm bound); `week_plan_entry` stores only the capped target, so equal stored targets hid warmth-5 boots turning feet-too-warm (#746).
+**Decision:** `replanWeek` re-runs `assessOutfit` with the fresh needs for an entry whose targets held, and treats a legs/feet too-warm problem as a change (kept, or swapped for a better idea, saying "warmer"). No schema change.
+**Consequence:** a near miss planned with that problem is re-judged each morning (pure, no extra statement); it is swapped only for a strictly better idea.

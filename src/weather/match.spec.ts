@@ -83,9 +83,16 @@ describe('weather matching', () => {
       );
     });
 
-    it('steps legs and feet from shorts and sandals to the warmest', () => {
-      expect([30, 26, 19, 12, 5, -5].map(limbTarget)).toEqual([
-        1, 1, 2, 3, 4, 5,
+    it('does not call the warmest footwear too warm on a winter day', () => {
+      const winter = needs(JANUARY, 'all-day');
+      expect(winter.limbs).toBe(3);
+      const fit = assessOutfit(winter, [SWEATER, JEANS, g('footwear', 5)]);
+      expect(fit.problems).not.toContain('feet-too-warm');
+    });
+
+    it('steps legs and feet from shorts and sandals to boots in a cold snap', () => {
+      expect([30, 26, 19, 12, 5, -5, -12].map(limbTarget)).toEqual([
+        1, 1, 2, 3, 3, 3, 4,
       ]);
     });
   });
@@ -106,6 +113,31 @@ describe('weather matching', () => {
       const late = { ...APRIL, hours: APRIL.hours.filter((h) => h.hour < 8) };
       expect(weatherNeeds(late, 'work', 0)).toBeNull();
       expect(weatherNeeds(late, 'workout', 0)).not.toBeNull();
+    });
+  });
+
+  describe('a layer judged against the top under it', () => {
+    it('does not blame the spread when no top or one-piece is worn yet', () => {
+      const cold = needs(APRIL, 'all-day');
+      const fit = assessOutfit(cold, [PARKA]);
+      expect(fit.problems).not.toContain('too-cold');
+      expect(fit.problems).not.toContain('too-warm');
+      expect(fit.score).toBe(0);
+    });
+
+    it('still calls a parka over a warmth-1 top too cold, softly', () => {
+      const fit = assessOutfit(needs(APRIL, 'all-day'), [TANK, PARKA]);
+      expect(fit.problems).toContain('too-cold');
+      expect(fit.score).toBeGreaterThan(0);
+    });
+
+    it('judges a one-piece under a layer like a top', () => {
+      const slip = g('one-piece', 1);
+      const cold = needs(APRIL, 'all-day');
+      expect(assessOutfit(cold, [slip, PARKA]).problems).toContain('too-cold');
+      expect(assessOutfit(cold, [DRESS, PARKA]).problems).not.toContain(
+        'too-cold',
+      );
     });
   });
 
@@ -217,17 +249,49 @@ describe('weather matching', () => {
     it('asks for a sweater under a coat or a parka, and calls a jacket too cold', () => {
       const allDay = needs(JANUARY, 'all-day');
       expect(allDay.torso).toBe(8);
-      expect(allDay.limbs).toBe(5);
+      expect(allDay.limbs).toBe(3);
+      expect(assessOutfit(allDay, [SWEATER, PARKA, JEANS, BOOTS]).fits).toBe(
+        true,
+      );
+      // Chinos and sneakers are an ordinary winter's; shorts and sandals are not.
       expect(
-        assessOutfit(allDay, [SWEATER, PARKA, g('bottom', 4), BOOTS]).fits,
+        assessOutfit(allDay, [SWEATER, PARKA, CHINOS, SNEAKERS]).fits,
       ).toBe(true);
+      expect(
+        assessOutfit(allDay, [SWEATER, PARKA, SHORTS, SANDALS]).problems,
+      ).toEqual(['legs-too-cold', 'feet-too-cold']);
       const light = assessOutfit(allDay, [TEE, JACKET, JEANS, SNEAKERS]);
-      expect(light.problems).toEqual([
-        'too-cold',
-        'legs-too-cold',
-        'feet-too-cold',
-      ]);
+      expect(light.problems).toEqual(['too-cold']);
       expect(light.score).toBeGreaterThan(0);
+    });
+
+    it('asks for heavier trousers and boots only in a cold snap', () => {
+      const snap = needs(day(-16, -8), 'all-day');
+      expect(snap.limbs).toBe(4);
+      expect(
+        assessOutfit(snap, [SWEATER, PARKA, CHINOS, SNEAKERS]).problems,
+      ).toEqual(['legs-too-cold', 'feet-too-cold']);
+      expect(assessOutfit(snap, [SWEATER, PARKA, JEANS, BOOTS]).fits).toBe(
+        true,
+      );
+    });
+  });
+
+  describe('a layer on its own', () => {
+    it('calls a parka too warm when the coolest hours ask for a jacket', () => {
+      const work = needs(APRIL, 'work');
+      expect(assessOutfit(work, [TEE, JACKET, JEANS]).fits).toBe(true);
+      expect(assessOutfit(work, [TEE, PARKA, JEANS]).problems).toEqual([
+        'too-warm',
+      ]);
+    });
+
+    it('calls a top far lighter than its layer too cold, though the sum fits', () => {
+      const raw = needs(day(2, 6), 'all-day');
+      expect(assessOutfit(raw, [TEE, PARKA, JEANS]).fits).toBe(true);
+      const tank = assessOutfit(raw, [TANK, PARKA, JEANS]);
+      expect(tank.problems).toEqual(['too-cold']);
+      expect(tank.score).toBe(1);
     });
   });
 

@@ -557,8 +557,8 @@ describe('Styling', () => {
           cookie: stranger,
         });
         // Seeded: the day's seed (no ?seed=) sometimes draws the dress, and a
-        // one-piece empties the top row by design. Seed 1 draws a top.
-        const res = await shuffle([['top', theirs, true]], { seed: '1' });
+        // one-piece empties the top row by design. Seed 3 draws a top (GENERATOR_VERSION 2).
+        const res = await shuffle([['top', theirs, true]], { seed: '3' });
         expect(res.statusCode).toBe(200);
         expect(res.body).not.toContain(`data-snap-value="${theirs}"`);
         expect(rowsOf(res.body)).toContainEqual([

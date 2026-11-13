@@ -4,7 +4,9 @@ import { expect } from 'vitest';
 import { outfit as outfitTable } from '../../src/db/schema';
 import { addDays } from '../../src/calendar-date';
 import { QUEUEABLE_ROUTES } from '../../src/offline-writes';
+import { classOf } from '../../src/web/error-page';
 import { REQUEST_FAILED_EVENT } from '../../src/web/errors';
+import { t as text } from '../../src/web/i18n';
 import {
   createGarment,
   createWishlistItem,
@@ -496,7 +498,10 @@ export function expectErrorPage(
   expect(res.statusCode).toBe(status);
   expect(res.headers['hx-trigger']).toBeUndefined();
   expectFullPage(res);
-  expect(pageTitle(res.body)).toBe(`Error ${status}`);
+  expect(pageTitle(res.body)).toBe(text(`errorPage.title.${classOf(status)}`));
   expect(unescapeHtml(res.body)).toContain(message);
-  expect(res.body).toContain(String(res.headers['x-request-id']));
+  // Only a 5xx shows the id (#644); the header carries it on every answer.
+  expect(res.body.includes(String(res.headers['x-request-id']))).toBe(
+    status >= 500,
+  );
 }

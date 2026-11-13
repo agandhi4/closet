@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { addDays, type IsoDate } from '../calendar-date';
 import type { DayForecast } from '../weather/forecast';
+import { weatherNeeds } from '../weather/match';
 import { keyOf } from './generator';
 import {
   builtInCategoriesOf,
@@ -478,6 +479,33 @@ describe('the re-plan', () => {
     expect(swap.slot).toEqual({ day: WEEK[1], occasion: 'all-day' });
     expect(swap.idea.garments.map((g) => g.role)).toContain('layer');
     expect(swap.needs!.torso).toBeGreaterThan(auto[1].plannedFor!.torso);
+  });
+
+  it('judges an entry whose targets held but whose too-warm bound fell: warmth-5 boots at 8.4 C, then 8.6 C', () => {
+    const boots = garment('footwear', { warmth: 5 });
+    const pool = [...roomyCloset(), boots];
+    const day = WEEK[0];
+    const before = plannedNeeds(
+      weatherNeeds(steadyDay(day, 8.4), 'all-day', 0),
+    );
+    const after = plannedNeeds(weatherNeeds(steadyDay(day, 8.6), 'all-day', 0));
+    // The stored targets cannot tell the two days apart (the ceiling is not one)...
+    expect(sameNeeds(before, after)).toBe(true);
+    const outfit = [
+      pool.find((g) => g.role === 'top')!,
+      pool.find((g) => g.role === 'bottom')!,
+      boots,
+    ];
+    const [replan] = replanWeek({
+      ...input({
+        pool,
+        entries: [entry(1, day, 'all-day', outfit)],
+        forecast: new Map([[day, steadyDay(day, 8.6)]]),
+      }),
+      auto: [{ entryId: 1, plannedFor: before, unwearable: null }],
+    });
+    // ...yet the boots are now too warm for the feet, so the entry is judged.
+    expect(replan.kind).not.toBe('unchanged');
   });
 
   it('keeps an outfit that still fits new targets, recording them', () => {

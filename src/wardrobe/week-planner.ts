@@ -3,6 +3,7 @@ import { dayOfWeek, daysBetween, type IsoDate } from '../calendar-date';
 import type { DayForecast } from '../weather/forecast';
 import {
   assessOutfit,
+  type FitProblem,
   type MatchGarment,
   type WeatherNeeds,
   weatherNeeds,
@@ -316,6 +317,11 @@ export function needsChange(
   return 'swing';
 }
 
+const LIMBS_TOO_WARM: readonly FitProblem[] = [
+  'legs-too-warm',
+  'feet-too-warm',
+];
+
 /** An entry the planner wrote and still owns (planned_by 'auto'). */
 export interface AutoEntry {
   /** One of the context's entries. */
@@ -400,7 +406,16 @@ export function replanWeek<G extends PlannerGarment>(
       // Nothing else dresses the slot: the outfit stays, judged below.
       ledger.wear(entry.day, entry.garments, { asOutfit: false });
     }
-    if (!needs || !now || sameNeeds(plannedFor, now)) {
+    if (!needs || !now) return { entryId, kind: 'unchanged' };
+    // The stored targets cannot see `limbsCeiling` (the too-warm bound,
+    // uncapped where `limbs` is capped), so a forecast warming from -5 to
+    // 10 C leaves them equal while boots planned for the cold turn too warm:
+    // an entry whose targets held is still judged when its limbs now are.
+    const limbsTooWarm = assessOutfit(
+      needs,
+      entry.garments.map((g) => g.weather),
+    ).problems.some((p) => LIMBS_TOO_WARM.includes(p));
+    if (sameNeeds(plannedFor, now) && !limbsTooWarm) {
       return { entryId, kind: 'unchanged' };
     }
     const current = weatherScore(needs, entry.garments);
@@ -415,7 +430,12 @@ export function replanWeek<G extends PlannerGarment>(
         slot,
         idea,
         needs: now,
-        cause: { kind: 'weather', change: needsChange(plannedFor, now) },
+        cause: {
+          kind: 'weather',
+          change: sameNeeds(plannedFor, now)
+            ? 'warmer'
+            : needsChange(plannedFor, now),
+        },
       };
     }
     ledger.wear(entry.day, entry.garments, { asOutfit: false });

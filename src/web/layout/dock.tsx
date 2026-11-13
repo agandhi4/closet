@@ -29,6 +29,11 @@ export function Dock({ ctx }: { ctx: ViewContext }) {
   );
 }
 
+/** A section's name as the dock shows it (the error page's link home). */
+export function sectionLabel(section: Section): string {
+  return TABS[section].label();
+}
+
 /** Each tab's label (read at render, from the catalog) and its icon's SVG paths. */
 const TABS: Readonly<Record<Section, { label: () => string; icon: Child }>> = {
   today: {
