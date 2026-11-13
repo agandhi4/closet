@@ -788,6 +788,19 @@ describe('inspiration', () => {
     // The next one goes last, whatever was removed.
     await add(piece('accessory/belt'));
     expect((await pieces(id)).map((p) => p.position)).toEqual([0, 2, 3]);
+
+    // A piece an older build added (no counter) sits past it: the next add
+    // reserves beyond the stored maximum instead of hitting the key.
+    await t.db.insert(inspirationPiece).values({
+      inspirationId: id,
+      position: 9,
+      role: 'accessory',
+      type: null,
+      colors: [],
+      pattern: null,
+    });
+    expect((await add(piece('accessory/hat'))).statusCode).toBe(303);
+    expect((await pieces(id)).map((p) => p.position)).toEqual([0, 2, 3, 9, 10]);
   });
 
   it('holds a look to INSPIRATION_MAX_PIECES pieces', async () => {

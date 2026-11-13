@@ -779,13 +779,10 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       },
     },
     async (request, reply) => {
-      // The wardrobe before the budget, so a refused call spends none of it.
+      // The wardrobe and the cheap body checks before the budget, so a
+      // refused call spends none of it.
       const { access, viewOwner } = await authorize(request, 'manage');
       const userId = actorOf(request).userId;
-      await enforceLimit(linkImportLimit, request, {
-        logger,
-        who: `user ${userId}`,
-      });
       const {
         url,
         destination = 'closet',
@@ -800,6 +797,10 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
           validation: [{ path: 'body/url', message }],
         });
       }
+      await enforceLimit(linkImportLimit, request, {
+        logger,
+        who: `user ${userId}`,
+      });
       const saved = await saveGarmentFromLink(
         { ...deps, fetcher },
         userId,

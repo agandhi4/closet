@@ -134,6 +134,21 @@ describe('receiveShare', () => {
     expect(none.has(SHARED_TITLE_HEADER)).toBe(false);
   });
 
+  it('cuts a long title on a code point, so the header still encodes and the photo is kept', async () => {
+    const { storage, kept } = fakeCaches();
+    // The emoji's pair straddles the cap.
+    const title = `${'a'.repeat(LINK_INPUT_MAX - 1)}\u{1F457}`;
+    const { response } = await receiveShare(
+      shareRequest({ title }, [jpeg()]),
+      storage,
+      NOW,
+    );
+    expect(response.headers.get('location')).toContain('#');
+    expect(kept(idIn(response))!.headers.get(SHARED_TITLE_HEADER)).toBe(
+      'a'.repeat(LINK_INPUT_MAX - 1),
+    );
+  });
+
   // POST /inspiration refuses these (isStorableLink): the photo is kept, the link dropped.
   it.each([
     ['a link that does not parse', 'https://'],

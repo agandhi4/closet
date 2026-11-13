@@ -14,6 +14,7 @@ export const LINK_INPUT_MAX = 4096;
 
 // Up to the first whitespace; the characters a sentence puts right after a
 // link are not part of it.
+const UTF8 = new TextEncoder();
 const LINK = /https?:\/\/\S+/i;
 const TRAILING_PUNCTUATION = /[.,;:!?)\]}'"»”’]+$/;
 
@@ -33,9 +34,21 @@ export function linkIn(text: string): string | undefined {
  * the server would refuse is dropped, never posted.
  */
 export function isStorableLink(value: string): boolean {
+  // Bytes, not UTF-16 units: busboy's fieldSize on the server counts bytes,
+  // so an IRI the worker passed would otherwise be cut and refused there.
   return (
-    value.length <= LINK_INPUT_MAX &&
+    UTF8.encode(value).length <= LINK_INPUT_MAX &&
     /^https?:\/\/\S+$/i.test(value) &&
     URL.canParse(value)
   );
+}
+
+/**
+ * `text` cut to at most `max` UTF-16 units without splitting a surrogate
+ * pair: a lone surrogate makes encodeURIComponent throw.
+ */
+export function clipText(text: string, max: number): string {
+  const cut = text.slice(0, max);
+  const last = cut.charCodeAt(cut.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
 }
