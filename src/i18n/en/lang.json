@@ -274,6 +274,7 @@
       "ownWearsOnly": "needsWash reads your own wears only"
     },
     "notFound": {
+      "avoidedPair": "No such pair",
       "brand": "Brand not found",
       "calendarEntry": "Calendar entry not found",
       "capsule": "Capsule not found",
@@ -287,6 +288,7 @@
       "repair": "Repair not found",
       "trip": "Trip not found",
       "wardrobe": "Wardrobe not found",
+      "weekPlan": "Plan not found",
       "wishlistItem": "Not on your wishlist",
       "inspiration": "Look not found"
     }

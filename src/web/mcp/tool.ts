@@ -198,6 +198,10 @@ export function registerTools(
             );
           } else {
             outcome = `${status >= 500 ? 'failed' : 'refused'} ${status}${logDetail ? ` (${logDetail})` : ''}`;
+            // The page error handler's line, from MCP (the log line carries the request_id).
+            log.logger.warn(
+              `MCP ${tool.name} -> ${status}: ${message}${logDetail ? ` (${logDetail})` : ''} (user ${ctx.userId})`,
+            );
           }
           return textResult({ error: message }, true);
         } finally {

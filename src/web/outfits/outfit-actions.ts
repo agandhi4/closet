@@ -1,0 +1,171 @@
+import type { Db } from '../../db/client';
+import type { IsoDate } from '../../calendar-date';
+import type { LookReaction } from '../../wardrobe/look-reaction';
+import { HttpError } from '../errors';
+import { t } from '../i18n';
+import { NotFound } from '../refusals';
+import type { Actor } from '../sharing/access';
+import { newOutfitSlots } from './gone-garments';
+import { type OutfitContext, outfitContext } from './page-context';
+import {
+  deleteOutfit,
+  findOutfit,
+  type OutfitInput,
+  type OutfitProposalInput,
+  proposeOutfit,
+  type SaveResult,
+  type ToolOutfit,
+  updateOutfit,
+} from './queries';
+import {
+  type OutfitReaction,
+  type ReactOutcome,
+  reactToOutfit,
+} from './reactions';
+
+/**
+ * The outfit path (#188; docs/plans/2026-11-12-json-api.md section 4):
+ * every surface's read of one outfit and change to one, each taking the
+ * Actor and refusing itself, so a page, an MCP tool and the API refuse
+ * alike. Outfits are private (AGENTS.md): only the actor's own are
+ * reached, whatever wardrobe shares they hold, so another's outfit is the
+ * 404 of an unknown id, never a 403. The owner-scoped queries underneath
+ * (queries.ts, reactions.ts, page-context.ts) trust their `ownerId`: only
+ * this path reaches them from a surface. Refusals carry a `logDetail`, so
+ * callers log only what was done.
+ */
+
+/**
+ * Another's outfit or no outfit: one refusal for both (here, the calendar's
+ * planOutfit, Styling's `?outfit=`).
+ */
+export function outfitNotFound(): NotFound {
+  return new NotFound('outfit');
+}
+
+/** The outfit page's read (outfitContext: the outfit and its entries, one statement). */
+export async function requireOutfitPage(
+  db: Db,
+  actor: Actor,
+  id: number,
+  today: IsoDate,
+): Promise<OutfitContext> {
+  const found = await outfitContext(db, id, actor.userId, today);
+  if (!found) throw outfitNotFound();
+  return found;
+}
+
+/** The actor's outfit as the MCP tools answer it (get_outfit). */
+export async function requireOutfit(
+  db: Db,
+  actor: Actor,
+  id: number,
+): Promise<ToolOutfit> {
+  const found = await findOutfit(db, id, actor.userId);
+  if (!found) throw outfitNotFound();
+  return found;
+}
+
+/** An edit of the actor's outfit (the outfit form, Styling's Save in place): updateOutfit. */
+export async function editOutfit(
+  db: Db,
+  actor: Actor,
+  id: number,
+  input: OutfitInput,
+): Promise<SaveResult> {
+  const saved = await updateOutfit(db, id, actor.userId, input);
+  if (saved === 'not-found') throw outfitNotFound();
+  return saved;
+}
+
+/**
+ * Deletes the actor's outfit (deleteOutfit: its wears kept as day-level
+ * wears). One of Muse's proposals not loved is refused (409): Not for me
+ * sets it aside, and its reaction is feedback a delete would lose (#335).
+ */
+export async function removeOutfit(
+  db: Db,
+  actor: Actor,
+  id: number,
+): Promise<{ wearsKept: number }> {
+  const deleted = await deleteOutfit(db, id, actor.userId);
+  if (!deleted) throw outfitNotFound();
+  if (deleted === 'a-proposal') {
+    throw new HttpError(409, t('outfits.muse.DELETE_REFUSED'), {
+      logDetail: `outfit ${id} is a proposal not loved`,
+    });
+  }
+  return deleted;
+}
+
+export type Reacted = Extract<ReactOutcome, { ok: true }>;
+
+/**
+ * The actor's reaction to one of Muse's outfits (reactToOutfit): another's
+ * outfit, or one Muse did not propose, is NotFound; one that is the
+ * owner's already, or a move its reaction does not take (a stale page, a
+ * double tap), a 409.
+ */
+export async function reactToProposal(
+  db: Db,
+  actor: Actor,
+  id: number,
+  change: OutfitReaction,
+): Promise<Reacted> {
+  const outcome = await reactToOutfit(db, actor.userId, id, change);
+  if (outcome.ok) return outcome;
+  const logDetail = `reaction ${change.event} on outfit ${id}: ${outcome.reason}`;
+  if (outcome.reason === 'not-found') {
+    throw new NotFound('outfit', { logDetail });
+  }
+  throw new HttpError(
+    409,
+    t(
+      outcome.reason === 'owners' ? 'outfits.muse.ALREADY_YOURS' : 'muse.STALE',
+    ),
+    { logDetail },
+  );
+}
+
+export type Proposed =
+  | { id: number; slots: number }
+  /** These garments were proposed already and not set aside: nothing written. */
+  | { id: number; alreadyProposed: LookReaction };
+
+/**
+ * The agent's outfit for the actor (suggest_outfit, #337): the garments'
+ * slots (a garment the actor's wardrobe cannot hold refuses it, named:
+ * newOutfitSlots), then proposeOutfit, which judges them again as it
+ * writes. Garments that are an outfit of the owner's own, or one they
+ * declined, are a 409 saying which; a proposal already made is the answer.
+ */
+export async function proposeOutfitTo(
+  db: Db,
+  actor: Actor,
+  input: { garmentIds: readonly number[]; name: string | null },
+  proposal: OutfitProposalInput,
+): Promise<Proposed> {
+  const slots = await newOutfitSlots(
+    db,
+    actor.userId,
+    input.garmentIds,
+    'wardrobe',
+  );
+  const proposed = await proposeOutfit(
+    db,
+    actor.userId,
+    { name: input.name, slots },
+    proposal,
+  );
+  if (proposed.ok) return proposed;
+  if (proposed.reason === 'owners') {
+    throw new HttpError(
+      409,
+      `These garments are an outfit of the owner's own already (outfit ${proposed.id})`,
+    );
+  }
+  throw new HttpError(
+    409,
+    `The owner declined these garments as an outfit (outfit ${proposed.id}, ${proposed.dismissedReason ?? 'no reason'}): never propose it again`,
+  );
+}

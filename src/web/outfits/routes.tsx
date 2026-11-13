@@ -1,5 +1,5 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { type Static, Type } from '@sinclair/typebox';
 import { sessionUserId } from '../auth/require-session';
 import { parseIsoDate, todayIn } from '../../calendar-date';
@@ -18,21 +18,25 @@ import {
   parseDestination,
 } from './destination';
 import { OutfitsPage } from './list-page';
-import { outfitContext, savedContext } from './page-context';
+import {
+  editOutfit,
+  reactToProposal,
+  removeOutfit,
+  requireOutfitPage,
+} from './outfit-actions';
+import { savedContext } from './page-context';
 import {
   createOutfit,
   type CreateResult,
-  deleteOutfit,
   OUTFIT_NAME_MAX,
   OUTFIT_NOTES_MAX,
   type OutfitInput,
   type SaveResult,
-  updateOutfit,
 } from './queries';
 import { OutfitPage } from './show-page';
-import { type OutfitReaction, reactToOutfit } from './reactions';
+import type { OutfitReaction } from './reactions';
 import { OUTFIT_DISMISS_REASONS } from '../../wardrobe/suggestions';
-import { t } from '../i18n';
+import { actorOf } from '../sharing/access';
 import { safeReturnTo } from '../security/return-to';
 import {
   DECISION_FLAG,
@@ -245,10 +249,6 @@ function createMessage(
   return `Outfit form by user ${ownerId}: its garments are already outfit ${result.id}, nothing created (${saved})${takenOver}`;
 }
 
-function outfitNotFound(): HttpError {
-  return new HttpError(404, 'Outfit not found');
-}
-
 /**
  * /outfits: the list, the detail page, the writes, and the builder's old
  * addresses, now redirects into Styling (src/web/styling). Outfits are the signed-in user's own:
@@ -330,11 +330,13 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     OUTFIT_ROUTE,
     { schema: { params: OutfitParams, querystring: FlagQuery } },
     async (request, reply) => {
-      const ownerId = sessionUserId(request);
-      const { id } = request.params;
       const today = todayIn(config.timeZone, new Date());
-      const found = await outfitContext(db, id, ownerId, today);
-      if (!found) throw outfitNotFound();
+      const found = await requireOutfitPage(
+        db,
+        actorOf(request),
+        request.params.id,
+        today,
+      );
       return renderPage(
         reply,
         <OutfitPage
@@ -380,13 +382,12 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     OUTFIT_ROUTE,
     { schema: { params: OutfitParams, body: OutfitBody } },
     async (request, reply) => {
-      const ownerId = sessionUserId(request);
+      const actor = actorOf(request);
       const { id } = request.params;
       const input = outfitInput(request.body);
-      const result = await updateOutfit(db, id, ownerId, input);
-      if (result === 'not-found') throw outfitNotFound();
+      const result = await editOutfit(db, actor, id, input);
       logger.info(
-        `Outfit ${id} updated by user ${ownerId}: ${describeSave(result, input.plan)}`,
+        `Outfit ${id} updated by user ${actor.userId}: ${describeSave(result, input.plan)}`,
       );
       return reply.redirect(afterSave(request.body, id), 302);
     },
@@ -397,52 +398,33 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     OUTFIT_ROUTE,
     { schema: { params: OutfitParams } },
     async (request, reply) => {
-      const ownerId = sessionUserId(request);
+      const actor = actorOf(request);
       const { id } = request.params;
-      const deleted = await deleteOutfit(db, id, ownerId);
-      if (!deleted) throw outfitNotFound();
-      if (deleted === 'a-proposal') {
-        throw new HttpError(409, t('outfits.muse.DELETE_REFUSED'));
-      }
+      const deleted = await removeOutfit(db, actor, id);
       logger.info(
-        `Outfit ${id} deleted by user ${ownerId} (${deleted.wearsKept} wears kept as day-level wears)`,
+        `Outfit ${id} deleted by user ${actor.userId} (${deleted.wearsKept} wears kept as day-level wears)`,
       );
       return navigateTo(reply, '/outfits');
     },
   );
 
   /**
-   * A reaction to one of Muse's outfits (#335; reactToOutfit, the one
+   * A reaction to one of Muse's outfits (#335; reactToProposal over the one
    * writer): Love (Save on a complete outfit), Not for me with a reason,
    * Undo. A native post each, 303 to the page it was made on with its
-   * toast; another's outfit or one Muse did not propose is a 404, a move
-   * its reaction does not take (a stale page, a double tap) a 409.
+   * toast; the refusals (a 404, a 409) are reactToProposal's.
    */
   async function reacted(
-    request: { params: { id: number } },
+    request: FastifyRequest & { params: { id: number } },
     reply: FastifyReply,
-    ownerId: number,
     change: OutfitReaction,
     { returnTo, toast }: { returnTo: string | undefined; toast: DecisionToast },
   ) {
     const { id } = request.params;
-    const outcome = await reactToOutfit(db, ownerId, id, change);
-    if (!outcome.ok) {
-      logger.info(
-        `Reaction ${change.event} on outfit ${id} by user ${ownerId} refused: ${outcome.reason}`,
-      );
-      if (outcome.reason === 'not-found') throw outfitNotFound();
-      throw new HttpError(
-        409,
-        t(
-          outcome.reason === 'owners'
-            ? 'outfits.muse.ALREADY_YOURS'
-            : 'muse.STALE',
-        ),
-      );
-    }
+    const actor = actorOf(request);
+    const outcome = await reactToProposal(db, actor, id, change);
     logger.info(
-      `Outfit ${id} ${outcome.from} -> ${outcome.to} by user ${ownerId}${change.event === 'decline' ? ` (${change.reason})` : ''}`,
+      `Outfit ${id} ${outcome.from} -> ${outcome.to} by user ${actor.userId}${change.event === 'decline' ? ` (${change.reason})` : ''}`,
     );
     // Save once complete: the same move, said as what it did.
     const said = toast === 'love' && outcome.complete ? 'save' : toast;
@@ -455,18 +437,13 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app.post(
     '/outfits/:id/love',
     { schema: { params: OutfitParams, body: ReactionBody } },
-    async (request, reply) => {
-      return reacted(
+    async (request, reply) =>
+      reacted(
         request,
         reply,
-        sessionUserId(request),
         { event: 'love' },
-        {
-          returnTo: request.body?.returnTo,
-          toast: 'love',
-        },
-      );
-    },
+        { returnTo: request.body?.returnTo, toast: 'love' },
+      ),
   );
 
   app.post(
@@ -477,7 +454,6 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       return reacted(
         request,
         reply,
-        sessionUserId(request),
         {
           event: 'decline',
           reason: body.reason,
@@ -495,12 +471,8 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       reacted(
         request,
         reply,
-        sessionUserId(request),
         { event: 'reconsider' },
-        {
-          returnTo: request.body?.returnTo,
-          toast: 'undo',
-        },
+        { returnTo: request.body?.returnTo, toast: 'undo' },
       ),
   );
 

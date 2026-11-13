@@ -28,6 +28,8 @@ import { matchGarment } from '../../weather/match';
 import type { IsoDate } from '../../calendar-date';
 import { inCapsule } from '../capsules/queries';
 import type { SignablePhotoRef } from '../files/image-url';
+import { NotFound } from '../refusals';
+import type { Actor } from '../sharing/access';
 import { photoRefJson, readPhotoRef } from '../files/queries';
 import { sameGarmentsOutfit } from '../outfits/queries';
 import { outfitIsComplete } from '../outfits/references';
@@ -629,13 +631,17 @@ export async function avoidPair(
   return added > 0 ? 'added' : 'already';
 }
 
-/** Undo from the garment page: the pair may be combined again. False when there was no such pair of the owner's. */
+/**
+ * Undo from the garment page and the Style page: the pair may be combined
+ * again. A pair the actor never avoided (or another's) is NotFound.
+ */
 export async function allowPair(
   db: Db,
-  ownerId: number,
+  actor: Actor,
   first: number,
   second: number,
-): Promise<boolean> {
+): Promise<void> {
+  const ownerId = actor.userId;
   const [a, b] = first < second ? [first, second] : [second, first];
   const deleted = await db
     .delete(generatorAvoid)
@@ -647,7 +653,7 @@ export async function allowPair(
       ),
     )
     .returning({ ownerId: generatorAvoid.ownerId });
-  return deleted.length > 0;
+  if (deleted.length === 0) throw new NotFound('avoidedPair');
 }
 
 /** A garment the owner never pairs with another: the garment page's list. */

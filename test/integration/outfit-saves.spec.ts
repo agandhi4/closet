@@ -9,11 +9,8 @@ import {
   weekPlanEntry,
 } from '../../src/db/schema';
 import { addDays } from '../../src/calendar-date';
-import {
-  isRefused,
-  replaceEntryOutfit,
-  replaceRefusal,
-} from '../../src/web/calendar/replace';
+import { replaceEntryOutfit } from '../../src/web/calendar/replace';
+import { OutfitGarmentsGone } from '../../src/web/outfits/gone-garments';
 import { pickIdea } from '../../src/web/outfits/pick';
 import { createOutfit } from '../../src/web/outfits/queries';
 import { deleteGarment } from '../../src/web/wardrobe/queries';
@@ -381,7 +378,7 @@ describe('outfit saves', () => {
       expect(await outfits()).toEqual([]);
     });
 
-    it('a replace with an idea holding an archived garment is the named 409 through replaceRefusal, every caller’s', async () => {
+    it('a replace with an idea holding an archived garment throws the named 409, every caller’s', async () => {
       const day = addDays(t.today(), 4);
       const planned = await createOutfit(t.db, t.owner.id, {
         name: 'On the day',
@@ -394,29 +391,28 @@ describe('outfit saves', () => {
         .where(eq(outfitCalendar.outfitId, planned.id));
       await setGarmentStatus(t.db, top, t.owner.id, { event: 'archive' });
       const target = { entryId: entry.id, day, occasion: 'work' as const };
-      const outcome = await replaceEntryOutfit(t.db, t.owner.id, target, {
+      const actor = { userId: t.owner.id };
+      const refusal: unknown = await replaceEntryOutfit(t.db, actor, target, {
         garmentIds: look(),
-      });
-      expect(outcome).toEqual({
-        outcome: 'garments-not-found',
+      }).catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(OutfitGarmentsGone);
+      expect(refusal).toMatchObject({
+        statusCode: 409,
+        message: 'Not saved: Linen shirt is archived.',
         gone: [
           { id: top, garment: { name: 'Linen shirt', status: 'archived' } },
         ],
       });
-      if (!isRefused(outcome)) throw new Error('the replace went through');
-      const refusal = replaceRefusal(outcome);
-      expect(refusal.statusCode).toBe(409);
-      expect(refusal.message).toBe('Not saved: Linen shirt is archived.');
       // A garment not theirs stays the unnamed 404.
-      const foreign = await replaceEntryOutfit(t.db, t.owner.id, target, {
-        garmentIds: [bottom, 2147483000],
+      await expect(
+        replaceEntryOutfit(t.db, actor, target, {
+          garmentIds: [bottom, 2147483000],
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 404,
+        message:
+          'Not saved: a garment you chose is no longer in your wardrobe.',
       });
-      if (!isRefused(foreign)) throw new Error('the replace went through');
-      const unnamed = replaceRefusal(foreign);
-      expect(unnamed.statusCode).toBe(404);
-      expect(unnamed.message).toBe(
-        'Not saved: a garment you chose is no longer in your wardrobe.',
-      );
       // Nothing changed: the entry keeps its outfit, no outfit was made.
       expect(await outfits()).toEqual([{ id: planned.id, name: 'On the day' }]);
     });
