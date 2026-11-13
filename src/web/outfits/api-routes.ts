@@ -44,12 +44,18 @@ const OUTFIT_PAGE_SIZE = 30;
 const OutfitListQuery = Type.Object({
   cursor: Type.Optional(ListCursor),
   limit: ListLimit(OUTFIT_PAGE_SIZE),
+  proposed: Type.Optional(
+    Type.Boolean({
+      description:
+        "`true`: your agent's proposals waiting on you (the Outfits tab's From Muse cards) instead of your own outfits; each carries its `proposal`",
+    }),
+  ),
 });
 
 const OutfitList = ListOf(OutfitListItem, {
   title: 'OutfitList',
   description:
-    'A page of your outfits, newest first (not those your agent proposed that are not yours yet)',
+    'A page of your outfits, newest first (not those your agent proposed that are not yours yet), or with `proposed=true` of those proposals',
 });
 
 const OUTFIT_PATH = '/outfits/:id';
@@ -74,19 +80,20 @@ export const outfitApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         tags: ['outfits'],
         summary: 'Your outfits, newest first',
         description:
-          "Each with its garments in the order it was built and the pieces still to buy. Muse's proposals you have not made yours are not listed.",
+          "Each with its garments in the order it was built and the pieces still to buy. Muse's proposals you have not made yours are not listed: `proposed=true` lists the ones waiting on you instead (set-aside ones stay out).",
         querystring: OutfitListQuery,
         response: apiResponses({ 200: OutfitList }),
       },
     },
     async (request) => {
-      const { cursor, limit = OUTFIT_PAGE_SIZE } = request.query;
+      const { cursor, limit = OUTFIT_PAGE_SIZE, proposed } = request.query;
       const { outfits, next } = await listOutfitsPage(
         db,
         actorOf(request).userId,
         {
           before: cursor === undefined ? undefined : readIdCursor(cursor),
           limit,
+          proposed: proposed === true,
         },
       );
       return {
