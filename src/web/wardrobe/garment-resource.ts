@@ -379,6 +379,16 @@ export const GarmentRef = Type.Object(
   },
 );
 
+/** POST /garments' 200: the retry of a create with this `clientId`. */
+export const GarmentRetried = Type.Object(
+  { id: Type.Integer() },
+  {
+    title: 'GarmentRetried',
+    description:
+      'An earlier create with this clientId: its garment, `Location` its URL; nothing was created',
+  },
+);
+
 export const GarmentUpdated = Type.Object(
   {
     /**

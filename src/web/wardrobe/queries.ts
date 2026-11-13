@@ -664,7 +664,8 @@ function storedFields<Fields extends Partial<GarmentFields>>(
 /**
  * Inserts a garment into `ownerId`'s wardrobe, in the closet or on the
  * wishlist (the only statuses a garment starts in; setGarmentStatus moves
- * it after); returns its id.
+ * it after); returns its id. `clientId` is an API create's (#563): see
+ * insertGarmentOnce.
  */
 export async function insertGarment(
   tx: Queryable,
@@ -677,16 +678,68 @@ export async function insertGarment(
   const [row] = await tx
     .with(lock)
     .insert(garment)
-    .values({
-      ...storedFields(tx, ownerId, fields),
-      status,
-      // Share links address garments by this (the /share page).
-      shareableId: randomUUID(),
-      ownerId: lockedOwnerId(lock),
-      photoId,
-    })
+    .values(newGarment(tx, ownerId, fields, photoId, status, lock))
     .returning({ id: garment.id });
   return row.id;
+}
+
+function newGarment(
+  tx: Queryable,
+  ownerId: number,
+  fields: GarmentFields,
+  photoId: number | null,
+  status: EntryStatus,
+  lock: OwnerLockCte,
+) {
+  return {
+    ...storedFields(tx, ownerId, fields),
+    status,
+    // Share links address garments by this (the /share page).
+    shareableId: randomUUID(),
+    ownerId: lockedOwnerId(lock),
+    photoId,
+  };
+}
+
+/**
+ * insertGarment for a create that carries the client's own id (the API's,
+ * a retried offline create): null when the owner's row of that id exists
+ * already (nothing written; `garmentIdByClientId` finds it). The conflict
+ * target is the client id alone, so a concurrent twin waits on the owner
+ * lock, then finds the first one's row. Raises CL410 (isDeletedClientId)
+ * for the id of a deleted garment.
+ */
+export async function insertGarmentOnce(
+  tx: Queryable,
+  ownerId: number,
+  fields: GarmentFields,
+  status: EntryStatus,
+  clientId: string,
+): Promise<number | null> {
+  const lock = ownerLockCte(tx, ownerId);
+  const [row] = await tx
+    .with(lock)
+    .insert(garment)
+    .values({
+      ...newGarment(tx, ownerId, fields, null, status, lock),
+      clientId,
+    })
+    .onConflictDoNothing({ target: [garment.ownerId, garment.clientId] })
+    .returning({ id: garment.id });
+  return row?.id ?? null;
+}
+
+/** The owner's garment a client id was stored on, or null (deleted since). */
+export async function garmentIdByClientId(
+  tx: Queryable,
+  ownerId: number,
+  clientId: string,
+): Promise<number | null> {
+  const [row] = await tx
+    .select({ id: garment.id })
+    .from(garment)
+    .where(and(eq(garment.ownerId, ownerId), eq(garment.clientId, clientId)));
+  return row?.id ?? null;
 }
 
 /**

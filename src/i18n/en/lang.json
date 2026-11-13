@@ -59,6 +59,7 @@
   "WARDROBE_BUSY": "Another change to this wardrobe is still saving. Try again in a moment.",
   "WEAR_DELETED": "This wear was removed since, so it was not saved again.",
   "WEAR_CLIENT_ID_TAKEN": "This saved wear was already used for another garment.",
+  "GARMENT_DELETED": "This garment was removed since, so it was not saved again.",
   "ERROR": "Error",
   "PATH": "Path",
   "TIME": "Time",

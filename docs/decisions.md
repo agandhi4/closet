@@ -802,16 +802,30 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 **Decision:** `GET /insights?unwornDays=` and `GET /insights/recap?year=` (`readInsights`; `readRecap`, now the page's too), owner-only like the pages, so no `ownerId`; an unknown window, or a year after this one, is a 400. `GET /sizes`, `PUT /sizes/measurements` (every length in cm, replaced whole, rounded to the column's two decimals), `PUT /sizes/unit`, `GET /sizes/brands[?brand=]` (the hint), `POST`/`PUT`/`DELETE /sizes/brands[/{id}]` (`readBrandSizeForm`; a brand noted already is a 400 under `body/brand`, as the form). The recap's "Save image" is drawn on the device: web-only, in the plan's list.
 **Consequence:** every twin costs its page's statements but `PUT /sizes/measurements`, one fewer (no stored lengths to keep). Measurements never reach a share on any surface. #195 has no pending line left.
 
+## 2026-11-13 — No 409 for an API garment clientId on "different content" (#563)
+
+**Why:** a garment has no natural key, so a repeated `clientId` is always a retry of its create, and a retry after the client's own edit legitimately differs.
+**Decision:** `POST /garments` answers the first row, 200, for any repeat of the id (a deleted one's is 410); content is never compared. A need the create settled is resolved only after the insert proves it new (`createGarmentOnce`), so its retry is not refused with the need's 404.
+**Consequence:** the id alone identifies the create; a client reusing one for another garment gets the first garment back.
+
 ## 2026-11-13 — 0051 gets its lock_timeout in place, under the migration-contract label (#601)
 
 **Why:** 0051's ~30 `ALTER TABLE`s on root tables ran before 0052's `SET LOCAL lock_timeout`, so behind a long reader (a backup's `pg_dump`) the boot could wait without limit instead of failing and retrying. A new migration cannot help: the timeout must be in force while 0051 runs.
 **Decision:** edit 0051 (a leading `SET LOCAL lock_timeout = '5s'`) before production ever ran it (last ship 96b3ebc predates #566), under the `migration-contract` label. No schema changes; a database that already applied 0051 (dev, worktrees) is unaffected since Drizzle never re-checks hashes.
 **Consequence:** once a migration has shipped to production this hatch is closed; fix forward then.
-
 ## 2026-11-13 — A migration that locks a table must start with lock_timeout (#603)
 
 **Decision:** `src/db/migration-lock-timeout.spec.ts` (unit tier, reads `drizzle/*.sql`) fails any file from 0051 on with `ALTER TABLE`, trigger, `DROP`, `TRUNCATE` or non-concurrent `CREATE INDEX` whose first statement is not `SET LOCAL lock_timeout`; 0000-0050 are exempt by number.
 **Consequence:** 0051 shipped without one and only review caught it (#601); a new migration now fails fast, naming file and fix.
+
+## 2026-11-13 — The lock_timeout rule is unconditional (#610)
+
+**Decision:** every migration from 0051 on starts with a positive `SET LOCAL lock_timeout`, not only those with a locking statement (#603's list). A statement list cannot be complete: `ALTER INDEX`, `REINDEX`, `LOCK TABLE`, policies and FK references in `CREATE TABLE` all lock, and a miss is silent.
+
+## 2026-11-13 — createGarmentOnce's settle runs on its transaction (#615)
+Why: `settle` resolved the Muse need through `postedDestination(db, ...)` on the pool while the insert's transaction held a connection and the owner lock: two connections for one create, and a pool at its limit could deadlock the request on itself.
+Decision: `settle(tx)` receives the transaction; `postedDestination`, `resolveNeed`, `resolveOrderItem` and `findPendingOrderItem` take `Queryable`. No other `db.transaction` callback in `src/` reaches the pool (audited).
+Consequence: no per-app pool size exists in the harness (`POOL_MAX` is a constant), so the proof is the type (a pool-typed closure no longer compiles) plus the retry and need specs in api-wishlist.
 
 ## 2026-11-13 — The feed's garment carries its stored fields only (#607)
 
