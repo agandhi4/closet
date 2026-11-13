@@ -30,6 +30,11 @@
 # Then the non-root image's two failure modes (docs/operations.md#permissions), each its own boot on
 # the migrated database: a root-owned data directory ends the boot naming the chown, and a root-owned
 # models directory leaves /health/ready 503 with `storage` down and the chown as its fix.
+# Last, README's quick-start compose block (the first yaml fence after `<!-- smoke:quickstart -->`) is
+# run with its own Postgres: only the image, the two `<...>` placeholders and the host port are
+# substituted, it must reach /health/ready 200, and a recreated container must find the models volume
+# as it was (the 940 MB model is not downloaded again). Needs `docker compose`; its Postgres is its own,
+# so the DATABASE_* variables above do not apply to it.
 # On failure the container's log is printed.
 set -euo pipefail
 
@@ -219,8 +224,8 @@ code=$(docker inspect -f '{{.State.ExitCode}}' "$NAME")
 log_has 'SIGTERM: shutting down' || fail "the log does not show the SIGTERM shutdown"
 log "ok: SIGTERM shut it down with exit 0"
 
-# A root-owned data directory (the owner skipped the chown): the boot refuses it before the logger
-# opens app.log there, naming the fix (src/main.ts), instead of a bare EACCES stack.
+# A root-owned data directory (the owner skipped the chown): the boot refuses it, naming the fix
+# (src/main.ts), instead of a first upload's bare EACCES stack.
 NAME=$ROOT_DATA
 volume "$ROOT_DATA" 0:0
 start "$NAME" "$ROOT_DATA" "$MODELS"
@@ -253,4 +258,59 @@ fix=$(jq -r '.checks.storage.fix' "$health")
 [ "$(jq -r '.checks.database.status' "$health")" = up ] || fail "a root-owned /app/models: the database check is down too"
 log "ok: a root-owned /app/models is 503, storage down: $fix"
 docker rm -f "$NAME" >/dev/null
+# README's quick start, as an owner copies it. The compose project has its own network and volumes, so
+# it needs neither the host's Postgres nor the host network; the host port is the only edit besides the
+# image and the placeholders (the README's 3000 may be taken here).
+log "README quick start"
+PROJECT="$SMOKE-readme"
+COMPOSE_FILE="$WORK/compose.yml"
+awk '/<!-- smoke:quickstart -->/ {on=1} on && /^```yaml$/ {inblock=1; next} inblock && /^```$/ {exit} inblock' \
+  "$(dirname "$0")/../README.md" >"$COMPOSE_FILE"
+[ -s "$COMPOSE_FILE" ] || fail "README.md has no yaml block after <!-- smoke:quickstart -->"
+sed -i.bak \
+  -e "s#ghcr.io/kashhq/closet:latest#$IMAGE#" \
+  -e "s#'3000:3000'#'$PORT:3000'#" \
+  -e "s#<secret>#smoke-test-access-token-secret-not-for-deployment#" \
+  -e "s#<password>#smoke-readme-password#" "$COMPOSE_FILE"
+grep -qxF "    image: $IMAGE" "$COMPOSE_FILE" \
+  || fail "README's closet image line was not replaced by $IMAGE: compose would test the published image"
+if grep -v '^ *#' "$COMPOSE_FILE" | grep -q '<[a-z ]*>'; then
+  fail "README's compose block has a placeholder the smoke does not fill"
+fi
+compose() { docker compose -p "$PROJECT" -f "$COMPOSE_FILE" "$@"; }
+NAME=$PROJECT-closet-1
+readme_cleanup() { compose down -v >/dev/null 2>&1 || true; }
+trap 'readme_cleanup; cleanup' EXIT
+# Created first so the models volume can hold what a first boot would have downloaded (a placeholder:
+# the boot never downloads 940 MB here; with MODELS_DIR the real file).
+compose up --no-start >/dev/null 2>&1 || fail "docker compose could not create README's services"
+models_volume="${PROJECT}_closet_models"
+if [ -n "${MODELS_DIR:-}" ]; then
+  docker run --rm --user 0 --entrypoint sh -v "$models_volume:/v" \
+    -v "$(cd "$MODELS_DIR" && pwd)/birefnet_512.onnx:/src.onnx:ro" "$IMAGE" \
+    -c "cp /src.onnx /v/birefnet_512.onnx && chown -R $APP_UID:$APP_GID /v" >/dev/null
+else
+  docker run --rm --user 0 --entrypoint sh -v "$models_volume:/v" "$IMAGE" \
+    -c "echo 'placeholder: refused on its checksum' >/v/birefnet_512.onnx && chown -R $APP_UID:$APP_GID /v" >/dev/null
+fi
+wait_ready() {
+  local waited=$SECONDS
+  until [ "$(curl -s -o "$health" -w '%{http_code}' "$BASE/health/ready")" = 200 ]; do
+    [ "$(docker inspect -f '{{.State.Running}}' "$NAME")" = true ] || fail "README's closet container exited during boot"
+    [ $((SECONDS - waited)) -lt $BOOT_TIMEOUT_S ] || fail "README's closet: /health/ready was not 200 within ${BOOT_TIMEOUT_S}s (last: $(cat "$health"))"
+    sleep 1
+  done
+}
+compose up -d >/dev/null 2>&1 || fail "docker compose up of README's block failed"
+wait_ready
+log "ok: README's compose block reached /health/ready 200"
+# `docker compose pull && up -d` recreates the container: the models volume must keep its contents.
+docker exec "$NAME" touch /app/models/.recreate-marker || fail "README's closet cannot write /app/models"
+compose up -d --force-recreate closet >/dev/null 2>&1 || fail "recreating README's closet failed"
+wait_ready
+docker exec "$NAME" test -f /app/models/.recreate-marker \
+  || fail "a recreated container lost /app/models: README's block does not mount closet_models there"
+log "ok: a recreated container finds /app/models as it was (no second model download)"
+readme_cleanup
+
 log "PASS $IMAGE in $((SECONDS - started))s"

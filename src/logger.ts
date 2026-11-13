@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import pino, {
   type DestinationStream,
   type Logger,
@@ -12,15 +11,15 @@ import { scrubSecrets } from './secret-text';
 /**
  * The process's one pino logger. Modules take a child named after
  * themselves (`logger.child({ logger: 'Photos' })`), and every line carries
- * that `logger` (observability.md's field name): app.log and the container
- * log are filtered by it. Nothing writes to the console: ESLint's
+ * that `logger` (observability.md's field name): the container log is
+ * filtered by it. Nothing writes to the console: ESLint's
  * `no-console` holds src/ to this logger.
  */
 export type { Logger } from 'pino';
 
 // The session cookie is a bearer credential: a logged header is a stolen
-// login for a year. app.log lives under DATA_PATH and the container logs
-// reach Loki, so neither may ever hold one. No line logs headers today; this
+// login for a year. The container logs reach Loki and a LOG_FILE may hold a
+// copy, so neither may ever hold one. No line logs headers today; this
 // is the net under any that would (`logger.info({ req }, ...)`).
 const REDACTED_PATHS = [
   'req.headers.cookie',
@@ -137,9 +136,7 @@ function truncate(text: string): string {
 
 /**
  * JSON lines name their level (`"level":"info"`), so a query reads them
- * without pino's numbers. Only on a main-thread destination: a worker
- * transport with several targets filters each line by its numeric level and
- * silently drops every line written with the label.
+ * without pino's numbers (pino-pretty reads the name as well).
  */
 function jsonOptions(level: LogLevel, version: string): LoggerOptions {
   return {
@@ -149,47 +146,115 @@ function jsonOptions(level: LogLevel, version: string): LoggerOptions {
 }
 
 /**
- * The server's and the CLIs' logger. LOG_LEVEL decides what reaches both
- * outputs, stdout and DATA_PATH/app.log; LOG_FORMAT decides their shape.
- * `json` (the default, and production's): one object per line, which Docker
- * hands to Loki whole, written synchronously so a fatal line before
- * process.exit is never lost. `text`: pino-pretty in a worker thread (which
- * flushes on exit), for a terminal (`npm run start:dev`).
+ * The server's and the CLIs' logger. Stdout is the one sink: the container
+ * log Docker hands to Loki. LOG_LEVEL decides what reaches it; LOG_FORMAT
+ * its shape. `json` (the default, and production's): one object per line,
+ * written synchronously so a fatal line before process.exit is never lost.
+ * `text`: pino-pretty in a worker thread (which flushes on exit), for a
+ * terminal (`npm run start:dev`).
+ *
+ * LOG_FILE adds JSON lines to a file for hand debugging, whatever LOG_FORMAT.
+ * `stdout` is the console's destination, a parameter for the unit spec.
  */
 export function createLogger(
-  config: Pick<
-    Config,
-    'LOG_LEVEL' | 'LOG_FORMAT' | 'DATA_PATH' | 'APP_VERSION'
-  >,
+  config: Pick<Config, 'LOG_LEVEL' | 'LOG_FORMAT' | 'LOG_FILE' | 'APP_VERSION'>,
+  stdout: DestinationStream = consoleDestination(config.LOG_FORMAT),
+  fileBufferMax = LOG_FILE_BUFFER_MAX,
 ): Logger {
   const level = config.LOG_LEVEL;
   const version = loadBuildInfo(config.APP_VERSION).release;
-  const file = join(config.DATA_PATH, 'app.log');
-  if (config.LOG_FORMAT === 'json') {
-    return pino(
-      jsonOptions(level, version),
-      pino.multistream([
-        { level, stream: pino.destination({ dest: 1, sync: true }) },
-        {
-          level,
-          stream: pino.destination({ dest: file, mkdir: true, sync: true }),
-        },
-      ]),
-    );
-  }
+  // pino-pretty reads pino's numeric levels: only a text console keeps them.
+  const lineOptions =
+    config.LOG_FORMAT === 'text' && !config.LOG_FILE
+      ? options(level, version)
+      : jsonOptions(level, version);
+  if (!config.LOG_FILE) return pino(lineOptions, stdout);
   return pino(
-    options(level, version),
-    pino.transport({
-      targets: [1, file].map((destination) => ({
-        target: 'pino-pretty',
+    lineOptions,
+    pino.multistream([
+      { level, stream: stdout },
+      {
         level,
-        options: { ...PRETTY, destination, mkdir: destination !== 1 },
-      })),
-    }),
+        stream: fileSink(
+          config.LOG_FILE,
+          stdout,
+          level,
+          version,
+          fileBufferMax,
+        ),
+      },
+    ]),
   );
 }
 
-const PRETTY = {
+function consoleDestination(format: Config['LOG_FORMAT']): DestinationStream {
+  return format === 'json'
+    ? pino.destination({ dest: 1, sync: true })
+    : pino.transport({
+        target: 'pino-pretty',
+        options: { ...PRETTY, destination: 1 },
+      });
+}
+
+// What an unwritten LOG_FILE may hold in memory before lines are dropped: a few
+// seconds of debug logging at most, so a stalled share costs lines, not the heap.
+const LOG_FILE_BUFFER_MAX = 16 * 1024 * 1024;
+
+/**
+ * The opt-in file is written asynchronously: a stalled disk or share costs
+ * buffered lines, never the event loop (a synchronous log file on NFS froze
+ * the whole app, #632). An open or write error is an `error` event, which
+ * unhandled ends the process; it is reported to stdout once and the file
+ * stops (a destination that failed to open throws on its next write), while
+ * the console keeps every line. Lines still buffered at a crash are lost.
+ * Past `bufferMax` unwritten bytes the file drops lines; that is reported
+ * once per stall (until the buffer drains), not per line.
+ */
+function fileSink(
+  file: string,
+  stdout: DestinationStream,
+  level: LogLevel,
+  version: string,
+  bufferMax: number,
+): DestinationStream {
+  const sink = pino.destination({
+    dest: file,
+    sync: false,
+    maxLength: bufferMax,
+  });
+  const report = pino(jsonOptions(level, version), stdout).child({
+    logger: 'Logger',
+  });
+  let failed = false;
+  let dropping = false;
+  sink.on('error', (err: unknown) => {
+    if (failed) return;
+    failed = true;
+    report.error(
+      { err, file },
+      'LOG_FILE is not writable; its lines are dropped',
+    );
+  });
+  sink.on('drop', () => {
+    if (dropping) return;
+    dropping = true;
+    report.warn(
+      { file, bufferMax },
+      'LOG_FILE is not keeping up; lines are dropped',
+    );
+  });
+  sink.on('drain', () => {
+    dropping = false;
+  });
+  return {
+    write: (line) => {
+      if (!failed) sink.write(line);
+    },
+  };
+}
+
+// Exported for the unit spec of the text console.
+export const PRETTY = {
   singleLine: true,
   colorize: true,
   levelFirst: false,
@@ -202,7 +267,7 @@ const PRETTY = {
 /**
  * The logger for what happens before the configuration is loaded, or when
  * loading it failed (main.ts, the CLIs): JSON on stdout at info, named
- * `Boot`, with the image's APP_VERSION. Not app.log: DATA_PATH is part of
+ * `Boot`, with the image's APP_VERSION. Never LOG_FILE: it is part of
  * the configuration it may lack. Synchronous, so a fatal line before
  * process.exit is never lost.
  */

@@ -55,7 +55,7 @@ const INSTRUCTIONS = [
  * through and refuses a foreign one; the service worker never handles it
  * (bypassesWorker). Rate-limited per token (MCP_LIMIT). The path is logged
  * as the pattern (secretPath), so a client that puts a token in the query
- * string never writes it to app.log.
+ * string never writes it to a log.
  */
 export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
   app,

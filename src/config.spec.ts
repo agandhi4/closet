@@ -134,6 +134,25 @@ describe('loadConfig', () => {
     ).toBe(4);
   });
 
+  // /file serves DATA_PATH and the photo backups carry it: a log never lands there.
+  it('refuses a LOG_FILE under DATA_PATH, however it is spelled, naming the key only', () => {
+    expect(load({}).LOG_FILE).toBeUndefined();
+    expect(
+      load({ DATA_PATH: '/srv/data', LOG_FILE: '/srv/logs/closet.log' })
+        .LOG_FILE,
+    ).toBe('/srv/logs/closet.log');
+    for (const LOG_FILE of [
+      '/srv/data/app.log',
+      '/srv/data/../data/sub/app.log',
+      '/srv/data/',
+      '/srv/other/../data/app.log',
+    ]) {
+      expect(
+        problemsOf({ ...REQUIRED, DATA_PATH: '/srv/data', LOG_FILE }),
+      ).toEqual(['LOG_FILE: must not be under DATA_PATH']);
+    }
+  });
+
   it.each([
     ['the old default', 'ChangeMe!'],
     ['31 characters', 'x'.repeat(31)],
@@ -153,17 +172,41 @@ describe('loadConfig', () => {
   });
 
   it('requires both VAPID keys when the PWA is on', () => {
-    expect(problemsOf({ ...REQUIRED, PWA_ENABLED: 'true' })).toEqual([
+    expect(
+      problemsOf({
+        ...REQUIRED,
+        PWA_ENABLED: 'true',
+        SITE_URL: 'https://closet.test',
+      }),
+    ).toEqual([
       'PUBLIC_VAPID_KEY: is required when PWA_ENABLED is true',
       'PRIVATE_VAPID_KEY: is required when PWA_ENABLED is true',
     ]);
     expect(
       load({
         PWA_ENABLED: 'true',
+        SITE_URL: 'https://closet.test',
         PUBLIC_VAPID_KEY: 'a',
         PRIVATE_VAPID_KEY: 'b',
       }).PWA_ENABLED,
     ).toBe(true);
+  });
+
+  it('requires an https SITE_URL when the PWA is on, naming the key and never the value', () => {
+    const keys = { PUBLIC_VAPID_KEY: 'a', PRIVATE_VAPID_KEY: 'b' };
+    for (const SITE_URL of ['http://localhost:3000', 'mailto:me@closet.test']) {
+      const problems = problemsOf({
+        ...REQUIRED,
+        ...keys,
+        PWA_ENABLED: 'true',
+        SITE_URL,
+      });
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toMatch(/^SITE_URL: .*https/);
+      expect(problems[0]).not.toContain(SITE_URL);
+    }
+    // Off, an http SITE_URL is the local-development default.
+    expect(load({ SITE_URL: 'http://localhost:3000' }).PWA_ENABLED).toBe(false);
   });
 
   it('takes a Sentry DSN, treats an empty one as unset and refuses anything else', () => {
