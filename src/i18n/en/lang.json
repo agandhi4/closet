@@ -303,7 +303,24 @@
       "inspirationPiece": "Piece not found",
       "page": "There is no page at this address"
     },
+    "status": {
+      "archive": "Only a garment in the closet can be archived",
+      "restore": "Only an archived garment can be restored"
+    },
+    "replay": {
+      "tooOld": "Too long ago to save: add it from the calendar",
+      "future": "That day has not come yet",
+      "account": "Saved while signed in as someone else"
+    },
+    "garment": {
+      "notOwnedYet": "On the wishlist: not bought yet",
+      "alreadyAdded": "Already added from your orders",
+      "photoChanged": "The photo changed meanwhile; try again",
+      "noPhoto": "Garment has no photo",
+      "notThisCategory": "Not a type of this category"
+    },
     "request": {
+      "noFile": "No file uploaded",
       "invalid": "That could not be saved as sent. Reload the page and try again.",
       "tooLarge": "The request is too large",
       "unsupportedType": "This kind of request body is not accepted here",

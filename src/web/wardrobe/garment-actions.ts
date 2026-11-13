@@ -134,7 +134,7 @@ export async function tagGarment(
 ): Promise<AuthorizedGarment & { changed: string[] }> {
   const stored = await requireGarment(db, actor, address, 'manage');
   const changes = readTags(tags, stored.garment);
-  if (!changes) throw new HttpError(400, 'Not a type of this category');
+  if (!changes) throw new HttpError(400, t('refusal.garment.notThisCategory'));
   const changed = Object.keys(changes);
   if (
     changed.length > 0 &&
@@ -152,8 +152,8 @@ export async function tagGarment(
 
 /** Archive and Restore's 409 when the garment's status does not take the event. */
 const STATUS_REFUSED = {
-  archive: 'Only a garment in the closet can be archived',
-  restore: 'Only an archived garment can be restored',
+  archive: 'refusal.status.archive',
+  restore: 'refusal.status.restore',
 } as const;
 
 /**
@@ -225,7 +225,7 @@ function statusRefusal(
   outcome: StatusOutcome & { ok: false },
 ): HttpError {
   if (outcome.reason === 'not-found') return garmentNotFound();
-  return new HttpError(409, STATUS_REFUSED[event], {
+  return new HttpError(409, t(STATUS_REFUSED[event]), {
     logDetail: `garment ${address.id} is ${outcome.status}`,
   });
 }
@@ -305,7 +305,7 @@ async function photoToChange(
     address,
     'manage',
   );
-  if (!garment.photo) throw new HttpError(400, 'Garment has no photo');
+  if (!garment.photo) throw new HttpError(400, t('refusal.garment.noPhoto'));
   return { ...wardrobe, photo: garment.photo };
 }
 
@@ -385,7 +385,7 @@ export async function saveEditedGarmentCutout(
 ): Promise<EditedCutout> {
   const { photo } = await photoToChange(deps.db, actor, address);
   const part = await upload();
-  if (!part) throw new HttpError(400, 'No file uploaded');
+  if (!part) throw new HttpError(400, t('refusal.request.noFile'));
   const edited = await deps.photos.saveEditedCutout(part.file, photo.fileName);
   if (!edited) {
     throw new NotFound('garmentPhoto', {
@@ -416,7 +416,7 @@ export async function garmentToMend(
  * garment they have (a repair, a wear, a wash, away: wear-actions.ts): 409.
  */
 export function garmentNotOwnedYet(): HttpError {
-  return new HttpError(409, 'On the wishlist: not bought yet');
+  return new HttpError(409, t('refusal.garment.notOwnedYet'));
 }
 
 /**
