@@ -10,6 +10,8 @@ import {
  */
 
 export const IDEAS_PATH = '/outfits/ideas';
+/** "Allow again" (allowPair): the garment page's and the Style page's (#21b). */
+export const IDEAS_ALLOW_PATH = `${IDEAS_PATH}/allow`;
 
 /**
  * The one-shot flag a pick's or a save's redirect carries when the outfit

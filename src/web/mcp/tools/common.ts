@@ -1,5 +1,6 @@
 import * as z from 'zod';
 import { OCCASIONS } from '../../../wardrobe/occasions';
+import { ROW_ID_MAX } from '../../schemas';
 
 /**
  * Input pieces the tools share. Ids are Postgres serials (32-bit), as the
@@ -7,7 +8,7 @@ import { OCCASIONS } from '../../../wardrobe/occasions';
  * schema, not failed in the query.
  */
 
-export const rowId = () => z.number().int().min(1).max(2_147_483_647);
+export const rowId = () => z.number().int().min(1).max(ROW_ID_MAX);
 
 export const ownerIdInput = rowId()
   .optional()

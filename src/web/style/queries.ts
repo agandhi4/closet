@@ -1,12 +1,22 @@
-import { type AnyColumn, eq, type SQL, sql } from 'drizzle-orm';
+import {
+  and,
+  type AnyColumn,
+  asc,
+  eq,
+  inArray,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
-import { outfitRule, styleProfile } from '../../db/schema';
+import { garment, outfitRule, styleProfile } from '../../db/schema';
 import {
   type OutfitRule,
   type OutfitRuleKind,
   type StoredMatcher,
   storedMatcher,
 } from '../../wardrobe/outfit-rules';
+import { inCloset, ownedGarment } from '../wardrobe/status';
 import type { StyleProfileFields } from './validation';
 
 /**
@@ -68,28 +78,32 @@ export type OutfitRuleRow = [
  * Only ever the signed-in owner's: no share reads another's rules.
  */
 export function outfitRulesSql(ownerId: number): SQL<OutfitRuleRow[]> {
-  // StoredSide's order.
-  const side = (columns: readonly AnyColumn[]) =>
-    sql`json_build_array(${sql.join([...columns], sql`, `)})`;
-  const { aGarmentId, aCategory, aType, aColor, aPattern } = outfitRule;
-  const { bGarmentId, bCategory, bType, bColor, bPattern } = outfitRule;
   return sql<OutfitRuleRow[]>`(
-    select coalesce(json_agg(json_build_array(
-      ${outfitRule.kind},
-      ${side([aGarmentId, aCategory, aType, aColor, aPattern])},
-      ${side([bGarmentId, bCategory, bType, bColor, bPattern])}
-    ) order by ${outfitRule.id}), '[]')
+    select coalesce(json_agg(${ruleRowSql()} order by ${outfitRule.id}), '[]')
     from ${outfitRule}
     where ${eq(outfitRule.ownerId, ownerId)}
   )`;
 }
 
+/** An outfit_rule row as an OutfitRuleRow: the kind, then each side in StoredSide's order. */
+function ruleRowSql(): SQL<OutfitRuleRow> {
+  const side = (columns: readonly AnyColumn[]) =>
+    sql`json_build_array(${sql.join([...columns], sql`, `)})`;
+  const { aGarmentId, aCategory, aType, aColor, aPattern } = outfitRule;
+  const { bGarmentId, bCategory, bType, bColor, bPattern } = outfitRule;
+  return sql<OutfitRuleRow>`json_build_array(
+    ${outfitRule.kind},
+    ${side([aGarmentId, aCategory, aType, aColor, aPattern])},
+    ${side([bGarmentId, bCategory, bType, bColor, bPattern])}
+  )`;
+}
+
 export function readOutfitRules(rows: readonly OutfitRuleRow[]): OutfitRule[] {
-  return rows.map(([kind, a, b]) => ({
-    kind,
-    a: storedMatcher(sideOf(a)),
-    b: storedMatcher(sideOf(b)),
-  }));
+  return rows.map(readOutfitRule);
+}
+
+export function readOutfitRule([kind, a, b]: OutfitRuleRow): OutfitRule {
+  return { kind, a: storedMatcher(sideOf(a)), b: storedMatcher(sideOf(b)) };
 }
 
 function sideOf([
@@ -100,4 +114,140 @@ function sideOf([
   pattern,
 ]: StoredSide): StoredMatcher {
   return { garmentId, category, type, color, pattern };
+}
+
+/** A garment as a rule's words name it: its name, or its category's label. */
+export interface NamedGarment {
+  id: number;
+  name: string | null;
+  category: string;
+}
+
+/** One of the owner's rules as the Style page lists it, with the garments it names. */
+export interface ListedOutfitRule {
+  id: number;
+  rule: OutfitRuleRow;
+  garments: NamedGarment[];
+}
+
+function namedGarmentSql() {
+  return sql`json_build_object('id', ${garment.id}, 'name', ${garment.name}, 'category', ${garment.category})`;
+}
+
+/**
+ * The owner's rules for the Style page's list (#21b), oldest first, each
+ * with the garments its sides name, as a scalar subquery: the page reads
+ * it with the profile in one statement. A side's garment cascades with it,
+ * so every garment a rule names is there.
+ */
+export function outfitRuleListSql(ownerId: number): SQL<ListedOutfitRule[]> {
+  return sql<ListedOutfitRule[]>`(
+    select coalesce(json_agg(json_build_object(
+      'id', ${outfitRule.id},
+      'rule', ${ruleRowSql()},
+      'garments', (
+        select coalesce(json_agg(${namedGarmentSql()}), '[]')
+        from ${garment}
+        where ${or(
+          eq(garment.id, outfitRule.aGarmentId),
+          eq(garment.id, outfitRule.bGarmentId),
+        )}
+      )
+    ) order by ${outfitRule.id}), '[]')
+    from ${outfitRule}
+    where ${eq(outfitRule.ownerId, ownerId)}
+  )`;
+}
+
+/**
+ * The garments the add form offers a side (#21b): the owner's closet, by
+ * category and name, as a scalar subquery read with the page.
+ */
+export function ruleGarmentChoicesSql(ownerId: number): SQL<NamedGarment[]> {
+  return sql<NamedGarment[]>`(
+    select coalesce(json_agg(${namedGarmentSql()} order by ${sql.join(
+      [
+        asc(garment.category),
+        asc(sql`lower(${garment.name})`),
+        asc(garment.id),
+      ],
+      sql`, `,
+    )}), '[]')
+    from ${garment}
+    where ${and(eq(garment.ownerId, ownerId), inCloset())}
+  )`;
+}
+
+/** A rule as the add form posts it, each side one matcher (readRuleSide). */
+export interface NewOutfitRule {
+  kind: OutfitRuleKind;
+  a: StoredMatcher;
+  b: StoredMatcher;
+}
+
+/**
+ * Adds one of the owner's rules (#21b), the one writer of outfit_rule: its
+ * id; 'duplicate' when the owner has it already (the unique index, so a
+ * concurrent add cannot slip past a check made first); 'not-found' when a
+ * side names a garment that is not the owner's own (owned now or once, as
+ * avoidPair's), writing nothing. The two sides must differ (the route
+ * says so; the table checks only two garments). A type is its category's
+ * by construction (readRuleSide), which the table does not check.
+ *
+ * One statement, as avoidPair: the check locks the sides' garments FOR
+ * SHARE, and the insert runs only when it found them all, so a delete of
+ * one waits for the rule (then cascades it away) and never leaves it
+ * naming a missing garment.
+ */
+export async function addOutfitRule(
+  db: Queryable,
+  ownerId: number,
+  rule: NewOutfitRule,
+): Promise<number | 'duplicate' | 'not-found'> {
+  const garmentIds = [rule.a.garmentId, rule.b.garmentId].filter(
+    (id) => id !== null,
+  );
+  const owned = db
+    .select({ id: garment.id })
+    .from(garment)
+    .where(
+      and(
+        eq(garment.ownerId, ownerId),
+        inArray(garment.id, garmentIds),
+        ownedGarment(),
+      ),
+    )
+    .orderBy(garment.id)
+    .for('share');
+  const side = (matcher: StoredMatcher) =>
+    sql`${matcher.garmentId}::int, ${matcher.category}::text, ${matcher.type}::text, ${matcher.color}::text, ${matcher.pattern}::text`;
+  const { rows } = await db.execute<{ owned: number; id: number | null }>(sql`
+    with owned as (${owned}),
+    added as (
+      insert into ${outfitRule} (owner_id, kind,
+        a_garment_id, a_category, a_type, a_color, a_pattern,
+        b_garment_id, b_category, b_type, b_color, b_pattern)
+      select ${ownerId}::int, ${rule.kind}::text, ${side(rule.a)}, ${side(rule.b)}
+      where (select count(*) from owned) = ${garmentIds.length}
+      on conflict do nothing
+      returning id
+    )
+    select (select count(*) from owned)::int as owned,
+      (select id from added) as id`);
+  const [{ owned: found, id }] = rows;
+  if (found !== garmentIds.length) return 'not-found';
+  return id ?? 'duplicate';
+}
+
+/** Deletes one of the owner's rules; false when `id` is not one of theirs. */
+export async function deleteOutfitRule(
+  db: Queryable,
+  id: number,
+  ownerId: number,
+): Promise<boolean> {
+  const deleted = await db
+    .delete(outfitRule)
+    .where(and(eq(outfitRule.id, id), eq(outfitRule.ownerId, ownerId)))
+    .returning({ id: outfitRule.id });
+  return deleted.length > 0;
 }

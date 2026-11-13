@@ -25,8 +25,8 @@ older history lives in `docs/PROJECT_LOG.md`.
 ## 2026-10-13 — Lean test suite: budgets per tier, ten e2e scenarios, migrations once per run
 
 **Why:** the owner directive ("a FAST, lean, useful test suite", 2026-10-13) and the gate's clock: the db tier took 278 s (1479 unit and 3036 integration tests, the latter in 136 files, every file migrating its own database and hashing passwords at bcrypt cost 12) and the e2e tier 356 s (61 Playwright files, 220 chromium tests, most re-proving what the integration tier already proves or what only a phone shows). Specs of shipped migrations tested frozen SQL that no change of ours can break.
-**Decision:** budgets in the Makefile (`scripts/ci/budget.sh`: unit ≤ 60 s, db ≤ 180 s, the owner's tier budget: the gate runs it beside e2e and the image build, 160 s there against 83 s alone; e2e ≤ 180 s) with collected-count floors (`scripts/ci/test_floor.py`; UNIT_FLOOR/DB_FLOOR/E2E_FLOOR). Infrastructure first: `PASSWORD_HASH_ROUNDS` (4 in every test tier; refused under 12 when `APP_ENV=production`) and one migrated template database per run (`closet_tpl_<hash of drizzle/>`, cloned per spec file; `test/support/scratch-database.ts`). Then the cuts: the 14 shipped-migration specs and `migrateBefore` (53 tests); Playwright from 61 files to ten scenarios, one per file (login, add from a photo, style an outfit, plan on the calendar, wear and wash, a trip, a shared wardrobe, the offline shell, the worker's update, the image cache across sessions); `screenshots.spec.ts` becomes `make screenshots`, off the gate; the calendar-date sweep keeps boundary years. The gate's image job now runs `ci-image` then `ci-smoke`.
-**Consequence:** measured on the Mac under the gate's lock, 4 workers: unit 1486 tests in 11 s; db 1486 + 2986 tests in 83 s (was 278 s); e2e 10 scenarios in 14 s (was 356 s). The floors are those counts. Gotchas fixed on the way: `metrics.spec.ts`'s app_info read whatever commit an earlier `npm run build` left in `public/build.json`, so the db tier failed after an e2e run (it pins APP_VERSION now); Chromium logs a refused login's 401 page as a console error, which the login scenario now expects by name. The worker's stale-page, warm, install and push-settings behaviours lost their browser specs and are verified on the phone before a feature is called done (`test/AGENTS.md`); a migration with a data fix is proved by hand on production-shaped rows in its PR (`src/db/AGENTS.md`). References to retired specs in docs and comments are marked `(retired 2026-10-13)`.
+**Decision:** budgets in the Makefile (`scripts/ci/budget.sh`: unit ≤ 60 s, db ≤ 180 s, the owner's tier budget: the gate runs it beside e2e and the image build, 160 s there against 83 s alone; e2e ≤ 180 s) with collected-count floors (`scripts/ci/test_floor.py`; UNIT*FLOOR/DB_FLOOR/E2E_FLOOR). Infrastructure first: `PASSWORD_HASH_ROUNDS` (4 in every test tier; refused under 12 when `APP_ENV=production`) and one migrated template database per run (`closet_tpl*<hash of drizzle/>`, cloned per spec file; `test/support/scratch-database.ts`). Then the cuts: the 14 shipped-migration specs and `migrateBefore`(53 tests); Playwright from 61 files to ten scenarios, one per file (login, add from a photo, style an outfit, plan on the calendar, wear and wash, a trip, a shared wardrobe, the offline shell, the worker's update, the image cache across sessions);`screenshots.spec.ts`becomes`make screenshots`, off the gate; the calendar-date sweep keeps boundary years. The gate's image job now runs `ci-image`then`ci-smoke`.
+**Consequence:** measured on the Mac under the gate's lock, 4 workers: unit 1486 tests in 11 s; db 1486 + 2986 tests in 83 s (was 278 s); e2e 10 scenarios in 14 s (was 356 s). The floors are those counts. Gotchas fixed on the way: `metrics.spec.ts`'s app_info read whatever commit an earlier `npm run build`left in`public/build.json`, so the db tier failed after an e2e run (it pins APP_VERSION now); Chromium logs a refused login's 401 page as a console error, which the login scenario now expects by name. The worker's stale-page, warm, install and push-settings behaviours lost their browser specs and are verified on the phone before a feature is called done (`test/AGENTS.md`); a migration with a data fix is proved by hand on production-shaped rows in its PR (`src/db/AGENTS.md`). References to retired specs in docs and comments are marked `(retired 2026-10-13)`.
 
 ## 2026-10-13 — Observability contract 2: job ids, app_info and db-statement metrics, no-console, request_id in error bodies
 
@@ -218,67 +218,80 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Consequence:** the tab bars render byte-identical markup (old and new rendered side by side). The selfie viewer's backdrop button loses a redundant `type="submit"`, the default for a button in a form. `coverage.backend.branches` was rebaselined 92.48 to 92.47 (label metrics-rebaseline): the three tab bars' twelve covered branches became `LinkTabs`' six, all covered, a denominator effect; the gate read 92.47 twice where a local run reads 92.48.
 
 ## 2026-10-18 — devkit 7ed3645: `make merge` is the merge path; gains lock in; scorecard v2
+
 - **Why:** no paid GitHub features (owner, 2026-10-18), so the merge itself must check the gate; and a ratchet that tolerated BETTER let gains slip back.
 - **Decision:** `make merge PR=<n>` (devkit/bin/pr_merge.sh) is the only merge: `local-gate` and `codex-review` (`GATE_MERGE_REQUIRES`) success on the exact head, `main` unmoved since the gate. `ci-metrics` fails on BETTER until `make metrics-tighten`; size, jscpd percent and fan-in are report-only (docs/metrics/report-only.json). `ci-smoke` runs under the tier guard (120 s) and `ci-image` under `docker_bounded.sh`.
 - **Consequence:** `docs/metrics/scorecard.json` holds only the WIRED share (19/19 repo-scoped). The machine-scoped gh shim is not installed here yet, and BITE's unguarded count is the pre-local-gate merges up to #376, ageing out of the 30-day window.
 - **Gotcha:** `metrics-tighten` locks in any gain, even inside the ratchet's 0.05 float tolerance; branch coverage moves 0.01 run to run (v8 merging of `wardrobe/destination.ts`), so a 92.48 tighten failed the next gate as WORSE. Leave sub-tolerance coverage gains at main's bound.
 
 ## 2026-10-19 — An add or edit page is one frame, disabled offline (#411; clones 19 to 16)
+
 **Why:** `PostForm`'s offline guard (`needsNetwork`) was each page's opt-in, and only the trip form had opted in. A cached capsule, garment or "Bought it" form opened offline posted into the worker's offline page and lost what was typed, and the capsule's Delete stayed live. That breaks AGENTS.md's "unreachable writes are disabled with a reason, never dropped". The capsule/trip create-edit frame was also the clone triage's last drift group (#412, #414).
 **Decision:** `FormPage` (`src/web/layout/form-page.tsx`) owns the frame: the `formPage` app bar, `PageMain`, one always-guarded `PostForm`, Cancel then the submit, and a guarded Delete. The four forms bring only their fields. `@form-page` (guards.conf) keeps `<CancelLink` there; `expectOfflineGuarded` tests each form. connectivity.js logs how many write controls it disabled. Not chosen: `needsNetwork` on by default in `PostForm`, the issue's owner call, since 14 other PostForms (login, tokens, link import) would change too.
 **Consequence:** the four forms are disabled offline with the banner's reason. Visible: trips and capsules put Cancel before Save, both full width, as the garment form did; the capsule, trip and "Bought it" columns are `narrow` (40rem, was 32rem; phones unchanged). The repair log's note and day now carry the required mark (the issue's side note). jscpd's share fell 0.23% to 0.19%.
 
 ## 2026-10-19 — devkit 367dc33: recipes on the Node pin, changed-file expression complexity
+
 - **Why:** devkit-check warned that a hand-run make used PATH's Node, not `.nvmrc`'s (devkit #166); `sonarjs/expression-complexity` has 2 findings on main, so it cannot join the whole-tree rules yet (#161).
 - **Decision:** `SHELL := devkit/bin/toolchain_shell.sh`; ci-lint runs `changed_lint.py eslint` over src, test and scripts, the files lint:check reads. A planted six-term `&&` in a changed file fails it; five terms pass. A hand run's ci and smoke container names carry the worktree (`throwaway_pg.sh name`, #162); devkit-check missed the old literals because they sat in `?=` variables. renovate.json already extends the preset with no automerge.
 - **Consequence:** a new chain of five or more operators fails the PR that writes it; the 2 existing drain as their files are touched, then the rule moves into eslint.config.mjs. Metrics 100 SAME, 0 tightened; scorecard wired 24/24.
 
 ## 2026-10-21 — devkit 401c9b7: metrics merge per key, vitest timeouts stretch with load
-- **Why:** two PRs that each move a metrics bound conflicted on docs/metrics/*.json (#176), and fixed 30 s vitest timeouts failed gates on a loaded box (#175).
-- **Decision:** `.gitattributes` routes docs/metrics/*.json through devkit's per-key merge driver (#176; `make install` sets it per clone); vitest.config.ts wraps its 30 s timeouts in `loadScaled` (devkit/lint/vitest.base.mjs, #175), so a gate on a box above its core count stretches them by `DEVKIT_LOAD_SCALE` (cap ×2).
+
+- **Why:** two PRs that each move a metrics bound conflicted on docs/metrics/\*.json (#176), and fixed 30 s vitest timeouts failed gates on a loaded box (#175).
+- **Decision:** `.gitattributes` routes docs/metrics/\*.json through devkit's per-key merge driver (#176; `make install` sets it per clone); vitest.config.ts wraps its 30 s timeouts in `loadScaled` (devkit/lint/vitest.base.mjs, #175), so a gate on a box above its core count stretches them by `DEVKIT_LOAD_SCALE` (cap ×2).
 - **Consequence:** `coverage.backend.branches` rebaselined 92.47 to 92.46 (label metrics-rebaseline): an untouched origin/main tree reads 8642/9346 = 92.46 today, file for file the same as this branch. The bound has drifted 92.48, 92.47, 92.46 over three days with no source change, which points at a date-dependent branch in a spec; open, not chased here.
 
 ## 2026-10-21 — `make merge` requires Codex's review of the head (GATE_CODEX_REVIEW=1)
+
 **Why:** `GATE_MERGE_REQUIRES=codex-review` wants only a success status, whatever commit its text names, so a head Codex never reviewed (failed, missing, or reviewed an older commit) merged on any codex-review success. devkit #189 made the stricter check opt-in; the fleet opts in.
 **Decision:** only `make merge` reads it. A failed, missing or stale Codex review of the head blocks unless the head's codex-review success names the fallback review of that exact commit (`… (Codex at limit) of <sha7>` or `<sha8> passed on Claude self-review`). #417 to #420 already recorded that form.
 **Consequence:** every push needs a fresh Codex review (or a fallback naming that push's head) before `make merge`; a codex-review success left from an earlier head no longer carries.
 
 ## 2026-10-22 — Vitest tiers rerun with the clock shifted; coverage no longer moves with the date (devkit 31d9f2a)
+
 **Why:** devkit #212 added the vitest half of the clock shift. Closet's db tier failed 6 specs at +30d/+365d, and its covered branches read 8643, 8644, 8642 of 9346 at 0, +30d, +365d: the drift the 2026-10-21 entry left open.
 **Decision:** `GATE_JOBS_CLOCK` names `ci-unit` and `ci-db` (scripts/ci/gate_plan.sh); vitest.config.ts lists devkit's clock-shift setup files (since 2026-10-26 its `clockShift()` plugin). Root fixes: `pending_photo` rows take `created_at` from the app's clock, the clock reconciliation's cutoffs already use (3 specs); photo-storage.spec.ts dates its live file from the clock `prepare()` reads (1). The 2 muse-round-close specs stay in clock_shift.conf: the Muse writes and their quiet window are Postgres `now()` across decisions, feedback and rounds by design (shared instants, the feedback margin), not a small binding. The drift's sources: trips.spec.ts, the gallery's weather block and mcp-statements.spec.ts pin `Date` to `STUB_WEATHER_NOW` (the stub's weather and the seed's history are the date's); a `roundWhat` spec and a deterministic stale-need 409 (the two-phone race reached it only some runs, muse-inbox.spec.ts) cover branches only a shift or the scheduler reached.
 **Consequence:** 8645/9346 covered at 0 (twice), +30d and +365d. The three pinned blocks no longer see the shift (a pin is what it checks for); a new weather or seed spec pins too. The CLOCK group runs on every "other" path, so a .github- or Playwright-only PR pays two more unit and db runs per offset.
 
 ## 2026-10-22 — Every PostForm is disabled offline unless it says why (#411)
+
 **Why:** owner, 2026-10-22: "the offline guard is ON BY DEFAULT for every PostForm." #417 guarded the four `FormPage` forms; 15 others still posted from a cached copy into the worker's offline page. 14 are now guarded: sign in, register, email, password, account deletion, two token forms, link import, laundry, sharing, the add sheet's two photo forms, cutout retry, bulk select.
 **Decision:** `PostForm` always renders `data-needs-network`; `allowOffline="<reason>"` (rendered `data-allow-offline`) is the only opt-out, and guards.conf `@post-form-offline` refuses one without a 12+ character literal. connectivity.js guards a form's `elements`, so a `form=` control outside it needs no marker: "Add a copy" lost its own, as did laundry's Mark washed inside its form. One opt-out: the styling form, since a guarded form is dimmed whole and its strips must stay usable offline ("choosing still works"); its Save, Shuffle, picks and + Add row carry their own markers (Add row's is new: it sent the rows' inputs, which a guard would have dropped). `expectFullPage` fails any unguarded PostForm on every page; `test/offline-writes.spec.ts` checks the browser.
 **Consequence:** visible: those forms' controls, submit included, are disabled and dimmed while offline. htmx writes outside PostForm that carry no typed input (garment and outfit menu actions, a calendar entry's ×, the invite link, the push test, the inbox's seen mark) stay unguarded; every one holding input already was.
 
 ## 2026-10-23 — Scorecard bounds record each check, not a share
+
 **Why:** devkit #218 made the scorecard ratchet hold each check by name; the share-only `{"wired": 1.0}` file bounds no check and fails `scorecard_file` until rewritten.
 **Decision:** `scorecard.py . --mode tighten` (the scorecard step of `make metrics-tighten`) rewrote `docs/metrics/scorecard.json` as `{"checks": {<id>: wired}}`; every check the share counted stays wired. Unwired, recorded as backlog: none.
 **Consequence:** ci-metrics now fails a recorded wired check that goes unwired, and a backlog check once wired until `make metrics-tighten` records it.
 
 ## 2026-10-26 — vitest.config.ts takes the clock shift from devkit's `clockShift()` plugin
+
 **Why:** devkit #227 replaced its setup-files export with the `clockShift()` vite plugin (setup file first in every project's setupFiles, the file allowed past `server.fs.strict`, a no-op unshifted); #228 deprecated the export with a 30-day removal window and devkit-check warns on it.
 **Decision:** `plugins: [clockShift()]` on the root config; the root `setupFiles` line that only carried the shift is gone. Vitest stays on 4.0.18 here (fleet target 5, a separate change).
 **Consequence:** same runs as before at 0, +30d and +365d: unit 1519, db 4513, the two muse-round-close entries the only clock_shift.conf exceptions.
 
 ## 2026-10-26 — The page audit paces the app's rate limits; WebKit's double 401 (#374, #301)
+
 **Why:** the nightly's audit failed `suggest_garment` with a 429: it and `add_garment_from_link` spend one `MCP_LINK_IMPORT_LIMIT` (10 a minute per user), and each had capped its own `runs` to fit alone (18 calls). Per-step caps do not compose once steps share a counter, and the photo choice's limit answers 200, so an over-budget run there would time a refusal unnoticed. The same run expected `/healthz`'s old 204 (an alias of `/health/ready` since #384), and WebKit logged the refused login's 401 twice (the worker's fetch and the document's).
 **Decision:** a step declares `limits` (`AuditLimit`, `scripts/audit/budget.ts`: `auditLimit()` over the constant in `rate-limit.ts`, whose windows are now the number 60 000 the plugin parsed '1 minute' to, typed by `satisfies`); one `Budgets` tracker per walk waits before every run until each budget has room (sliding window, so the plugin's fixed one never trips) and logs the wait. `runs` stays a sample count. `/health/live` and `/health/ready` joined #174. `test/auth.spec.ts` asserts every console error is the 401 line, at least once, and awaits the registration's inline check before submitting (a Mac's WebKit logged the cut-off request as `htmx:sendError` 7 runs in 8).
 **Consequence:** the walk is slower by about a minute (the MCP link budget). A new limited step that forgets `limits` still 429s, as before; the rule is in `test/AGENTS.md` and `docs/perf/README.md`.
 
 ## 2026-10-26 — Tests on vitest 5.0.3 and vite 8.3.4 (fleet target); config is vitest.config.mts
+
 **Why:** fleet target (orbit #127, rollcall #91). Vitest 5 makes `vite` a required peer; vite 8's optional `esbuild` peer (`^0.27 || ^0.28`) refused our direct `esbuild ^0.25` (ERESOLVE), and vite 8 warns that `vitest.config.ts` is ESM in a CommonJS package (vite 7 did not).
 **Decision:** exact pins vitest, @vitest/coverage-v8 5.0.3 and vite 8.3.4; `esbuild` `^0.28.2` (vite 7 already ran 0.28 nested; fonts.css, src-sw.js and bundle.css build byte-identical); `@types/node` stays `^22` (peer `^22 || >=24`, .nvmrc 22); no DOM environment to pin. The config is `.mts`, which clears the loader warning without `"type": "module"`. Migration guide checked: no nested `vi.mock`/`vi.hoisted`, no `sequential`, no worker-id use, no unawaited `resolves`/`rejects`; the projects already say `extends: true`, and the clockShift() plugin handles v5's appended setupFiles.
 **Consequence:** unit 1519 and db 4513 at 0/+30d/+365d, the same two clock_shift.conf exceptions. Vite 8 transforms with Oxc, whose source maps split single-line `if (…) throw` statements and `??` sort tie-breaks that esbuild's maps folded into covered code: 5 statements and 4 branches, always unexecuted, became visible, so `coverage.backend.lines` 97.46 → 97.45 (metrics-rebaseline; branches 92.46 held). Those paths are the coverage to add next, not a regression.
 
 ## 2026-10-26 — Tailwind scans src/ and public/js/ only
+
 **Why:** `@import "tailwindcss"` with no `source()` let Tailwind v4 scan every tracked file, devkit/ and docs/ included, so prose words became classes (devkit-check's warning; rollcall #81's `.shadow`).
 **Decision:** `@import "tailwindcss" source("../../src")` plus `@source "../../public/js"`: the views and class helpers, and the client modules' classList/className. No other tracked file names a class at runtime.
 **Consequence:** the built bundle.css loses 44 of 734 class selectors and gains none (155.4 → 143.9 kB); each lost one occurs only in docs/, devkit/, CHANGELOG, eslint.config.mjs, test/ or comments (incl. daisyUI's drawer, navbar, validator and react-day-picker blocks). A class used only from a new directory needs an `@source` line here.
 
 ## 2026-10-26 — Production advisories cleared: MCP SDK 1.32.2, zod 4, fastify 5.12.7; the MCP element cap
+
 **Why:** OSV reported 4 high and 13 other advisories in locked production packages that landed with no code change (vuln.backend 0/4/17). The MCP SDK's GHSA-46jr-4wx8-v453 fix is an `McpServer` option that is off unless set; zod 3.25 has no fixed 3.x (GHSA-mrhx-c7xc-m3w5 needs 4.6.6).
 **Decision:** direct bumps `@modelcontextprotocol/sdk` ^1.32.2, `zod` ^4.6.7 (imports now `'zod'`; the code already used the `zod/v4` API), `hono` ^4.13.14, `fastify` 5.12.7 (still exact); `npm update` for transitive body-parser 1.20.9/2.4.0, qs 6.16.1 (via express 4.22.3), fast-uri, fast-copy. No overrides needed. `/mcp` sets `maxToolInputElements` to `MAX_TOOL_INPUT_ELEMENTS` (10 000, about 5x the largest real call); coverage targets' colours and materials gained the `.max()` every other array input has.
 **Consequence:** vuln.backend 0/0/0. The token check runs before the SDK, so both MCP DoS paths were owner-only. Zod 4.5+ visible changes: `z.iso.datetime()` needs seconds (`feedbackUntil` is our own ISO string), string bounds count code points, and tools/list's JSON Schema now carries `.int().min().max()` bounds it used to drop. body-parser is reachable only through express, which closet never mounts.
@@ -290,29 +303,37 @@ older history lives in `docs/PROJECT_LOG.md`.
 **Consequence:** an outage seen mid-probe costs one extra HEAD, never the 30 s heartbeat. Locally, both fixes together: 0 in 100 runs under 10 workers, twice; either alone still failed. A spec faking the heartbeat with `page.route` blocks the worker (`docs/testing-webkit.md`).
 
 ## 2026-10-27 — jscpd from devkit's pin; `make pr` opens PRs on origin
+
 **Why:** devkit #235 gave jscpd one pin (5.4.2, run through `bin/npm_tool.sh`) and deprecates a repo's own `node_modules/.bin/jscpd` until 2026-11-25; closet's devDependency 5.4.0 was that legacy path. devkit #255 added `pr_create.sh` and devkit-check warns while a gate target has no `pr` target.
 **Decision:** jscpd leaves package.json and the lock; metrics.conf's `dup` line already had no `--bin`. `pr: ; devkit/bin/pr_create.sh` sits beside `merge`, and docs/workflow.md steps 3 and 6 name `make pr` and `CODEX_FALLBACK=1 make merge`.
 **Consequence:** `duplication.repo.clones` 16 and `jscpd_percent` 0.19 on both pins; devkit-check prints ok with no warning.
 
 ## 2026-10-27 — One wardrobe guard per plugin reads `?ownerId=` itself
+
 **Why:** jscpd's clones held three hand-written `authorizeWardrobe` wrappers (garment-access, capsules, the wishlist inbox) that differed only in their 404 message, and 40 routes relayed `request.query.ownerId` into them by hand (three helpers took it as a parameter only to pass it on).
 **Decision:** `wardrobeGuard(db, notFound)` (`sharing/access.ts`) returns `authorize(request, need)`, which reads the request's `?ownerId=` (`WardrobeRequest`); each plugin binds it once (`garmentGuard(db)` for the garment routes, the capsule, inbox, export and Styling plugins with their own message). `authorizeWardrobe` stays for a caller whose wardrobe is not the query's (the MCP tools' user id). The inbox page and its next page read through one `addressedInbox`.
 **Consequence:** behaviour is unchanged (the authorization matrix specs pass as they were); `duplication.repo.clones` 16 → 12. A new share-aware route calls its plugin's `authorize`, never a wrapper of its own.
+
 ## 2026-10-27 — Shared view pieces: the Saved picker, ChipGroup, the entry-page preview, the outline icon frame
+
 **Why:** jscpd's clones held four copies of one view concept each: the plan page's and a trip's add page's Saved section, two `ChipGroup`s (the garment form, the style profile; one had gained a hint), login's and register's link preview (og tags plus the schema.org WebPage, always together), and parts.tsx's Heroicons outline frame.
 **Decision:** `SavedOutfitPicker` (`outfits/saved-outfit-button.tsx`; the page passes its heading, action, hidden fields and each outfit's note), `ChipGroup` in `form-field.tsx` beside `FormField`, `AccountShell`'s `description` (it writes both previews), and `OutlineIcon` in `layout/parts.tsx` (Camera and Photo library; HangerIcon keeps its own frame, which is not `aria-hidden`). Markup is unchanged.
 **Consequence:** `duplication.repo.clones` 12 → 8. The other 20 inline SVGs keep their own frames: they vary in stroke, box and labelling, so no one frame owns them.
+
 ## 2026-10-27 — Data seams: coordinate columns, newOutfitSlots, wornPairs, updateOwnedGarment
+
 **Why:** jscpd's clones held four data rules written twice: the numeric(4,2)/(5,2) of a stored coordinate (ten columns over four tables, scale 2 only by agreement with `COORDINATE_DECIMALS`), MCP create_outfit's and suggest_outfit's read-judge-slot sequence, insights' and the recap's pair naming, and three garment writers' owner-scoped update.
 **Decision:** `latitudeColumn`/`longitudeColumn` in `schema.ts` derive precision and scale from `COORDINATE_DECIMALS` (drizzle-kit generate: no schema changes); `newOutfitSlots` in `outfits/gone-garments.ts` (one read, the #219 refusal, the slots); `wornPairs` in `wardrobe/insights.ts`; a private `updateOwnedGarment` under `updateGarmentFields`, `updateGarmentProperties` and `setCondition`, which keep their typed field sets.
 **Consequence:** behaviour unchanged; `duplication.repo.clones` 8 → 4. Left as coincidental: `push_reminder`/`week_replan` (two claim tables of different owners), the calendar's two upserts (different conflict rules and answers, one statement each), the trip's two packing posts (different writers and answers), and `get_garment`/`get_garment_photo`'s one-line preamble.
 
 ## 2026-10-28 — Images ship from the publisher host; ci.yml's publish job deleted (devkit #273)
+
 **Why:** the owner chose one fleet publisher on the publisher host, closet and redlib included although their public Actions still work (local-publish-design.md Q1, 2026-10-27); devkit #273 built it. ci.yml's `publish` job was a second mover of `latest`, with no registry prune (GHCR held 100+ closet versions).
 **Decision:** devkit 2720daa; `PUBLISH_IMAGE=ghcr.io/agandhi4/closet` and `publish:` (homelab `devkit-publish@closet.timer`). `ci-image` was already build-only and the gate's `image` job already runs `ci-smoke`, so the publisher runs the gate's two targets. ci.yml keeps only its `workflow_dispatch` test jobs (a public repo's Actions still run; no quick-check existed); nightly.yml now writes its own gha layer cache, which the publish job used to.
 **Consequence:** a merge that changes an image input reaches `latest` within 5 min plus the build and the deploy at the next `*:40`; a merge the gate's image job would skip (docs, `GATE_IMAGE_EXCLUDE_PATHS`) publishes nothing. Each publish prunes GHCR to the 10 newest `sha-*` images, so the first one deletes the backlog. Branch protection is unchanged (`local-gate`, `codex-review` are statuses, not workflow jobs).
 
 ## 2026-11-02 — Docs describe review rounds and the main check, not the retired gate
+
 **Why:** devkit retired the pre-merge gate (2026-11-02), but AGENTS.md, docs/workflow.md,
 docs/operations.md and the Makefile still described `make gate` and `local-gate`, and the `gate`
 target called the deleted `devkit/bin/local_gate.sh`, so `make gate` failed.
@@ -322,6 +343,7 @@ runs devkit's stub; `GATE_STATE_NAME` is gone (unread).
 **Consequence:** a merge-order clash (duplicate migration numbers) now shows on main and is fixed forward.
 
 ## 2026-11-09 — .claude/settings.json denies the five tools no lane can use
+
 Why: claude-kit measured (2026-11-09) that a session's first API call is re-read on every later call, and that the Artifact, ArtifactComments and ArtifactData schemas cost 11.4k tokens, SendFeedback 2.0k and AskUserQuestion 1.7k of it; a whole-tool `permissions.deny` drops the schema from every session and lane in the repo.
 Decision: the deny list follows claude-kit's `templates/project-settings.json` (claude-kit #67). No plugin skill or agent uses these tools, and an unattended lane cannot answer a question or publish a page.
 Consequence: interactive sessions here lose the artifact publish flow and the question prompt; removing a line from this file brings one back (deny beats allow, so `settings.local.json` cannot).
@@ -345,67 +367,80 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Consequence:** the next publish pushes to `ghcr.io/kashhq/closet`; homelab's stacks pull it from there (homelab PR of the same day). Until that PR lands, production holds its running image, since the old name has failed since the rename.
 
 ## 2026-11-12 — A cutout's thumb is trimmed to the garment; the stored cutout keeps its frame
+
 **Why:** a garment photographed with room around it sat small in its tile (#373), but the mask editor overlays the stored cutout on the centre-padded original, so trimming the cutout would misalign the restore brush (or need a stored crop rect and a migration).
 **Decision:** only the thumb is trimmed (`cutoutThumb`: alpha > 24, 5% margin, under 0.5% of the frame keeps it whole), squared and sized to exactly 400 px; every tile reads the thumb. The nobg stays the untouched master. Existing thumbs move with `npm run maintenance:retrim-thumbs`, through a new `rederive` event (ready/edited keep their status) under a new variant key, because thumbs are served immutable and cached by the app.
 **Consequence:** tiles show every garment at one size, losing the hint of relative size framing gave; small garments are enlarged to 400 px. Photos whose cutout the browser made (`none`) cannot take a key and keep their untrimmed thumb.
 
 ## 2026-11-12 — update_garment edits the garment's own fields through the form's reader
+
 **Why:** MCP tagging loops (#372) still had to open the app to fix a name, category, colours, size, brand, notes, price or date; and update_garment's own property path (two writes, a second read) duplicated what the garment form's reader already rules.
 **Decision:** the tool builds the stored garment's edit form (`storedFormValues`, the caller's audience), overlays the changes (null clears; category never), and saves through `formPost` + `readGarmentForm`, as add_garment_from_link does. It writes only the fields whose stored value changed, in one `updateGarmentFields` (now taking a partial), and answers the read garment with them. The weight is posted in grams, since the form's ounces do not read back exactly. A new category presets nothing; `ignored` names what its role drops.
 **Consequence:** one set of rules for the form and the agent; a field left out is never rewritten (the product link survives a name edit). Statements 5 → 4; a repeat writes nothing. `updateGarmentProperties`/`setCondition` keep their page callers.
 
 ## 2026-11-12 — Homelab topology lives in the homelab repo
+
 **Why:** the repo is public and forked. `docs/operations.md` named pgvault's LAN address, the NAS volume paths, the Pi-hole and Caddy files, the private URL and the public MCP host's chain; the September reports carried the owner's home paths.
 **Decision:** production's topology moved to homelab's `stacks/closet/README.md` (private); `operations.md` keeps what holds for any install, with placeholders. The reports were scrubbed, not deleted: code cites them. `docs_rules.sh` (docs-check) refuses a 192.168/16 address outside a spec, NAS volume and home paths, dynamic-DNS and tailnet suffixes and the owner's domain; `devkit/` is exempt (fixed in devkit, then synced).
 **Consequence:** git history still holds all of it (no credentials ever did); a history rewrite stays an owner decision. A production change edits the homelab README.
 
 ## 2026-11-12 — Tailnet hostnames are role words
+
 **Why:** after #477 the public tree still named the homelab's tailnet hosts (the publisher, the NAS, the error tracker, the HTTP twin) in docs, comments and spec fixtures.
 **Decision:** they are role words ("the production host", "the publisher host", "the error tracker", "the HTTP twin"); a fixture host is `<role>.example` (reserved, never resolves). The real names live in homelab's `stacks/closet/README.md`. `docs_rules.sh`'s topology rule now also refuses them, specs included; the dated history files are exempt from the hostnames since they are not rewritten.
 **Consequence:** a bare `<name>.box` is refused only in Markdown or URL/backtick context, since code has `.box` properties. The rule avoids `\b`: macOS git grep lacks it and matched nothing.
 
 ## 2026-11-12 — The topology guard is devkit's (`GATE_PUBLIC=1`)
+
 **Why:** devkit #477 added `check_public_topology` to devkit-check for its public consumers; closet's own `docs_rules.sh` rule (#477, #479 here) duplicated it.
 **Decision:** `gate_plan.sh` sets `GATE_PUBLIC=1`. The local rule stays (#482) until devkit's docs-check runs the topology guard for `GATE_PUBLIC` plans: a docs-only commit or PR runs docs-check alone, never devkit-check. Its history exemption shrinks to docs/reports/ and docs/audits/, as devkit's. The check scans the dated history too, so the hostnames in decisions.md and PROJECT_LOG.md became role words in place (no entry moved or re-dated). The SSRF specs' private and CGNAT addresses are generic range examples, so each such line ends `// topology example`.
 **Consequence:** a new pattern is added in devkit and synced. The local rule is gone as of the devkit b0eb8e2 sync (devkit #486: docs-check runs the guard for `GATE_PUBLIC` plans). devkit's rules are generic shapes (any `.box` host in Markdown included), never a real name: the owner's domain is no longer checked, since a rule spelling it publishes it (devkit #478).
 
 ## 2026-11-12 — A rotate is refused only for a mask its turned copy would lose (#248)
+
 **Why:** the rotate's stale check compared the photo's version, which every cutout bumps, so a second ↻ tap while the first photo's cutout was still pending met the cutout landing and got a 409 error page; the photo the user saw had not changed.
 **Decision:** `rotateStillValid` (`src/web/wardrobe/writes.ts`), under the same garment and row locks: the same photo row is still required (another rotate or upload refuses), and then only a mask the turned copy lacks refuses it: with a kept mask any new version, without one a mask saved since. A job's result, a retry or a rederive passes; the rotate requeues the turned photo's own cutout.
 **Consequence:** the version stays the check for an edited photo (two masks race exactly as before); a new event that brings user-made cutout bytes must be added to this rule, or a rotate could delete them.
 
 ## 2026-11-12 — A strip's keyboard focus moves at keydown; its steps are aria-disabled (#469)
+
 **Why:** focus followed a keyboard step only when the observer chose the target (a 1.5 s record, `FOCUS_WINDOW`), so Enter mid-scroll opened the item being left, a held key stayed on it, and the late `focus()` pulled focus from wherever the user had gone. The step buttons were `disabled` by the script: enabled before it ran, and a focused Next dropped focus to `<body>` at the end.
 **Decision:** the arrow handler focuses the step's target synchronously (`preventScroll`); nothing moves focus afterwards. Steps and buttons read one `position()` (the in-flight `heading`, else the chosen item); a step to an end or an inert item is unavailable. The buttons render `aria-disabled="true"` and `syncSteps` sets it, never `disabled`; styling.js re-syncs on a lock.
 **Consequence:** a disabled step stays focusable (one more tab stop at an end, on fine pointers only) and a held key on it is a no-op. For a moment the focused option is not yet `aria-selected`; Enter on it only centres it. Selection still moves only through the observer.
 
 ## 2026-11-12 — Link import tells a shop that blocks us, and reads big pages up to the cap (#347)
+
 **Why:** of Muse's first ten `suggest_garment` calls four failed. Probed from the Mac with the fetcher's headers: Shopify stores behind Cloudflare (darntough after its www→apex 301, which was followed; blauerboardshop) answer product pages 429 `Retry-After: 60` over HTTP/1.1 whatever the User-Agent, and 200 to the same request over HTTP/2; campmor is Cloudflare's 403 challenge (`cf-mitigated: challenge`) to any UA; sunandski's product pages are AWS WAF's 202 challenge (`x-amzn-waf-action: challenge`) and its og/twitter image is the site logo, `image/svg+xml` (the header is honest; product photos are `image/jpeg`). blauerboardshop's product page is 3.8 MB of HTML, its JSON-LD and og tags in the first 110 KB, `</head>` at 3.2 MB behind a size-chart blob.
 **Decision:** the outbound fetcher answers a user's URL that gets a 403, a 429 or a challenge header (any status) with `blocked-by-site` (status kept; fetches naming `hosts` keep `http-status`); the link page says so, and the MCP tools' errors lead with the reason. A page past 2 MB is cut at 2 MB (`truncated`), never refused; images and JSON past their caps still are. No magic-byte sniffing: the refused types were honest. No HTTP/2 and no browser User-Agent: that would be getting past a shop's bot rule, an owner decision.
 **Consequence:** `too-large` is now only an image's (or JSON's). A truncated page may cut a late JSON-LD block, which then fails to parse and is skipped like any broken one. Shopify product pages stay `blocked-by-site` until an HTTP/2 transport is decided.
 
 ## 2026-11-12 — The whole backlog is approved, in waves, with every recommended option
+
 **Why:** the owner wants every open issue built, the JSON API and the desktop views included ("I want all of this built"), and approved the session's recommendations in one reply.
 **Decision:**
+
 - Outfit rules: `docs/plans/2026-11-12-generator-rules.md`.
 - Desktop Styling and Calendar: `docs/plans/2026-11-12-desktop-styling-and-calendar.md`, CSS-first and one markup.
 - JSON API: `docs/plans/2026-11-12-json-api.md`. #188 goes first; APNs later.
 - Offline (#178): wears, washes and packing ticks queue while offline and sync on reconnect (last write wins); a new garment with its photo stays online-only.
 - Safari (#244): the sign-out redirect sets a short-lived marker, and the login page sends `Clear-Site-Data` on its 200.
 - Link import: HTTP/2 in the outbound fetcher gets its own issue and plan, keeping its pinned-address guarantees.
-**Consequence:** the frontend-pwa rule "unreachable writes are disabled, never dropped" gains an exception for those three queued writes, written into AGENTS.md with #178's change. Each plan's slices are its PRs.
+  **Consequence:** the frontend-pwa rule "unreachable writes are disabled, never dropped" gains an exception for those three queued writes, written into AGENTS.md with #178's change. Each plan's slices are its PRs.
 
 ## 2026-11-12 — Clear-Site-Data is relayed to the page a redirect lands on (#244)
+
 **Why:** WebKit applies `Clear-Site-Data` only to the response a load ends on, never to a followed redirect, and sign-out, account deletion, a revoked cookie and a sign-in over another account all answer with one, so Safari kept the HTTP cache (selfies `private, immutable`, `/file/**`).
 **Decision:** the redirects stay and keep the header (Chromium and Firefox apply it there). A root onSend hook (`createCacheClearRelay`, `src/web/auth/session.ts`) sets a 60 s httpOnly, Lax, Secure-less `cache_clear_pending` cookie on any non-document answer carrying the header, and the next whole HTML document repeats it once and clears the cookie. Decided on the finished answer, not in `endSession`, which runs before the gate picks a redirect; static paths, fragments and redirects never consume it. The worker deletes the header from every page copy it stores.
 **Consequence:** any landing (the login page, the profile, a `safeReturnTo` target) needs no code of its own. In the installed app the worker's followed fetch of the auth POST is the landing that clears; its 303 re-navigation finds the marker spent. Not provable in Playwright's WebKit: verified on the owner's iPhone.
 
 ## 2026-11-13 — Root AGENTS.md: Commands keeps one-line comments, the detail lives in README
+
 **Why:** the root AGENTS.md sat 5 bytes under docs-check's 30,720-byte cap, so the next standing rules (outfit rules' area row, the offline queued-writes exception) had no room.
 **Decision:** each command in the root's Commands block keeps a one-line comment; flags, timings, what a tier needs and the gate's make targets and git hooks live in README's Development section (Scripts, "The gate's jobs and the git hooks"). The Workflow PR bullets are one; squash-only and fix-forward moved into `docs/workflow.md`.
 **Consequence:** about 2.6 KB of headroom. A new command's detail goes to README, not the root's comment.
 
 ## 2026-11-13 — Styling at lg: the rows beside a preview, one markup (#468a)
+
 **Why:** on a desktop the composer was a phone column stretched wide with a bar under it, and nothing showed the outfit as a whole (the plan's §2, owner-approved).
 **Decision:** from `lg` the rows sit beside a sticky aside (the preview, then Shuffle and Save); below lg every new wrapper is `contents` and the preview `hidden`, so the 390 px page is the same boxes (pixel-identical against main) and `/styling` the same bytes for any device. The preview is a slot per row, drawn by the server and re-sent out of band with every rows answer; between them styling.js copies each choice in on snap-strip.js's new `snap-strip:chosen`, so it works offline and costs no request. Slots are found by row index, not role (two rows may share one).
 **Consequence:** any answer that replaces `#styling-rows` must go through `renderRows` (it carries the preview). The weather fit line (468b) hangs off the same aside.
@@ -416,6 +451,7 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Consequence:** today's 52 raw sites are `known` lines, tagged with the 188b–f slice that deletes them; a parallel branch adding or removing one turns main red (fixed forward). devkit's `only-text` is per line, so a 404 prettier wraps onto its own line is unseen.
 
 ## 2026-11-13 — Outfit rules in the generator: one compiled rule list, pruned and mended (#21a)
+
 **Why:** plan `docs/plans/2026-11-12-generator-rules.md`: "never A with B" and "always B with A" must reach every surface that suggests outfits, without a statement more and without changing anyone's ideas when they have no rules.
 **Decision:** `outfit_rule` (one matcher column set per side; unique over the coalesced sides, since drizzle-kit cannot round-trip `NULLS NOT DISTINCT`) is read by `outfitRulesSql` inside `generatorMemorySql` and the goes-with inputs. The generator compiles the rules and `generator_avoid`'s pairs into one list (`compileRules`): never-rules in `compatible`, each garment's matched sides memoized; always-rules in `passes` plus one repair step per base, moot without a B that can be swapped in compatibly with the outfit's other garments (not just the locks: PR #501's review found a clashing B emptied Ideas); `alwaysCheck` builds the swaps and the repair picks from them, so the two cannot disagree. Never-rules prune by viability (a pool garment that breaks one with a lock) without changing the draw sequence, so the pinned output stands and `GENERATOR_VERSION` stays 1. A never-rule between two locks flags each idea `'breaks-rule'` with `brokenRules`, as the plan asks, which also applies to a locked avoided pair (it used to empty the page). Grantees get none: `browseIdea` passes no rules, as it passes no pairs.
 **Consequence:** `IdeaGarment` carries `category` and `type`. Accessories are never drawn, so an always-rule whose B is a belt is moot unless the belt is locked. 21b adds the Style page's writer, which must check that a side's garment is the owner's and that a type belongs to its category; 21c renders the flag's rule text.
@@ -430,3 +466,9 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Why:** a desktop week read as a 40rem column of seven stacked days; `/calendar` is a cached tab root, so a `?view=` page would be another cache key that fails offline, and the server cannot see the width.
 **Decision:** CSS only: the days' wrapper is `lg:grid-cols-7` with a row per week occasion (`weekOccasions`, template plus used, pure); each day a subgrid; pieces placed by `lg:row-start-*` inside `contents` cell wrappers, keeping the phone's DOM order (entries, then open slots) rather than interleaving them by occasion. Empty cells from today on hold a desktop-only "+ Occasion" opener; past empty cells render nothing. `PageMain` gains `agenda` (narrow, wide from lg).
 **Consequence:** the phone renders pixel-identical (390 px screenshots against main); desktop focus order is the phone's, so an open slot can be focused after an entry drawn below it. A seventh occasion means a longer `WEEK_ROWS`/`ROW_START` table.
+
+## 2026-11-13 — Outfit rules on the Style page: one select per side, its options the schema (#21b)
+
+**Why:** the plan's §4: the owner adds and removes rules as a native form on a phone, with no script, and a side is a garment, a category (and maybe its type), a colour or a pattern.
+**Decision:** each side is one `<select>` whose options are every valid matcher, spelled only by `ruleSideValue` (`garment:<id>`, `category:<c>[:<type>]`, `color:`, `pattern:`); `OutfitRuleBody` accepts exactly those literals plus the garment pattern, so a type outside its category is a 400 from the schema, not a check in the writer. `addOutfitRule` is one statement like `avoidPair` (the garments the owner's, locked `FOR SHARE`; `on conflict do nothing` answers a duplicate with the form's message). "Allow again" reuses `POST /outfits/ideas/allow`, which now takes a `returnTo` (`safeReturnTo`). The page stays 2 statements.
+**Consequence:** never-rules are stored as typed, so "never A with B" and "never B with A" can both exist (the plan's unique key is ordered). The accessory note is CSS (`data-undrawn` on options outside `DRAWN_ROLES`). The page's toast flag is now `?saved=profile|rule-added|rule-removed|pair-allowed`.

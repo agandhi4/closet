@@ -20,7 +20,7 @@ export const OUTFIT_RULE_KINDS = ['never', 'always'] as const;
 export type OutfitRuleKind = (typeof OUTFIT_RULE_KINDS)[number];
 
 /** One side of a rule: a garment, a category (and maybe its type), a colour or a pattern. */
-type RuleMatcher =
+export type RuleMatcher =
   | { by: 'garment'; garmentId: number }
   | { by: 'category'; category: GarmentCategory; type: string | null }
   | { by: 'color'; color: GarmentColor }

@@ -12,6 +12,7 @@ import {
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { RowId } from '../schemas';
+import { safeReturnTo } from '../security/return-to';
 import { viewContext } from '../view-context';
 import { nudgeTemperatureOffset } from '../weather/queries';
 import { aimIdeas } from './aim';
@@ -27,7 +28,12 @@ import {
 import { IdeaCards, IdeasPage, type SeededState } from './ideas-page';
 import { pickTo, postedDestination } from './pick';
 import { allowPair, avoidPair } from './queries';
-import { type GalleryState, IDEAS_PATH, ideasUrl } from './urls';
+import {
+  type GalleryState,
+  IDEAS_ALLOW_PATH,
+  IDEAS_PATH,
+  ideasUrl,
+} from './urls';
 import { garmentNotFound } from '../wardrobe/garment-access';
 
 /**
@@ -81,9 +87,15 @@ const FeedbackBody = Type.Object({
   ...StateFields,
 });
 
-const PairBody = Type.Object({
-  garmentId: Type.Array(RowId, { minItems: 2, maxItems: 2 }),
-  ...StateFields,
+const GarmentPair = Type.Array(RowId, { minItems: 2, maxItems: 2 });
+
+const PairBody = Type.Object({ garmentId: GarmentPair, ...StateFields });
+
+// "Allow again": the garment page's (no returnTo: back to its garment, the
+// first id) and the Style page's (#21b, back to its list).
+const AllowBody = Type.Object({
+  garmentId: GarmentPair,
+  returnTo: Type.Optional(Type.String({ maxLength: 2048 })),
 });
 
 function parsePage(value: string | undefined): number {
@@ -266,11 +278,12 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // The garment page's undo ("Allow again", a native post): the first id is
-  // the page's garment, where the answer goes back to.
+  // The undo ("Allow again", a native post) on the garment page, whose
+  // garment is the first id, where the answer goes back to; or wherever
+  // `returnTo` says (the Style page's list, #21b).
   app.post(
-    `${IDEAS_PATH}/allow`,
-    { schema: { body: PairBody } },
+    IDEAS_ALLOW_PATH,
+    { schema: { body: AllowBody } },
     async (request, reply) => {
       const ownerId = sessionUserId(request);
       const [a, b] = request.body.garmentId;
@@ -280,7 +293,10 @@ export const galleryRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       logger.info(
         `Garments ${a} and ${b} allowed together again by user ${ownerId}`,
       );
-      return reply.redirect(`/wardrobe/${a}`, 303);
+      return reply.redirect(
+        safeReturnTo(request.body.returnTo, `/wardrobe/${a}`),
+        303,
+      );
     },
   );
 

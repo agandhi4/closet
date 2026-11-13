@@ -28,6 +28,59 @@ export const ROUTES: Route[] = [
       stranger: 'hidden',
     },
   },
+  // Its outfit rules (#21b): the owner's alone, like the profile. The page
+  // names the owner's garment in a rule and in the form's picker; anyone
+  // else sees their own, and a side or a rule of the owner's is a 404.
+  {
+    name: 'GET /auth/profile/style (the outfit rules)',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    shows: true,
+    vias: ['own'],
+    request: () => ({ method: 'GET', url: '/auth/profile/style' }),
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: 'hidden',
+    },
+  },
+  {
+    name: 'POST /auth/profile/style/rules',
+    kind: 'write',
+    ok: 303,
+    secret: garmentName,
+    vias: ['own'],
+    request: (f) => ({
+      method: 'POST',
+      url: '/auth/profile/style/rules',
+      payload: { kind: 'always', a: `garment:${f.garmentId}`, b: 'color:red' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /auth/profile/style/rules/:id/delete',
+    kind: 'write',
+    ok: 303,
+    secret: garmentName,
+    vias: ['own'],
+    request: (f) => ({
+      method: 'POST',
+      url: `/auth/profile/style/rules/${f.outfitRuleId}/delete`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
   // Sizes (#24): everyone's own, like the style profile; the owner's note
   // never reaches a grantee, on the editor, the hint or a shared page.
   {

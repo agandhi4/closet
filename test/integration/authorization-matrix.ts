@@ -18,7 +18,7 @@ import type { SuggestionDecision } from '../../src/wardrobe/suggestions';
 import { createToken } from '../../src/web/auth/personal-tokens';
 import { setGarmentStatus } from '../../src/web/wardrobe/status';
 import { decide, markSuggestion } from '../../src/web/wishlist/decisions';
-import { saveStyleProfile } from '../../src/web/style/queries';
+import { addOutfitRule, saveStyleProfile } from '../../src/web/style/queries';
 import { EMPTY_STYLE_PROFILE } from '../../src/web/style/validation';
 import { LOGIN_PATH } from '../../src/web/auth/login-path';
 import { addBrandSize } from '../../src/web/sizes/queries';
@@ -177,6 +177,8 @@ export interface Fixture {
    */
   brandSizeId: number;
   brand: string;
+  /** An outfit rule of the owner's (#21b): never the garment with black. */
+  outfitRuleId: number;
   /** A repair log entry on the garment (#23), the owner's own record. */
   repairId: number;
   /**
@@ -244,6 +246,14 @@ export const calendarEntry = (f: Fixture) =>
   `/styling?outfit=${f.outfitId}&amp;returnTo=`;
 export const selfieName = (f: Fixture) => f.selfieFileName;
 export const OWNER_TOKEN_NAME = 'Owner laptop token';
+/** A rule side with no matcher set: a fixture's sides spread one in. */
+const NO_MATCHER = {
+  garmentId: null,
+  category: null,
+  type: null,
+  color: null,
+  pattern: null,
+};
 
 /** A feature off by default whose routes exist only with it on. */
 export type Feature = 'weather' | 'orderMail';
@@ -312,6 +322,8 @@ const TABLES = [
   'order_item',
   // Muse's needs (#333): a decision settles or sets one aside.
   'option_group',
+  // The Style page's outfit rules (#21b).
+  'outfit_rule',
 ];
 
 interface Case {
@@ -523,6 +535,14 @@ export function describeMatrix(
         note: OWNER_SIZE_NOTE,
       });
       if (brandSizeId === 'brand-taken') throw new Error(`${brand} is taken`);
+      const outfitRuleId = await addOutfitRule(t.db, t.owner.id, {
+        kind: 'never',
+        a: { ...NO_MATCHER, garmentId },
+        b: { ...NO_MATCHER, color: 'black' },
+      });
+      if (typeof outfitRuleId !== 'number') {
+        throw new Error(`No outfit rule: ${outfitRuleId}`);
+      }
       const muse = await museFixture(tag);
       const archivedName = `Old ${tag}`;
       const archivedId = await createGarment(t, { name: archivedName, cookie });
@@ -740,6 +760,7 @@ export function describeMatrix(
         otherTripId,
         brand,
         brandSizeId,
+        outfitRuleId,
         repairId,
         orderItemId,
         orderItemName,

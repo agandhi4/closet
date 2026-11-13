@@ -8,6 +8,7 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import type { Db, Queryable } from '../../db/client';
 import { selectScalars } from '../../db/select-scalars';
 import {
@@ -688,6 +689,40 @@ export function avoidedWithSql(
         eq(generatorAvoid.garmentBId, garmentId),
       ),
     )}
+  )`;
+}
+
+/** An avoided pair ("Clashes") by name: the Style page's list. */
+export interface AvoidedPair {
+  a: AvoidedPartner;
+  b: AvoidedPartner;
+}
+
+/**
+ * Every pair the owner said clash, by name, as a scalar subquery (a JSON
+ * array, empty for none): the Style page lists them under its outfit rules
+ * (#21b), read with the page in one statement.
+ */
+export function avoidedPairsByNameSql(ownerId: number): SQL<AvoidedPair[]> {
+  // In raw SQL an alias renders as its name alone, so the joins spell out
+  // `garment <alias>`; its columns render qualified by it.
+  const [aName, bName] = ['avoided_a', 'avoided_b'];
+  const a = alias(garment, aName);
+  const b = alias(garment, bName);
+  const named = (side: Record<'id' | 'name' | 'category', AnyColumn>) =>
+    sql`json_build_object('id', ${side.id}, 'name', ${side.name}, 'category', ${side.category})`;
+  return sql<AvoidedPair[]>`(
+    select coalesce(
+      json_agg(
+        json_build_object('a', ${named(a)}, 'b', ${named(b)})
+        order by ${a.name}, ${b.name}, ${a.id}, ${b.id}
+      ),
+      '[]'
+    )
+    from ${generatorAvoid}
+    join ${garment} ${sql.identifier(aName)} on ${eq(a.id, generatorAvoid.garmentAId)}
+    join ${garment} ${sql.identifier(bName)} on ${eq(b.id, generatorAvoid.garmentBId)}
+    where ${eq(generatorAvoid.ownerId, ownerId)}
   )`;
 }
 

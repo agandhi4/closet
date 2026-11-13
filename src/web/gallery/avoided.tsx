@@ -2,7 +2,7 @@ import { PostForm } from '../auth/form';
 import { t } from '../i18n';
 import { categoryLabel } from '../wardrobe/garment';
 import type { AvoidedPartner } from './queries';
-import { IDEAS_PATH } from './urls';
+import { IDEAS_ALLOW_PATH } from './urls';
 
 /**
  * The garment page's "Never paired with" (the owner's alone): the garments
@@ -24,7 +24,7 @@ export function AvoidedPartners(props: {
             <a href={`/wardrobe/${partner.id}`} class="link link-hover">
               {partner.name ?? categoryLabel(partner.category)}
             </a>
-            <PostForm action={`${IDEAS_PATH}/allow`}>
+            <PostForm action={IDEAS_ALLOW_PATH}>
               <input
                 type="hidden"
                 name="garmentId"
