@@ -3,10 +3,8 @@ import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
 import {
   type EntryTarget,
-  isRefused,
   replaceEntryOutfit,
   replaceMessage,
-  replaceRefusal,
 } from '../calendar/replace';
 import { HttpError } from '../errors';
 import { garmentsGoneError } from '../outfits/gone-garments';
@@ -19,6 +17,7 @@ import { pickForTrip } from '../trips/queries';
 import { tripUrl } from '../trips/urls';
 import { tripNotFound } from '../trips/validation';
 import { pickIdea, type PickResult } from '../outfits/pick';
+import type { Actor } from '../sharing/access';
 import { alreadySavedParam } from './urls';
 
 /**
@@ -28,7 +27,7 @@ import { alreadySavedParam } from './urls';
  * in what a destination does. Each branch is one transaction and happens
  * once (a double tap finds what the first made):
  * - `day` with `replace` (#69): the outfit takes that entry's place
- *   (replaceEntryOutfit); to the week. A refusal throws.
+ *   (replaceEntryOutfit, which throws its refusals); to the week.
  * - `day`: saved and planned on it (pickIdea); to the week.
  * - `none`: saved (pickIdea); to the outfit.
  * - `trip` (#10): saved and added to the trip, for its day and occasion
@@ -57,7 +56,7 @@ const PICKED: Record<PickSource, string> = {
 export function pickTo(
   deps: PickDeps,
   reply: FastifyReply,
-  ownerId: number,
+  actor: Actor,
   destination: OutfitDestination,
   garmentIds: number[],
   options: { source: PickSource; name?: string },
@@ -65,8 +64,9 @@ export function pickTo(
   if (destination.kind === 'day' && destination.replace !== undefined) {
     const { replace: entryId, day, occasion } = destination;
     const target = { entryId, day, occasion };
-    return pickInPlace(deps, reply, ownerId, target, garmentIds, options);
+    return pickInPlace(deps, reply, actor, target, garmentIds, options);
   }
+  const ownerId = actor.userId;
   return destination.kind === 'trip'
     ? pickToTrip(deps, reply, ownerId, destination, garmentIds, options)
     : pickToDayOrSave(deps, reply, ownerId, destination, garmentIds, options);
@@ -99,17 +99,16 @@ export function postedDestination(body: {
 async function pickInPlace(
   { db, logger }: PickDeps,
   reply: FastifyReply,
-  ownerId: number,
+  actor: Actor,
   target: EntryTarget,
   garmentIds: number[],
   options: { name?: string },
 ): Promise<FastifyReply> {
-  const replaced = await replaceEntryOutfit(db, ownerId, target, {
+  const replaced = await replaceEntryOutfit(db, actor, target, {
     garmentIds,
     name: options.name,
   });
-  logger.info(replaceMessage(ownerId, target, replaced));
-  if (isRefused(replaced)) throw replaceRefusal(replaced);
+  logger.info(replaceMessage(actor.userId, target, replaced));
   const flag = alreadySavedParam(replaced);
   return reply.redirect(
     `/calendar?week=${target.day}${flag && `&${flag}`}`,

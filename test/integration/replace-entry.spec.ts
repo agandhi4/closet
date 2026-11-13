@@ -336,13 +336,14 @@ describe('changing a planned outfit in place', () => {
       const entryId = await plan(planned, day, 'evening');
       const idea = [tops[1], bottoms[1], shoes[0]];
       const target = { entryId, day, occasion: 'evening' as const };
+      const owner = { userId: t.owner.id };
       // A holds its transaction open, as a slow first tap would.
       let replaced!: () => void;
       const aReplaced = new Promise<void>((resolve) => (replaced = resolve));
       let release!: () => void;
       const aReleased = new Promise<void>((resolve) => (release = resolve));
       const a = t.db.transaction(async (tx) => {
-        const result = await replaceEntryOutfit(tx, t.owner.id, target, {
+        const result = await replaceEntryOutfit(tx, owner, target, {
           garmentIds: idea,
         });
         replaced();
@@ -350,7 +351,7 @@ describe('changing a planned outfit in place', () => {
         return result;
       });
       await aReplaced;
-      const b = replaceEntryOutfit(t.db, t.owner.id, target, {
+      const b = replaceEntryOutfit(t.db, owner, target, {
         garmentIds: idea,
       });
       await expect

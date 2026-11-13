@@ -8,13 +8,9 @@ import {
   PICK_NOTE_MAX,
 } from '../../../wardrobe/suggestions';
 import { HttpError } from '../../errors';
-import { newOutfitSlots } from '../../outfits/gone-garments';
+import { proposeOutfitTo } from '../../outfits/outfit-actions';
 import { museOutfitsSql } from '../../outfits/proposals';
-import {
-  OUTFIT_GARMENTS_MAX,
-  OUTFIT_NAME_MAX,
-  proposeOutfit,
-} from '../../outfits/queries';
+import { OUTFIT_GARMENTS_MAX, OUTFIT_NAME_MAX } from '../../outfits/queries';
 import { CATEGORY_MAX, NAME_MAX } from '../../wardrobe/garment-input';
 import { findGarment } from '../../wardrobe/queries';
 import {
@@ -41,7 +37,7 @@ import { addGarmentFromLink } from './link-import';
  * app's own writers, and reads back what the owner decided. The caller's
  * own wardrobe, no ownerId. A need is createOptionGroup's, a pick the
  * link import's garment marked by markSuggestedProduct in its transaction, an
- * outfit proposeOutfit's; list_suggestions reads the inbox and the
+ * outfit proposeOutfitTo's (src/web/outfits/outfit-actions.ts); list_suggestions reads the inbox and the
  * Outfits tab as their pages do, get_suggestion_feedback the decisions
  * since the agent's last call (src/web/wishlist/feedback.ts).
  *
@@ -358,35 +354,12 @@ export const suggestionTools = [
     // A retry answers the outfit it proposed (alreadyProposed).
     idempotent: true,
     async run({ garmentIds, note, name }, ctx) {
-      // proposeOutfit judges every garment again as it writes (an option
-      // set aside is refused there).
-      const slots = await newOutfitSlots(
+      const proposed = await proposeOutfitTo(
         ctx.db,
-        ctx.userId,
-        garmentIds,
-        'wardrobe',
-      );
-      const proposed = await proposeOutfit(
-        ctx.db,
-        ctx.userId,
-        {
-          name: name ?? null,
-          slots,
-        },
+        actorOf(ctx),
+        { garmentIds, name: name ?? null },
         { tokenId: ctx.tokenId, note: note ?? null },
       );
-      if (!proposed.ok && proposed.reason === 'owners') {
-        throw new HttpError(
-          409,
-          `These garments are an outfit of the owner's own already (outfit ${proposed.id})`,
-        );
-      }
-      if (!proposed.ok) {
-        throw new HttpError(
-          409,
-          `The owner declined these garments as an outfit (outfit ${proposed.id}, ${proposed.dismissedReason ?? 'no reason'}): never propose it again`,
-        );
-      }
       if ('alreadyProposed' in proposed) {
         return { id: proposed.id, alreadyProposed: proposed.alreadyProposed };
       }
