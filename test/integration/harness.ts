@@ -17,8 +17,13 @@ import { user } from '../../src/db/schema';
 import { createLogger, createLoggerTo, type Logger } from '../../src/logger';
 import { hashPassword } from '../../src/web/auth/passwords';
 import { insertUser } from '../../src/web/auth/queries';
+import { passwordFingerprint } from '../../src/web/auth/tokens';
 import { type IsoDate, todayIn } from '../../src/calendar-date';
 import type { Photos } from '../../src/web/files/photos';
+import {
+  type SubscriptionInput,
+  upsertDevice,
+} from '../../src/web/push/queries';
 import type { PushSender } from '../../src/web/push/sender';
 import type { WeatherService } from '../../src/web/weather/service';
 import { UNMATCHED_ROUTE } from '../../src/metrics/http';
@@ -408,6 +413,45 @@ export async function userIdOf(t: TestApp, email: string): Promise<number> {
     .where(eq(user.email, email));
   if (!row) throw new Error(`No account for ${email}`);
   return row.id;
+}
+
+/**
+ * The password fingerprint a session of `userId` opened now carries (its
+ * token's `pwf`): what a write that rechecks its session takes, called
+ * outside a request (upsertDevice).
+ */
+export async function sessionFingerprintOf(
+  db: Db,
+  userId: number,
+): Promise<string> {
+  const [row] = await db
+    .select({ password: user.password })
+    .from(user)
+    .where(eq(user.id, userId));
+  if (!row) throw new Error(`No account ${userId}`);
+  return passwordFingerprint(row.password);
+}
+
+/**
+ * `subscription` stored for `userId` as a request of a session opened now
+ * would store it (upsertDevice, with that session's fingerprint), for specs
+ * that set up a device outside a request. Its device id.
+ */
+export async function subscribeAs(
+  db: Db,
+  userId: number,
+  subscription: SubscriptionInput,
+): Promise<number> {
+  const fingerprint = await sessionFingerprintOf(db, userId);
+  const deviceId = await upsertDevice(
+    db,
+    userId,
+    fingerprint,
+    subscription,
+    undefined,
+  );
+  if (deviceId === undefined) throw new Error(`No session for ${userId}`);
+  return deviceId;
 }
 
 export { multipart, type MultipartFile } from '../support/multipart';

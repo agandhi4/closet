@@ -1,4 +1,6 @@
+import { sql } from 'drizzle-orm';
 import jwt from 'jsonwebtoken';
+import { user } from '../../db/schema';
 
 /**
  * The session token's claims. The format is the one @nestjs/jwt issued
@@ -21,14 +23,21 @@ export const SESSION_LIFETIME_SECONDS = 365 * 24 * 60 * 60;
 
 /**
  * How many trailing characters of the bcrypt hash a token carries as `pwf`.
- * The session lookup computes the same suffix in SQL (findSessionAccount,
- * queries.ts), so the hash itself never leaves the database on a request.
+ * The session lookup computes the same suffix in SQL (passwordFingerprintSql),
+ * so the hash itself never leaves the database on a request.
  */
-export const PASSWORD_FINGERPRINT_LENGTH = 8;
+const PASSWORD_FINGERPRINT_LENGTH = 8;
 
 export function passwordFingerprint(passwordHash: string): string {
   return passwordHash.slice(-PASSWORD_FINGERPRINT_LENGTH);
 }
+
+/**
+ * passwordFingerprint in SQL, over the `user` row in scope: what the session
+ * lookup reads (findSessionAccount) and what a write that must not outlive
+ * its session rechecks under the user's row lock (upsertDevice).
+ */
+export const passwordFingerprintSql = sql<string>`right(${user.password}, ${PASSWORD_FINGERPRINT_LENGTH})`;
 
 export interface SessionTokens {
   issue(user: { id: number; email: string | null; password: string }): string;

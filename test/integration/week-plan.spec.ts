@@ -39,7 +39,6 @@ import { REMINDER_WINDOWS } from '../../src/push/reminders';
 import {
   devicesOfUsers,
   saveReminderSettings,
-  upsertDevice,
 } from '../../src/web/push/queries';
 import { chosenDevices, type PushSender } from '../../src/web/push/sender';
 import { setHome } from '../../src/web/weather/queries';
@@ -59,6 +58,7 @@ import {
 import {
   createTestApp,
   recordQueries,
+  subscribeAs,
   type TestApp,
   unescapeHtml,
 } from './harness';
@@ -817,15 +817,10 @@ describe('the weekly auto-plan', () => {
         name: 'Fort Greene',
         location: { latitude: 40.69, longitude: -73.98 },
       });
-      const deviceId = await upsertDevice(
-        t.db,
-        t.owner.id,
-        {
-          endpoint: 'https://fcm.googleapis.com/fcm/send/week-replan',
-          keys: { p256dh: 'p'.repeat(87), auth: 'a'.repeat(22) },
-        },
-        undefined,
-      );
+      const deviceId = await subscribeAs(t.db, t.owner.id, {
+        endpoint: 'https://fcm.googleapis.com/fcm/send/week-replan',
+        keys: { p256dh: 'p'.repeat(87), auth: 'a'.repeat(22) },
+      });
       await saveReminderSettings(
         t.db,
         t.owner.id,
@@ -1252,15 +1247,10 @@ describe('the weekly auto-plan', () => {
       /** A device of the owner's with the morning reminder at `hour`:00. */
       const remindAt = async (hour: number) => {
         const endpoint = `https://fcm.googleapis.com/fcm/send/morning-${hour}`;
-        deviceId = await upsertDevice(
-          t.db,
-          t.owner.id,
-          {
-            endpoint,
-            keys: { p256dh: 'p'.repeat(87), auth: 'a'.repeat(22) },
-          },
-          undefined,
-        );
+        deviceId = await subscribeAs(t.db, t.owner.id, {
+          endpoint,
+          keys: { p256dh: 'p'.repeat(87), auth: 'a'.repeat(22) },
+        });
         await saveReminderSettings(
           t.db,
           t.owner.id,

@@ -17,7 +17,7 @@ import { type StoredPhoto, unkeyedPhoto } from '../files/image-variant';
 import { STORED_PHOTO_COLUMNS } from '../files/queries';
 import { revokeDevicesStatement } from '../push/queries';
 import { revokeAllTokensStatement } from './personal-tokens';
-import { PASSWORD_FINGERPRINT_LENGTH } from './tokens';
+import { passwordFingerprintSql } from './tokens';
 
 /**
  * Account rows. Emails are stored as normalizeEmail writes them (trimmed,
@@ -68,7 +68,7 @@ export interface SessionAccount {
 const sessionColumns = {
   id: user.id,
   email: user.email,
-  fingerprint: sql<string>`right(${user.password}, ${PASSWORD_FINGERPRINT_LENGTH})`,
+  fingerprint: passwordFingerprintSql,
 };
 
 export async function findSessionAccount(

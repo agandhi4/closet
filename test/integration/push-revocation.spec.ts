@@ -12,22 +12,25 @@ import {
   vi,
 } from 'vitest';
 import webpush, { type PushSubscription } from 'web-push';
-import { userDevice } from '../../src/db/schema';
+import { user, userDevice } from '../../src/db/schema';
 import { runRevokeAllPush } from '../../src/maintenance/revoke-push';
 import { runSetPassword } from '../../src/maintenance/set-password';
 import { type MinuteOfDay } from '../../src/push/reminders';
 import { addDays, instantAt } from '../../src/calendar-date';
-import { saveReminderSettings } from '../../src/web/push/queries';
+import { updatePasswordHash } from '../../src/web/auth/queries';
+import { saveReminderSettings, upsertDevice } from '../../src/web/push/queries';
 import { sendDueReminders } from '../../src/web/push/reminders';
 import { captureLogs } from '../support/log-capture';
 import {
   createTestApp,
   PWA_ENV,
+  sessionFingerprintOf,
   TEST_PASSWORD,
   type TestApp,
   unescapeHtml,
   userIdOf,
 } from './harness';
+import { interleave } from './interleave';
 
 /**
  * Push subscriptions go with the sessions a new password revokes (#73): the
@@ -232,6 +235,58 @@ describe('push subscriptions revoked with the sessions (PWA_ENABLED=true)', () =
       });
       expect(res.statusCode).toBe(400);
       expect(await endpointsOf(userId)).toEqual([endpointA, endpointB]);
+    });
+  });
+
+  // A subscribe and a new password take turns on the user's row lock
+  // (#512, upsertDevice): whichever commits first, no subscription made by
+  // a session the password ended survives it.
+  describe('a subscribe racing a new password', () => {
+    it('revokes a subscription that held the row lock while the password waited', async () => {
+      const email = `race-held-${randomUUID()}@example.com`;
+      await t.register(email);
+      const userId = await userIdOf(t, email);
+      const fingerprint = await sessionFingerprintOf(t.db, userId);
+      const [deviceId, change] = await interleave(
+        t.db,
+        (tx) =>
+          upsertDevice(tx, userId, fingerprint, subscription(), undefined),
+        () => updatePasswordHash(t.db, userId, 'not-a-hash-race'),
+      );
+      expect(deviceId).toBeDefined();
+      expect(change.revokedDevices).toBe(1);
+      expect(await endpointsOf(userId)).toEqual([]);
+    });
+
+    it("refuses a subscribe that waited while the password committed: the ended session's 401, no row", async () => {
+      const email = `race-waited-${randomUUID()}@example.com`;
+      const cookie = await t.register(email);
+      const userId = await userIdOf(t, email);
+      t.logs.clear();
+      // The session gate let the request in on the old hash; the new one
+      // commits while the subscribe waits for the lock.
+      const [, res] = await interleave(
+        t.db,
+        (tx) =>
+          tx
+            .update(user)
+            .set({ password: 'not-a-hash-moved' })
+            .where(eq(user.id, userId)),
+        () =>
+          t.inject({
+            method: 'POST',
+            url: '/push/subscribe',
+            payload: subscription(),
+            headers: { cookie },
+          }),
+      );
+      expect(res.statusCode).toBe(401);
+      expect(res.headers['hx-redirect']).toBe('/auth/login');
+      expect(res.headers['clear-site-data']).toBe('"cache"');
+      expect(await endpointsOf(userId)).toEqual([]);
+      expect(t.logs.messages('info', 'Web')).toContain(
+        `User ${userId}'s push subscription refused: the session ended under it`,
+      );
     });
   });
 

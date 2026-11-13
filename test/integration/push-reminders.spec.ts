@@ -19,7 +19,6 @@ import { parsePushPayload, type PushPayload } from '../../src/web/push/payload';
 import {
   revokeDevices,
   saveReminderSettings,
-  upsertDevice,
 } from '../../src/web/push/queries';
 import { setHome } from '../../src/web/weather/queries';
 import type { WeatherService } from '../../src/web/weather/service';
@@ -33,6 +32,7 @@ import { createGarment } from './garments';
 import {
   createTestApp,
   PWA_ENV,
+  subscribeAs,
   type TestApp,
   unescapeHtml,
   userIdOf,
@@ -680,7 +680,7 @@ describe('push reminders', () => {
       // The same browser signs in as the other account: its row moves
       // (upsertDevice), its reminders cleared.
       const moving = senderThat(async () => {
-        await upsertDevice(t.db, otherId, subscription(phone), undefined);
+        await subscribeAs(t.db, otherId, subscription(phone));
       });
 
       const run = await sendDueReminders(
