@@ -1,4 +1,5 @@
 import { and, eq, isNotNull, type SQL, sql } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { FastifyRequest } from 'fastify';
 import type { Db } from '../../db/client';
 import { type SharePermission, user, wardrobeShare } from '../../db/schema';
@@ -24,8 +25,12 @@ export interface WardrobeAccess {
   permission?: SharePermission;
 }
 
-/** The one definition of a share that opens `ownerId`'s wardrobe to `userId`. */
-function acceptedShare(ownerId: number, userId: number) {
+/**
+ * The one definition of a share that opens `ownerId`'s wardrobe to `userId`:
+ * an id, or the user column of a statement that has not read it yet (the
+ * device token's, authenticateToken).
+ */
+function acceptedShare(ownerId: number, userId: number | AnyPgColumn) {
   return and(
     eq(wardrobeShare.grantorId, ownerId),
     eq(wardrobeShare.granteeId, userId),
@@ -45,16 +50,18 @@ const sharesReadAhead = new WeakMap<FastifyRequest, ShareReadAhead>();
 /**
  * The other user's wardrobe a request's `?ownerId=` names, whose share the
  * session statement reads in the same round trip (findSessionAccount,
- * src/web/auth/queries.ts), so a grantee's request pays no statement of
- * its own for the access check (#170). Undefined for one's own wardrobe and
- * for anything but a plain row id: the route's schema judges those, and
- * resolveWardrobeAccess then reads the share itself (a body's `ownerId`
- * too). The session hook runs before validation, so this reads the raw
+ * src/web/auth/queries.ts), and so does an API request's token read
+ * (authenticateToken), so a grantee's request pays no statement of its own
+ * for the access check (#170). Undefined for one's own wardrobe (`userId`,
+ * when the caller knows it: a token's user is known only once its row is
+ * read) and for anything but a plain row id: the route's schema judges
+ * those, and resolveWardrobeAccess then reads the share itself (a body's
+ * `ownerId` too). Both hooks run before validation, so this reads the raw
  * query string.
  */
 export function shareToReadAhead(
   request: FastifyRequest,
-  userId: number,
+  userId?: number,
 ): number | undefined {
   const raw = (request.query as Record<string, unknown> | undefined)?.ownerId;
   if (typeof raw !== 'string' || !/^[1-9]\d{0,9}$/.test(raw)) return undefined;
@@ -68,7 +75,7 @@ export function shareToReadAhead(
  */
 export function sharePermissionSql(
   ownerId: number,
-  userId: number,
+  userId: number | AnyPgColumn,
 ): SQL<SharePermission | null> {
   return sql<SharePermission | null>`(
     select ${wardrobeShare.permission} from ${wardrobeShare}
@@ -77,9 +84,11 @@ export function sharePermissionSql(
 }
 
 /**
- * Keeps what the session statement read, for this request alone: the
- * resolver stores it only for a cookie that opened a session, and the next
- * request reads the share again, so a revoked share stops access there.
+ * Keeps what the session statement (or an API request's token read) read,
+ * for this request alone: the resolver stores it only for a cookie that
+ * opened a session, the API's token hook only for a token it accepted, and
+ * the next request reads the share again, so a revoked share stops access
+ * there.
  */
 export function rememberShareReadAhead(
   request: FastifyRequest,
@@ -89,20 +98,25 @@ export function rememberShareReadAhead(
 }
 
 /**
- * Who a domain function acts for (#188): the user, and on a page the share
- * its session statement read ahead (#170), so a domain function that takes
- * an Actor costs the statements the route's own check did. Built once per
- * call by a surface: `actorOf(request)` here for pages, `actorOf(ctx)`
- * (src/web/mcp/tool.ts) for MCP. No domain function sees a FastifyRequest.
+ * Who a domain function acts for (#188): the user, and on a page or an API
+ * request the share its session or token statement read ahead (#170), so a
+ * domain function that takes an Actor costs the statements the route's own
+ * check did. Built once per call by a surface: `actorOf(request)` here for
+ * pages and /api/v1, `actorOf(ctx)` (src/web/mcp/tool.ts) for MCP. No
+ * domain function sees a FastifyRequest.
  */
 export interface Actor {
   userId: number;
   shareReadAhead?: ShareReadAhead;
 }
 
-/** The signed-in request's actor; throws on a public route, as sessionUserId does. */
+/**
+ * The request's actor: the device token's user on /api/v1 (only its hook
+ * sets `accessToken` there), else the session's. Throws on a public route,
+ * as sessionUserId does.
+ */
 export function actorOf(request: FastifyRequest): Actor {
-  const userId = sessionUserId(request);
+  const userId = request.accessToken?.user.id ?? sessionUserId(request);
   const shareReadAhead = sharesReadAhead.get(request);
   return shareReadAhead ? { userId, shareReadAhead } : { userId };
 }

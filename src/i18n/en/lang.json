@@ -305,7 +305,8 @@
   "WARDROBE_SHARING": "Wardrobe Sharing",
   "api": {
     "SIGN_IN_AGAIN": "Sign in again: this device's token is missing, revoked or not valid here",
-    "TOKEN_IN_QUERY": "Send the token in the Authorization header, never in the URL"
+    "TOKEN_IN_QUERY": "Send the token in the Authorization header, never in the URL",
+    "BAD_CURSOR": "This cursor is not one a list answered: start from the first page"
   },
   "agentAccess": {
     "TITLE": "Agent Access",
@@ -1635,5 +1636,10 @@
     "LOOK_CHANGED": "This look changed since the page opened. Reload it and choose again.",
     "FOUND_NOTE": "From your saved look “{look}”.",
     "FOUND_NOTE_LINK": "From your saved look “{look}”: {link}"
+  },
+  "garmentSearch": {
+    "TYPE_NEEDS_CATEGORY": "A type needs its category",
+    "NOT_A_TYPE_OF": "{type} is not a type of {category}: {types}",
+    "NO_TYPES": "{category} has no types"
   }
 }

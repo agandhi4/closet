@@ -8,7 +8,6 @@ import {
   CONDITIONS,
   FITS,
   FORMALITIES,
-  findType,
   GARMENT_COLORS,
   LENGTHS,
   MATERIALS,
@@ -16,7 +15,6 @@ import {
   type GarmentProperty,
   propertyApplies,
   SLEEVES,
-  typesOf,
   WARMTHS,
 } from '../../../wardrobe/properties';
 import {
@@ -30,12 +28,11 @@ import { perWearCost, totalCost } from '../../../wardrobe/insights';
 import { todayIn } from '../../../calendar-date';
 import { capsulesOfGarmentSql } from '../../capsules/queries';
 import { HttpError } from '../../errors';
-import { normalizeCategory, normalizeSize } from '../../wardrobe/garment';
+import { normalizeCategory } from '../../wardrobe/garment';
 import {
   type GarmentDetail,
   type GarmentSummary,
   garmentSummaries,
-  type GridFilters,
 } from '../../wardrobe/queries';
 import { GRID_PAGE_SIZE } from '../../wardrobe/grid-page-size';
 import { closetLookalikes } from '../../wardrobe/lookalikes';
@@ -78,6 +75,7 @@ import {
   searchGarments,
 } from '../../wardrobe/garment-access';
 import { addGarmentCopies, editGarment } from '../../wardrobe/garment-actions';
+import { checkedType, searchFilters } from '../../wardrobe/garment-search';
 import { addGarmentFromLink, refusedForm } from './link-import';
 
 /** A search or capsule hit, as the tools answer it. */
@@ -188,22 +186,6 @@ async function garmentOut(
     }),
     ...(repairs && { repairs }),
   };
-}
-
-/** A type only with its own category, as the grid (gridSearch) allows it. */
-export function checkedType(category: string, type: string): string {
-  if (!category) throw new HttpError(400, 'A type needs its category');
-  const found = findType(category, type);
-  if (!found) {
-    const types = typesOf(category).map((t) => t.value);
-    throw new HttpError(
-      400,
-      types.length > 0
-        ? `${type} is not a type of ${category}: ${types.join(', ')}`
-        : `${category} has no types`,
-    );
-  }
-  return found.value;
 }
 
 const property = <T extends z.ZodType>(schema: T, description: string) =>
@@ -579,34 +561,6 @@ const SearchInput = z.object({
     ),
   before: rowId().optional().describe('The previous page’s `next`.'),
 });
-type SearchArgs = z.output<typeof SearchInput>;
-
-/**
- * search_garments' arguments as the grid's filters (gridSearch's rules: a
- * category normalized, a type only with its category, a size normalized);
- * a type without one, or not of it, is a 400 (checkedType) before the
- * wardrobe is read.
- */
-function searchFilters(args: SearchArgs): GridFilters {
-  const category = args.category ? normalizeCategory(args.category) : '';
-  return {
-    keyword: args.keyword?.trim() || undefined,
-    category: category || undefined,
-    type: args.type ? checkedType(category, args.type) : undefined,
-    color: args.color,
-    size: normalizeSize(args.size ?? '') ?? undefined,
-    warmth: args.warmth,
-    formality: args.formality,
-    material: args.material,
-    wash: args.wash,
-    capsule: args.capsuleId,
-    scope: args.includeArchived ? 'owned' : 'closet',
-    needsWash: args.needsWash,
-    attention: args.needsAttention,
-    needsTags: args.needsTagging,
-  };
-}
-
 /**
  * get_wardrobe's garment: what it is and, on the caller's own wardrobe,
  * how it is worn. No photo, no link; a grantee gets no wear data (the
