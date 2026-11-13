@@ -40,7 +40,10 @@ import {
   type OutboundFetcherOptions,
 } from './web/security/outbound-fetch';
 import { registerRateLimit } from './web/security/rate-limit';
-import { createSameOriginHook } from './web/security/same-origin';
+import {
+  assertStatelessRoute,
+  createSameOriginHook,
+} from './web/security/same-origin';
 import { assignSurface, surfaceOf } from './web/surface';
 import { isWarmRequest } from './warm-request';
 import { createQueuedWriteHook } from './web/offline-writes';
@@ -261,6 +264,8 @@ export async function createApp(
   // Before any route: every /api/v1 route is the API surface and no other
   // route is (src/web/surface.ts); a route that disagrees stops the boot.
   app.addHook('onRoute', assignSurface);
+  // And only STATELESS_ROUTES may skip the same-origin check's Origin.
+  app.addHook('onRoute', assertStatelessRoute);
   // The queue and the weather's background refreshes first: a job still
   // running needs the pool to record itself, a refresh to save its row.
   // The error tracker last, so a failure on the way out is still sent.

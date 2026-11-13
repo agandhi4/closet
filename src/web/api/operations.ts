@@ -168,6 +168,10 @@ export const PAGE_WRITES: Readonly<
   // Saved looks (#22): outfits' inspiration, so outfits' endpoint issue.
   'POST /inspiration': { pending: '#193' },
   'POST /inspiration/link': { pending: '#193' },
+  'POST /inspiration/share': {
+    webOnly:
+      "the installed app's share target without its worker: writes nothing, answers a redirect",
+  },
   'POST /inspiration/:id': { pending: '#193' },
   'POST /inspiration/:id/delete': { pending: '#193' },
   'POST /inspiration/:id/photo': { pending: '#193' },

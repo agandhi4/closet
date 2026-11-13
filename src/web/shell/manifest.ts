@@ -14,9 +14,9 @@ import { LINK_IMPORT_PATH } from '../wardrobe/urls';
  * answers on the device and never sends on (receiveShare,
  * src/web/inspiration/share-target.ts): a photo waits for the confirmation
  * page's Save, a link opens the link import, fetching nothing until Fetch.
- * The server has no route for it. Without the worker (PWA_ENABLED off)
- * nothing could answer it, so the target stays the link import's GET,
- * links only.
+ * When no worker controls the page, the server's route answers it, writing
+ * nothing (share-fallback.ts). Without the worker at all (PWA_ENABLED off)
+ * the target stays the link import's GET, links only.
  */
 function shareTarget(pwaEnabled: boolean): Record<string, unknown> {
   const params = Object.fromEntries(

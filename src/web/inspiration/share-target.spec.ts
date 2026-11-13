@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   receiveShare,
+  SHARE_BODY_MAX_BYTES,
   SHARE_PHOTO_MAX_BYTES,
   SHARE_STASH_CACHE,
   SHARE_STASH_KEY_PREFIX,
   SHARED_AT_HEADER,
   SHARED_NAME_HEADER,
+  SHARED_TITLE_HEADER,
+  SHARED_URL_HEADER,
   type ShareStashStorage,
 } from './share-target';
 
@@ -97,6 +100,52 @@ describe('receiveShare', () => {
     });
     expect((await photo.arrayBuffer()).byteLength).toBe(16);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  // The confirmation posts them with the photo, so the look keeps its source.
+  it('keeps the link and title beside the photo, the link read like a link share', async () => {
+    const { storage, kept } = fakeCaches();
+    const { response } = await receiveShare(
+      shareRequest(
+        {
+          title: ' Linen suit ',
+          text: 'Look: https://shop.test/look?a=1&b=2.',
+        },
+        [jpeg()],
+      ),
+      storage,
+      NOW,
+    );
+    const headers = kept(idIn(response))!.headers;
+    expect(headers.get(SHARED_URL_HEADER)).toBe(
+      encodeURIComponent('https://shop.test/look?a=1&b=2'),
+    );
+    expect(headers.get(SHARED_TITLE_HEADER)).toBe(
+      encodeURIComponent('Linen suit'),
+    );
+    const bare = await receiveShare(
+      shareRequest({ text: 'no link' }, [jpeg()]),
+      storage,
+      NOW,
+    );
+    const none = kept(idIn(bare.response))!.headers;
+    expect(none.has(SHARED_URL_HEADER)).toBe(false);
+    expect(none.has(SHARED_TITLE_HEADER)).toBe(false);
+  });
+
+  it('refuses a body declared past the cap before reading it', async () => {
+    const { storage, caches } = fakeCaches();
+    const declared = new Request(shareRequest({}, [jpeg()]), {
+      headers: { 'Content-Length': String(SHARE_BODY_MAX_BYTES + 1) },
+    });
+    const read = vi.spyOn(declared, 'formData');
+    const { outcome, response } = await receiveShare(declared, storage, NOW);
+    expect(outcome).toBe('too-large');
+    expect(response.headers.get('Location')).toBe(
+      `${ORIGIN}/inspiration/share/confirm#too-large`,
+    );
+    expect(read).not.toHaveBeenCalled();
+    expect(caches.size).toBe(0);
   });
 
   it('keeps one share at a time: a new one replaces the last', async () => {

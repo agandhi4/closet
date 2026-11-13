@@ -11,7 +11,10 @@ import { LINK_IMPORT_PATH, wardrobeUrl } from '../wardrobe/urls';
  * with our Origin and the session's cookie, a CSRF bypass (docs/decisions.md
  * 2026-11-13). A shared photo is kept on the device and saved only by the
  * confirmation page's own native post to POST /inspiration; a share
- * without one goes on to the link page's GET, which saves nothing.
+ * without one goes on to the link page's GET, which saves nothing. Only
+ * when no worker controls the page (storage cleared, not yet installed)
+ * does the share reach the server's POST /inspiration/share, which writes
+ * nothing either (routes.tsx, shareFallback).
  *
  * This module imports only modules that import nothing: the worker's
  * bundle imports it, and the server (the manifest, the confirmation page).
@@ -27,6 +30,12 @@ export const SHARED_TEXT_FIELDS = ['title', 'text', 'url'] as const;
  * a phone's camera photo is well under it.
  */
 export const SHARE_PHOTO_MAX_BYTES = 20 * 1024 * 1024;
+/**
+ * The largest share body read at all, by the worker (a declared
+ * Content-Length) and the server's fallback: the photo's cap and room for
+ * the text fields and the multipart framing.
+ */
+export const SHARE_BODY_MAX_BYTES = SHARE_PHOTO_MAX_BYTES + 1024 * 1024;
 
 /**
  * Where a shared photo waits for its confirmation: one Cache Storage
@@ -43,8 +52,20 @@ export const SHARE_STASH_MAX_AGE_MS = 60 * 60 * 1000;
 export const SHARED_AT_HEADER = 'X-Shared-At';
 /** The shared file's name, URI-encoded (a header holds no other text). */
 export const SHARED_NAME_HEADER = 'X-Shared-Name';
+/**
+ * The shared link (linkIn's, http(s) only) and title kept beside a photo,
+ * URI-encoded; absent when the share had none. The confirmation page posts
+ * them with the photo, so the look keeps its source.
+ */
+export const SHARED_URL_HEADER = 'X-Shared-Url';
+export const SHARED_TITLE_HEADER = 'X-Shared-Title';
 /** The fragment the confirmation page reads as "too large to keep". */
 export const SHARE_TOO_LARGE = 'too-large';
+/**
+ * The fragment it reads as "the app was not open to take it": the server's
+ * fallback for a photo shared while no worker controlled the page.
+ */
+export const SHARE_NOT_OPENED = 'not-opened';
 
 /** The part of CacheStorage the stash needs (the worker's `self.caches`). */
 export interface ShareStashStorage {
@@ -55,7 +76,7 @@ export interface ShareStashStorage {
 export type ShareOutcome =
   /** A photo, kept for the confirmation page. */
   | 'stashed'
-  /** A photo past SHARE_PHOTO_MAX_BYTES, not kept. */
+  /** A photo past SHARE_PHOTO_MAX_BYTES (or a body past SHARE_BODY_MAX_BYTES), not kept. */
   | 'too-large'
   /** A photo the device could not keep (storage full, private mode). */
   | 'unstored'
@@ -77,10 +98,9 @@ export interface ReceivedShare {
  * file that declares an image type is the photo (a share of several keeps
  * one; anything else is not a photo); it is stashed under a random id and
  * the answer is a 303 to the confirmation page with the id as its
- * fragment, so it never reaches the server or its logs. Without a photo,
- * a 303 to the link page with the link alone (or the text cut to the
- * link field, so the page says it holds no link): never the whole text,
- * which a URL could not carry.
+ * fragment, so it never reaches the server or its logs; the share's link
+ * and title are kept beside it, for the look. Without a photo, a 303 to
+ * the link page (linkPageFor).
  */
 export async function receiveShare(
   request: Request,
@@ -91,12 +111,20 @@ export async function receiveShare(
     outcome,
     response: Response.redirect(new URL(path, request.url).href, 303),
   });
+  // Refused before the body is read, when the browser says its size.
+  if (Number(request.headers.get('Content-Length')) > SHARE_BODY_MAX_BYTES) {
+    return answer('too-large', `${SHARE_CONFIRM_PATH}#${SHARE_TOO_LARGE}`);
+  }
   let form: FormData;
   try {
     form = await request.formData();
   } catch {
     return answer('unreadable', SHARE_CONFIRM_PATH);
   }
+  const field = (name: (typeof SHARED_TEXT_FIELDS)[number]) => {
+    const value = form.get(name);
+    return typeof value === 'string' ? value : '';
+  };
   const photo = form
     .getAll(SHARE_PHOTO_FIELD)
     .find(
@@ -108,27 +136,47 @@ export async function receiveShare(
       return answer('too-large', `${SHARE_CONFIRM_PATH}#${SHARE_TOO_LARGE}`);
     }
     const id = crypto.randomUUID();
+    const source = {
+      link: linkIn(sharedText(field('url'), field('text'))),
+      // Bounded for the header; the confirmation page cuts it to the look's.
+      title: field('title').trim().slice(0, LINK_INPUT_MAX),
+    };
     try {
-      await stashPhoto(storage, id, photo, now);
+      await stashPhoto(storage, id, photo, source, now);
     } catch {
       return answer('unstored', SHARE_CONFIRM_PATH);
     }
     return answer('stashed', `${SHARE_CONFIRM_PATH}#${id}`);
   }
-  const field = (name: (typeof SHARED_TEXT_FIELDS)[number]) => {
-    const value = form.get(name);
-    return typeof value === 'string' ? value : '';
-  };
-  const shared = `${field('url')} ${field('text')}`.trim();
+  const { outcome, path } = linkPageFor(field('url'), field('text'));
+  return answer(outcome, path);
+}
+
+/** What a share says, its url first: Android often puts the link in text. */
+function sharedText(url: string, text: string): string {
+  return `${url} ${text}`.trim();
+}
+
+/**
+ * Where a share without a photo goes, the worker's answer and the server
+ * fallback's alike: the link page with the link alone, or with the text cut
+ * to the link field (the page then says it holds no link), never the whole
+ * text, which a URL could not carry.
+ */
+export function linkPageFor(
+  url: string,
+  text: string,
+): { outcome: 'link' | 'text'; path: string } {
+  const shared = sharedText(url, text);
   const link = linkIn(shared);
-  return answer(
-    link ? 'link' : 'text',
-    wardrobeUrl(
+  return {
+    outcome: link ? 'link' : 'text',
+    path: wardrobeUrl(
       undefined,
       link ? { url: link } : { text: shared.slice(0, LINK_INPUT_MAX) },
       LINK_IMPORT_PATH,
     ),
-  );
+  };
 }
 
 /** One share at a time: the cache is emptied before this one goes in. */
@@ -136,6 +184,7 @@ async function stashPhoto(
   storage: ShareStashStorage,
   id: string,
   photo: File,
+  source: { link: string | undefined; title: string },
   now: number,
 ): Promise<void> {
   await storage.delete(SHARE_STASH_CACHE);
@@ -147,6 +196,12 @@ async function stashPhoto(
         'Content-Type': photo.type,
         [SHARED_AT_HEADER]: String(now),
         [SHARED_NAME_HEADER]: encodeURIComponent(photo.name),
+        ...(source.link && {
+          [SHARED_URL_HEADER]: encodeURIComponent(source.link),
+        }),
+        ...(source.title && {
+          [SHARED_TITLE_HEADER]: encodeURIComponent(source.title),
+        }),
       },
     }),
   );

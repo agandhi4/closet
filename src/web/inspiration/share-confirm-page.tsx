@@ -1,7 +1,9 @@
 import { t } from '../i18n';
 import { FormPage } from '../layout/form-page';
 import type { ViewContext } from '../view-context';
+import { INSPIRATION_TITLE_MAX } from './queries';
 import {
+  SHARE_NOT_OPENED,
   SHARE_PHOTO_FIELD,
   SHARE_PHOTO_MAX_BYTES,
   SHARE_STASH_CACHE,
@@ -10,6 +12,8 @@ import {
   SHARE_TOO_LARGE,
   SHARED_AT_HEADER,
   SHARED_NAME_HEADER,
+  SHARED_TITLE_HEADER,
+  SHARED_URL_HEADER,
 } from './share-target';
 import { INSPIRATION_PATH } from './urls';
 
@@ -26,10 +30,11 @@ confirmShare(document.getElementById('share-confirm'));`;
  * worker kept it (share-target.ts) and the URL's fragment names it, so the
  * server renders the same page for every share. Its module reads the
  * stash (named here, so the worker's names are said once), puts the photo
- * in the form's file input, shows it and enables Save; Cancel discards it.
- * Every state is rendered hidden and shown by the module: the photo, a
- * share that is gone (an hour old, replaced, another session's, or never
- * kept) and one too large to keep.
+ * in the form's file input (its link and title in the hidden fields),
+ * shows it and enables Save; Cancel discards it. Every state is rendered
+ * hidden and shown by the module: the photo, a share that is gone (an hour
+ * old, replaced, another session's, or never kept), one too large to keep,
+ * and one the server's fallback saw because no worker took it.
  */
 export function ShareConfirmPage(props: { ctx: ViewContext }) {
   return (
@@ -56,7 +61,10 @@ export function ShareConfirmPage(props: { ctx: ViewContext }) {
         data-stash-max-age-ms={String(SHARE_STASH_MAX_AGE_MS)}
         data-shared-at-header={SHARED_AT_HEADER}
         data-shared-name-header={SHARED_NAME_HEADER}
-        data-too-large={SHARE_TOO_LARGE}
+        data-shared-url-header={SHARED_URL_HEADER}
+        data-shared-title-header={SHARED_TITLE_HEADER}
+        data-title-max={String(INSPIRATION_TITLE_MAX)}
+        data-notices={`${SHARE_TOO_LARGE} ${SHARE_NOT_OPENED}`}
       >
         <p class="text-sm text-muted">{t('inspiration.SHARE_HINT')}</p>
         <img
@@ -64,6 +72,9 @@ export function ShareConfirmPage(props: { ctx: ViewContext }) {
           class="hidden w-full rounded-box bg-base-200"
           data-share-preview=""
         />
+        <p class="hidden text-sm text-muted break-all" data-share-link="">
+          {t('inspiration.SHARE_WITH_LINK')} <span data-share-link-text="" />
+        </p>
         <p
           class="text-sm text-muted"
           data-share-state="loading"
@@ -87,6 +98,13 @@ export function ShareConfirmPage(props: { ctx: ViewContext }) {
             max: SHARE_PHOTO_MAX_BYTES / (1024 * 1024),
           })}
         </div>
+        <div
+          role="status"
+          class="hidden alert alert-warning alert-soft text-sm"
+          data-share-state={SHARE_NOT_OPENED}
+        >
+          {t('inspiration.SHARE_NOT_OPENED')}
+        </div>
         {/* Filled by the module from the stash, never by a tap. */}
         <input
           type="file"
@@ -96,6 +114,8 @@ export function ShareConfirmPage(props: { ctx: ViewContext }) {
           tabindex={-1}
           aria-hidden="true"
         />
+        <input type="hidden" name="url" value="" />
+        <input type="hidden" name="title" value="" />
       </div>
     </FormPage>
   );

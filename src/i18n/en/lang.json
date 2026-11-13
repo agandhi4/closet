@@ -1644,6 +1644,8 @@
     "SHARE_LOADING": "Opening the shared photo…",
     "SHARE_MISSING": "This share is no longer on this device: a shared photo waits an hour, and only the latest one. Share it again.",
     "SHARE_TOO_LARGE": "That photo is over {max} MB. Share a smaller copy, or a screenshot of it.",
+    "SHARE_NOT_OPENED": "The app was not ready to take that share, so nothing was kept. Open Closet from your home screen, then share it again.",
+    "SHARE_WITH_LINK": "Saved with its link:",
     "SAVE_SHARED": "Save look"
   },
   "garmentSearch": {

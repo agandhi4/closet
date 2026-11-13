@@ -42,7 +42,12 @@ import { RecreatePage } from './recreate-page';
 import { type PostedChoice, saveRecreation } from './recreate-writes';
 import { recreateOwnLook } from './recreation';
 import { ShareConfirmPage } from './share-confirm-page';
-import { SHARE_CONFIRM_PATH, SHARE_PHOTO_MAX_BYTES } from './share-target';
+import { shareFallback } from './share-fallback';
+import {
+  INSPIRATION_SHARE_PATH,
+  SHARE_CONFIRM_PATH,
+  SHARE_PHOTO_MAX_BYTES,
+} from './share-target';
 import { InspirationPage } from './show-page';
 import {
   INSPIRATION_LINK_PATH,
@@ -164,16 +169,38 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // confirmation's Save: a native multipart post. One file, the photo (a
   // second is a 413), and none past the share's cap (a 413 too): the add
   // page's photo is prepared on the phone first, a shared one as it came.
+  // The confirmation also posts the share's `url` and `title`
+  // (addUploadedInspiration checks them).
   app.post(INSPIRATION_PATH, async (request, reply) => {
     const id = await addUploadedInspiration(
       deps,
       sessionUserId(request),
-      request.files({
-        limits: { files: 1, fileSize: SHARE_PHOTO_MAX_BYTES },
+      request.parts({
+        limits: {
+          files: 1,
+          fileSize: SHARE_PHOTO_MAX_BYTES,
+          fieldSize: LINK_INPUT_MAX,
+        },
       }),
     );
     return reply.redirect(inspirationUrl(id), 303);
   });
+
+  // The share target when no service worker answered it (share-fallback.ts):
+  // writes nothing, so it is the same-origin hook's one `stateless`
+  // exemption (Android's post has no Origin). A link or text goes to the
+  // link page, a photo to "open the app and share again".
+  app.post(
+    INSPIRATION_SHARE_PATH,
+    { config: { stateless: true } },
+    async (request, reply) => {
+      const { outcome, path } = await shareFallback(request);
+      logger.info(
+        `Share target reached the server without the service worker, for user ${sessionUserId(request)}: ${outcome}`,
+      );
+      return reply.redirect(path, 303);
+    },
+  );
 
   // Where the service worker sends a shared photo (share-target.ts): the
   // photo is on the device (the URL's fragment names it), so the page holds

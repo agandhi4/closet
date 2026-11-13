@@ -28,6 +28,13 @@ import {
 } from './urls';
 import type { UnreadReason } from './writes';
 
+// public/js/share-saved.js: a share confirmation's Save lands here, so the
+// shared photo it posted leaves the device now that it is saved. An inline
+// module, so it runs again on a page a boosted navigation brings. A fixed
+// string with nothing interpolated.
+const FORGET_SAVED_SHARE = `import { forgetSavedShare } from 'share-saved';
+forgetSavedShare();`;
+
 /**
  * GET /inspiration/:id, a saved look's page (#22): its photo (or the way to
  * add one: a link saved without its photo says once why, `?unread=`), its
@@ -148,6 +155,10 @@ export function InspirationPage(props: {
             {t('inspiration.DELETE')}
           </button>
         </PostForm>
+        <script
+          type="module"
+          dangerouslySetInnerHTML={{ __html: FORGET_SAVED_SHARE }}
+        />
       </PageMain>
       <Dock ctx={ctx} />
     </Layout>
