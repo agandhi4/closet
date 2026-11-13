@@ -41,7 +41,8 @@ function codeOfStatus(status: number): ErrorCode {
  * a 5xx included (the owner lock's 503): an HttpError is an answer the code
  * chose, not a crash. `code` defaults from the status. A 404 or 403 is a
  * refusal, thrown as NotFound or Forbidden (src/web/refusals.ts) by the
- * domain function that decides it (guards.conf [refusals]).
+ * domain function that decides it, or NotServed by the few routes that
+ * answer a path as absent (guards.conf [refusals]).
  */
 export class HttpError extends Error {
   readonly logDetail?: string;

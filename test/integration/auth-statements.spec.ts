@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { personalAccessToken, user } from '../../src/db/schema';
 import { MAX_ACTIVE_TOKENS } from '../../src/web/auth/personal-tokens';
 import type { Queryable } from '../../src/db/client';
-import { HttpError } from '../../src/web/errors';
+import { NotFound } from '../../src/web/refusals';
 import {
   findSessionAccount,
   insertUser,
@@ -359,9 +359,10 @@ describe('auth, account and push statements (#171)', () => {
     const gone = await updatePasswordHash(t.db, 999_999, 'not-a-hash').catch(
       (error: unknown) => error,
     );
-    expect(gone).toBeInstanceOf(HttpError);
+    expect(gone).toBeInstanceOf(NotFound);
     expect(gone).toMatchObject({
       statusCode: 404,
+      resource: 'account',
       message: 'Account not found',
     });
   });

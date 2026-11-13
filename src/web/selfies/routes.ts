@@ -3,11 +3,11 @@ import { Type } from '@sinclair/typebox';
 import type { FastifyReply } from 'fastify';
 import { sessionUserId } from '../auth/require-session';
 import { todayIn } from '../../calendar-date';
-import { HttpError } from '../errors';
 import { sendPrivatePhoto } from '../files/private-photo';
 import type { WebOptions } from '../plugin';
 import { RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
+import { actorOf } from '../sharing/access';
 import { isOwnSelfie } from './queries';
 import { attachSelfie, removeSelfie } from './writes';
 
@@ -48,9 +48,8 @@ export const selfieRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/calendar/:id/selfie',
     { schema: { params: EntryParams, querystring: ReturnQuery } },
     async (request, reply) => {
-      const day = await attachSelfie(deps, {
+      const day = await attachSelfie(deps, actorOf(request), {
         entryId: request.params.id,
-        ownerId: sessionUserId(request),
         // One file: the photo (a second is a 413).
         parts: request.files({ limits: { files: 1 } }),
         today: todayIn(config.timeZone, new Date()),
@@ -66,12 +65,7 @@ export const selfieRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/selfies/:id/delete',
     { schema: { params: SelfieParams, body: ReturnBody } },
     async (request, reply) => {
-      const removed = await removeSelfie(
-        deps,
-        request.params.id,
-        sessionUserId(request),
-      );
-      if (!removed) throw new HttpError(404, 'Selfie not found');
+      await removeSelfie(deps, actorOf(request), request.params.id);
       return reply.redirect(
         safeReturnTo(request.body?.returnTo, '/calendar'),
         303,

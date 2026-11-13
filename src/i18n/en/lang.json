@@ -274,6 +274,7 @@
       "ownWearsOnly": "needsWash reads your own wears only"
     },
     "notFound": {
+      "account": "Account not found",
       "avoidedPair": "No such pair",
       "brand": "Brand not found",
       "calendarEntry": "Calendar entry not found",
@@ -286,6 +287,8 @@
       "outfit": "Outfit not found",
       "outfitRule": "Outfit rule not found",
       "repair": "Repair not found",
+      "selfie": "Selfie not found",
+      "share": "Share not found",
       "trip": "Trip not found",
       "wardrobe": "Wardrobe not found",
       "weekPlan": "Plan not found",

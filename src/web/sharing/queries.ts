@@ -10,6 +10,8 @@ import {
   user,
   wardrobeShare,
 } from '../../db/schema';
+import { NotFound } from '../refusals';
+import type { Actor } from './access';
 
 /**
  * Wardrobe shares. A row is either an open invite (invite_token set, no
@@ -304,27 +306,32 @@ export async function declineInvite(
 }
 
 /**
- * Removes a share (or an outstanding invite) that `userId` is a party to,
- * in one statement: the grantor revoking it or the grantee leaving.
- * `not-found` also covers a share between two other people, so share ids
- * reveal nothing.
+ * Removes a share (or an outstanding invite) the actor is a party to, in
+ * one statement: the grantor revoking it or the grantee leaving. Any other
+ * share, one between two other people included, is NotFound('share'), so
+ * share ids reveal nothing; a share the actor holds of the wardrobe gives
+ * no say over its other rows.
  */
 export async function removeShare(
   db: Db,
+  actor: Actor,
   shareId: number,
-  userId: number,
-): Promise<'removed' | 'not-found'> {
+): Promise<void> {
   const removed = await db
     .delete(wardrobeShare)
     .where(
       and(
         eq(wardrobeShare.id, shareId),
         or(
-          eq(wardrobeShare.grantorId, userId),
-          eq(wardrobeShare.granteeId, userId),
+          eq(wardrobeShare.grantorId, actor.userId),
+          eq(wardrobeShare.granteeId, actor.userId),
         ),
       ),
     )
     .returning({ id: wardrobeShare.id });
-  return removed.length > 0 ? 'removed' : 'not-found';
+  if (removed.length === 0) {
+    throw new NotFound('share', {
+      logDetail: `share ${shareId} is not user ${actor.userId}'s`,
+    });
+  }
 }

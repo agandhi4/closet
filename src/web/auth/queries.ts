@@ -16,6 +16,7 @@ import { t } from '../i18n';
 import { type StoredPhoto, unkeyedPhoto } from '../files/image-variant';
 import { STORED_PHOTO_COLUMNS } from '../files/queries';
 import { revokeDevicesStatement } from '../push/queries';
+import { NotFound } from '../refusals';
 import { revokeAllTokensStatement } from './personal-tokens';
 import { passwordFingerprintSql } from './tokens';
 
@@ -176,8 +177,8 @@ export interface PasswordChangeKeeps {
  * the wait, and that token outlived the new password
  * (auth-statements.spec, "a token minted while the password waits").
  *
- * An account that no longer exists is an HttpError 404 (the route's page;
- * the CLI prints it), never a half-read row.
+ * An account that no longer exists is NotFound('account') (the route's
+ * page; the CLI prints it), never a half-read row.
  */
 export function updatePasswordHash(
   db: Db,
@@ -192,7 +193,7 @@ export function updatePasswordHash(
       .where(eq(user.id, id))
       .returning(accountColumns);
     // The account is gone (deleted between the caller's read and this).
-    if (!account) throw new HttpError(404, 'Account not found');
+    if (!account) throw new NotFound('account', { logDetail: `user ${id}` });
     const tokens = tx
       .$with('revoked_tokens')
       .as(revokeAllTokensStatement(tx, id, keep.tokenId));
@@ -309,13 +310,15 @@ export async function deleteUserAndFileRows(
  * writer of the calendar and the plan tables, the owner lock first) is in
  * src/web/calendar/AGENTS.md, Owner lock.
  *
- * No row is a 404: the account is gone, typically deleted by deleteAccount
- * while this writer queued behind it. Going on unlocked would fail a
- * foreign key halfway, a 500.
+ * No row is NotFound('wardrobe'): the account is gone, typically deleted
+ * by deleteAccount while this writer queued behind it. Going on unlocked
+ * would fail a foreign key halfway, a 500.
  */
 export async function lockOwner(tx: Queryable, ownerId: number): Promise<void> {
   const [locked] = await lockOwnerQuery(tx, ownerId);
-  if (!locked) throw new HttpError(404, 'Wardrobe not found');
+  if (!locked) {
+    throw new NotFound('wardrobe', { logDetail: `owner ${ownerId} is gone` });
+  }
 }
 
 /**

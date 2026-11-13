@@ -10,11 +10,13 @@ import { t, type StringKey } from './i18n';
  * error page, an MCP tool answers its message, the API its `code`.
  *
  * Only these spell a 404 or 403 (guards.conf [refusals]): a route or tool
- * that refuses by hand is the duplication #188 removes.
+ * that refuses by hand is the duplication #188 removes. NotServed is the
+ * one a route may throw, since no resource or actor decides it.
  */
 
 /** One message per resource, so every surface words a refusal the same way. */
 const NOT_FOUND_MESSAGE = {
+  account: 'refusal.notFound.account',
   avoidedPair: 'refusal.notFound.avoidedPair',
   brand: 'refusal.notFound.brand',
   calendarEntry: 'refusal.notFound.calendarEntry',
@@ -29,6 +31,8 @@ const NOT_FOUND_MESSAGE = {
   outfit: 'refusal.notFound.outfit',
   outfitRule: 'refusal.notFound.outfitRule',
   repair: 'refusal.notFound.repair',
+  selfie: 'refusal.notFound.selfie',
+  share: 'refusal.notFound.share',
   trip: 'refusal.notFound.trip',
   wardrobe: 'refusal.notFound.wardrobe',
   weekPlan: 'refusal.notFound.weekPlan',
@@ -66,5 +70,22 @@ export class Forbidden extends HttpError {
       rest,
     );
     this.name = 'Forbidden';
+  }
+}
+
+/**
+ * A path the server answers as if it did not exist: the status text alone,
+ * no resource named, since no actor asked for one. Not an access decision
+ * but a request concern its route owns, so guards.conf `@not-served` lists
+ * the sites that may throw it, each with its reason: the public image
+ * server's name that is no stored photo, a private photo's name, a share id
+ * with no photo and bytes missing from storage (src/web/files), and
+ * /metrics asked through a proxy (src/web/metrics/routes.ts). Its body is
+ * the bare `{ statusCode, message }` those public routes always answered.
+ */
+export class NotServed extends HttpError {
+  constructor(options: { logDetail?: string } = {}) {
+    super(404, undefined, options);
+    this.name = 'NotServed';
   }
 }

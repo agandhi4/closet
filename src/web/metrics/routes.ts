@@ -2,8 +2,8 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { Type } from '@sinclair/typebox';
 import { CLIENT_TIMING_KINDS } from '../../metrics/metrics';
 import { sessionUserId } from '../auth/require-session';
-import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
+import { NotServed } from '../refusals';
 import { VITALS_LIMIT } from '../security/rate-limit';
 import { readBeaconBodies } from './beacon';
 
@@ -60,7 +60,7 @@ export const metricsRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       request.headers.forwarded !== undefined
     ) {
       logger.warn(`Refused /metrics through a proxy from ${request.ip}`);
-      throw new HttpError(404);
+      throw new NotServed();
     }
     const { contentType, body } = await metrics.exposition();
     return reply

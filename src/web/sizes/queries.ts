@@ -15,6 +15,8 @@ import {
   type Measurements,
   NO_MEASUREMENTS,
 } from '../../wardrobe/measurements';
+import { NotFound } from '../refusals';
+import type { Actor } from '../sharing/access';
 import type { BrandSizeFields } from './validation';
 
 /**
@@ -229,35 +231,48 @@ export async function addBrandSize(
   }
 }
 
-/** Rewrites the user's row `id`: 'not-found' for anyone else's, 'brand-taken' for another row's brand. */
+/**
+ * Rewrites the actor's row `id`; 'brand-taken' when another of their rows
+ * has the brand. Sizes are the actor's own, whatever wardrobe they share:
+ * anyone else's row is NotFound('brand'), the 404 of an unknown id.
+ */
 export async function updateBrandSize(
   db: Queryable,
+  actor: Actor,
   id: number,
-  userId: number,
   fields: BrandSizeFields,
-): Promise<'updated' | 'not-found' | BrandTaken> {
+): Promise<'updated' | BrandTaken> {
+  let updated: { id: number }[];
   try {
-    const updated = await db
+    updated = await db
       .update(brandSize)
       .set({ ...fields, brandKey: brandKey(fields.brand) })
-      .where(and(eq(brandSize.id, id), eq(brandSize.userId, userId)))
+      .where(and(eq(brandSize.id, id), eq(brandSize.userId, actor.userId)))
       .returning({ id: brandSize.id });
-    return updated.length > 0 ? 'updated' : 'not-found';
   } catch (error) {
     if (isUniqueViolation(error, BRAND_SIZE_UNIQUE)) return 'brand-taken';
     throw error;
   }
+  if (updated.length === 0) throw brandNotFound(actor, id);
+  return 'updated';
 }
 
-/** Deletes the user's row `id`: the brand it named, or undefined for anyone else's. */
+/** Deletes the actor's row `id` and answers the brand it named; anyone else's is NotFound('brand'). */
 export async function deleteBrandSize(
   db: Queryable,
+  actor: Actor,
   id: number,
-  userId: number,
-): Promise<string | undefined> {
+): Promise<string> {
   const [row] = await db
     .delete(brandSize)
-    .where(and(eq(brandSize.id, id), eq(brandSize.userId, userId)))
+    .where(and(eq(brandSize.id, id), eq(brandSize.userId, actor.userId)))
     .returning({ brand: brandSize.brand });
-  return row?.brand;
+  if (!row) throw brandNotFound(actor, id);
+  return row.brand;
+}
+
+function brandNotFound(actor: Actor, id: number): NotFound {
+  return new NotFound('brand', {
+    logDetail: `brand size ${id} is not user ${actor.userId}'s`,
+  });
 }
