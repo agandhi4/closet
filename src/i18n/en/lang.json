@@ -238,11 +238,15 @@
   },
   "refusal": {
     "FORBIDDEN": "Forbidden",
+    "forbidden": {
+      "ownWearsOnly": "needsWash reads your own wears only"
+    },
     "notFound": {
       "brand": "Brand not found",
       "calendarEntry": "Calendar entry not found",
       "capsule": "Capsule not found",
       "garment": "Garment not found",
+      "garmentPhoto": "Garment has no photo",
       "outfit": "Outfit not found",
       "outfitRule": "Outfit rule not found",
       "trip": "Trip not found",

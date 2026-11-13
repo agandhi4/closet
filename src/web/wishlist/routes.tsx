@@ -12,8 +12,8 @@ import type { AuthorizedWardrobe } from '../sharing/access';
 import { viewContext } from '../view-context';
 import {
   garmentGuard,
+  garmentIn,
   garmentNotFound,
-  requireGarment,
 } from '../wardrobe/garment-access';
 import type { GarmentDetail } from '../wardrobe/queries';
 import { type Purchase } from '../wardrobe/status';
@@ -115,13 +115,11 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/bought',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const authorized = await authorize(request, 'manage');
-      const { access, viewOwner } = authorized;
-      const garment = await requireGarment(
-        db,
-        request.params.id,
-        access.ownerId,
+      const { garment, ...authorized } = await authorize.garment(
+        request,
+        'manage',
       );
+      const { viewOwner } = authorized;
       if (garment.status !== 'wishlist') {
         return reply.redirect(garmentUrl(garment.id, viewOwner), 302);
       }
@@ -161,7 +159,7 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         // Only a refusal reads the garment: its form is drawn again. A
         // purchase goes straight to buyWishlistItem, whose status change is
         // the lookup (an id outside the wardrobe is its 'not-found').
-        const garment = await requireGarment(db, id, access.ownerId);
+        const garment = await garmentIn(db, access, id);
         logger.warn(
           `Bought it refused for garment ${garment.id}: ${Object.keys(read.errors).join(', ')}`,
         );

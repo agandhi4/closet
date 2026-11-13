@@ -16,11 +16,7 @@ import { decisionToastOf } from '../wishlist/suggestion-parts';
 import type { GoesWithInputs } from '../gallery/queries';
 import { normalizeCategory } from './garment';
 import { garmentContext } from './garment-context';
-import {
-  garmentGuard,
-  garmentNotFound,
-  requireGarment,
-} from './garment-access';
+import { garmentGuard, garmentIn, garmentNotFound } from './garment-access';
 import { GarmentPage } from './garment-page';
 import { afterDraft } from './draft-redirects';
 import { pendingPhotoView } from './link-import/photo-choice';
@@ -306,10 +302,12 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     GARMENT_PATH,
     { schema: { params: GarmentParams, querystring: GarmentPageQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorize(request, 'view');
+      const { access, viewOwner, garment } = await authorize.garment(
+        request,
+        'view',
+      );
       const { id } = request.params;
       const today = todayIn(config.timeZone, new Date());
-      const garment = await requireGarment(db, id, access.ownerId);
       const context = await garmentContext(db, garment, access, today);
       const { own } = context;
       return renderPage(
@@ -384,11 +382,9 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     `${GARMENT_PATH}/edit`,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorize(request, 'manage');
-      const garment = await requireGarment(
-        db,
-        request.params.id,
-        access.ownerId,
+      const { access, viewOwner, garment } = await authorize.garment(
+        request,
+        'manage',
       );
       return renderGarmentForm(reply, db, {
         mode: {
@@ -430,7 +426,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         formAudience({ kind: 'edit' }, viewOwner),
       );
       if (!form.ok) {
-        const stored = await requireGarment(db, id, access.ownerId);
+        const stored = await garmentIn(db, access, id);
         return refuseForm(reply, {
           mode: {
             kind: 'edit',
@@ -464,12 +460,11 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     `${GARMENT_PATH}/clone`,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorize(request, 'view');
-      const source = await requireGarment(
-        db,
-        request.params.id,
-        access.ownerId,
-      );
+      const {
+        access,
+        viewOwner,
+        garment: source,
+      } = await authorize.garment(request, 'view');
       const values = storedFormValues(source, { owner: access.isOwner });
       return renderGarmentForm(reply, db, {
         mode: {
@@ -498,11 +493,9 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
     async (request, reply) => {
       const userId = sessionUserId(request);
-      const { access, viewOwner } = await authorize(request, 'view');
-      const source = await requireGarment(
-        db,
-        request.params.id,
-        access.ownerId,
+      const { viewOwner, garment: source } = await authorize.garment(
+        request,
+        'view',
       );
       const mode = {
         kind: 'clone',

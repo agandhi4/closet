@@ -29,7 +29,6 @@ import {
   updateCapsule,
 } from './queries';
 import {
-  CAPSULE_NOT_FOUND,
   CapsuleBody,
   capsuleNotFound,
   CapsulePageQuery,
@@ -62,7 +61,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 ) => {
   const { db, logger } = options;
 
-  const authorize = wardrobeGuard(db, CAPSULE_NOT_FOUND);
+  const authorize = wardrobeGuard(db, 'capsule');
 
   async function requireCapsule(
     id: number,

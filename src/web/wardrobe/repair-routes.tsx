@@ -3,11 +3,10 @@ import { sessionUserId } from '../auth/require-session';
 import { todayIn } from '../../calendar-date';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
-import type { WardrobeRequest } from '../sharing/access';
 import {
   garmentGuard,
   garmentNotFound,
-  requireGarment,
+  type GarmentRequest,
 } from './garment-access';
 import { renderGarmentForm } from './render-form';
 import { REPAIRS_ANCHOR } from './repair-log';
@@ -40,10 +39,9 @@ export const repairRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   done,
 ) => {
   const authorize = garmentGuard(db);
-  /** The requester's own owned garment `id`, or the refusal (see above). */
-  async function ownGarment(request: WardrobeRequest, id: number) {
-    const { access } = await authorize(request, 'own');
-    const garment = await requireGarment(db, id, access.ownerId);
+  /** The requester's own owned garment `/:id`, or the refusal (see above). */
+  async function ownGarment(request: GarmentRequest) {
+    const { garment } = await authorize.garment(request, 'own');
     if (garment.status === 'wishlist') {
       throw new HttpError(409, NOT_OWNED_YET);
     }
@@ -67,7 +65,7 @@ export const repairRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const { id } = request.params;
       const userId = sessionUserId(request);
-      const garment = await ownGarment(request, id);
+      const garment = await ownGarment(request);
       const today = todayIn(config.timeZone, new Date());
       const form = readRepairForm(request.body, today);
       if (!form.ok) {
@@ -107,7 +105,7 @@ export const repairRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const { id, repairId } = request.params;
       const userId = sessionUserId(request);
-      await ownGarment(request, id);
+      await ownGarment(request);
       if (!(await deleteRepair(db, userId, id, repairId))) {
         throw new HttpError(404, 'Repair not found');
       }
