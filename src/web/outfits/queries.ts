@@ -45,7 +45,7 @@ import {
   slotMayNameSql,
   slotRefusals,
 } from './gone-garments';
-import { outfitIsHeld, ownersOutfit } from './references';
+import { museOutfitWaiting, outfitIsHeld, ownersOutfit } from './references';
 
 /**
  * Outfits' reads and writes. Outfits are private: every query is scoped to
@@ -202,18 +202,20 @@ export function listOutfits(db: Db, ownerId: number): Promise<ToolOutfit[]> {
 /**
  * listOutfits a page at a time, newest first, for GET /api/v1/outfits: the
  * outfits below id `before`, and the id the next page starts below (null
- * on the last). One statement, as the Saved tab's.
+ * on the last). One statement, as the Saved tab's. `proposed` lists instead
+ * Muse's proposals waiting on the owner (museOutfitWaiting: the Outfits
+ * tab's From Muse cards and Today's round count).
  */
 export async function listOutfitsPage(
   db: Db,
   ownerId: number,
-  page: { before: number | undefined; limit: number },
+  page: { before: number | undefined; limit: number; proposed: boolean },
 ): Promise<{ outfits: ToolOutfit[]; next: number | null }> {
   const { outfits } = await selectScalars(db, {
     outfits: toolOutfitsSql(
       and(
         eq(outfit.ownerId, ownerId),
-        ownersOutfit(),
+        page.proposed ? museOutfitWaiting() : ownersOutfit(),
         page.before === undefined ? undefined : lt(outfit.id, page.before),
       )!,
       // One more than the page: whether there is a next.

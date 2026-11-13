@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, type SQL, sql } from 'drizzle-orm';
+import { and, eq, type SQL, sql } from 'drizzle-orm';
 import {
   file,
   garment,
@@ -19,7 +19,7 @@ import {
   readManyGoesWithInputs,
 } from '../gallery/queries';
 import { onWishlist } from '../wardrobe/status';
-import { ownersOutfit } from './references';
+import { museOutfit } from './references';
 
 /**
  * Muse's outfits (#335, docs/plans/2026-10-05-muse-suggestions.md section
@@ -35,20 +35,6 @@ import { ownersOutfit } from './references';
  * - **set aside**: declined, with a reason. Collapsed under it, to undo.
  * Bought it moves a loved outfit from Muse's to the owner's by itself.
  */
-
-/** Muse's proposals still waiting on the owner, and those set aside: not the owner's. */
-function museOutfit(): SQL {
-  return sql`(${isNotNull(outfit.proposedAt)} and not ${ownersOutfit()})`;
-}
-
-/**
- * One of Muse's outfits still waiting on the owner: not theirs yet, and
- * not set aside (the From Muse section's cards). What a round's Today card
- * counts (src/web/wishlist/rounds.ts).
- */
-export function museOutfitWaiting(): SQL {
-  return sql`(${museOutfit()} and ${outfit.reaction} <> 'declined')`;
-}
 
 /** A piece of a Muse outfit as its card shows it: what it is, and if to buy, its price and whether it was set aside. */
 export interface MusePiece {
