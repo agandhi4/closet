@@ -22,6 +22,7 @@ import {
 } from '../outfits/destination-views';
 import { OutfitTabs } from '../outfits/outfit-tabs';
 import { SnapStrip, SnapStripsInit, snapItem } from '../strip/snap-strip';
+import { brokenRuleLabels } from '../style/labels';
 import { tripUrl } from '../trips/urls';
 import type { ViewContext } from '../view-context';
 import { categoryLabel } from '../wardrobe/garment';
@@ -422,11 +423,13 @@ export function Reasons({
     .filter((g) => idea.rested.includes(g.id) && g.name)
     .map((g) => g.name)
     .slice(0, 2);
+  // A broken rule is named, one chip each (brokenRuleLabels), not the flag.
+  const problems = idea.problems.filter((problem) => problem !== 'breaks-rule');
   const chips = [
-    ...idea.problems.map((problem) => ({
-      text: t(`gallery.problem.${problem}`),
-      tone: 'badge-warning',
-    })),
+    ...[
+      ...problems.map((problem) => t(`gallery.problem.${problem}`)),
+      ...brokenRuleLabels(idea),
+    ].map((text) => ({ text, tone: 'badge-warning' })),
     ...(weather && idea.problems.length === 0
       ? [
           {

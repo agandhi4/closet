@@ -16,6 +16,7 @@ import {
 import { garmentsGoneError } from '../../outfits/gone-garments';
 import { pickIdea } from '../../outfits/pick';
 import { OUTFIT_NAME_MAX } from '../../outfits/queries';
+import { brokenRuleLabels } from '../../style/labels';
 import { defineTool } from '../tool';
 import { isoDate, occasionInput, rowId } from './common';
 
@@ -42,7 +43,7 @@ export const galleryTools = [
   defineTool({
     name: 'suggest_outfits',
     title: 'Suggest outfits',
-    description: `Whole-outfit ideas from your own closet for a day and an occasion (today, all-day when omitted): top, bottom and shoes (or a dress and shoes), a layer when the weather asks for one, from garments that are clean and at home, favouring what you have worn least recently. At most two colours beyond the neutrals and one patterned piece; never a pair you said clashes; never an outfit you already saved. Each idea says why: how it meets the forecast (when weather is on and the day is within the forecast) and the occasion's formality, and which garments it brings back into rotation. Optionally always with one garment (withGarmentId, "style this") or only from a capsule. Seeded: the same seed and page give the same ideas; another seed gives others. Save one with pick_outfit.`,
+    description: `Whole-outfit ideas from your own closet for a day and an occasion (today, all-day when omitted): top, bottom and shoes (or a dress and shoes), a layer when the weather asks for one, from garments that are clean and at home, favouring what you have worn least recently. At most two colours beyond the neutrals and one patterned piece; never a pair you said clashes or anything your outfit rules forbid (get_style_profile); never an outfit you already saved. Each idea says why: how it meets the forecast (when weather is on and the day is within the forecast) and the occasion's formality, and which garments it brings back into rotation; fits is false when it has any problem; brokenRules names, in the app's words, any of your outfit rules it breaks (the generator breaks none of its own accord). Optionally always with one garment (withGarmentId, "style this") or only from a capsule. Seeded: the same seed and page give the same ideas; another seed gives others. Save one with pick_outfit.`,
     input: z.object({
       date: isoDate()
         .optional()
@@ -128,8 +129,10 @@ export const galleryTools = [
             category: g.category,
             daysUnworn: g.idleDays,
           })),
-          fits: idea.score === 0,
+          // As the Ideas card: a flagged idea (breaks-rule) does not fit.
+          fits: idea.problems.length === 0,
           problems: idea.problems,
+          brokenRules: brokenRuleLabels(idea),
           rotation: idea.garments
             .filter((g) => idea.rested.includes(g.id))
             .map((g) => g.name ?? g.category),
