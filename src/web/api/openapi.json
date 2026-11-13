@@ -2163,6 +2163,12 @@
                     "description": "The garment of this wardrobe a wishlist item would replace: `destination` wishlist only (another wardrobe's is not stored)",
                     "type": "integer"
                   },
+                  "boughtForNeedId": {
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "description": "\"Bought a different one\": your own Muse need this closet garment was bought for instead of its options, settled by it in the same write. A need settled or set aside is a 404, one settled meanwhile a 409; `destination` closet only",
+                    "type": "integer"
+                  },
                   "clientId": {
                     "format": "uuid",
                     "description": "Your id for this create, for retrying it offline: accepted, not yet deduplicated",
@@ -12877,6 +12883,3721 @@
                     "added": {
                       "minimum": 0,
                       "description": "Extras added: labels the trip has already are skipped, so a retry adds none",
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/wishlist": {
+      "get": {
+        "operationId": "getWishlist",
+        "summary": "The wishlist, as Muse's inbox",
+        "tags": [
+          "wishlist"
+        ],
+        "description": "Ready to buy, Muse's needs with their options, your own items, the needs Muse is still looking for, and what was set aside. A share reads it without the unlocks (they judge the owner's closet).",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Wishlist tab, Muse's inbox: every need and item in exactly one section. Not paged: the needs are sorted by what their options unlock, which only the whole list knows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Wishlist",
+                  "description": "The Wishlist tab, Muse's inbox: every need and item in exactly one section. Not paged: the needs are sorted by what their options unlock, which only the whole list knows",
+                  "type": "object",
+                  "required": [
+                    "readyToBuy",
+                    "needs",
+                    "items",
+                    "stillLooking",
+                    "setAside"
+                  ],
+                  "properties": {
+                    "readyToBuy": {
+                      "description": "Needs an option was chosen for, not bought yet",
+                      "type": "array",
+                      "items": {
+                        "title": "WishlistReadyToBuy",
+                        "type": "object",
+                        "required": [
+                          "need",
+                          "pick"
+                        ],
+                        "properties": {
+                          "need": {
+                            "title": "WishlistNeed",
+                            "description": "One need Muse is shopping for (an option group): open, resolved (an option chosen or bought) or set aside",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "name",
+                              "status"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "budget": {
+                                "pattern": "^\\d+\\.\\d{2}$",
+                                "description": "A decimal amount in the household currency",
+                                "type": "string"
+                              },
+                              "note": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "open"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "resolved"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "dismissed"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "resolvedGarmentId": {
+                                "type": "integer"
+                              },
+                              "dismissedReason": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "too_pricey"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "colour"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "style"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "already_have"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "fit_size"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "not_now"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "chose_another"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "returned"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "ownerNote": {
+                                "type": "string"
+                              },
+                              "agent": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "pick": {
+                            "title": "WishlistGarment",
+                            "description": "A wishlist garment as the inbox shows it: GET /garments/{id} has the rest",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "category",
+                              "fromMuse",
+                              "setAside"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "brand": {
+                                "type": "string"
+                              },
+                              "category": {
+                                "type": "string"
+                              },
+                              "price": {
+                                "pattern": "^\\d+\\.\\d{2}$",
+                                "description": "A decimal amount in the household currency",
+                                "type": "string"
+                              },
+                              "sourceUrl": {
+                                "type": "string"
+                              },
+                              "thumbUrl": {
+                                "type": "string"
+                              },
+                              "fromMuse": {
+                                "description": "Your agent suggested it",
+                                "type": "boolean"
+                              },
+                              "rank": {
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "museNote": {
+                                "type": "string"
+                              },
+                              "setAside": {
+                                "description": "Set aside (\"Not for me\", or another option chosen): Undo brings it back",
+                                "type": "boolean"
+                              },
+                              "setAsideReason": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "too_pricey"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "colour"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "style"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "already_have"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "fit_size"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "not_now"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "chose_another"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "returned"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "setAsideNote": {
+                                "type": "string"
+                              },
+                              "needId": {
+                                "type": "integer"
+                              },
+                              "replaces": {
+                                "title": "WishlistGarmentRef",
+                                "type": "object",
+                                "required": [
+                                  "id",
+                                  "category",
+                                  "status"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "integer"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "category": {
+                                    "type": "string"
+                                  },
+                                  "status": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "wishlist"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "closet"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "archived"
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              "unlocks": {
+                                "title": "Unlocks",
+                                "type": "object",
+                                "required": [
+                                  "outfits",
+                                  "capped"
+                                ],
+                                "properties": {
+                                  "outfits": {
+                                    "minimum": 0,
+                                    "description": "Distinct outfits it makes with the closet, at most 50",
+                                    "type": "integer"
+                                  },
+                                  "capped": {
+                                    "description": "More than `outfits` were found: \"50+\"",
+                                    "type": "boolean"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "needs": {
+                      "description": "Open needs with options to choose from: the most unlocks first (for the owner; else Muse's rank), each need's options likewise",
+                      "type": "array",
+                      "items": {
+                        "title": "WishlistOpenNeed",
+                        "type": "object",
+                        "required": [
+                          "need",
+                          "options"
+                        ],
+                        "properties": {
+                          "need": {
+                            "title": "WishlistNeed",
+                            "description": "One need Muse is shopping for (an option group): open, resolved (an option chosen or bought) or set aside",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "name",
+                              "status"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "budget": {
+                                "pattern": "^\\d+\\.\\d{2}$",
+                                "description": "A decimal amount in the household currency",
+                                "type": "string"
+                              },
+                              "note": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "open"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "resolved"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "dismissed"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "resolvedGarmentId": {
+                                "type": "integer"
+                              },
+                              "dismissedReason": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "too_pricey"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "colour"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "style"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "already_have"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "fit_size"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "not_now"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "chose_another"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "returned"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "ownerNote": {
+                                "type": "string"
+                              },
+                              "agent": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "options": {
+                            "type": "array",
+                            "items": {
+                              "title": "WishlistGarment",
+                              "description": "A wishlist garment as the inbox shows it: GET /garments/{id} has the rest",
+                              "type": "object",
+                              "required": [
+                                "id",
+                                "category",
+                                "fromMuse",
+                                "setAside"
+                              ],
+                              "properties": {
+                                "id": {
+                                  "type": "integer"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "brand": {
+                                  "type": "string"
+                                },
+                                "category": {
+                                  "type": "string"
+                                },
+                                "price": {
+                                  "pattern": "^\\d+\\.\\d{2}$",
+                                  "description": "A decimal amount in the household currency",
+                                  "type": "string"
+                                },
+                                "sourceUrl": {
+                                  "type": "string"
+                                },
+                                "thumbUrl": {
+                                  "type": "string"
+                                },
+                                "fromMuse": {
+                                  "description": "Your agent suggested it",
+                                  "type": "boolean"
+                                },
+                                "rank": {
+                                  "minimum": 1,
+                                  "type": "integer"
+                                },
+                                "museNote": {
+                                  "type": "string"
+                                },
+                                "setAside": {
+                                  "description": "Set aside (\"Not for me\", or another option chosen): Undo brings it back",
+                                  "type": "boolean"
+                                },
+                                "setAsideReason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "too_pricey"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "colour"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "style"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "already_have"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "fit_size"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "not_now"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "chose_another"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "returned"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "setAsideNote": {
+                                  "type": "string"
+                                },
+                                "needId": {
+                                  "type": "integer"
+                                },
+                                "replaces": {
+                                  "title": "WishlistGarmentRef",
+                                  "type": "object",
+                                  "required": [
+                                    "id",
+                                    "category",
+                                    "status"
+                                  ],
+                                  "properties": {
+                                    "id": {
+                                      "type": "integer"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "category": {
+                                      "type": "string"
+                                    },
+                                    "status": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "wishlist"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "closet"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "archived"
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  }
+                                },
+                                "unlocks": {
+                                  "title": "Unlocks",
+                                  "type": "object",
+                                  "required": [
+                                    "outfits",
+                                    "capped"
+                                  ],
+                                  "properties": {
+                                    "outfits": {
+                                      "minimum": 0,
+                                      "description": "Distinct outfits it makes with the closet, at most 50",
+                                      "type": "integer"
+                                    },
+                                    "capped": {
+                                      "description": "More than `outfits` were found: \"50+\"",
+                                      "type": "boolean"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "items": {
+                      "description": "Your own wishlist items (and a lone suggestion), newest first",
+                      "type": "array",
+                      "items": {
+                        "title": "WishlistGarment",
+                        "description": "A wishlist garment as the inbox shows it: GET /garments/{id} has the rest",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "category",
+                          "fromMuse",
+                          "setAside"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "brand": {
+                            "type": "string"
+                          },
+                          "category": {
+                            "type": "string"
+                          },
+                          "price": {
+                            "pattern": "^\\d+\\.\\d{2}$",
+                            "description": "A decimal amount in the household currency",
+                            "type": "string"
+                          },
+                          "sourceUrl": {
+                            "type": "string"
+                          },
+                          "thumbUrl": {
+                            "type": "string"
+                          },
+                          "fromMuse": {
+                            "description": "Your agent suggested it",
+                            "type": "boolean"
+                          },
+                          "rank": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "museNote": {
+                            "type": "string"
+                          },
+                          "setAside": {
+                            "description": "Set aside (\"Not for me\", or another option chosen): Undo brings it back",
+                            "type": "boolean"
+                          },
+                          "setAsideReason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "too_pricey"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "colour"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "style"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "already_have"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "fit_size"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "not_now"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "chose_another"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "returned"
+                                ]
+                              }
+                            ]
+                          },
+                          "setAsideNote": {
+                            "type": "string"
+                          },
+                          "needId": {
+                            "type": "integer"
+                          },
+                          "replaces": {
+                            "title": "WishlistGarmentRef",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "category",
+                              "status"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "category": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "wishlist"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "closet"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "archived"
+                                    ]
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          "unlocks": {
+                            "title": "Unlocks",
+                            "type": "object",
+                            "required": [
+                              "outfits",
+                              "capped"
+                            ],
+                            "properties": {
+                              "outfits": {
+                                "minimum": 0,
+                                "description": "Distinct outfits it makes with the closet, at most 50",
+                                "type": "integer"
+                              },
+                              "capped": {
+                                "description": "More than `outfits` were found: \"50+\"",
+                                "type": "boolean"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "stillLooking": {
+                      "description": "Open needs with no option left: Muse is still looking",
+                      "type": "array",
+                      "items": {
+                        "title": "WishlistNeed",
+                        "description": "One need Muse is shopping for (an option group): open, resolved (an option chosen or bought) or set aside",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name",
+                          "status"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "budget": {
+                            "pattern": "^\\d+\\.\\d{2}$",
+                            "description": "A decimal amount in the household currency",
+                            "type": "string"
+                          },
+                          "note": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "open"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "resolved"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "dismissed"
+                                ]
+                              }
+                            ]
+                          },
+                          "resolvedGarmentId": {
+                            "type": "integer"
+                          },
+                          "dismissedReason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "too_pricey"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "colour"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "style"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "already_have"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "fit_size"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "not_now"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "chose_another"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "returned"
+                                ]
+                              }
+                            ]
+                          },
+                          "ownerNote": {
+                            "type": "string"
+                          },
+                          "agent": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "setAside": {
+                      "title": "WishlistSetAside",
+                      "description": "What was set aside, each with its Undo",
+                      "type": "object",
+                      "required": [
+                        "needs",
+                        "garments"
+                      ],
+                      "properties": {
+                        "needs": {
+                          "type": "array",
+                          "items": {
+                            "title": "WishlistNeed",
+                            "description": "One need Muse is shopping for (an option group): open, resolved (an option chosen or bought) or set aside",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "name",
+                              "status"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "budget": {
+                                "pattern": "^\\d+\\.\\d{2}$",
+                                "description": "A decimal amount in the household currency",
+                                "type": "string"
+                              },
+                              "note": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "open"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "resolved"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "dismissed"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "resolvedGarmentId": {
+                                "type": "integer"
+                              },
+                              "dismissedReason": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "too_pricey"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "colour"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "style"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "already_have"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "fit_size"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "not_now"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "chose_another"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "returned"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "ownerNote": {
+                                "type": "string"
+                              },
+                              "agent": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "garments": {
+                          "type": "array",
+                          "items": {
+                            "title": "WishlistGarment",
+                            "description": "A wishlist garment as the inbox shows it: GET /garments/{id} has the rest",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "category",
+                              "fromMuse",
+                              "setAside"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "brand": {
+                                "type": "string"
+                              },
+                              "category": {
+                                "type": "string"
+                              },
+                              "price": {
+                                "pattern": "^\\d+\\.\\d{2}$",
+                                "description": "A decimal amount in the household currency",
+                                "type": "string"
+                              },
+                              "sourceUrl": {
+                                "type": "string"
+                              },
+                              "thumbUrl": {
+                                "type": "string"
+                              },
+                              "fromMuse": {
+                                "description": "Your agent suggested it",
+                                "type": "boolean"
+                              },
+                              "rank": {
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "museNote": {
+                                "type": "string"
+                              },
+                              "setAside": {
+                                "description": "Set aside (\"Not for me\", or another option chosen): Undo brings it back",
+                                "type": "boolean"
+                              },
+                              "setAsideReason": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "too_pricey"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "colour"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "style"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "already_have"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "fit_size"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "not_now"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "chose_another"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "returned"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "setAsideNote": {
+                                "type": "string"
+                              },
+                              "needId": {
+                                "type": "integer"
+                              },
+                              "replaces": {
+                                "title": "WishlistGarmentRef",
+                                "type": "object",
+                                "required": [
+                                  "id",
+                                  "category",
+                                  "status"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "integer"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "category": {
+                                    "type": "string"
+                                  },
+                                  "status": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "wishlist"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "closet"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "archived"
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              "unlocks": {
+                                "title": "Unlocks",
+                                "type": "object",
+                                "required": [
+                                  "outfits",
+                                  "capped"
+                                ],
+                                "properties": {
+                                  "outfits": {
+                                    "minimum": 0,
+                                    "description": "Distinct outfits it makes with the closet, at most 50",
+                                    "type": "integer"
+                                  },
+                                  "capped": {
+                                    "description": "More than `outfits` were found: \"50+\"",
+                                    "type": "boolean"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/wishlist/seen": {
+      "post": {
+        "operationId": "markWishlistSeen",
+        "summary": "\"New from Muse\": what came in since you last looked",
+        "tags": [
+          "wishlist"
+        ],
+        "description": "Your own inbox: answers the open needs with options suggested since the last call (every one the first time), and marks them seen, so the next call answers only newer ones.",
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "WishlistSeen",
+                  "type": "object",
+                  "required": [
+                    "needs"
+                  ],
+                  "properties": {
+                    "needs": {
+                      "description": "Open needs with options new since you last looked, newest first",
+                      "type": "array",
+                      "items": {
+                        "title": "WishlistNewNeed",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/wishlist/needs/{id}": {
+      "get": {
+        "operationId": "getWishlistNeed",
+        "summary": "A need's decision screen",
+        "tags": [
+          "wishlist"
+        ],
+        "description": "The need, its options (for the owner each judged against the closet: the outfits it unlocks and the best of them) and those set aside. A need outside the wardrobe is a 404.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A need's decision screen: its options judged against the closet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "WishlistNeedDetail",
+                  "description": "A need's decision screen: its options judged against the closet",
+                  "type": "object",
+                  "required": [
+                    "need",
+                    "options",
+                    "setAside"
+                  ],
+                  "properties": {
+                    "need": {
+                      "title": "WishlistNeed",
+                      "description": "One need Muse is shopping for (an option group): open, resolved (an option chosen or bought) or set aside",
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "name",
+                        "status"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "budget": {
+                          "pattern": "^\\d+\\.\\d{2}$",
+                          "description": "A decimal amount in the household currency",
+                          "type": "string"
+                        },
+                        "note": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "open"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "resolved"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "dismissed"
+                              ]
+                            }
+                          ]
+                        },
+                        "resolvedGarmentId": {
+                          "type": "integer"
+                        },
+                        "dismissedReason": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "too_pricey"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "colour"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "style"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "already_have"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "fit_size"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "not_now"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "chose_another"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "returned"
+                              ]
+                            }
+                          ]
+                        },
+                        "ownerNote": {
+                          "type": "string"
+                        },
+                        "agent": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "options": {
+                      "description": "Its options still open, the most unlocks first (the chosen one alone once resolved)",
+                      "type": "array",
+                      "items": {
+                        "title": "WishlistOption",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "category",
+                          "fromMuse",
+                          "setAside"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "brand": {
+                            "type": "string"
+                          },
+                          "category": {
+                            "type": "string"
+                          },
+                          "price": {
+                            "pattern": "^\\d+\\.\\d{2}$",
+                            "description": "A decimal amount in the household currency",
+                            "type": "string"
+                          },
+                          "sourceUrl": {
+                            "type": "string"
+                          },
+                          "thumbUrl": {
+                            "type": "string"
+                          },
+                          "fromMuse": {
+                            "description": "Your agent suggested it",
+                            "type": "boolean"
+                          },
+                          "rank": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "museNote": {
+                            "type": "string"
+                          },
+                          "setAside": {
+                            "description": "Set aside (\"Not for me\", or another option chosen): Undo brings it back",
+                            "type": "boolean"
+                          },
+                          "setAsideReason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "too_pricey"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "colour"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "style"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "already_have"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "fit_size"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "not_now"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "chose_another"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "returned"
+                                ]
+                              }
+                            ]
+                          },
+                          "setAsideNote": {
+                            "type": "string"
+                          },
+                          "needId": {
+                            "type": "integer"
+                          },
+                          "replaces": {
+                            "title": "WishlistGarmentRef",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "category",
+                              "status"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "category": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "wishlist"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "closet"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "archived"
+                                    ]
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          "unlocks": {
+                            "title": "Unlocks",
+                            "type": "object",
+                            "required": [
+                              "outfits",
+                              "capped"
+                            ],
+                            "properties": {
+                              "outfits": {
+                                "minimum": 0,
+                                "description": "Distinct outfits it makes with the closet, at most 50",
+                                "type": "integer"
+                              },
+                              "capped": {
+                                "description": "More than `outfits` were found: \"50+\"",
+                                "type": "boolean"
+                              }
+                            }
+                          },
+                          "judged": {
+                            "title": "WishlistOptionJudged",
+                            "description": "How it goes with the owner's closet: the owner's own read only",
+                            "type": "object",
+                            "required": [
+                              "outfits",
+                              "capped",
+                              "best"
+                            ],
+                            "properties": {
+                              "outfits": {
+                                "minimum": 0,
+                                "description": "Distinct outfits it makes with the closet, at most 50",
+                                "type": "integer"
+                              },
+                              "capped": {
+                                "description": "More than `outfits` were found: \"50+\"",
+                                "type": "boolean"
+                              },
+                              "best": {
+                                "type": "array",
+                                "items": {
+                                  "title": "GoesWithOutfit",
+                                  "description": "An outfit it would make: display only, until it is bought (POST /outfits takes closet garments)",
+                                  "type": "object",
+                                  "required": [
+                                    "garments",
+                                    "atItemsFormality"
+                                  ],
+                                  "properties": {
+                                    "garments": {
+                                      "description": "Top to toe, the wishlist item among them",
+                                      "type": "array",
+                                      "items": {
+                                        "title": "GoesWithGarment",
+                                        "type": "object",
+                                        "required": [
+                                          "id",
+                                          "category",
+                                          "role"
+                                        ],
+                                        "properties": {
+                                          "id": {
+                                            "type": "integer"
+                                          },
+                                          "name": {
+                                            "type": "string"
+                                          },
+                                          "category": {
+                                            "type": "string"
+                                          },
+                                          "role": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "top"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "bottom"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "one-piece"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "layer"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "footwear"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "accessory"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "bag"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "none"
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          "thumbUrl": {
+                                            "type": "string"
+                                          }
+                                        }
+                                      }
+                                    },
+                                    "atItemsFormality": {
+                                      "description": "Dressed at the item's own formality",
+                                      "type": "boolean"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "setAside": {
+                      "type": "array",
+                      "items": {
+                        "title": "WishlistGarment",
+                        "description": "A wishlist garment as the inbox shows it: GET /garments/{id} has the rest",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "category",
+                          "fromMuse",
+                          "setAside"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "brand": {
+                            "type": "string"
+                          },
+                          "category": {
+                            "type": "string"
+                          },
+                          "price": {
+                            "pattern": "^\\d+\\.\\d{2}$",
+                            "description": "A decimal amount in the household currency",
+                            "type": "string"
+                          },
+                          "sourceUrl": {
+                            "type": "string"
+                          },
+                          "thumbUrl": {
+                            "type": "string"
+                          },
+                          "fromMuse": {
+                            "description": "Your agent suggested it",
+                            "type": "boolean"
+                          },
+                          "rank": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "museNote": {
+                            "type": "string"
+                          },
+                          "setAside": {
+                            "description": "Set aside (\"Not for me\", or another option chosen): Undo brings it back",
+                            "type": "boolean"
+                          },
+                          "setAsideReason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "too_pricey"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "colour"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "style"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "already_have"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "fit_size"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "not_now"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "chose_another"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "returned"
+                                ]
+                              }
+                            ]
+                          },
+                          "setAsideNote": {
+                            "type": "string"
+                          },
+                          "needId": {
+                            "type": "integer"
+                          },
+                          "replaces": {
+                            "title": "WishlistGarmentRef",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "category",
+                              "status"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "category": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "wishlist"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "closet"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "archived"
+                                    ]
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          "unlocks": {
+                            "title": "Unlocks",
+                            "type": "object",
+                            "required": [
+                              "outfits",
+                              "capped"
+                            ],
+                            "properties": {
+                              "outfits": {
+                                "minimum": 0,
+                                "description": "Distinct outfits it makes with the closet, at most 50",
+                                "type": "integer"
+                              },
+                              "capped": {
+                                "description": "More than `outfits` were found: \"50+\"",
+                                "type": "boolean"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "resolver": {
+                      "title": "WishlistGarmentRef",
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "category",
+                        "status"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "category": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "wishlist"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "closet"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "archived"
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/{id}/decisions": {
+      "post": {
+        "operationId": "decideWishlistPick",
+        "summary": "Decides one of Muse's options",
+        "tags": [
+          "wishlist"
+        ],
+        "description": "This one (`choose`), Not for me (`dismiss`, with your reason) or its Undo, the owner's alone (a share is a 403). An option outside the wardrobe is a 404; a move its state does not take (a double tap, a stale screen) a 409.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "PickDecision",
+                "anyOf": [
+                  {
+                    "title": "PickChoose",
+                    "description": "This one: its need resolved by it, its other options set aside",
+                    "type": "object",
+                    "required": [
+                      "event"
+                    ],
+                    "properties": {
+                      "event": {
+                        "type": "string",
+                        "enum": [
+                          "choose"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "title": "PickDismiss",
+                    "description": "Not for me, with your reason and a note",
+                    "type": "object",
+                    "required": [
+                      "event",
+                      "reason"
+                    ],
+                    "properties": {
+                      "event": {
+                        "type": "string",
+                        "enum": [
+                          "dismiss"
+                        ]
+                      },
+                      "reason": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "too_pricey"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "colour"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "style"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "already_have"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "fit_size"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "not_now"
+                            ]
+                          }
+                        ]
+                      },
+                      "note": {
+                        "maxLength": 500,
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "title": "PickUndo",
+                    "description": "A pick set aside back among its need's options, while the need is open (a choice is undone on the need)",
+                    "type": "object",
+                    "required": [
+                      "event"
+                    ],
+                    "properties": {
+                      "event": {
+                        "type": "string",
+                        "enum": [
+                          "undo"
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "WishlistDecision",
+                  "type": "object",
+                  "required": [
+                    "setAside",
+                    "restored"
+                  ],
+                  "properties": {
+                    "needId": {
+                      "description": "The need it decided",
+                      "type": "integer"
+                    },
+                    "setAside": {
+                      "description": "Options it set aside",
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "restored": {
+                      "description": "Options it brought back",
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/wishlist/needs/{id}/decisions": {
+      "post": {
+        "operationId": "decideWishlistNeed",
+        "summary": "Sets a need aside, or undoes a decision on it",
+        "tags": [
+          "wishlist"
+        ],
+        "description": "Not this need right now (`dismiss`, with your reason), or `undo` (a need set aside, or a choice: its options back), the owner's alone. A need outside the wardrobe is a 404; a move its state does not take a 409.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "NeedDecision",
+                "anyOf": [
+                  {
+                    "title": "NeedDismiss",
+                    "description": "Not this need right now: its options with it",
+                    "type": "object",
+                    "required": [
+                      "event",
+                      "reason"
+                    ],
+                    "properties": {
+                      "event": {
+                        "type": "string",
+                        "enum": [
+                          "dismiss"
+                        ]
+                      },
+                      "reason": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "too_pricey"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "colour"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "style"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "already_have"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "fit_size"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "not_now"
+                            ]
+                          }
+                        ]
+                      },
+                      "note": {
+                        "maxLength": 500,
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "title": "NeedUndo",
+                    "description": "One set aside, or a choice: its options back",
+                    "type": "object",
+                    "required": [
+                      "event"
+                    ],
+                    "properties": {
+                      "event": {
+                        "type": "string",
+                        "enum": [
+                          "undo"
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "WishlistDecision",
+                  "type": "object",
+                  "required": [
+                    "setAside",
+                    "restored"
+                  ],
+                  "properties": {
+                    "needId": {
+                      "description": "The need it decided",
+                      "type": "integer"
+                    },
+                    "setAside": {
+                      "description": "Options it set aside",
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "restored": {
+                      "description": "Options it brought back",
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/{id}/purchases": {
+      "post": {
+        "operationId": "buyWishlistItem",
+        "summary": "\"Bought it\": a wishlist item into the closet",
+        "tags": [
+          "wishlist"
+        ],
+        "description": "With the day and the price paid, and for one of Muse's options its need settled. Your own wardrobe or a MANAGE share; `archiveReplaced` the owner's alone. A garment no longer on the wishlist (bought already: a retry) is a 409.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "Purchase",
+                "type": "object",
+                "properties": {
+                  "acquiredOn": {
+                    "description": "The day bought; null or absent: not recorded",
+                    "anyOf": [
+                      {
+                        "format": "date",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "price": {
+                    "description": "What it cost; null or absent: not recorded (the listed price is replaced)",
+                    "anyOf": [
+                      {
+                        "pattern": "^\\d{1,8}(\\.\\d{1,2})?$",
+                        "description": "A decimal amount in the household currency, e.g. \"49.90\"",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "archiveReplaced": {
+                    "description": "Also archive the closet garment it replaces: the owner's alone (a share asking is a 403)",
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "In the closet now: GET /garments/{id}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "PurchaseRecorded",
+                  "description": "In the closet now: GET /garments/{id}",
+                  "type": "object",
+                  "properties": {
+                    "archivedReplaced": {
+                      "description": "The garment it replaces, archived with it",
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/{id}/returns": {
+      "post": {
+        "operationId": "returnGarment",
+        "summary": "Returned it: one of Muse's options taken back after buying",
+        "tags": [
+          "wishlist"
+        ],
+        "description": "Archived and set aside as returned, its need open again: the owner's alone. A garment that is no bought option is a 409.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Archived, and set aside as returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "ReturnRecorded",
+                  "description": "Archived, and set aside as returned",
+                  "type": "object",
+                  "properties": {
+                    "needId": {
+                      "description": "Its need, open again",
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/{id}/goes-with": {
+      "get": {
+        "operationId": "getGoesWith",
+        "summary": "\"Goes with my closet\": one of your wishlist items judged",
+        "tags": [
+          "wishlist"
+        ],
+        "description": "How many outfits it makes with your closet (dirty and away included), the best few, each role it is worn with and the garments near-identical to it. The owner's alone, as on the item's page: a share naming the owner is a 403; another's item, or a garment off the wishlist, a 404.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "\"Goes with my closet\": a wishlist item judged against the whole closet (no weather, the item's own formality)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "GoesWith",
+                  "description": "\"Goes with my closet\": a wishlist item judged against the whole closet (no weather, the item's own formality)",
+                  "type": "object",
+                  "required": [
+                    "outfits",
+                    "capped",
+                    "best",
+                    "pairsWith",
+                    "nearDuplicates"
+                  ],
+                  "properties": {
+                    "outfits": {
+                      "minimum": 0,
+                      "description": "Distinct outfits it makes with the closet, at most 50",
+                      "type": "integer"
+                    },
+                    "capped": {
+                      "description": "More than `outfits` were found: \"50+\"",
+                      "type": "boolean"
+                    },
+                    "best": {
+                      "type": "array",
+                      "items": {
+                        "title": "GoesWithOutfit",
+                        "description": "An outfit it would make: display only, until it is bought (POST /outfits takes closet garments)",
+                        "type": "object",
+                        "required": [
+                          "garments",
+                          "atItemsFormality"
+                        ],
+                        "properties": {
+                          "garments": {
+                            "description": "Top to toe, the wishlist item among them",
+                            "type": "array",
+                            "items": {
+                              "title": "GoesWithGarment",
+                              "type": "object",
+                              "required": [
+                                "id",
+                                "category",
+                                "role"
+                              ],
+                              "properties": {
+                                "id": {
+                                  "type": "integer"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "category": {
+                                  "type": "string"
+                                },
+                                "role": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "top"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "bottom"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "one-piece"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "layer"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "footwear"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "accessory"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "bag"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "none"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "thumbUrl": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "atItemsFormality": {
+                            "description": "Dressed at the item's own formality",
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    },
+                    "pairsWith": {
+                      "description": "Each role it is worn with, top to toe",
+                      "type": "array",
+                      "items": {
+                        "title": "GoesWithRole",
+                        "type": "object",
+                        "required": [
+                          "role",
+                          "goWithIt",
+                          "inCloset",
+                          "best"
+                        ],
+                        "properties": {
+                          "role": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "top"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "bottom"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "one-piece"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "layer"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "footwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "accessory"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "bag"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "none"
+                                ]
+                              }
+                            ]
+                          },
+                          "goWithIt": {
+                            "minimum": 0,
+                            "description": "Closet garments of the role that make an outfit with it",
+                            "type": "integer"
+                          },
+                          "inCloset": {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "best": {
+                            "type": "array",
+                            "items": {
+                              "title": "GoesWithPartner",
+                              "type": "object",
+                              "required": [
+                                "garment"
+                              ],
+                              "properties": {
+                                "garment": {
+                                  "title": "GoesWithGarment",
+                                  "type": "object",
+                                  "required": [
+                                    "id",
+                                    "category",
+                                    "role"
+                                  ],
+                                  "properties": {
+                                    "id": {
+                                      "type": "integer"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "category": {
+                                      "type": "string"
+                                    },
+                                    "role": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "top"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "bottom"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "one-piece"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "layer"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "footwear"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "accessory"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "bag"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "none"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "thumbUrl": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "outfits": {
+                                  "minimum": 0,
+                                  "type": "integer"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "nearDuplicates": {
+                      "description": "Closet garments near-identical to it (same category, type and colours): \"do I need this?\"",
+                      "type": "array",
+                      "items": {
+                        "title": "GoesWithNearDuplicate",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "category",
+                          "role",
+                          "replacesIt"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "category": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "top"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "bottom"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "one-piece"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "layer"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "footwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "accessory"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "bag"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "none"
+                                ]
+                              }
+                            ]
+                          },
+                          "thumbUrl": {
+                            "type": "string"
+                          },
+                          "replacesIt": {
+                            "description": "The garment it is on the wishlist to replace: like for like",
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/capsules": {
+      "get": {
+        "operationId": "listCapsules",
+        "summary": "A wardrobe's capsules, by name",
+        "tags": [
+          "capsules"
+        ],
+        "description": "Each with how many of its garments are in the closet and the newest few. The closet itself is no capsule: GET /garments.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "description": "The previous page's `pagination.nextCursor`"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "description": "How many a page holds: 50 unless asked, at most 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of the wardrobe's capsules, by name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "CapsuleList",
+                  "description": "A page of the wardrobe's capsules, by name",
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "pagination"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "title": "CapsuleListItem",
+                        "description": "A capsule as the list shows it: GET /capsules/{id} has its notes",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name",
+                          "count",
+                          "preview"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "count": {
+                            "minimum": 0,
+                            "description": "Its garments in the closet (archived members kept, not counted)",
+                            "type": "integer"
+                          },
+                          "preview": {
+                            "description": "Its newest few garments in the closet, as its card shows them",
+                            "type": "array",
+                            "items": {
+                              "title": "CapsulePreviewGarment",
+                              "type": "object",
+                              "required": [
+                                "id"
+                              ],
+                              "properties": {
+                                "id": {
+                                  "type": "integer"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "thumbUrl": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "pagination": {
+                      "title": "Pagination",
+                      "type": "object",
+                      "required": [
+                        "limit"
+                      ],
+                      "properties": {
+                        "nextCursor": {
+                          "type": "string"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createCapsule",
+        "summary": "Creates a capsule",
+        "tags": [
+          "capsules"
+        ],
+        "description": "In your own wardrobe only (a share is a 403). Judged as the capsule form is: a blank name, or one another of your capsules has in any case, is a 400 naming `body/name`. 201 with its `Location`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "NewCapsule",
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "maxLength": 80,
+                    "description": "Trimmed; blank, or one another of your capsules has in any case, is a 400",
+                    "type": "string"
+                  },
+                  "notes": {
+                    "maxLength": 2000,
+                    "description": "Blank or absent: none",
+                    "type": "string"
+                  },
+                  "clientId": {
+                    "format": "uuid",
+                    "description": "Your id for this create, for retrying it offline: accepted, not yet stored",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "CapsuleCreated",
+                  "type": "object",
+                  "required": [
+                    "id"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/capsules/{id}": {
+      "get": {
+        "operationId": "getCapsule",
+        "summary": "One capsule",
+        "tags": [
+          "capsules"
+        ],
+        "description": "Its name and notes. Its garments: GET /garments?capsuleId={id}. A capsule outside the wardrobe is a 404 like an unknown id.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A named subset of the closet. Its garments: GET /garments?capsuleId={id} (with the same `ownerId`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Capsule",
+                  "description": "A named subset of the closet. Its garments: GET /garments?capsuleId={id} (with the same `ownerId`)",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notes": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateCapsule",
+        "summary": "Replaces a capsule's name and notes",
+        "tags": [
+          "capsules"
+        ],
+        "description": "The capsule form's save, the owner's alone: both fields replaced, judged as on create. Its garments stay as they are.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "CapsuleInput",
+                "description": "Both fields replaced: notes left out are cleared",
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "maxLength": 80,
+                    "description": "Trimmed; blank, or one another of your capsules has in any case, is a 400",
+                    "type": "string"
+                  },
+                  "notes": {
+                    "maxLength": 2000,
+                    "description": "Blank or absent: none",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "description": "Both fields replaced: notes left out are cleared"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A named subset of the closet. Its garments: GET /garments?capsuleId={id} (with the same `ownerId`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Capsule",
+                  "description": "A named subset of the closet. Its garments: GET /garments?capsuleId={id} (with the same `ownerId`)",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notes": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteCapsule",
+        "summary": "Deletes a capsule",
+        "tags": [
+          "capsules"
+        ],
+        "description": "The owner's alone. Its garments stay in the closet. A capsule already gone is a 404, which a retry may read as done.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/capsules/{id}/members": {
+      "patch": {
+        "operationId": "changeCapsuleMembers",
+        "summary": "Adds garments to a capsule and takes others out",
+        "tags": [
+          "capsules"
+        ],
+        "description": "The picker's save and set_capsule_membership's: your own wardrobe or a MANAGE share. Removals first, then additions. A capsule outside the wardrobe is a 404, after a write that changed nothing.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "CapsuleMembersChange",
+                "description": "Ids outside the capsule's wardrobe, and wishlist items, are dropped, not refused: set-state, so a retry changes nothing",
+                "type": "object",
+                "properties": {
+                  "add": {
+                    "maxItems": 500,
+                    "description": "Garments to add (one already in it is kept)",
+                    "type": "array",
+                    "items": {
+                      "minimum": 1,
+                      "maximum": 2147483647,
+                      "type": "integer"
+                    }
+                  },
+                  "remove": {
+                    "maxItems": 500,
+                    "description": "Garments to take out (the garments stay in the closet)",
+                    "type": "array",
+                    "items": {
+                      "minimum": 1,
+                      "maximum": 2147483647,
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "description": "Ids outside the capsule's wardrobe, and wishlist items, are dropped, not refused: set-state, so a retry changes nothing"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "MembershipChanged",
+                  "type": "object",
+                  "required": [
+                    "added",
+                    "removed"
+                  ],
+                  "properties": {
+                    "added": {
+                      "minimum": 0,
+                      "description": "Pairings made",
+                      "type": "integer"
+                    },
+                    "removed": {
+                      "minimum": 0,
+                      "description": "Pairings undone",
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/{id}/capsules": {
+      "patch": {
+        "operationId": "changeGarmentCapsules",
+        "summary": "Puts a garment in capsules and takes it out of others",
+        "tags": [
+          "capsules"
+        ],
+        "description": "The garment page's capsule toggles: your own wardrobe or a MANAGE share. A garment outside the wardrobe is a 404, after a write that changed nothing.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "GarmentCapsulesChange",
+                "description": "Capsules outside the garment's wardrobe are dropped, not refused; a wishlist item joins none. Set-state, so a retry changes nothing",
+                "type": "object",
+                "properties": {
+                  "add": {
+                    "maxItems": 500,
+                    "description": "Capsules to put it in",
+                    "type": "array",
+                    "items": {
+                      "minimum": 1,
+                      "maximum": 2147483647,
+                      "type": "integer"
+                    }
+                  },
+                  "remove": {
+                    "maxItems": 500,
+                    "description": "Capsules to take it out of",
+                    "type": "array",
+                    "items": {
+                      "minimum": 1,
+                      "maximum": 2147483647,
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "description": "Capsules outside the garment's wardrobe are dropped, not refused; a wishlist item joins none. Set-state, so a retry changes nothing"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "MembershipChanged",
+                  "type": "object",
+                  "required": [
+                    "added",
+                    "removed"
+                  ],
+                  "properties": {
+                    "added": {
+                      "minimum": 0,
+                      "description": "Pairings made",
+                      "type": "integer"
+                    },
+                    "removed": {
+                      "minimum": 0,
+                      "description": "Pairings undone",
                       "type": "integer"
                     }
                   }

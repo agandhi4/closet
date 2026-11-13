@@ -26,7 +26,7 @@ import { GarmentParams, RowId } from '../schemas';
 import { enforceLimit, LINK_IMPORT_LIMIT } from '../security/rate-limit';
 import { actorOf } from '../sharing/access';
 import { API_PREFIX } from '../surface';
-import { destinationValues } from './destination';
+import { destinationValues, postedDestination } from './destination';
 import { garmentAddress, garmentGuard, searchGarments } from './garment-access';
 import {
   addGarmentCopies,
@@ -60,6 +60,7 @@ import {
   PhotoUpload,
   refusedGarmentBody,
   refusedRepairBody,
+  refuseBoughtForOffCloset,
   refuseReplacesOffWishlist,
   RepairInput,
   RotateInput,
@@ -281,10 +282,12 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       const {
         destination = 'closet',
         replacesGarmentId,
+        boughtForNeedId,
         clientId,
         ...body
       } = request.body;
       refuseReplacesOffWishlist(destination, replacesGarmentId);
+      refuseBoughtForOffCloset(destination, boughtForNeedId);
       const form = readNewGarment(
         destinationValues(
           { to: destination, replaces: replacesGarmentId },
@@ -295,16 +298,24 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         formAudience({ kind: 'new' }, viewOwner),
       );
       if (!form.ok) throw refusedGarmentBody(form.errors);
+      // "Bought a different one": the page's own check of the need before
+      // anything is stored, and its settling in the garment's transaction.
+      const { withGarment } = await postedDestination(
+        db,
+        { to: destination, forNeed: boughtForNeedId },
+        access,
+      );
       const id = await createGarment(
         deps,
         access.ownerId,
         form.fields,
         destination,
+        withGarment,
       );
       logger.info(
         `Garment ${id} created (${destination}) by user ${actorOf(request).userId} in wardrobe ${access.ownerId} (API)${
-          clientId ? `, client id ${clientId.slice(0, 8)}` : ''
-        }`,
+          boughtForNeedId ? `, bought for Muse need ${boughtForNeedId}` : ''
+        }${clientId ? `, client id ${clientId.slice(0, 8)}` : ''}`,
       );
       return reply
         .status(201)
