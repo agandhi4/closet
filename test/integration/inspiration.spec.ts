@@ -11,8 +11,10 @@ import {
   createTestApp,
   extractImgSrcs,
   recordQueries,
+  TEST_PASSWORD,
   type TestApp,
   unescapeHtml,
+  userIdOf,
 } from './harness';
 import { addLook, lookIdOf, lookPhotoName, postLookPhoto } from './inspiration';
 import {
@@ -302,5 +304,45 @@ describe('inspiration', () => {
     expect(await photoRow(t, fileName)).toBeDefined();
     expect(await stored()).toContain(fileName);
     expect((await lookRow(id)).photoId).not.toBeNull();
+  });
+
+  it('deleting the account removes a look, its file row and every variant, leaving nothing to reconcile', async () => {
+    const email = 'look-leaver@example.com';
+    const cookie = await t.register(email);
+    const userId = await userIdOf(t, email);
+    const { id, fileName } = await addLook(t, photo, cookie);
+    const variants = [
+      fileName,
+      variantFileName(fileName, 'thumb'),
+      variantFileName(fileName, 'nobg'),
+    ];
+    expect(await stored()).toContain(fileName);
+
+    const res = await t.inject({
+      method: 'POST',
+      url: '/auth/delete-account',
+      payload: { email, password: TEST_PASSWORD },
+      headers: { cookie },
+    });
+
+    expect(res.statusCode).toBe(302);
+    expect(await lookRow(id)).toBeUndefined();
+    expect(await photoRow(t, fileName)).toBeUndefined();
+    expect(
+      await t.db.select().from(file).where(eq(file.createdById, userId)),
+    ).toEqual([]);
+    const files = await stored();
+    for (const name of variants) expect(files).not.toContain(name);
+
+    const report = await reconcileStorage({
+      db: t.db,
+      photos: t.photos,
+      logger: silentLogger,
+    });
+    expect(report.refused).toBeUndefined();
+    expect(report).toMatchObject({
+      orphanedRowsDeleted: 0,
+      orphanedObjectsDeleted: 0,
+    });
   });
 });
