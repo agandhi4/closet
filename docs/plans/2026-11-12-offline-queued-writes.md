@@ -59,10 +59,14 @@ edit, every photo. A queued control carries `data-offline-queue="<kind>"` instea
   htmx queueable request that ends in `htmx:sendError` (it may have been applied; the replay is
   idempotent). A native post in the undetected window still lands on the offline page, as today.
 - **Replay** on `connectivity:change` to online, on every page load, and on `visibilitychange` to
-  visible once the probe says online (the triggers iOS has). One drainer across tabs
-  (`navigator.locks`, `ifAvailable`); records in `queuedAt` order, one at a time; a network error or
-  5xx stops the drain and keeps the rest in order, retried with backoff (5 s doubling, at most 5 min);
-  a 401 stops it. Cap 200 pending: past it the control is disabled with a reason.
+  visible once the probe says online (the triggers iOS has), plus after every enqueue, another tab's
+  put (BroadcastChannel) and the backoff timer, all through one scheduler. One drainer across tabs
+  (`navigator.locks`, waited for, not `ifAvailable`, so a tab's tap queued during another's drain is
+  drained after it; each replay aborted after 15 s, so a hung request never holds the lock); records
+  in `queuedAt` order, one at a time; a network error, timeout or 5xx stops the drain and keeps the
+  rest in order, retried with backoff (5 s doubling, at most 5 min); a 401 stops it. IndexedDB is the
+  only truth: decisions and renders read it, never a copy in memory. Cap 200 pending: past it the
+  control is disabled with a reason.
 
 ## 4. Idempotency on the server
 

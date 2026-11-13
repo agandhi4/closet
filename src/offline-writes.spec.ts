@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  collapsed,
   dayRefusal,
+  enqueue,
   goesThroughOutbox,
   isChecklist,
   isReplayRequest,
+  OUTBOX_MAX_PENDING,
+  type OutboxStore,
   QUEUEABLE_ROUTES,
   type QueueableKind,
   queueableKindOf,
@@ -12,6 +14,8 @@ import {
   REPLAY_WINDOW_DAYS,
   replayVerdict,
   retryDelayMs,
+  routesThroughOutbox,
+  type StoredRecord,
   takesDay,
 } from './offline-writes';
 
@@ -118,25 +122,86 @@ describe('goesThroughOutbox', () => {
   });
 });
 
-describe('collapsed', () => {
-  const record = (id: string, key: string, account = '1') => ({
-    id,
-    key,
-    account,
+describe('the queue over its store', () => {
+  interface Row extends StoredRecord {
+    id: string;
+  }
+  const row = (
+    id: string,
+    key: string,
+    { account = '1', state = 'pending' }: Partial<StoredRecord> = {},
+  ): Row => ({ id, key, account, state });
+
+  /** An in-memory store, the IndexedDB one's rule; `failPuts` makes every put reject. */
+  function memoryStore(initial: Row[] = [], { failPuts = false } = {}) {
+    let rows = [...initial];
+    const store: OutboxStore<Row> = {
+      records: (account) =>
+        Promise.resolve(rows.filter((r) => r.account === account)),
+      putCollapsed: (incoming) => {
+        if (failPuts) return Promise.reject(new Error('QuotaExceededError'));
+        const replaced = (r: Row) =>
+          incoming.some((n) => n.account === r.account && n.key === r.key);
+        rows = [...rows.filter((r) => !replaced(r)), ...incoming];
+        return Promise.resolve();
+      },
+    };
+    return { store, rows: () => rows };
+  }
+
+  it('a failed put leaves nothing pending: the next online tap goes straight on', async () => {
+    const { store, rows } = memoryStore([], { failPuts: true });
+    const result = await enqueue(store, '1', [row('a', 'wash:41')]);
+    expect(result.outcome).toBe('unavailable');
+    expect(rows()).toEqual([]);
+    expect(await routesThroughOutbox(store, '1', false, ['wash:41'])).toBe(
+      false,
+    );
   });
 
-  it('puts the newest intent in place of its account’s record of the key', () => {
-    const old = [record('a', 'wash:41'), record('b', 'wear:41:2026-11-12')];
-    expect(collapsed(old, [record('c', 'wear:41:2026-11-12')])).toEqual([
-      record('a', 'wash:41'),
-      record('c', 'wear:41:2026-11-12'),
+  it('another tab’s committed record routes this tab’s online tap through it', async () => {
+    // Written by another tab: this one never queued anything.
+    const { store } = memoryStore([
+      row('a', 'wear:41:2026-11-12'),
+      row('b', 'wash:41', { state: 'failed' }),
+      row('c', 'wash:7', { account: '2' }),
     ]);
+    expect(
+      await routesThroughOutbox(store, '1', false, ['wear:41:2026-11-12']),
+    ).toBe(true);
+    // A failure waits for Dismiss, not to be replayed; another account's is not this one's.
+    expect(await routesThroughOutbox(store, '1', false, ['wash:41'])).toBe(
+      false,
+    );
+    expect(await routesThroughOutbox(store, '1', false, ['wash:7'])).toBe(
+      false,
+    );
+    expect(await routesThroughOutbox(store, '1', true, ['wash:7'])).toBe(true);
   });
 
-  it('keeps another account’s record of the same key', () => {
-    expect(
-      collapsed([record('a', 'wash:41', '2')], [record('b', 'wash:41')]),
-    ).toEqual([record('a', 'wash:41', '2'), record('b', 'wash:41')]);
+  it('replaces the account’s record of the key and keeps another account’s', async () => {
+    const { store, rows } = memoryStore([
+      row('a', 'wear:41:2026-11-12'),
+      row('b', 'wear:41:2026-11-12', { account: '2' }),
+    ]);
+    expect(await enqueue(store, '1', [row('c', 'wear:41:2026-11-12')])).toEqual(
+      { outcome: 'queued' },
+    );
+    expect(rows().map((r) => r.id)).toEqual(['b', 'c']);
+  });
+
+  it('refuses past the cap, counting a replacement as no new record', async () => {
+    const full = Array.from({ length: OUTBOX_MAX_PENDING }, (_, i) =>
+      row(`r${i}`, `wash:${i + 1}`),
+    );
+    const { store, rows } = memoryStore(full);
+    expect(await enqueue(store, '1', [row('new', 'wash:9999')])).toEqual({
+      outcome: 'full',
+    });
+    expect(await enqueue(store, '1', [row('again', 'wash:1')])).toEqual({
+      outcome: 'queued',
+    });
+    expect(rows()).toHaveLength(OUTBOX_MAX_PENDING);
   });
 });
 

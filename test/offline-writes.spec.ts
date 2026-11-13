@@ -9,7 +9,7 @@ import {
 import { householdToday } from './support/household-today';
 import { pageErrors } from './support/page-errors';
 import { addDays } from '../src/calendar-date';
-import { queueableKindOf } from '../src/offline-writes';
+import { queueableKindOf, REPLAY_TIMEOUT_MS } from '../src/offline-writes';
 
 /**
  * Every PostForm is disabled offline (#411; owner, 2026-10-22): when
@@ -24,8 +24,10 @@ import { queueableKindOf } from '../src/offline-writes';
  * today and a packing tick stay enabled offline, show their other state and
  * "Waiting to sync", and save on reconnect; a write the server refuses is a
  * notice until dismissed or signed out; another account's page never sends
- * them. A tap behind a record still waiting (backing off, or in flight)
- * goes through the outbox too, so the older one never lands after it.
+ * them. A tap behind a record still waiting (backing off, or in flight, in
+ * this tab or another) goes through the outbox too, so the older one never
+ * lands after it; a tap that never reached the server, a replay that never
+ * answers and a refusal each end where the user can see.
  * Their markup is test/integration/queued-writes.spec.ts's.
  */
 
@@ -262,42 +264,67 @@ test('wears and ticks queue offline, save on reconnect, and stay their account�
 test('a tap behind a waiting replay replaces it and lands last', async ({
   page,
 }) => {
+  // The page's own clock, ticking as usual, so the replay timeout can be
+  // jumped past instead of waited for.
+  await page.clock.install();
   const errors = pageErrors(page);
   await signIn(page, 'outbox-order');
   const chinos = await createGarment(page, 'Order chinos');
   const wore = page.getByRole('button', { name: 'Wore today', exact: true });
   const undo = page.getByRole('button', { name: 'Undo “Wore today”' });
   const waiting = page.locator('[data-outbox="pending"]');
+  const notice = page.locator('#outbox-notice');
   const wearPath = `/wardrobe/${chinos}/wear`;
   const worn = (route: Route) =>
     new URLSearchParams(route.request().postData() ?? '').get('worn');
-  const replayed = (value: string) =>
-    page.waitForResponse(
+  const replayed = (value: string, on = page) =>
+    on.waitForResponse(
       (response) =>
         new URL(response.url()).pathname === wearPath &&
+        response.request().headers()['x-closet-queued'] !== undefined &&
         new URLSearchParams(response.request().postData() ?? '').get('worn') ===
           value &&
         response.status() === 204,
     );
   // How the wear route answers: every worn=1 a 503 (backing off for as
-  // long as the test needs), or the first request held until released.
-  let answer: 'refuse-worn' | 'hold' | 'pass' = 'refuse-worn';
+  // long as the test needs); the first request held until released, failed
+  // as unreachable, never answered, or refused as too old; else the server.
+  let answer:
+    | 'refuse-worn'
+    | 'hold'
+    | 'abort-once'
+    | 'hang'
+    | 'conflict-once'
+    | 'pass' = 'refuse-worn';
   let release: (() => Promise<void>) | undefined;
-  let holding: () => void = () => undefined;
-  const held = new Promise<void>((resolve) => {
-    holding = resolve;
-  });
+  let reached: () => void = () => undefined;
+  const reachedOnce = () =>
+    new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+  let held = reachedOnce();
   await page.goto(`/wardrobe/${chinos}`);
   await page.route(`**${wearPath}`, async (route) => {
-    if (answer === 'refuse-worn' && worn(route) === '1') {
+    const now = answer;
+    if (now === 'refuse-worn' && worn(route) === '1') {
       await route.fulfill({ status: 503 });
-    } else if (answer === 'hold') {
-      answer = 'pass';
-      release = () => route.fallback();
-      holding();
-    } else {
-      await route.fallback();
+      return;
     }
+    if (now === 'refuse-worn' || now === 'pass') {
+      await route.fallback();
+      return;
+    }
+    answer = 'pass';
+    reached();
+    if (now === 'hold') release = () => route.fallback();
+    else if (now === 'abort-once') await route.abort();
+    else if (now === 'conflict-once') {
+      await route.fulfill({
+        status: 409,
+        headers: { 'X-Closet-Outcome': 'too-old' },
+      });
+    }
+    // 'hang': never answered.
   });
 
   // Backing off: Wore today queued, its replay a 503; the Undo tapped
@@ -333,5 +360,81 @@ test('a tap behind a waiting replay replaces it and lands last', async ({
   await expect(waiting).toHaveCount(0);
   await page.reload();
   await expect(wore).toBeVisible();
+
+  // Online, the tap never reaches the server and the heartbeat still
+  // answers (no connectivity change): queued, and drained without a reload.
+  answer = 'abort-once';
+  held = reachedOnce();
+  const woreReplayed = replayed('1');
+  await wore.click();
+  await held;
+  await woreReplayed;
+  await expect(waiting).toHaveCount(0);
+  await expect(undo).toBeVisible();
+
+  // A replay that never answers gives up after the timeout, so the drain
+  // lock comes back: a tap made meanwhile is sent.
+  await setWritesReachable(page, false);
+  await undo.click();
+  await expect(wore).toBeVisible();
+  answer = 'hang';
+  held = reachedOnce();
+  await setWritesReachable(page, true);
+  await held;
+  await wore.click();
+  await expect(undo).toBeVisible();
+  const woreAfterHang = replayed('1');
+  await page.clock.fastForward(REPLAY_TIMEOUT_MS);
+  await woreAfterHang;
+  await expect(waiting).toHaveCount(0);
+  await page.reload();
+  await expect(undo).toBeVisible();
+
+  // Refused (409): the notice says so and the control shows the server's
+  // state again, not the unsaved one.
+  await setWritesReachable(page, false);
+  await undo.click();
+  await expect(wore).toBeVisible();
+  answer = 'conflict-once';
+  await setWritesReachable(page, true);
+  await expect(notice).toContainText('Order chinos');
+  await expect(undo).toBeVisible();
+  await expect(waiting).toHaveCount(0);
+  await notice.getByRole('button').click();
+  await expect(notice).toBeHidden();
+
+  // Two tabs: A queues Undo offline; B is told and shows it, and drains it
+  // into a 503 (so it stays pending); B's Wore today goes through the
+  // outbox in place of A's record, so the older Undo never lands after it.
+  const other = await page.context().newPage();
+  const otherErrors = pageErrors(other);
+  await other.goto(`/wardrobe/${chinos}`);
+  await other.route(`**${wearPath}`, (route) =>
+    worn(route) === '0' ? route.fulfill({ status: 503 }) : route.fallback(),
+  );
+  const otherBackingOff = other.waitForEvent('console', (message) =>
+    message.text().includes('unreachable, retry 1'),
+  );
+  const otherUndo = other.getByRole('button', { name: 'Undo “Wore today”' });
+  const otherWore = other.getByRole('button', {
+    name: 'Wore today',
+    exact: true,
+  });
+  await expect(otherUndo).toBeVisible();
+  await setWritesReachable(page, false);
+  await undo.click();
+  await expect(wore).toBeVisible();
+  await expect(otherWore).toBeVisible();
+  await expect(other.locator('[data-outbox="pending"]')).toHaveCount(1);
+  await otherBackingOff;
+  const fromOther = replayed('1', other);
+  await otherWore.click();
+  await fromOther;
+  await expect(other.locator('[data-outbox="pending"]')).toHaveCount(0);
+  await setWritesReachable(page, true);
+  await expect(waiting).toHaveCount(0);
+  await page.reload();
+  await expect(undo).toBeVisible();
+  expect(otherErrors).toEqual([]);
   expect(errors).toEqual([]);
 });

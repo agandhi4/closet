@@ -4,33 +4,43 @@
  * tapped offline are kept in IndexedDB and replayed when the server answers
  * again. Bundled by `npm run generate:outbox` into public/js/outbox.js,
  * which the layout loads on signed-in pages; the rules it shares with the
- * server (keys, paths, the answer table) are src/offline-writes.ts.
+ * server (keys, paths, the answer table, the queue over its store) are
+ * src/offline-writes.ts.
  *
+ * - **IndexedDB is the only truth.** Every decision (does this tap queue?
+ *   is the queue full? what is left at sign-out?) and every render reads
+ *   the store as committed; there is no copy in memory to disagree with it.
+ *   A write is pending once its put commits, never before; a failed put
+ *   leaves nothing. Every write is announced on a BroadcastChannel, so the
+ *   other tabs re-read and re-render (and drain, after a put).
  * - **What queues** is marked by the server (src/web/outbox.tsx): a form
- *   `data-offline-queue` and its regions (`data-outbox-key`). A submit while
- *   connectivity.js says offline, or online while one of its keys has a
- *   pending record (`goesThroughOutbox`), is taken here instead of sent
- *   (htmx: `htmx:confirm` cancelled; a native post: a capture-phase
- *   `submit`, before submit-once.js), and so is an htmx queueable request
- *   that never reached the server (`htmx:sendError`: it may have landed;
- *   the replay is idempotent). One record per key: a new intent replaces
- *   the old one in the same transaction (Wore today then Undo replays only
- *   the Undo), and online it is drained at once, after any replay in flight.
- * - **What shows** is the server's markup: the region's other state comes
- *   out of its `<template data-outbox-state>` and `data-outbox="pending"`
- *   shows its "Waiting to sync"; both are reapplied from the records after
- *   every load and swap, so a cached page reopened offline shows them too.
- * - **Replay** on reconnect (`connectivity:change`), on every page load and
- *   when the app comes back to the front while online: iOS has no
- *   Background Sync. One tab drains at a time (`navigator.locks`; another
- *   tab's drain waits, then finds what is left), oldest first; a record
+ *   `data-offline-queue` and its regions (`data-outbox-key`). Each submit is
+ *   held (htmx: `htmx:confirm` cancelled, then `issueRequest`; a native
+ *   post: a capture-phase `submit`, before submit-once.js, resubmitted)
+ *   while the store says whether it goes through the outbox
+ *   (`routesThroughOutbox`: offline, or one of its keys pending in any tab);
+ *   an htmx queueable request that never reached the server
+ *   (`htmx:sendError`: it may have landed, the replay is idempotent) is
+ *   queued too. One record per key: a new intent replaces the old one in
+ *   the same transaction (Wore today then Undo replays only the Undo).
+ * - **What shows** is the server's markup: a region with a pending record
+ *   shows the state its `<template data-outbox-state>` holds when the shown
+ *   one would ask for what is queued, and `data-outbox="pending"` its
+ *   "Waiting to sync"; a record that ends failed puts the server's state
+ *   back. Re-derived from the store after every load, swap and change.
+ * - **One scheduler** (`schedule`) owns every drain: after each enqueue, on
+ *   reconnect (`connectivity:change`), load, `visibilitychange`, another
+ *   tab's put and its own backoff timer. One tab drains at a time
+ *   (`navigator.locks`; another tab's drain waits, then finds what is
+ *   left), oldest first, each replay given REPLAY_TIMEOUT_MS; a record
  *   replaced while the drain ran is never sent, nor written back after its
- *   answer; a network error or 5xx stops it and keeps the order (backoff),
- *   a 401 keeps everything for the next sign-in, a 404/409/400 is a failure
- *   the notice shows until it is dismissed.
+ *   answer; a network error, a timeout or a 5xx stops it and keeps the
+ *   order (backoff), a 401 keeps everything for the next sign-in, a
+ *   404/409/400 is a failure the notice shows until it is dismissed.
  * - **Accounts**: a record is its page's account's (`data-account`). A page
  *   of another account deletes the others' records unsent; signing out
- *   drains, then asks before discarding what is left.
+ *   drains for at most SIGN_OUT_DRAIN_MS, then asks before discarding what
+ *   is left.
  *
  * Listeners sit on the document once, at module evaluation (a module runs
  * once per document; boosted navigations swap only the body).
@@ -39,17 +49,19 @@ import { singleFlight } from 'single-flight';
 import { showToast } from 'toast';
 import { todayIn } from '../../src/calendar-date';
 import {
-  collapsed,
-  goesThroughOutbox,
+  enqueue,
   isChecklist,
   OUTBOX_MAX_PENDING,
+  type OutboxStore,
   type QueueableKind,
   queueableKindOf,
   REPLAY_HEADER,
+  REPLAY_TIMEOUT_MS,
   type ReplayFailure,
   type ReplayVerdict,
   replayVerdict,
   retryDelayMs,
+  routesThroughOutbox,
   takesDay,
 } from '../../src/offline-writes';
 
@@ -87,10 +99,20 @@ declare global {
   }
 }
 
+/** What one drain did: its saves and failures, and when to retry, if it must. */
+interface DrainResult {
+  saved: number;
+  failed: number;
+  retryInMs?: number;
+}
+
 const DB_NAME = 'closet-outbox';
 const STORE = 'writes';
 const DRAIN_LOCK = 'closet-outbox-drain';
+const CHANNEL = 'closet-outbox';
 const LOGOUT_PATH = '/auth/logout';
+// Sign-out waits this long for the queue to drain, then asks about the rest.
+const SIGN_OUT_DRAIN_MS = 5_000;
 // frontend-pwa.md: a sync says so only once it is slow.
 const SYNCING_QUIET_MS = 2_000;
 const SAVED_TOAST_MS = 3_000;
@@ -100,6 +122,12 @@ const REGION = '[data-outbox-key]';
 const QUEUE_FORM = 'form[data-offline-queue]';
 const ALTERNATE = ':scope > template[data-outbox-state]';
 const FULL_MARK = 'outboxFull';
+/**
+ * On a region showing a queued intent instead of the server's state: what
+ * to put back if the record fails. `flipped`: its template's state is shown;
+ * `ticked`: its checkbox is the record's.
+ */
+const INTENT_MARK = 'outboxIntent';
 
 const ACTION_TEXT: Record<QueueableKind, string> = {
   wear: 'textOutboxActionWear',
@@ -177,6 +205,34 @@ async function transact(
   });
 }
 
+/**
+ * The other tabs of this origin; absent where BroadcastChannel is (iOS
+ * before 15.4), where they catch up at their next visibilitychange.
+ */
+const channel =
+  typeof BroadcastChannel === 'function'
+    ? new BroadcastChannel(CHANNEL)
+    : undefined;
+
+interface ChangeMessage {
+  /** A put: a tab that can reach the server should drain it. */
+  drain: boolean;
+}
+
+/**
+ * A committed write: re-rendered here, announced to the other tabs. Every
+ * readwrite transaction goes through it, so no tab shows a store it has
+ * not re-read.
+ */
+async function write(
+  work: (store: IDBObjectStore) => void,
+  { drain = false } = {},
+): Promise<void> {
+  await transact('readwrite', work);
+  channel?.postMessage({ drain } satisfies ChangeMessage);
+  void refresh();
+}
+
 async function readAll(): Promise<OutboxRecord[]> {
   let records: OutboxRecord[] = [];
   await transact('readonly', (store) => {
@@ -188,30 +244,44 @@ async function readAll(): Promise<OutboxRecord[]> {
   return records.sort((a, b) => a.queuedAt - b.queuedAt);
 }
 
-/**
- * Puts each record in place of its account's record with the same key, in
- * one transaction: the last intent wins, and nothing in between is seen.
- */
-function putCollapsed(records: OutboxRecord[]): Promise<void> {
-  return transact('readwrite', (store) => {
-    for (const record of records) {
-      const same = store.index('key').getAll(record.key);
-      same.onsuccess = () => {
-        const olds: OutboxRecord[] = same.result;
-        for (const old of olds) {
-          if (old.account === record.account) store.delete(old.id);
+const store: OutboxStore<OutboxRecord> = {
+  async records(account) {
+    return (await readAll()).filter((record) => record.account === account);
+  },
+  putCollapsed(records) {
+    return write(
+      (objects) => {
+        for (const record of records) {
+          const same = objects.index('key').getAll(record.key);
+          same.onsuccess = () => {
+            const olds: OutboxRecord[] = same.result;
+            for (const old of olds) {
+              if (old.account === record.account) objects.delete(old.id);
+            }
+            objects.put(record);
+          };
         }
-        store.put(record);
-      };
-    }
-  });
+      },
+      { drain: true },
+    );
+  },
+};
+
+/** The account's records, or none when the store cannot be read (logged). */
+async function recordsOf(account: string): Promise<OutboxRecord[]> {
+  try {
+    return await store.records(account);
+  } catch (error) {
+    console.warn('[outbox] could not read the queue', error);
+    return [];
+  }
 }
 
 /** Whether a record is still in the store: not replaced by a newer intent. */
 async function isQueued(record: OutboxRecord): Promise<boolean> {
   let queued = false;
-  await transact('readonly', (store) => {
-    const request = store.getKey(record.id);
+  await transact('readonly', (objects) => {
+    const request = objects.getKey(record.id);
     request.onsuccess = () => {
       queued = request.result !== undefined;
     };
@@ -230,59 +300,22 @@ async function settle(
   next?: OutboxRecord,
 ): Promise<boolean> {
   let queued = false;
-  await transact('readwrite', (store) => {
-    const request = store.getKey(record.id);
+  await write((objects) => {
+    const request = objects.getKey(record.id);
     request.onsuccess = () => {
       queued = request.result !== undefined;
       if (!queued) return;
-      if (next) store.put(next);
-      else store.delete(record.id);
+      if (next) objects.put(next);
+      else objects.delete(record.id);
     };
   });
   return queued;
 }
 
 const remove = (records: OutboxRecord[]) =>
-  transact('readwrite', (store) => {
-    for (const record of records) store.delete(record.id);
+  write((objects) => {
+    for (const record of records) objects.delete(record.id);
   });
-
-// ---- State ------------------------------------------------------------------
-
-/**
- * This account's records, oldest first, as the store last read, with this
- * tab's taps in at once: the routing of the next tap (goesThroughOutbox)
- * reads it synchronously.
- */
-let records: OutboxRecord[] = [];
-/**
- * Records queued in this tab whose transaction has not committed: a
- * refresh reading the store meanwhile keeps them, so a second tap on the
- * same key still finds the first one waiting.
- */
-let committing: OutboxRecord[] = [];
-/** The last replay was a 401: everything waits for a sign-in. */
-let signedOut = false;
-/** A drain has been running past SYNCING_QUIET_MS. */
-let syncing = false;
-let retryTimer: ReturnType<typeof setTimeout> | undefined;
-
-const pending = () => records.filter((record) => record.state === 'pending');
-const failed = () => records.filter((record) => record.state === 'failed');
-
-async function refresh(): Promise<void> {
-  const account = pageAccount();
-  try {
-    records = collapsed(
-      (await readAll()).filter((record) => record.account === account),
-      committing.filter((record) => record.account === account),
-    );
-  } catch (error) {
-    console.warn('[outbox] could not read the queue', error);
-    records = [];
-  }
-  render();
-}
 
 /**
  * A page of another account than the records' deletes them unsent (plan
@@ -302,31 +335,62 @@ async function claimForAccount(): Promise<void> {
 
 // ---- Rendering --------------------------------------------------------------
 
-function render(): void {
-  renderRegions();
-  renderBanner();
-  renderNotice();
-  guardFull();
+/** The last replay was a 401: everything waits for a sign-in. */
+let signedOut = false;
+/** A drain has been running past SYNCING_QUIET_MS. */
+let syncing = false;
+
+const isPending = (record: OutboxRecord) => record.state === 'pending';
+
+/**
+ * Re-reads the store and draws it. Single-flight: a call during a render
+ * runs once more after it, so the last one drawn is never an older read.
+ */
+const refresh = singleFlight(async () => {
+  const account = pageAccount();
+  if (!account) return;
+  render(await recordsOf(account));
+});
+
+function render(records: OutboxRecord[]): void {
+  const waiting = records.filter(isPending).length;
+  renderRegions(records);
+  renderBanner(waiting);
+  renderNotice(records.filter((record) => record.state === 'failed'));
+  guardFull(waiting);
 }
 
-/** Marks every region with a pending record and shows the intent it waits to save. */
-function renderRegions(): void {
-  const byKey = new Map(pending().map((record) => [record.key, record]));
+/**
+ * A region with a pending record is marked and shows the intent it waits
+ * to save; one whose record failed shows the server's state again; one
+ * whose record was saved keeps what it shows, now the server's too.
+ */
+function renderRegions(records: OutboxRecord[]): void {
+  const waiting = new Map(
+    records.filter(isPending).map((record) => [record.key, record]),
+  );
+  const failed = new Set(
+    records.filter((r) => !isPending(r)).map((r) => r.key),
+  );
   for (const region of document.querySelectorAll<HTMLElement>(REGION)) {
-    const record = byKey.get(region.dataset.outboxKey ?? '');
-    if (!record) {
-      delete region.dataset.outbox;
-    } else if (region.dataset.outbox !== 'pending') {
+    const key = region.dataset.outboxKey ?? '';
+    const record = waiting.get(key);
+    if (record) {
       showIntent(region, record);
       region.dataset.outbox = 'pending';
+      continue;
     }
+    delete region.dataset.outbox;
+    if (failed.has(key)) showServerState(region);
+    delete region.dataset[INTENT_MARK];
   }
 }
 
 /**
- * A region rendered before its record (a cached page, a swap) shows the
- * record's state: a checklist row its tick, a control its other state when
- * the one shown would ask for what is already queued.
+ * The region shows the record's state: a checklist row its tick, a control
+ * its other state when the one shown would ask for what is already queued
+ * (a tap, a cached page reopened, Wore today then Undo flipping back).
+ * Idempotent: once flipped, the shown form no longer asks for it.
  */
 function showIntent(region: HTMLElement, record: OutboxRecord): void {
   const checkbox = region.querySelector<HTMLInputElement>(
@@ -334,7 +398,31 @@ function showIntent(region: HTMLElement, record: OutboxRecord): void {
   );
   if (isChecklist(record.kind) && checkbox) {
     checkbox.checked = [record.fields.packed ?? []].flat().length > 0;
+    region.dataset[INTENT_MARK] = 'ticked';
   } else if (asksFor(region, record)) {
+    flip(region);
+    // Twice flipped is the server's markup again: nothing to put back.
+    if (region.dataset[INTENT_MARK] === 'flipped') {
+      delete region.dataset[INTENT_MARK];
+    } else {
+      region.dataset[INTENT_MARK] = 'flipped';
+    }
+  }
+}
+
+/**
+ * A failed record's region back to what the server rendered (the notice
+ * says it was not saved): a tick to its markup's `checked`, a flipped
+ * control flipped back.
+ */
+function showServerState(region: HTMLElement): void {
+  const mark = region.dataset[INTENT_MARK];
+  if (mark === 'ticked') {
+    const checkbox = region.querySelector<HTMLInputElement>(
+      'input[type="checkbox"]',
+    );
+    if (checkbox) checkbox.checked = checkbox.defaultChecked;
+  } else if (mark === 'flipped') {
     flip(region);
   }
 }
@@ -366,11 +454,10 @@ function flip(region: HTMLElement): void {
     region.querySelector<HTMLElement>(':scope > form button')?.focus();
 }
 
-function renderBanner(): void {
+function renderBanner(count: number): void {
   const banner = document.getElementById('outbox-banner');
   const slot = banner?.querySelector('[data-role="text"]');
   if (!banner || !slot) return;
-  const count = pending().length;
   let message = '';
   if (count === 0) message = '';
   else if (signedOut) message = counted('SignIn', count);
@@ -381,11 +468,10 @@ function renderBanner(): void {
   banner.classList.toggle('hidden', message === '');
 }
 
-function renderNotice(): void {
+function renderNotice(failures: OutboxRecord[]): void {
   const notice = document.getElementById('outbox-notice');
   const list = notice?.querySelector('[data-role="list"]');
   if (!notice || !list) return;
-  const failures = failed();
   list.replaceChildren(
     ...failures.map((record) => {
       const item = document.createElement('li');
@@ -410,8 +496,8 @@ function failureText(record: OutboxRecord): string {
  * connectivity.js's, and the banner says why; marked, so only those come
  * back.
  */
-function guardFull(): void {
-  const full = offline() && pending().length >= OUTBOX_MAX_PENDING;
+function guardFull(waiting: number): void {
+  const full = offline() && waiting >= OUTBOX_MAX_PENDING;
   for (const form of document.querySelectorAll<HTMLFormElement>(QUEUE_FORM)) {
     for (const control of form.querySelectorAll<
       HTMLButtonElement | HTMLInputElement
@@ -546,15 +632,18 @@ function refuse(message: string, trigger: EventTarget | null): void {
   showToast({ text: message, kind: 'warning', ttlMs: REFUSAL_TOAST_MS });
 }
 
+/**
+ * Queues a tap's writes, read from the page at the tap. Pending only once
+ * stored (`enqueue`); then drained at once if online, after any drain in
+ * flight.
+ */
 async function queue(
-  form: HTMLFormElement,
+  writes: Draft[],
   trigger: EventTarget | null,
 ): Promise<void> {
   const account = pageAccount();
   const timeZone = appStatus().timeZone;
-  if (!account || !timeZone) return;
-  const writes = drafts(form, trigger);
-  if (writes.length === 0) return;
+  if (!account || !timeZone || writes.length === 0) return;
   const now = new Date();
   const today = todayIn(timeZone, now);
   // Wore today's state is its page's day's; a copy from another day would
@@ -570,50 +659,62 @@ async function queue(
     refuse(text('textOutboxStaleDay'), trigger);
     return;
   }
-  if (pending().length + writes.length > OUTBOX_MAX_PENDING) {
-    refuse(fullText(), trigger);
-    return;
-  }
   const queued = writes.map((w) => toRecord(w, account, now.getTime(), today));
-  committing = collapsed(committing, queued);
-  records = collapsed(records, queued);
-  try {
-    await putCollapsed(queued);
-  } catch (error) {
-    console.warn('[outbox] could not queue', error);
+  const keys = queued.map((record) => record.key).join(', ');
+  const result = await enqueue(store, account, queued);
+  if (result.outcome === 'full') {
+    console.info(`[outbox] ${keys} refused: ${OUTBOX_MAX_PENDING} waiting`);
+    refuse(fullText(), trigger);
+  } else if (result.outcome === 'unavailable') {
+    console.warn(`[outbox] could not queue ${keys}`, result.error);
     refuse(text('textOutboxUnavailable'), trigger);
-    return;
-  } finally {
-    committing = committing.filter((record) => !queued.includes(record));
+  } else {
+    console.info(`[outbox] queued ${keys}`);
+    void schedule('queued');
   }
-  console.info(
-    `[outbox] queued ${queued.map((record) => record.key).join(', ')}`,
-  );
-  for (const write of writes) flip(write.region);
-  await refresh();
 }
 
 /**
- * The one rule for a tap of a queueable form (goesThroughOutbox): queued
- * offline, and online while any of its keys has a pending record, so it
- * replaces that record and replays after it rather than racing it.
+ * Taps are decided and queued one at a time in a tab: a second tap on a
+ * key reads the store after the first one's put has committed.
  */
-function mustQueue(
-  form: HTMLFormElement,
-  trigger: EventTarget | null,
-): boolean {
-  const keys = drafts(form, trigger).map((draft) => draft.key);
-  const waiting = new Set(pending().map((record) => record.key));
-  return goesThroughOutbox(offline(), keys, waiting);
+let taps: Promise<void> = Promise.resolve();
+
+function serially(task: () => Promise<void>): Promise<void> {
+  const run = taps.then(task);
+  taps = run.catch((error: unknown) => {
+    console.warn('[outbox] a tap failed', error);
+  });
+  return taps;
 }
 
-/** Queues a tap; online, drains it at once (after a drain in flight). */
-async function take(
+/**
+ * The one rule for a tap of a queueable form, over the store as committed
+ * (routesThroughOutbox): queued offline, and online while any of its keys
+ * has a pending record in any tab, so it replaces that record and replays
+ * after it rather than racing it; otherwise `proceed` lets it go to the server.
+ * Online with the store unreadable, it goes straight on.
+ */
+function route(
   form: HTMLFormElement,
   trigger: EventTarget | null,
+  proceed: () => void,
 ): Promise<void> {
-  await queue(form, trigger);
-  if (!offline()) void drain('tap');
+  // Read at the tap: a checklist's tick is the tapped state.
+  const writes = drafts(form, trigger);
+  const keys = writes.map((draft) => draft.key);
+  return serially(async () => {
+    const account = pageAccount() ?? '';
+    let through: boolean;
+    try {
+      through = await routesThroughOutbox(store, account, offline(), keys);
+    } catch (error) {
+      console.warn('[outbox] could not read the queue; sent directly', error);
+      through = false;
+    }
+    if (through) await queue(writes, trigger);
+    else proceed();
+  });
 }
 
 /** The queueable form an event came from, on a signed-in page. */
@@ -627,27 +728,38 @@ interface HtmxRequestEvent {
   verb?: string;
   triggeringEvent?: Event;
   requestConfig?: { triggeringEvent?: Event };
+  /** htmx:confirm's: sends the request it held (true: without asking again). */
+  issueRequest?: (skipConfirmation: boolean) => void;
 }
 
 // htmx's own forms (Wore today, Washed, the calendar's pill, the packing
-// lists): offline, or behind a pending record, the request is not sent.
+// lists): held until the store answers, then queued or sent.
 document.addEventListener('htmx:confirm', (event) => {
   const detail = (event as CustomEvent<HtmxRequestEvent>).detail;
   const form = queueFormOf(detail.elt);
-  const trigger = detail.triggeringEvent?.target ?? null;
-  if (!form || detail.verb !== 'post' || !mustQueue(form, trigger)) return;
+  const issue = detail.issueRequest;
+  if (!form || detail.verb !== 'post' || !issue) return;
   event.preventDefault();
-  void take(form, trigger);
+  void route(form, detail.triggeringEvent?.target ?? null, () => issue(true));
 });
 
 // Sent but never reached the server, though connectivity.js had not seen
-// the drop yet: queued, in case it never landed.
+// the drop yet: queued, in case it never landed, and drained by the
+// scheduler, which no connectivity:change may ever wake (the probe after
+// the error can still say online).
 document.addEventListener('htmx:sendError', (event) => {
   const detail = (event as CustomEvent<HtmxRequestEvent>).detail;
   const form = queueFormOf(detail.elt);
   if (!form) return;
-  void queue(form, detail.requestConfig?.triggeringEvent?.target ?? null);
+  const trigger = detail.requestConfig?.triggeringEvent?.target ?? null;
+  const writes = drafts(form, trigger);
+  void serially(() => queue(writes, trigger));
 });
+
+/** Native posts let through after their decision: the resubmit is not held again. */
+const released = new WeakSet<HTMLFormElement>();
+/** Native posts held for their decision: a double tap meanwhile is dropped, as submit-once.js would. */
+const deciding = new WeakSet<HTMLFormElement>();
 
 // Native posts (the laundry, Today's and a trip's worn control): in the
 // capture phase, before submit-once.js would disable the buttons.
@@ -656,9 +768,15 @@ document.addEventListener(
   (event) => {
     const form = queueFormOf(event.target);
     if (!form || form.hasAttribute('hx-post')) return;
-    if (!mustQueue(form, event.submitter)) return;
+    if (released.delete(form)) return;
     event.preventDefault();
-    void take(form, event.submitter);
+    if (deciding.has(form)) return;
+    deciding.add(form);
+    const submitter = event.submitter;
+    void route(form, submitter, () => {
+      released.add(form);
+      form.requestSubmit(submitter);
+    }).finally(() => deciding.delete(form));
   },
   true,
 );
@@ -688,6 +806,10 @@ function formBody(fields: Fields): URLSearchParams {
 }
 
 async function send(record: OutboxRecord, url: URL): Promise<ReplayVerdict> {
+  // A timer, not AbortSignal.timeout: one clock with the rest of the page
+  // (the specs move it with Playwright's).
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REPLAY_TIMEOUT_MS);
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -695,6 +817,7 @@ async function send(record: OutboxRecord, url: URL): Promise<ReplayVerdict> {
       credentials: 'same-origin',
       redirect: 'manual',
       cache: 'no-store',
+      signal: controller.signal,
       headers: {
         [REPLAY_HEADER]: record.account,
         'Idempotency-Key': record.id,
@@ -705,22 +828,30 @@ async function send(record: OutboxRecord, url: URL): Promise<ReplayVerdict> {
       response.headers.get('X-Closet-Outcome'),
     );
   } catch {
+    if (controller.signal.aborted) {
+      console.info(
+        `[outbox] ${record.key} (key ${record.id.slice(0, 8)}) had no answer in ${REPLAY_TIMEOUT_MS / 1000} s`,
+      );
+    }
     return { verdict: 'retry' };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
-/** Replays the account's pending records in order; how many were saved. */
-async function replayAll(account: string, reason: string): Promise<number> {
-  const queued = (await readAll()).filter(
-    (record) => record.account === account && record.state === 'pending',
-  );
-  if (queued.length === 0) return 0;
+/** Replays the account's pending records in order. */
+async function replayAll(
+  account: string,
+  reason: string,
+): Promise<DrainResult> {
+  const queued = (await store.records(account)).filter(isPending);
+  const result: DrainResult = { saved: 0, failed: 0 };
+  if (queued.length === 0) return result;
   console.info(`[outbox] sync (${reason}): ${queued.length} pending`);
   const quiet = setTimeout(() => {
     syncing = true;
-    renderBanner();
+    void refresh();
   }, SYNCING_QUIET_MS);
-  let saved = 0;
   try {
     for (const record of queued) {
       const key = `${record.key} (key ${record.id.slice(0, 8)})`;
@@ -743,7 +874,7 @@ async function replayAll(account: string, reason: string): Promise<number> {
         // A replaced one's save is not the user's last word: its successor
         // replays next and is the one counted.
         const current = await settle(record);
-        if (current) saved += 1;
+        if (current) result.saved += 1;
         console.info(
           `[outbox] ${key} saved (${answer.changed ? 'changed' : 'unchanged'})${current ? '' : ', superseded meanwhile'}`,
         );
@@ -754,6 +885,7 @@ async function replayAll(account: string, reason: string): Promise<number> {
           reason: answer.reason,
         };
         if (await settle(record, failure)) {
+          result.failed += 1;
           console.warn(`[outbox] ${key} not saved: ${answer.reason}`);
         } else {
           console.info(`[outbox] ${key} not saved, superseded meanwhile`);
@@ -761,91 +893,140 @@ async function replayAll(account: string, reason: string): Promise<number> {
       } else if (answer.verdict === 'retry') {
         const attempts = record.attempts + 1;
         await settle(record, { ...record, attempts });
-        const delay = retryDelayMs(attempts);
-        retryTimer = setTimeout(() => void drain('retry'), delay);
+        result.retryInMs = retryDelayMs(attempts);
         console.info(
-          `[outbox] ${key} unreachable, retry ${attempts} in ${delay / 1000} s`,
+          `[outbox] ${key} unreachable, retry ${attempts} in ${result.retryInMs / 1000} s`,
         );
-        return saved;
+        return result;
       } else {
         signedOut = true;
         console.info(
-          `[outbox] ${key} needs a sign-in; ${queued.length - saved} kept`,
+          `[outbox] ${key} needs a sign-in; ${queued.length - result.saved} kept`,
         );
-        return saved;
+        return result;
       }
     }
     signedOut = false;
-    return saved;
+    return result;
   } finally {
     clearTimeout(quiet);
     syncing = false;
   }
 }
 
+/** The backoff's next drain; only `drain` sets it, one at a time per tab. */
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
 /**
  * One drain at a time in this tab (a call during one runs once more after
  * it, single-flight.js) and across tabs (the lock: a tab finding it held
  * waits, then drains what the other left, so a tap queued here while the
- * other tab replays is not stranded until the next reconnect).
+ * other tab replays is not stranded until the next reconnect). Every
+ * replay is bounded (REPLAY_TIMEOUT_MS), so the lock always comes back.
  */
 const drain = singleFlight(async (reason: string) => {
   const account = pageAccount();
   if (!account) return;
   clearTimeout(retryTimer);
+  retryTimer = undefined;
   const replay = () => replayAll(account, reason);
-  // navigator.locks needs a secure context; without it, this tab alone.
-  const saved = navigator.locks
-    ? await navigator.locks.request(DRAIN_LOCK, replay)
-    : await replay();
+  let result: DrainResult;
+  try {
+    // navigator.locks needs a secure context; without it, this tab alone.
+    result = navigator.locks
+      ? await navigator.locks.request(DRAIN_LOCK, replay)
+      : await replay();
+  } catch (error) {
+    console.warn(`[outbox] sync (${reason}) failed`, error);
+    result = { saved: 0, failed: 0 };
+  }
+  if (result.retryInMs !== undefined) {
+    retryTimer = setTimeout(() => void schedule('retry'), result.retryInMs);
+  }
   await refresh();
-  if (saved > 0) {
+  if (result.saved > 0) {
     showToast({
-      text: counted('Saved', saved),
+      text: counted('Saved', result.saved),
       kind: 'success',
       ttlMs: SAVED_TOAST_MS,
     });
+  }
+  if (result.saved + result.failed > 0) {
     // freshness.js asks the worker for the page again (swapped in only if
-    // untouched): counts and lines are the server's.
+    // untouched): counts and lines are the server's, a failure's too.
     document.dispatchEvent(
-      new CustomEvent('outbox:synced', { detail: { saved } }),
+      new CustomEvent('outbox:synced', { detail: result }),
     );
   }
 });
 
+/**
+ * The one way a drain starts, whatever woke it: an enqueue, reconnecting,
+ * a load, the app back in front, another tab's put, the backoff. Offline
+ * it waits for connectivity.js's change to online, which schedules again.
+ */
+function schedule(reason: string): Promise<void> {
+  if (offline()) return Promise.resolve();
+  return drain(reason);
+}
+
 // ---- Signing out --------------------------------------------------------------
 
 /**
- * Sign-out drains first (it is online by definition); what is left, failed
- * or unreachable, is named in a confirm and discarded (owner decision 2,
- * 2026-11-13). The worker's logout boundary (178c) deletes the store too.
+ * Sign-out drains first (it is online by definition), for at most
+ * SIGN_OUT_DRAIN_MS so a slow link never strands the tap; what is left,
+ * failed, unreachable or still in flight, is named in a confirm and
+ * discarded (owner decision 2, 2026-11-13). The worker's logout boundary
+ * (178c) deletes the store too.
  */
-async function signOut(form: HTMLFormElement): Promise<void> {
-  await drain('sign-out');
-  const left = records;
-  if (left.length > 0) {
-    if (!confirm(counted('Discard', left.length))) return;
-    await remove(left);
-    console.info(
-      `[outbox] ${left.length} unsynced change(s) discarded at sign-out`,
-    );
+async function signOut(form: HTMLFormElement, account: string): Promise<void> {
+  if ((await recordsOf(account)).length > 0) {
+    let waited: ReturnType<typeof setTimeout> | undefined;
+    const drained = await Promise.race([
+      schedule('sign-out').then(() => true),
+      new Promise<false>((resolve) => {
+        waited = setTimeout(() => resolve(false), SIGN_OUT_DRAIN_MS);
+      }),
+    ]);
+    clearTimeout(waited);
+    if (!drained) {
+      console.info(
+        `[outbox] sign-out: still syncing after ${SIGN_OUT_DRAIN_MS / 1000} s`,
+      );
+    }
+    const left = await recordsOf(account);
+    if (left.length > 0) {
+      if (!confirm(counted('Discard', left.length))) return;
+      await remove(left);
+      console.info(
+        `[outbox] ${left.length} unsynced change(s) discarded at sign-out`,
+      );
+    }
   }
   form.submit();
 }
+
+let signingOut = false;
 
 document.addEventListener(
   'submit',
   (event) => {
     const form = event.target;
+    const account = pageAccount();
     if (
       !(form instanceof HTMLFormElement) ||
       form.getAttribute('action') !== LOGOUT_PATH ||
-      records.length === 0
+      !account
     ) {
       return;
     }
+    // Held while the store is read: what is queued is known only there.
     event.preventDefault();
-    void signOut(form);
+    if (signingOut) return;
+    signingOut = true;
+    void signOut(form, account).finally(() => {
+      signingOut = false;
+    });
   },
   true,
 );
@@ -855,28 +1036,39 @@ document.addEventListener(
 document.addEventListener('click', (event) => {
   if (!(event.target instanceof Element)) return;
   if (!event.target.closest('[data-outbox-dismiss]')) return;
-  const dismissed = failed();
-  void remove(dismissed).then(() => {
+  const account = pageAccount();
+  if (!account) return;
+  void (async () => {
+    const dismissed = (await recordsOf(account)).filter((r) => !isPending(r));
+    await remove(dismissed);
     console.info(`[outbox] ${dismissed.length} failure(s) dismissed`);
-    return refresh();
+  })().catch((error: unknown) => {
+    console.warn('[outbox] could not dismiss', error);
   });
+});
+
+// Another tab wrote: what is shown is re-read; a put is drained here too
+// when this tab can reach the server (the lock keeps it to one drainer).
+channel?.addEventListener('message', (event: MessageEvent<ChangeMessage>) => {
+  void refresh();
+  if (event.data.drain) void schedule('another tab');
 });
 
 document.addEventListener('connectivity:change', (event) => {
   const { state } = (event as CustomEvent<{ state: string }>).detail;
-  render();
-  if (state === 'online') void drain('online');
+  void refresh();
+  if (state === 'online') void schedule('online');
 });
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
-  // Another tab may have queued or drained meanwhile.
+  // Without BroadcastChannel, another tab may have written meanwhile.
   void refresh();
-  if (!offline()) void drain('visible');
+  void schedule('visible');
 });
 
 // A boosted navigation or a swap brings regions (and #app-status) anew.
-document.addEventListener('htmx:afterSettle', render);
+document.addEventListener('htmx:afterSettle', () => void refresh());
 
 async function start(): Promise<void> {
   if (!pageAccount()) return;
@@ -886,7 +1078,7 @@ async function start(): Promise<void> {
     console.warn('[outbox] unavailable', error);
   }
   await refresh();
-  void drain('load');
+  void schedule('load');
 }
 
 void start();

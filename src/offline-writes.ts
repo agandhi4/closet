@@ -133,8 +133,8 @@ export const OUTBOX_MAX_PENDING = 200;
  * off or in flight), even online. A tap sent past a pending record would
  * land first and then be overwritten by the older record's replay (Wore
  * today, a 503, Undo during the backoff: the replay marks it worn again);
- * through the outbox it replaces that record (`collapsed`) and replays
- * after the one in flight.
+ * through the outbox it replaces that record (`OutboxStore.putCollapsed`)
+ * and replays after the one in flight.
  */
 export function goesThroughOutbox(
   offline: boolean,
@@ -144,21 +144,79 @@ export function goesThroughOutbox(
   return offline || keys.some((key) => pendingKeys.has(key));
 }
 
+/** What the queue's rules read of a stored record. */
+export interface StoredRecord {
+  account: string;
+  key: string;
+  state: 'pending' | 'failed';
+}
+
 /**
- * One record per account and key, the last intent wins: `records` with
- * each of `incoming` in place of its account's record of the same key.
- * The page's in-memory view of the store, which applies the same rule in
- * one transaction (views/assets/outbox.ts, putCollapsed).
+ * The outbox's store, the one truth about what waits: IndexedDB in the page
+ * (views/assets/outbox.ts), shared by every tab of the origin; a stub in the
+ * spec. Every decision reads it as committed, never a copy a failed put or
+ * another tab's write could leave disagreeing with it.
  */
-export function collapsed<T extends { account: string; key: string }>(
-  records: readonly T[],
-  incoming: readonly T[],
-): T[] {
-  const replaced = (record: T) =>
-    incoming.some(
-      (next) => next.account === record.account && next.key === record.key,
-    );
-  return [...records.filter((record) => !replaced(record)), ...incoming];
+export interface OutboxStore<R extends StoredRecord> {
+  /** The account's records, oldest first. */
+  records(account: string): Promise<R[]>;
+  /**
+   * Each record in place of its account's record of the same key, in one
+   * transaction: the last intent wins, and nothing in between is seen.
+   */
+  putCollapsed(records: readonly R[]): Promise<void>;
+}
+
+const pendingKeys = (records: readonly StoredRecord[]) =>
+  new Set(records.filter((r) => r.state === 'pending').map((r) => r.key));
+
+/**
+ * `goesThroughOutbox` over the store as committed now: another tab's
+ * pending record counts, a put that failed does not. A store that cannot be
+ * read rejects; the page then sends online taps straight on.
+ */
+export async function routesThroughOutbox<R extends StoredRecord>(
+  store: OutboxStore<R>,
+  account: string,
+  offline: boolean,
+  keys: readonly string[],
+): Promise<boolean> {
+  if (offline) return true;
+  return goesThroughOutbox(
+    false,
+    keys,
+    pendingKeys(await store.records(account)),
+  );
+}
+
+export type EnqueueResult =
+  | { outcome: 'queued' }
+  /** Past OUTBOX_MAX_PENDING: nothing stored. */
+  | { outcome: 'full' }
+  /** The store refused (private mode, quota): nothing stored. */
+  | { outcome: 'unavailable'; error: unknown };
+
+/**
+ * Stores a tap's records. They are pending only once the put has
+ * committed: until then, and after a failed put, nothing routes through
+ * them.
+ */
+export async function enqueue<R extends StoredRecord>(
+  store: OutboxStore<R>,
+  account: string,
+  incoming: readonly R[],
+): Promise<EnqueueResult> {
+  try {
+    const waiting = pendingKeys(await store.records(account));
+    const added = incoming.filter((record) => !waiting.has(record.key));
+    if (waiting.size + added.length > OUTBOX_MAX_PENDING) {
+      return { outcome: 'full' };
+    }
+    await store.putCollapsed(incoming);
+    return { outcome: 'queued' };
+  } catch (error) {
+    return { outcome: 'unavailable', error };
+  }
 }
 
 /** Why a queued write was not saved: the notice's reason. */
@@ -205,6 +263,13 @@ export function replayVerdict(
   }
   return { verdict: 'failed', reason: 'refused' };
 }
+
+/**
+ * The longest a replay may wait for its answer: a request hung on a flaky
+ * link would otherwise hold the drain lock for every tab, and sign-out
+ * behind it. Aborted, it is a network error: retried with backoff.
+ */
+export const REPLAY_TIMEOUT_MS = 15_000;
 
 const RETRY_FIRST_MS = 5_000;
 const RETRY_MAX_MS = 5 * 60_000;
