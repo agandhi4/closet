@@ -149,6 +149,7 @@
   "RECONNECTING": "Reconnecting…",
   "BACK_ONLINE": "Back online",
   "UPDATE_AVAILABLE": "Update available",
+  "UPDATE_NEEDS_NETWORK": "Update available: reload once you're back online",
   "RELOAD": "Reload",
   "UPDATED_AGO": "Updated {ago}",
   "outbox": {

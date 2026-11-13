@@ -23,6 +23,7 @@ export function AppStatus({ ctx }: { ctx: ViewContext }) {
       data-text-reconnecting={t('RECONNECTING')}
       data-text-back-online={t('BACK_ONLINE')}
       data-text-update-available={t('UPDATE_AVAILABLE')}
+      data-text-update-needs-network={t('UPDATE_NEEDS_NETWORK')}
       data-text-reload={t('RELOAD')}
       // freshness.js puts "3 minutes ago" (Intl.RelativeTimeFormat) in {ago}.
       data-text-updated-ago={t('UPDATED_AGO', { ago: '{ago}' })}

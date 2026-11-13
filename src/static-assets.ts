@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Stats } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
+import { ASSET_VERSION_HEADER } from './asset-cache';
 import type { Config } from './config';
 import type { Logger } from './logger';
 import { PROJECT_ROOT } from './project-root';
@@ -97,11 +98,16 @@ export function staticCacheControl(path: string, dev: boolean): string {
  * `tailwind --watch` rewrites bundle.css under a running server) or any
  * variant on disk is stale: a stale one would be served for a source that
  * has changed, so the boot falls back to compressing on the fly, loudly.
+ *
+ * Every answer names the build it is (`assetVersion`, ASSET_VERSION_HEADER):
+ * the service worker keeps a file under its `?v=` URL only when the two
+ * agree (#656).
  */
 export async function registerStaticAssets(
   app: FastifyInstance,
   config: Config,
   logger: Logger,
+  assetVersion: string,
 ): Promise<void> {
   const dev = config.NODE_ENV === 'development';
   let preCompressed = false;
@@ -134,6 +140,7 @@ export async function registerStaticAssets(
     preCompressed,
     setHeaders: (reply, path) => {
       reply.header('Cache-Control', staticCacheControl(path, dev));
+      reply.header(ASSET_VERSION_HEADER, assetVersion);
     },
   });
 }

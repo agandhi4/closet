@@ -403,6 +403,7 @@ export async function createApp(
     app,
     config,
     logger.child({ logger: 'StaticAssets' }),
+    build.assetVersion,
   );
 
   const web = logger.child({ logger: 'Web' });

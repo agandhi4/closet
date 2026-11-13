@@ -8,6 +8,7 @@ import {
   navigationPostAnswer,
   PAGE_ACCOUNT_HEADER,
   pageAccount,
+  refetchVerdict,
   revalidationOutcome,
   sentToLogin,
   servesStaleWhileRevalidate,
@@ -308,5 +309,56 @@ describe('revalidationOutcome', () => {
     expect(revalidationOutcome(cached, fresh({ account: '8' }))).toBe(
       'account-changed',
     );
+  });
+});
+
+describe('refetchVerdict', () => {
+  const answer = ({
+    status = 200,
+    redirected = false,
+    path = '/wardrobe/12',
+    headers = { [PAGE_ACCOUNT_HEADER]: '7' },
+  }: {
+    status?: number;
+    redirected?: boolean;
+    path?: string;
+    headers?: Record<string, string>;
+  } = {}) => ({
+    status,
+    redirected,
+    url: `${ORIGIN}${path}`,
+    headers: new Headers(headers),
+  });
+
+  it('stores a 200', () => {
+    expect(refetchVerdict(answer())).toBe('stored');
+  });
+
+  it.each([404, 403])('deletes the copy on a %i', (status) => {
+    expect(refetchVerdict(answer({ status }))).toBe('deleted');
+  });
+
+  it.each([429, 500, 503])('stops the run on a %i, copies kept', (status) => {
+    expect(refetchVerdict(answer({ status }))).toBe('stop');
+  });
+
+  it('keeps the copy on a redirect to another page, never storing it under this key', () => {
+    expect(
+      refetchVerdict(answer({ redirected: true, path: '/wardrobe' })),
+    ).toBe('kept');
+  });
+
+  it.each([
+    ['a 401', answer({ status: 401, headers: {} })],
+    [
+      'X-Session-Ended on a 200',
+      answer({ headers: { [SESSION_ENDED_HEADER]: '1' } }),
+    ],
+    [
+      'a redirect to the login page',
+      answer({ redirected: true, path: '/auth/login', headers: {} }),
+    ],
+  ])('ends the session on %s', (_case, fetched) => {
+    expect(refetchVerdict(fetched)).toBe('session-ended');
   });
 });

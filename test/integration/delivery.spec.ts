@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ASSET_VERSION_HEADER } from '../../src/asset-cache';
 import { PUBLIC_DIR } from '../../src/static-assets';
 import { createGarment, jpegPhoto, uploadPhoto } from './garments';
 import { HEALTH_LIMIT } from '../../src/web/security/rate-limit';
@@ -43,12 +44,18 @@ describe('delivery (PWA_ENABLED=true)', () => {
       );
     });
 
-    it('serves public/ files immutable for a year', async () => {
-      const res = await t.inject({ method: 'GET', url: '/js/connectivity.js' });
+    it('serves public/ files immutable for a year, naming their build', async () => {
+      // Whatever ?v= asks for: the worker keeps a file under its URL only
+      // when this names the same build (src/asset-cache.ts, #656).
+      const res = await t.inject({
+        method: 'GET',
+        url: '/js/connectivity.js?v=older',
+      });
       expect(res.statusCode).toBe(200);
       expect(res.headers['cache-control']).toBe(
         'public, max-age=31536000, immutable',
       );
+      expect(res.headers[ASSET_VERSION_HEADER.toLowerCase()]).toBe(RELEASE);
     });
 
     it('keeps the service worker revalidating', async () => {

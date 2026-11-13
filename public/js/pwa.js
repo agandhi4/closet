@@ -55,7 +55,28 @@ function registerServiceWorker() {
         },
       },
     });
+    guardReload();
   };
+
+  // The waiting worker's Reload needs the server (#656): it activates the
+  // new build, whose activation refresh fetches every page an older build
+  // stored, and the reload itself is a navigation. Offline, the new build
+  // would take over with nothing to fetch them with. Disabled, the toast
+  // saying why, while the heartbeat (connectivity.js's data-connectivity,
+  // never navigator.onLine) is not online. An update another window already
+  // activated has nothing left to activate: its Reload stays a plain reload.
+  const guardReload = () => {
+    if (!toast?.button || update !== 'waiting') return;
+    const online =
+      (document.documentElement.dataset.connectivity ?? 'online') === 'online';
+    toast.button.disabled = !online;
+    if (online) toast.button.removeAttribute('aria-disabled');
+    else toast.button.setAttribute('aria-disabled', 'true');
+    toast.label.textContent = online
+      ? strings().textUpdateAvailable
+      : strings().textUpdateNeedsNetwork;
+  };
+  document.addEventListener('connectivity:change', guardReload);
 
   wb.addEventListener('waiting', () => {
     update = 'waiting';

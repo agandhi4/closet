@@ -270,3 +270,49 @@ export function revalidationOutcome(
   }
   return fresh.body === cached.body ? 'current' : 'updated';
 }
+
+/**
+ * What the worker does with a cached page it fetched again itself (#656):
+ * the activation refresh of every older-build copy and the refetch of the
+ * pages a sync changed (refetchCachedPage, views/assets/src-sw.ts):
+ *  - stored: a 200, through the page plugins like any page (the 200 filter,
+ *    the owner claim, the stamp, the generation);
+ *  - deleted: a 404 or a 403, gone or no longer this account's to see (a
+ *    revoked share): its copies go, page and `|hx` fragment;
+ *  - kept: a followed redirect to another page, never stored under this key
+ *    (pageStore's rule), or another refusal: the old copy stays;
+ *  - stop: a 429 or a 5xx, the server unwell: nothing more is asked, every
+ *    copy stays, and the next WARM_PAGES resumes;
+ *  - session-ended: a 401, X-Session-Ended or a redirect to the login page:
+ *    the session caches go (endFetchedSession). Deliberately: it is how a
+ *    password change or a revocation reaches a lost phone, at the cost of an
+ *    expired cookie's offline copies.
+ * The worker's fetch is no navigation, so the session gate answers it 401,
+ * never the login page; no login page is stored under a page key either way.
+ */
+export type RefetchVerdict =
+  | 'stored'
+  | 'deleted'
+  | 'kept'
+  | 'stop'
+  | 'session-ended';
+
+export function refetchVerdict(answer: {
+  status: number;
+  redirected: boolean;
+  url: string;
+  headers: { get(name: string): string | null; has(name: string): boolean };
+}): RefetchVerdict {
+  if (
+    answer.status === 401 ||
+    endedSession(answer.headers) ||
+    sentToLogin(answer)
+  ) {
+    return 'session-ended';
+  }
+  if (answer.redirected) return 'kept';
+  if (answer.status === 200) return 'stored';
+  if (answer.status === 404 || answer.status === 403) return 'deleted';
+  if (answer.status === 429 || answer.status >= 500) return 'stop';
+  return 'kept';
+}
