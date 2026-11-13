@@ -21,6 +21,16 @@ export const OPERATIONS = [
   // routes are GET /wardrobe and GET /wardrobe/:id).
   'listGarments',
   'getGarment',
+  // #192b: the garment writes, each its page route's twin (PAGE_WRITES).
+  'createGarment',
+  'updateGarment',
+  'deleteGarment',
+  'setGarmentStatus',
+  'setGarmentCondition',
+  'cloneGarment',
+  'addGarmentCopies',
+  'tagGarment',
+  'bulkUpdateGarments',
 ] as const;
 export type OperationId = (typeof OPERATIONS)[number];
 
@@ -121,19 +131,19 @@ export const PAGE_WRITES: Readonly<
   'POST /auth/devices/:id/revoke': AGENT_ACCESS,
 
   // The wardrobe.
-  'POST /wardrobe': { pending: '#192' },
+  'POST /wardrobe': { api: 'createGarment' },
   'POST /wardrobe/properties-fragment': FORM_FRAGMENT,
-  'POST /wardrobe/:id': { pending: '#192' },
-  'DELETE /wardrobe/:id': { pending: '#192' },
-  'POST /wardrobe/:id/archive': { pending: '#192' },
-  'POST /wardrobe/:id/restore': { pending: '#192' },
-  'POST /wardrobe/:id/clone': { pending: '#192' },
-  'POST /wardrobe/:id/copies': { pending: '#192' },
-  'POST /wardrobe/:id/condition': { pending: '#192' },
+  'POST /wardrobe/:id': { api: 'updateGarment' },
+  'DELETE /wardrobe/:id': { api: 'deleteGarment' },
+  'POST /wardrobe/:id/archive': { api: 'setGarmentStatus' },
+  'POST /wardrobe/:id/restore': { api: 'setGarmentStatus' },
+  'POST /wardrobe/:id/clone': { api: 'cloneGarment' },
+  'POST /wardrobe/:id/copies': { api: 'addGarmentCopies' },
+  'POST /wardrobe/:id/condition': { api: 'setGarmentCondition' },
   'POST /wardrobe/:id/repairs': { pending: '#192' },
   'POST /wardrobe/:id/repairs/:repairId/delete': { pending: '#192' },
-  'POST /wardrobe/:id/tag': { pending: '#192' },
-  'POST /wardrobe/bulk': { pending: '#192' },
+  'POST /wardrobe/:id/tag': { api: 'tagGarment' },
+  'POST /wardrobe/bulk': { api: 'bulkUpdateGarments' },
   'POST /wardrobe/:id/photo': { pending: '#192' },
   'POST /wardrobe/:id/photo/rotate': { pending: '#192' },
   'POST /wardrobe/:id/nobg': { pending: '#192' },
@@ -258,8 +268,8 @@ const MUSE_ROUND = {
 
 /** Every MCP tool with `writes: true`, by name (src/web/mcp/tools/). */
 export const MCP_WRITES: Readonly<Record<string, ToolParity>> = {
-  update_garment: { pending: '#192' },
-  add_garment_copy: { pending: '#192' },
+  update_garment: { api: 'updateGarment' },
+  add_garment_copy: { api: 'addGarmentCopies' },
   add_garment_from_link: { pending: '#192' },
   create_outfit: { pending: '#193' },
   schedule_outfit: { pending: '#193' },

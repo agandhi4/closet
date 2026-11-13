@@ -51,6 +51,11 @@ export class HttpError extends Error {
   readonly code: ErrorCode;
   /** Sent as `Retry-After`: a rate limit's window, the owner lock's wait. */
   readonly retryAfterSeconds?: number;
+  /**
+   * Which fields a 400 refuses, each with its message: a problem's `errors`
+   * (a JSON body the form's rules refused, #192b); a page shows the message.
+   */
+  readonly validation?: readonly ValidationFailure[];
 
   constructor(
     readonly statusCode: number,
@@ -59,6 +64,7 @@ export class HttpError extends Error {
       logDetail?: string;
       code?: ErrorCode;
       retryAfterSeconds?: number;
+      validation?: readonly ValidationFailure[];
     } = {},
   ) {
     super(message);
@@ -66,6 +72,7 @@ export class HttpError extends Error {
     this.logDetail = options.logDetail;
     this.code = options.code ?? codeOfStatus(statusCode);
     this.retryAfterSeconds = options.retryAfterSeconds;
+    this.validation = options.validation;
   }
 }
 
@@ -121,8 +128,8 @@ export interface ErrorAnswer {
   /** For the log line, never the answer (HttpError.logDetail). */
   logDetail?: string;
   retryAfterSeconds?: number;
-  /** A schema validation's failures, each where and what (Fastify's). */
-  validation?: ValidationFailure[];
+  /** A validation's failures, each where and what (Fastify's, or an HttpError's). */
+  validation?: readonly ValidationFailure[];
   /** A crash, not a chosen answer: logged with its stack. */
   unexpected: boolean;
 }
@@ -195,6 +202,7 @@ export function describeError(error: unknown): ErrorAnswer {
       code: error.code,
       logDetail: error.logDetail,
       retryAfterSeconds: error.retryAfterSeconds,
+      validation: error.validation,
       unexpected: false,
     };
   }

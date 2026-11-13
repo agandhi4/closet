@@ -51,7 +51,7 @@ E2E_BUDGET_SECONDS := 180
 # (boot 60 s, cutout 240 s) catch a hang, this catches a boot that slowly grew.
 SMOKE_BUDGET_SECONDS := 120
 UNIT_FLOOR := 1772
-DB_FLOOR := 4946
+DB_FLOOR := 5055
 E2E_FLOOR := 10
 
 help:
