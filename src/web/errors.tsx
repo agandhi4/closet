@@ -154,12 +154,19 @@ function validationFailures(
   const part =
     typeof error.validationContext === 'string' ? error.validationContext : '';
   return error.validation.map((failure: unknown) => {
-    const { instancePath, message } = failure as {
+    const { instancePath, message, params } = failure as {
       instancePath?: unknown;
       message?: unknown;
+      params?: { additionalProperty?: unknown };
     };
+    // Ajv puts an undeclared key in `params`, not the path (the API's
+    // closed querystring, validator.ts): name it, as every other failure.
+    const extra =
+      typeof params?.additionalProperty === 'string'
+        ? `/${params.additionalProperty}`
+        : '';
     return {
-      path: `${part}${typeof instancePath === 'string' ? instancePath : ''}`,
+      path: `${part}${typeof instancePath === 'string' ? instancePath : ''}${extra}`,
       message: typeof message === 'string' ? message : 'is invalid',
     };
   });

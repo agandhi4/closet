@@ -12,7 +12,7 @@ import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { OccasionSchema, RowId } from '../schemas';
 import { viewContext } from '../view-context';
-import { wearIdea } from './queries';
+import { MAX_WORN_GARMENTS, wearIdea } from './queries';
 import { MAX_TODAY_PAGE, todayFor, todayIdeas } from './today';
 import { IdeasRowView, TodayPage } from './today-page';
 import { TODAY_IDEAS_PATH, TODAY_PATH, WEAR_THIS_PATH } from './urls';
@@ -30,9 +30,6 @@ import { TODAY_IDEAS_PATH, TODAY_PATH, WEAR_THIS_PATH } from './urls';
  *   (POST /calendar/:id/worn with `returnTo=/`): one write for an entry's
  *   worn state, wherever it is tapped.
  */
-
-/** The most garments an idea holds (the gallery's pick allows the same). */
-const MAX_WORN_GARMENTS = 8;
 
 const IdeasQuery = Type.Object({
   occasion: Type.Optional(Type.String()),
@@ -116,6 +113,7 @@ export const todayRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const outcome = await wearIdea(db, ownerId, {
         garmentIds: garmentId,
         occasion,
+        day: today,
         today,
         at: now,
       });

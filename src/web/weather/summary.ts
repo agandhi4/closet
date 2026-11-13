@@ -21,6 +21,12 @@ import type { CachedForecast } from './service';
  * calendar agenda and Today).
  */
 
+/**
+ * The widest range of days one read answers: a calendar month and a half
+ * (GET /weather/summary's chips, GET /api/v1/weather's days).
+ */
+export const MAX_SUMMARY_DAYS = 42;
+
 export interface TodayLine {
   condition: Condition;
   /** Air temperature, in the user's unit. */

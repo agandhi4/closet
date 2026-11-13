@@ -4,6 +4,7 @@ import { readdir } from 'node:fs/promises';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { TokenKind } from '../../src/credential-names';
+import committedSpec from '../../src/web/api/openapi.json';
 import {
   optionGroup,
   orderItem,
@@ -18,7 +19,10 @@ import type { SuggestionDecision } from '../../src/wardrobe/suggestions';
 import { setGarmentStatus } from '../../src/web/wardrobe/status';
 import { decide, markSuggestion } from '../../src/web/wishlist/decisions';
 import { addOutfitRule, saveStyleProfile } from '../../src/web/style/queries';
-import { EMPTY_STYLE_PROFILE } from '../../src/web/style/validation';
+import {
+  EMPTY_STYLE_PROFILE,
+  NO_MATCHER,
+} from '../../src/web/style/validation';
 import { LOGIN_PATH } from '../../src/web/auth/login-path';
 import { addBrandSize } from '../../src/web/sizes/queries';
 import { addRepair } from '../../src/web/wardrobe/repairs';
@@ -145,6 +149,8 @@ export interface Fixture {
   capsuleName: string;
   outfitId: number;
   outfitName: string;
+  /** An empty outfit of the owner's, on no day: what the entry's Change picks. */
+  spareOutfitId: number;
   /** One of Muse's outfits (#335) waiting on the owner, and one set aside. */
   museOutfitId: number;
   museDeclinedId: number;
@@ -276,14 +282,6 @@ export const inspirationTitle = (f: Fixture) => f.inspirationTitle;
 export const inspirationPhotoName = (f: Fixture) => f.inspirationFileName;
 export const OWNER_TOKEN_NAME = 'Owner laptop token';
 export const OWNER_DEVICE_NAME = 'Owner phone app';
-/** A rule side with no matcher set: a fixture's sides spread one in. */
-const NO_MATCHER = {
-  garmentId: null,
-  category: null,
-  type: null,
-  color: null,
-  pattern: null,
-};
 
 /** A feature off by default whose routes exist only with it on. */
 export type Feature = 'weather' | 'orderMail';
@@ -357,6 +355,8 @@ const TABLES = [
   // Saved looks (#22).
   'inspiration',
   'inspiration_piece',
+  // An Ideas card's "Clashes" (#193c's matrix case).
+  'generator_avoid',
 ];
 
 /** The page, or the route's /api/v1 twin (Route.api) with a device token. */
@@ -650,6 +650,16 @@ export function describeMatrix(
         /^\/outfits\/(\d+)$/.exec(outfit.headers.location as string)?.[1],
       );
       expect(outfitId).toBeGreaterThan(0);
+      const spare = await t.inject({
+        method: 'POST',
+        url: '/outfits',
+        payload: { name: `Spare ${tag}` },
+        headers: { cookie },
+      });
+      const spareOutfitId = Number(
+        /^\/outfits\/(\d+)$/.exec(spare.headers.location as string)?.[1],
+      );
+      expect(spareOutfitId).toBeGreaterThan(0);
       // Muse's outfits (#335): the garment with the wishlist item, then
       // marked as proposed, as the agent's tool will (phase 3).
       const museOutfit = async (
@@ -844,6 +854,7 @@ export function describeMatrix(
         capsuleName,
         outfitId,
         outfitName,
+        spareOutfitId,
         museOutfitId,
         museDeclinedId,
         entryId: entry.id,
@@ -982,6 +993,46 @@ export function describeMatrix(
       unauthorized: 401,
     };
 
+    /**
+     * Whether the API twin takes `?ownerId=` (the committed spec's declared
+     * parameters). The API's querystring is closed (#577): on an owner-only
+     * route (trips, outfits) the page's "ownerId ignored" is a 400 there.
+     */
+    const apiTakesOwnerId = (request: InjectOptions): boolean => {
+      const path = (request.url as string).split('?')[0];
+      // The most literal template wins, as the router's: /garments/washes
+      // beats /garments/{id}.
+      const [, operations] = Object.entries(committedSpec.paths)
+        .filter(([template]) =>
+          new RegExp(`^${template.replace(/\{[^}]+\}/g, '[^/]+')}$`).test(path),
+        )
+        .sort(([a], [b]) => a.split('{').length - b.split('{').length)[0];
+      const operation = (
+        operations as Record<
+          string,
+          { parameters?: { name: string; in: string }[] }
+        >
+      )[String(request.method).toLowerCase()];
+      return (operation.parameters ?? []).some(
+        (parameter) => parameter.in === 'query' && parameter.name === 'ownerId',
+      );
+    };
+
+    const expectOwnerIdRefused = async (
+      actor: ActorName,
+      request: InjectOptions,
+      secret: string,
+    ) => {
+      const before = await snapshot();
+      const res = await send('api', actor, request);
+      expect(res.statusCode).toBe(actor === 'anonymous' ? 401 : 400);
+      expect(res.body).not.toContain(secret);
+      // Refused before the handler: nobody's rows change, the owner's least.
+      expect(
+        await changedRows(changedTables(before, await snapshot())),
+      ).toEqual([]);
+    };
+
     /** The case's request and success status on its surface. */
     const onSurface = async (
       { route, surface }: Pick<Case, 'route' | 'surface'>,
@@ -1099,6 +1150,11 @@ export function describeMatrix(
 
       if (outcome === 'ok' && route.kind === 'clone') {
         await expectCloned(matrixCase, ok, request);
+        return;
+      }
+
+      if (surface === 'api' && via === 'ownerId' && !apiTakesOwnerId(request)) {
+        await expectOwnerIdRefused(actor, request, secret);
         return;
       }
 

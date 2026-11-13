@@ -2,21 +2,45 @@ import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { authApiRoutes } from '../auth/api-routes';
+import { calendarApiRoutes } from '../calendar/api-routes';
+import { capsuleApiRoutes } from '../capsules/api-routes';
+import { galleryApiRoutes } from '../gallery/api-routes';
+import { lookApiRoutes } from '../inspiration/api-routes';
+import type { InspirationLinkLimit } from '../inspiration/writes';
 import type { SignInLimit } from '../auth/sign-in';
+import { insightsApiRoutes } from '../insights/api-routes';
 import { outfitApiRoutes } from '../outfits/api-routes';
 import type { WebOptions } from '../plugin';
 import { Problem } from '../problem';
-import { API_LIMIT, enforceLimit } from '../security/rate-limit';
+import { selfieApiRoutes } from '../selfies/api-routes';
+import { sharingApiRoutes } from '../sharing/api-routes';
+import { styleApiRoutes } from '../style/api-routes';
+import {
+  API_LIMIT,
+  API_PHOTO_LIMIT,
+  enforceLimit,
+  type WeatherLimits,
+} from '../security/rate-limit';
+import { sizesApiRoutes } from '../sizes/api-routes';
 import { API_PREFIX } from '../surface';
+import { todayApiRoutes } from '../today/api-routes';
+import { tripApiRoutes } from '../trips/api-routes';
 import { wardrobeApiRoutes } from '../wardrobe/api-routes';
+import { weatherApiRoutes } from '../weather/api-routes';
 import { wearApiRoutes } from '../wears/api-routes';
+import { weekPlanApiRoutes } from '../week-plan/api-routes';
+import { wishlistApiRoutes } from '../wishlist/api-routes';
 import type { LinkImportLimit } from '../wardrobe/link-import/import';
 import { apiResponses, requireContract } from './contract';
 import spec from './openapi.json';
 import { createDeviceTokenHook, refuseQueryToken } from './token-auth';
-import { jsonApiValidator } from './validator';
+import { declareQuerystring, jsonApiValidator } from './validator';
 
-export type ApiOptions = WebOptions & SignInLimit & LinkImportLimit;
+export type ApiOptions = WebOptions &
+  SignInLimit &
+  LinkImportLimit &
+  InspirationLinkLimit &
+  WeatherLimits;
 
 /**
  * Registers apiPlugin under API_PREFIX (webPlugin, scripts/api-spec.ts).
@@ -50,7 +74,8 @@ const SPEC_BODY = JSON.stringify(spec);
  *  - registration refuses a route without its contract (requireContract);
  *  - onRequest: a token in the query string is a 400, then a device token,
  *    unless `config.public` (before the body is read);
- *  - preHandler: API_LIMIT per token, one budget for the whole API.
+ *  - preHandler: API_LIMIT per token, one budget for the whole API, but a
+ *    route with `config.apiPhotoBytes` counts on API_PHOTO_LIMIT instead.
  * A feature's API routes live beside its pages (`src/web/<feature>/
  * api-routes.ts`) and register here.
  */
@@ -63,12 +88,15 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
   app.addSchema(Problem);
   app.setValidatorCompiler(jsonApiValidator(app));
   app.addHook('onRoute', requireContract);
+  app.addHook('onRoute', declareQuerystring);
   app.addHook('onRequest', refuseQueryToken);
   app.addHook('onRequest', createDeviceTokenHook({ db, logger: apiLogger }));
   const apiLimit = app.createRateLimit(API_LIMIT);
+  const photoLimit = app.createRateLimit(API_PHOTO_LIMIT);
   app.addHook('preHandler', async (request: FastifyRequest) => {
-    if (request.routeOptions.config.public === true) return;
-    await enforceLimit(apiLimit, request, {
+    const { config } = request.routeOptions;
+    if (config.public === true) return;
+    await enforceLimit(config.apiPhotoBytes ? photoLimit : apiLimit, request, {
       logger: apiLogger,
       who: `token ${request.accessToken!.tokenId}`,
     });
@@ -102,4 +130,20 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
   await app.register(wardrobeApiRoutes, options);
   await app.register(wearApiRoutes, options);
   await app.register(outfitApiRoutes, options);
+  await app.register(calendarApiRoutes, options);
+  await app.register(todayApiRoutes, options);
+  await app.register(weekPlanApiRoutes, options);
+  await app.register(tripApiRoutes, options);
+  await app.register(wishlistApiRoutes, options);
+  await app.register(capsuleApiRoutes, options);
+  await app.register(galleryApiRoutes, options);
+  await app.register(selfieApiRoutes, options);
+  await app.register(lookApiRoutes, options);
+  await app.register(insightsApiRoutes, options);
+  await app.register(sizesApiRoutes, options);
+  await app.register(styleApiRoutes, options);
+  await app.register(sharingApiRoutes, options);
+  // Only with WEATHER_ENABLED, as /weather/* (webPlugin).
+  const { weather } = options;
+  if (weather) await app.register(weatherApiRoutes, { ...options, weather });
 };

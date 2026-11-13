@@ -58,6 +58,37 @@ describeMatrix('wardrobe', ROUTES, (m) => {
     },
   );
 
+  // Its API read (#194b) likewise: a grantee naming the owner is a 403,
+  // without ?ownerId= the item is not in their wardrobe (a 404), and
+  // neither answer judges the owner's closet.
+  it("GET /api/v1/garments/:id/goes-with is the owner's alone", async () => {
+    const url = `/api/v1/garments/${m.shared.wishlistId}/goes-with`;
+    const named = `${url}?ownerId=${m.actors.owner.id}`;
+    const owner = await m.t.api(m.actors.owner.token, { method: 'GET', url });
+    expect(owner.statusCode).toBe(200);
+    expect(owner.json()).toMatchObject({ pairsWith: expect.any(Array) });
+    const ownNamed = await m.t.api(m.actors.owner.token, {
+      method: 'GET',
+      url: named,
+    });
+    expect(ownNamed.statusCode).toBe(200);
+    for (const actor of ['manager', 'viewer', 'stranger'] as const) {
+      const { token } = m.actors[actor];
+      const own = await m.t.api(token, { method: 'GET', url });
+      const shared = await m.t.api(token, { method: 'GET', url: named });
+      expect([own.statusCode, shared.statusCode], actor).toEqual(
+        actor === 'stranger' ? [404, 404] : [404, 403],
+      );
+      expect(shared.body).not.toContain('pairsWith');
+    }
+    // A closet garment is no wishlist item: the owner's 404 too.
+    const closet = await m.t.api(m.actors.owner.token, {
+      method: 'GET',
+      url: `/api/v1/garments/${m.shared.garmentId}/goes-with`,
+    });
+    expect(closet.statusCode).toBe(404);
+  });
+
   // The wear's undo (#193a) is wearGarment behind the same guard as its
   // PUT, so it refuses as the PUT's matrix cases do; its own case needs a
   // wear to undo, which the shared fixture must not have

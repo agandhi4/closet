@@ -114,7 +114,7 @@ export const inboxRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     const { access, viewOwner } = await authorize(request, 'view');
     const inbox = await readInbox(db, {
       ownerId: access.ownerId,
-      viewerId: sessionUserId(request),
+      viewerId: groupsOnly ? undefined : sessionUserId(request),
       isOwner: access.isOwner,
       groupsOnly,
     });

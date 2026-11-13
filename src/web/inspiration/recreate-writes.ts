@@ -40,8 +40,9 @@ export interface SavedRecreation {
  * a garment that is not of the piece's kind, or one garment chosen for two pieces (an outfit
  * holds it once, so the save would drop a piece's choice silently), refuses
  * the save whole (409: the page is out of date); a garment gone from the closet is pickIdea's
- * refusal, named (garmentsGoneError). Nothing chosen is a 400 (the page
- * offers no save without a match).
+ * refusal, named (garmentsGoneError). Nothing chosen, or a piece posted
+ * twice, is a 400 (the page offers neither). The match view's save and
+ * POST /api/v1/looks/{id}/outfits.
  */
 export async function saveRecreation(
   db: Db,
@@ -49,6 +50,11 @@ export async function saveRecreation(
   id: number,
   posted: readonly PostedChoice[],
 ): Promise<SavedRecreation> {
+  if (new Set(posted.map((c) => c.position)).size !== posted.length) {
+    throw new HttpError(400, 'A piece chosen twice', {
+      logDetail: `inspiration ${id}: a position posted twice`,
+    });
+  }
   const garmentIds = posted.flatMap((c) => c.garmentId ?? []);
   if (garmentIds.length === 0) {
     throw new HttpError(400, t('inspiration.NOTHING_CHOSEN'), {

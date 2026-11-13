@@ -3,11 +3,7 @@ import { selectScalars } from '../../../db/select-scalars';
 import { templateDays, weeklyRhythm } from '../../../wardrobe/week';
 import { avoidedPairsByNameSql } from '../../gallery/queries';
 import { garmentNamesOf, matcherLabel, ruleSentence } from '../../style/labels';
-import {
-  outfitRuleListSql,
-  readOutfitRule,
-  styleProfileSql,
-} from '../../style/queries';
+import { readOutfitRule, styleProfileParts } from '../../style/queries';
 import { inTemplateOrder, weekTemplateSql } from '../../week-plan/template';
 import { defineTool } from '../tool';
 
@@ -27,9 +23,8 @@ export const styleTools = [
     async run(_args, ctx) {
       // One statement (#172; it was two).
       const read = await selectScalars(ctx.db, {
-        profile: styleProfileSql(ctx.userId),
+        ...styleProfileParts(ctx.userId),
         template: weekTemplateSql(ctx.userId),
-        rules: outfitRuleListSql(ctx.userId),
         avoided: avoidedPairsByNameSql(ctx.userId),
       });
       const template = inTemplateOrder(read.template);

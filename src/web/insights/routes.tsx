@@ -5,14 +5,13 @@ import {
   isUnwornDays,
   type UnwornDays,
 } from '../../wardrobe/insights';
-import { yearRecap } from '../../wardrobe/recap';
 import { sessionUserId } from '../auth/require-session';
 import { todayIn } from '../../calendar-date';
 import type { WebOptions } from '../plugin';
 import { renderPage } from '../render';
 import { viewContext } from '../view-context';
 import { InsightsPage } from './insights-page';
-import { readInsightRows, readInsights } from './queries';
+import { readInsights, readRecap } from './queries';
 import { RecapPage } from './recap-page';
 import { recapPeriod, recapYear } from './recap-period';
 import { INSIGHTS_PATH, RECAP_PATH } from './urls';
@@ -79,12 +78,7 @@ export const insightsRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const today = todayIn(config.timeZone, new Date());
       const period = recapPeriod(recapYear(request.query.year, today), today);
       const started = performance.now();
-      const { garments, pairs } = await readInsightRows(db, userId, {
-        from: period.from,
-        to: period.to,
-        scope: 'owned',
-      });
-      const recap = yearRecap(garments, pairs, period);
+      const recap = await readRecap(db, userId, period);
       logger.debug(
         `Recap ${period.year} for user ${userId}: ${recap.wears} wear(s), ${recap.piecesWorn} piece(s), ${recap.additions.count} added in ${Math.round(performance.now() - started)} ms`,
       );

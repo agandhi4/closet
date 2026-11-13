@@ -20,13 +20,22 @@ export const ROUTES: Route[] = [
     ok: 200,
     secret: styleNote,
     shows: true,
-    vias: ['own'],
-    request: () => ({ method: 'GET', url: '/auth/profile/style' }),
+    vias: BOTH,
+    request: (_f, q) => ({ method: 'GET', url: `/auth/profile/style${q}` }),
     expect: {
       owner: 'ok',
       manager: 'hidden',
       viewer: 'hidden',
       stranger: 'hidden',
+    },
+    // The API's twin reads the same profile and rules; `?ownerId=` is a
+    // 400 there (its querystring is closed, #577), ignored on the page.
+    api: {
+      ok: 200,
+      request: (_f, q) => ({
+        method: 'GET',
+        url: `/api/v1/style-profile${q}`,
+      }),
     },
   },
   // Its outfit rules (#21b): the owner's alone, like the profile. The page
@@ -38,13 +47,20 @@ export const ROUTES: Route[] = [
     ok: 200,
     secret: garmentName,
     shows: true,
-    vias: ['own'],
-    request: () => ({ method: 'GET', url: '/auth/profile/style' }),
+    vias: BOTH,
+    request: (_f, q) => ({ method: 'GET', url: `/auth/profile/style${q}` }),
     expect: {
       owner: 'ok',
       manager: 'hidden',
       viewer: 'hidden',
       stranger: 'hidden',
+    },
+    api: {
+      ok: 200,
+      request: (_f, q) => ({
+        method: 'GET',
+        url: `/api/v1/style-profile${q}`,
+      }),
     },
   },
   {
@@ -52,10 +68,10 @@ export const ROUTES: Route[] = [
     kind: 'write',
     ok: 303,
     secret: garmentName,
-    vias: ['own'],
-    request: (f) => ({
+    vias: BOTH,
+    request: (f, q) => ({
       method: 'POST',
-      url: '/auth/profile/style/rules',
+      url: `/auth/profile/style/rules${q}`,
       payload: { kind: 'always', a: `garment:${f.garmentId}`, b: 'color:red' },
     }),
     expect: {
@@ -64,22 +80,41 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 201,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/outfit-rules${q}`,
+        payload: {
+          kind: 'always',
+          a: { garmentId: f.garmentId },
+          b: { color: 'red' },
+        },
+      }),
+    },
   },
   {
     name: 'POST /auth/profile/style/rules/:id/delete',
     kind: 'write',
     ok: 303,
     secret: garmentName,
-    vias: ['own'],
-    request: (f) => ({
+    vias: BOTH,
+    request: (f, q) => ({
       method: 'POST',
-      url: `/auth/profile/style/rules/${f.outfitRuleId}/delete`,
+      url: `/auth/profile/style/rules/${f.outfitRuleId}/delete${q}`,
     }),
     expect: {
       owner: 'ok',
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 204,
+      request: (f, q) => ({
+        method: 'DELETE',
+        url: `/api/v1/outfit-rules/${f.outfitRuleId}${q}`,
+      }),
     },
   },
   // Sizes (#24): everyone's own, like the style profile; the owner's note
@@ -97,6 +132,10 @@ export const ROUTES: Route[] = [
       manager: 'hidden',
       viewer: 'hidden',
       stranger: 'hidden',
+    },
+    api: {
+      ok: 200,
+      request: (_f, q) => ({ method: 'GET', url: `/api/v1/sizes${q}` }),
     },
   },
   {
@@ -116,6 +155,13 @@ export const ROUTES: Route[] = [
       viewer: 'hidden',
       stranger: 'hidden',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'GET',
+        url: `/api/v1/sizes/brands?brand=${encodeURIComponent(f.brand)}${q.replace('?', '&')}`,
+      }),
+    },
   },
   {
     name: 'POST /auth/profile/sizes/brands/:id',
@@ -134,6 +180,14 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/sizes/brands/${f.brandSizeId}${q}`,
+        payload: { brand: f.brand, size: 'L', note: OWNER_SIZE_NOTE },
+      }),
+    },
   },
   {
     name: 'POST /auth/profile/sizes/brands/:id/delete',
@@ -150,6 +204,13 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 204,
+      request: (f, q) => ({
+        method: 'DELETE',
+        url: `/api/v1/sizes/brands/${f.brandSizeId}${q}`,
+      }),
     },
   },
   {
@@ -357,6 +418,14 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/calendar-entries/${f.entryId}/worn${q}`,
+        payload: { worn: true },
+      }),
     },
   },
 ];

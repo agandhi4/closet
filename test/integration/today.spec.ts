@@ -18,7 +18,7 @@ import {
   userIdOf,
   asFixture,
 } from './harness';
-import { deviceToken } from './api';
+import { deviceToken, expectProblem } from './api';
 import { createAccessToken, callTool, mintToken, tool } from './mcp';
 import { mirrorPhoto, postSelfie } from './selfies';
 
@@ -312,11 +312,119 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
       expect(page.body).toContain(`data-to="${today}"`);
     });
 
+    it("the API's insights and year in review (#588) count to today, the household's", async () => {
+      const worn = await createGarment(t, {
+        name: `API insight ${at}`,
+        cookie,
+      });
+      expect(
+        (await post(`/wardrobe/${worn}/wear`, { worn: '1' })).statusCode,
+      ).toBe(303);
+      const { token } = await deviceToken(t);
+      const insights = await t.api(token, {
+        method: 'GET',
+        url: '/api/v1/insights?unwornDays=30',
+      });
+      expect(insights.statusCode, insights.body).toBe(200);
+      const model = insights.json<{
+        today: IsoDate;
+        unworn: { garments: { id: number }[] };
+      }>();
+      expect(model.today).toBe(today);
+      expect(model.unworn.garments.map((g) => g.id)).not.toContain(worn);
+      const year = Number(today.slice(0, 4));
+      const recap = await t.api(token, {
+        method: 'GET',
+        url: '/api/v1/insights/recap',
+      });
+      expect(recap.json()).toMatchObject({
+        year,
+        from: `${year}-01-01`,
+        to: today,
+        complete: false,
+      });
+      // Data, not the page's navigation state: next year is a 400.
+      expectProblem(
+        await t.api(token, {
+          method: 'GET',
+          url: `/api/v1/insights/recap?year=${year + 1}`,
+        }),
+        400,
+        'validation',
+      );
+    });
+
     it('GET /api/v1/me (#530) answers the household day', async () => {
       const { token } = await deviceToken(t);
       const res = await t.api(token, { method: 'GET', url: '/api/v1/me' });
       expect(res.statusCode, res.body).toBe(200);
       expect(res.json<{ today: IsoDate }>().today).toBe(today);
+    });
+
+    it("GET /api/v1/today (#195a) is the household's day and its plan", async () => {
+      const { token } = await deviceToken(t);
+      const { outfitId } = await newOutfit(`API today ${at}`);
+      const entry = await plan(outfitId, today);
+      await plan(outfitId, tomorrow);
+      const res = await t.api(token, { method: 'GET', url: '/api/v1/today' });
+      expect(res.statusCode, res.body).toBe(200);
+      const model = res.json<{
+        today: IsoDate;
+        rows: { entries?: { id: number; day: IsoDate }[] }[];
+      }>();
+      expect(model.today).toBe(today);
+      const entries = model.rows.flatMap((row) => row.entries ?? []);
+      expect(entries).toContainEqual(
+        expect.objectContaining({ id: entry, day: today }),
+      );
+      expect(entries.every((e) => e.day === today)).toBe(true);
+    });
+
+    it("the API's calendar (#193b): this week from today, today's entry worn and tomorrow's refused, Wear this today, the week planned from today", async () => {
+      const { token } = await deviceToken(t);
+      const api = (
+        method: 'GET' | 'POST' | 'PUT',
+        url: string,
+        payload?: object,
+      ) => t.api(token, { method, url: `/api/v1${url}`, payload });
+      const { outfitId } = await newOutfit(`API ${at}`);
+      const entry = await plan(outfitId, today);
+      const ahead = await plan(outfitId, tomorrow);
+
+      expect((await api('GET', '/calendar-entries')).json()).toMatchObject({
+        from: today,
+        to: addDays(today, 6),
+      });
+      expect(
+        (await api('PUT', `/calendar-entries/${entry}/worn`, { worn: true }))
+          .statusCode,
+      ).toBe(200);
+      expect(
+        (await api('PUT', `/calendar-entries/${ahead}/worn`, { worn: true }))
+          .statusCode,
+      ).toBe(409);
+
+      const top = await createGarment(t, { name: `API wear ${at}`, cookie });
+      const wear = (day: IsoDate) =>
+        api('POST', '/outfit-wears', {
+          garmentIds: [top],
+          occasion: 'evening',
+          day,
+        });
+      expect((await wear(tomorrow)).statusCode).toBe(409);
+      expect((await wear(today)).statusCode).toBe(200);
+      expect(await wearDays(top)).toEqual([{ day: today }]);
+
+      // As someone with no week template: the owner's slots stay for the
+      // "Plan my week" row of a later instant (one app per zone).
+      const email = `api-week-${at.replace(/\W/g, '')}@example.com`;
+      await t.register(email);
+      const planner = (await deviceToken(t, { email })).token;
+      const planned = await t.api(planner, {
+        method: 'POST',
+        url: '/api/v1/week-plans',
+      });
+      expect(planned.json<{ from: IsoDate }>().from).toBe(today);
     });
 
     it('MCP: get_calendar starts today; mark_worn and mark_washed record today', async () => {

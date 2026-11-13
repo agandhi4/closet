@@ -51,6 +51,107 @@ export const OPERATIONS = [
   'updateOutfit',
   'deleteOutfit',
   'reactToOutfit',
+  // #193b: the calendar, Today's Wear this, the week plan and its template.
+  'listCalendarEntries',
+  'createCalendarEntry',
+  'replaceCalendarEntryOutfit',
+  'setCalendarEntryWorn',
+  'deleteCalendarEntry',
+  'wearOutfit',
+  'planWeek',
+  'undoWeekPlan',
+  'getWeekTemplate',
+  'saveWeekTemplate',
+  // #194a: trips and packing.
+  'listTrips',
+  'getTrip',
+  'createTrip',
+  'updateTrip',
+  'deleteTrip',
+  'addTripOutfit',
+  'removeTripOutfit',
+  'wearTripOutfit',
+  'setTripGarmentPacked',
+  'addTripItem',
+  'setTripItemPacked',
+  'removeTripItem',
+  'copyTripItems',
+  // #194b: the wishlist (Muse's inbox, its decisions, "Bought it") and
+  // capsules. A new wishlist item, and "Bought a different one", are
+  // createGarment's (`destination`, `boughtForNeedId`).
+  'getWishlist',
+  'markWishlistSeen',
+  'getWishlistNeed',
+  'decideWishlistPick',
+  'decideWishlistNeed',
+  'buyWishlistItem',
+  'returnGarment',
+  'getGoesWith',
+  'listCapsules',
+  'getCapsule',
+  'createCapsule',
+  'updateCapsule',
+  'deleteCapsule',
+  'changeCapsuleMembers',
+  'changeGarmentCapsules',
+  // #193c: ideas (the Ideas tab and Styling's Shuffle), the pick, clashes,
+  // the temperature feedback and outfit selfies.
+  'listIdeas',
+  'pickOutfit',
+  'avoidGarmentPair',
+  'allowGarmentPair',
+  'sendTemperatureFeedback',
+  'setCalendarEntrySelfie',
+  'deleteSelfie',
+  'getSelfiePhoto',
+  // #193d: saved looks (Inspiration), their pieces, the match view's read
+  // and its two writes, and the photo's bytes to the owner's device.
+  'listLooks',
+  'createLook',
+  'importLookFromLink',
+  'getLook',
+  'updateLook',
+  'deleteLook',
+  'replaceLookPhoto',
+  'addLookPiece',
+  'setLookPieces',
+  'updateLookPiece',
+  'deleteLookPiece',
+  'getLookRecreation',
+  'saveLookAsOutfit',
+  'findLookPiece',
+  'getLookPhoto',
+  // #195a: Today's read, and the weather: the forecast where you are and a
+  // trip's, the settings, the place search and a trip's destination.
+  'getToday',
+  'getWeather',
+  'searchPlaces',
+  'setWeatherHome',
+  'clearWeatherHome',
+  'setWeatherHere',
+  'clearWeatherHere',
+  'setTemperatureUnit',
+  'resetTemperatureOffset',
+  'getTripWeather',
+  'setTripDestination',
+  // #588: insights and the year in review (reads), sizes, measurements and
+  // the brand hint.
+  'getInsights',
+  'getRecap',
+  'getSizes',
+  'saveMeasurements',
+  'setLengthUnit',
+  'listBrandSizes',
+  'addBrandSize',
+  'updateBrandSize',
+  'deleteBrandSize',
+  // #195c: the style profile and its outfit rules, and the wardrobes shared
+  // with you (sharing admin stays web-only: SHARING_ADMIN).
+  'getStyleProfile',
+  'saveStyleProfile',
+  'addOutfitRule',
+  'deleteOutfitRule',
+  'listSharedWardrobes',
 ] as const;
 export type OperationId = (typeof OPERATIONS)[number];
 
@@ -63,24 +164,33 @@ export function isOperationId(id: string): id is OperationId {
  * 6). An issue leaves this list when its last pending route does.
  */
 type EndpointIssue =
-  /** Outfits, styling, ideas, the calendar, wears, the week plan, selfies. */
-  | '#193'
-  /** Trips and packing, the wishlist, capsules. */
-  | '#194'
-  /** Today, insights, sizes, the style profile, weather, shared wardrobes. */
-  | '#195';
+  /** Insights, sizes. */
+  '#195';
+
+/**
+ * A write's API twin: one operation, or each of the few a write that takes
+ * two shapes splits into (POST /calendar plans an outfit, or with `replace`
+ * changes an entry's; schedule_outfit likewise), any of which its matrix
+ * route's `api` may reach.
+ */
+export type Twin = OperationId | readonly [OperationId, ...OperationId[]];
+
+/** A twin's operations, one or several. */
+export function twinOperations(twin: Twin): readonly OperationId[] {
+  return typeof twin === 'string' ? [twin] : twin;
+}
 
 /**
  * How a write relates to the API, exactly one of:
- *  - `api`: the twin's operationId; its matrix cases replay on the twin
- *    (the matrix route's `api`) and must answer the same outcome;
+ *  - `api`: the twin's operationId (or ids, Twin); its matrix cases replay
+ *    on the twin (the matrix route's `api`) and must answer the same outcome;
  *  - `webOnly`: why a native client never gets it (plan section 6, owner
  *    decision 9: step-up credentials, sharing admin, exports, the browser's
  *    own plumbing);
  *  - `pending`: the endpoint issue that adds its twin.
  */
 export type Parity =
-  | { readonly api: OperationId }
+  | { readonly api: Twin }
   | { readonly webOnly: string }
   | { readonly pending: EndpointIssue };
 
@@ -90,7 +200,7 @@ export type Parity =
  * not required: MCP and API parity is not retrofitted (#191).
  */
 export type ToolParity =
-  | { readonly api: OperationId }
+  | { readonly api: Twin }
   | { readonly agentOnly: string }
   | { readonly pending: EndpointIssue };
 
@@ -184,7 +294,7 @@ export const PAGE_WRITES: Readonly<
   'POST /wardrobe/:id/washed': { api: 'washGarment' },
   'POST /wardrobe/:id/away': { api: 'setGarmentAway' },
   'POST /laundry': { api: 'washGarments' },
-  'POST /today/wear': { pending: '#193' },
+  'POST /today/wear': { api: 'wearOutfit' },
 
   // Outfits, styling and ideas.
   'POST /outfits': { api: 'createOutfit' },
@@ -193,85 +303,108 @@ export const PAGE_WRITES: Readonly<
   'POST /outfits/:id/love': { api: 'reactToOutfit' },
   'POST /outfits/:id/dismiss': { api: 'reactToOutfit' },
   'POST /outfits/:id/undo': { api: 'reactToOutfit' },
-  'POST /styling': { pending: '#193' },
-  'POST /outfits/ideas/pick': { pending: '#193' },
-  'POST /outfits/ideas/avoid': { pending: '#193' },
-  'POST /outfits/ideas/allow': { pending: '#193' },
-  'POST /outfits/ideas/feedback': { pending: '#193' },
+  // A pick goes where its destination says (pickTo): saved or planned, an
+  // entry's place (`replace`), a trip (POST /trips/{id}/outfits with the
+  // garments). Styling's Save is a pick too, or with Include picks on a
+  // slot write (createOutfit), or an edit (the outfit's PATCH); its
+  // Shuffle and "Add row" are GETs (GET /ideas).
+  'POST /styling': {
+    api: [
+      'pickOutfit',
+      'replaceCalendarEntryOutfit',
+      'addTripOutfit',
+      'createOutfit',
+      'updateOutfit',
+    ],
+  },
+  'POST /outfits/ideas/pick': {
+    api: ['pickOutfit', 'replaceCalendarEntryOutfit', 'addTripOutfit'],
+  },
+  'POST /outfits/ideas/avoid': { api: 'avoidGarmentPair' },
+  'POST /outfits/ideas/allow': { api: 'allowGarmentPair' },
+  'POST /outfits/ideas/feedback': { api: 'sendTemperatureFeedback' },
 
-  // Saved looks (#22): outfits' inspiration, so outfits' endpoint issue.
-  'POST /inspiration': { pending: '#193' },
-  'POST /inspiration/link': { pending: '#193' },
+  // Saved looks (#22, #193d). The share confirmation's Save is POST
+  // /inspiration (createLook's twin); a native client's own share sheet
+  // posts there itself.
+  'POST /inspiration': { api: 'createLook' },
+  'POST /inspiration/link': { api: 'importLookFromLink' },
   'POST /inspiration/share': {
     webOnly:
-      "the installed app's share target without its worker: writes nothing, answers a redirect",
+      "the installed web app's share target: the service worker answers Android's post on the phone and the server's fallback writes nothing, answering a redirect (a native app's share sheet saves through createLook or importLookFromLink)",
   },
-  'POST /inspiration/:id': { pending: '#193' },
-  'POST /inspiration/:id/delete': { pending: '#193' },
-  'POST /inspiration/:id/photo': { pending: '#193' },
-  'POST /inspiration/:id/pieces': { pending: '#193' },
-  'POST /inspiration/:id/pieces/:position': { pending: '#193' },
-  'POST /inspiration/:id/pieces/:position/delete': { pending: '#193' },
-  'POST /inspiration/:id/pieces/:position/find': { pending: '#193' },
-  'POST /inspiration/:id/recreate/outfit': { pending: '#193' },
+  'POST /inspiration/:id': { api: 'updateLook' },
+  'POST /inspiration/:id/delete': { api: 'deleteLook' },
+  'POST /inspiration/:id/photo': { api: 'replaceLookPhoto' },
+  'POST /inspiration/:id/pieces': { api: 'addLookPiece' },
+  'POST /inspiration/:id/pieces/:position': { api: 'updateLookPiece' },
+  'POST /inspiration/:id/pieces/:position/delete': { api: 'deleteLookPiece' },
+  'POST /inspiration/:id/pieces/:position/find': { api: 'findLookPiece' },
+  'POST /inspiration/:id/recreate/outfit': { api: 'saveLookAsOutfit' },
 
   // The calendar, the week plan and selfies.
-  'POST /calendar': { pending: '#193' },
-  'POST /calendar/:id/delete': { pending: '#193' },
-  'POST /calendar/:id/worn': { pending: '#193' },
-  'POST /calendar/:id/selfie': { pending: '#193' },
-  'POST /selfies/:id/delete': { pending: '#193' },
-  'POST /calendar/plan-week': { pending: '#193' },
-  'POST /calendar/plan-week/:id/undo': { pending: '#193' },
-  'POST /auth/profile/week': { pending: '#193' },
+  'POST /calendar': {
+    api: ['createCalendarEntry', 'replaceCalendarEntryOutfit'],
+  },
+  'POST /calendar/:id/delete': { api: 'deleteCalendarEntry' },
+  'POST /calendar/:id/worn': { api: 'setCalendarEntryWorn' },
+  'POST /calendar/:id/selfie': { api: 'setCalendarEntrySelfie' },
+  'POST /selfies/:id/delete': { api: 'deleteSelfie' },
+  'POST /calendar/plan-week': { api: 'planWeek' },
+  'POST /calendar/plan-week/:id/undo': { api: 'undoWeekPlan' },
+  'POST /auth/profile/week': { api: 'saveWeekTemplate' },
 
-  // Trips and packing.
-  'POST /trips': { pending: '#194' },
-  'POST /trips/:id': { pending: '#194' },
-  'DELETE /trips/:id': { pending: '#194' },
-  'POST /trips/:id/destination': { pending: '#194' },
-  'POST /trips/:id/outfits': { pending: '#194' },
-  'POST /trips/:id/outfits/:tripOutfitId/delete': { pending: '#194' },
-  'POST /trips/:id/outfits/:tripOutfitId/wear': { pending: '#194' },
-  'POST /trips/:id/items': { pending: '#194' },
-  'POST /trips/:id/items/copy': { pending: '#194' },
-  'POST /trips/:id/items/packed': { pending: '#194' },
-  'POST /trips/:id/items/:itemId/delete': { pending: '#194' },
-  'POST /trips/:id/packed': { pending: '#194' },
+  // Trips and packing; the destination is located from GET /weather/places.
+  'POST /trips': { api: 'createTrip' },
+  'POST /trips/:id': { api: 'updateTrip' },
+  'DELETE /trips/:id': { api: 'deleteTrip' },
+  'POST /trips/:id/destination': { api: 'setTripDestination' },
+  'POST /trips/:id/outfits': { api: 'addTripOutfit' },
+  'POST /trips/:id/outfits/:tripOutfitId/delete': {
+    api: 'removeTripOutfit',
+  },
+  'POST /trips/:id/outfits/:tripOutfitId/wear': {
+    api: 'wearTripOutfit',
+  },
+  'POST /trips/:id/items': { api: 'addTripItem' },
+  'POST /trips/:id/items/copy': { api: 'copyTripItems' },
+  'POST /trips/:id/items/packed': { api: 'setTripItemPacked' },
+  'POST /trips/:id/items/:itemId/delete': { api: 'removeTripItem' },
+  'POST /trips/:id/packed': { api: 'setTripGarmentPacked' },
 
   // The wishlist (Muse's inbox).
-  'POST /wardrobe/:id/choose': { pending: '#194' },
-  'POST /wardrobe/:id/dismiss': { pending: '#194' },
-  'POST /wardrobe/:id/undo': { pending: '#194' },
-  'POST /wardrobe/:id/bought': { pending: '#194' },
-  'POST /wardrobe/:id/returned': { pending: '#194' },
-  'POST /wardrobe/wishlist/needs/:id/dismiss': { pending: '#194' },
-  'POST /wardrobe/wishlist/needs/:id/undo': { pending: '#194' },
-  'POST /wardrobe/wishlist/seen': { pending: '#194' },
+  'POST /wardrobe/:id/choose': { api: 'decideWishlistPick' },
+  'POST /wardrobe/:id/dismiss': { api: 'decideWishlistPick' },
+  'POST /wardrobe/:id/undo': { api: 'decideWishlistPick' },
+  'POST /wardrobe/:id/bought': { api: 'buyWishlistItem' },
+  'POST /wardrobe/:id/returned': { api: 'returnGarment' },
+  'POST /wardrobe/wishlist/needs/:id/dismiss': { api: 'decideWishlistNeed' },
+  'POST /wardrobe/wishlist/needs/:id/undo': { api: 'decideWishlistNeed' },
+  'POST /wardrobe/wishlist/seen': { api: 'markWishlistSeen' },
 
   // Capsules.
-  'POST /capsules': { pending: '#194' },
-  'POST /capsules/:id': { pending: '#194' },
-  'DELETE /capsules/:id': { pending: '#194' },
-  'POST /capsules/:id/garments': { pending: '#194' },
-  'POST /wardrobe/:id/capsules': { pending: '#194' },
+  'POST /capsules': { api: 'createCapsule' },
+  'POST /capsules/:id': { api: 'updateCapsule' },
+  'DELETE /capsules/:id': { api: 'deleteCapsule' },
+  'POST /capsules/:id/garments': { api: 'changeCapsuleMembers' },
+  'POST /wardrobe/:id/capsules': { api: 'changeGarmentCapsules' },
 
   // Sizes, the style profile, the weather.
-  'POST /auth/profile/sizes/measurements': { pending: '#195' },
-  'POST /auth/profile/sizes/unit': { pending: '#195' },
-  'POST /auth/profile/sizes/brands': { pending: '#195' },
-  'POST /auth/profile/sizes/brands/:id': { pending: '#195' },
-  'POST /auth/profile/sizes/brands/:id/delete': { pending: '#195' },
-  'POST /auth/profile/style': { pending: '#195' },
-  'POST /auth/profile/style/rules': { pending: '#195' },
-  'POST /auth/profile/style/rules/:id/delete': { pending: '#195' },
-  'POST /weather/home': { pending: '#195' },
-  'POST /weather/home/clear': { pending: '#195' },
-  'POST /weather/here': { pending: '#195' },
-  'POST /weather/here/clear': { pending: '#195' },
-  'POST /weather/unit': { pending: '#195' },
-  'POST /weather/feedback': { pending: '#195' },
-  'POST /weather/offset/reset': { pending: '#195' },
+  'POST /auth/profile/sizes/measurements': { api: 'saveMeasurements' },
+  'POST /auth/profile/sizes/unit': { api: 'setLengthUnit' },
+  'POST /auth/profile/sizes/brands': { api: 'addBrandSize' },
+  'POST /auth/profile/sizes/brands/:id': { api: 'updateBrandSize' },
+  'POST /auth/profile/sizes/brands/:id/delete': { api: 'deleteBrandSize' },
+  'POST /auth/profile/style': { api: 'saveStyleProfile' },
+  'POST /auth/profile/style/rules': { api: 'addOutfitRule' },
+  'POST /auth/profile/style/rules/:id/delete': { api: 'deleteOutfitRule' },
+  'POST /weather/home': { api: 'setWeatherHome' },
+  'POST /weather/home/clear': { api: 'clearWeatherHome' },
+  'POST /weather/here': { api: 'setWeatherHere' },
+  'POST /weather/here/clear': { api: 'clearWeatherHere' },
+  'POST /weather/unit': { api: 'setTemperatureUnit' },
+  'POST /weather/feedback': { api: 'sendTemperatureFeedback' },
+  'POST /weather/offset/reset': { api: 'resetTemperatureOffset' },
 
   // Sharing admin.
   'POST /wardrobe-share/create-invite-link': SHARING_ADMIN,
@@ -300,15 +433,17 @@ export const MCP_WRITES: Readonly<Record<string, ToolParity>> = {
   add_garment_copy: { api: 'addGarmentCopies' },
   add_garment_from_link: { api: 'importGarmentFromLink' },
   create_outfit: { api: 'createOutfit' },
-  schedule_outfit: { pending: '#193' },
-  pick_outfit: { pending: '#193' },
-  mark_worn: { pending: '#193' },
+  schedule_outfit: {
+    api: ['createCalendarEntry', 'replaceCalendarEntryOutfit'],
+  },
+  pick_outfit: { api: 'pickOutfit' },
+  mark_worn: { api: ['setCalendarEntryWorn', 'wearGarment'] },
   mark_washed: { api: 'washGarments' },
-  plan_week: { pending: '#193' },
-  add_inspiration: { pending: '#193' },
-  set_inspiration_pieces: { pending: '#193' },
-  set_capsule_membership: { pending: '#194' },
-  plan_trip_outfit: { pending: '#194' },
+  plan_week: { api: 'planWeek' },
+  add_inspiration: { api: 'importLookFromLink' },
+  set_inspiration_pieces: { api: 'setLookPieces' },
+  set_capsule_membership: { api: 'changeCapsuleMembers' },
+  plan_trip_outfit: { api: 'addTripOutfit' },
   create_option_group: MUSE_ROUND,
   suggest_garment: MUSE_ROUND,
   suggest_outfit: MUSE_ROUND,

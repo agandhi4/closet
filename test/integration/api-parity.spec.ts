@@ -6,6 +6,7 @@ import {
   PAGE_WRITES,
   type Parity,
   type ToolParity,
+  twinOperations,
 } from '../../src/web/api/operations';
 import { mcpTools } from '../../src/web/mcp/tools';
 import {
@@ -94,8 +95,10 @@ function operationProblems(operations: Map<RouteKey, string>): string[] {
     ...Object.entries(PAGE_WRITES),
     ...Object.entries(MCP_WRITES),
   ].flatMap(([key, parity]) =>
-    'api' in parity && !declared.has(parity.api)
-      ? [`${key}: its twin ${parity.api} is no API route`]
+    'api' in parity
+      ? twinOperations(parity.api)
+          .filter((id) => !declared.has(id))
+          .map((id) => `${key}: its twin ${id} is no API route`)
       : [],
   );
   const unrouted = OPERATIONS.filter((id) => !declared.has(id)).map(
@@ -118,8 +121,9 @@ interface TwinFacts {
   operation: string | undefined;
 }
 
-function twinOf(parity: Parity | undefined): string | undefined {
-  return parity && 'api' in parity ? parity.api : undefined;
+/** The operations a page write's twin is, any of which its matrix route may reach. */
+function twinOf(parity: Parity | undefined): readonly string[] | undefined {
+  return parity && 'api' in parity ? twinOperations(parity.api) : undefined;
 }
 
 function twinProblem({
@@ -130,12 +134,13 @@ function twinProblem({
 }: TwinFacts): string | undefined {
   const parity = page === undefined ? undefined : PAGE_PARITY[page];
   const expected = twinOf(parity);
+  const named = expected?.join(' or ');
   if (!hasApi) {
-    return expected ? `${name}: its twin ${expected} has no api` : undefined;
+    return expected ? `${name}: its twin ${named} has no api` : undefined;
   }
   if (operation === undefined) return `${name}: its api reaches no API route`;
-  if (expected !== undefined && operation !== expected) {
-    return `${name}: its api reaches ${operation}, not ${expected}`;
+  if (expected !== undefined && !expected.includes(operation)) {
+    return `${name}: its api reaches ${operation}, not ${named}`;
   }
   // A read may carry a twin (GETs are not classified); a write's names it.
   if (expected === undefined && parity !== undefined) {
@@ -227,7 +232,7 @@ describe('page, MCP and API parity', () => {
     expect(
       classificationProblems(
         [...inventory.pageWrites, 'POST /wardrobe/:id/unlisted'],
-        { ...Object.fromEntries(kept), 'DELETE /gone': { pending: '#193' } },
+        { ...Object.fromEntries(kept), 'DELETE /gone': { pending: '#195' } },
         'route',
       ),
     ).toEqual([
@@ -246,6 +251,19 @@ describe('page, MCP and API parity', () => {
     ]).toEqual([
       'login: its twin signIn has no api',
       'login: its api reaches getMe, not signIn',
+      undefined,
+    ]);
+    // A write of two shapes (POST /calendar, its `replace`) has two twins.
+    const plan = { name: 'plan', page: 'POST /calendar' };
+    expect([
+      twinProblem({ ...plan, hasApi: true, operation: 'getMe' }),
+      twinProblem({
+        ...plan,
+        hasApi: true,
+        operation: 'replaceCalendarEntryOutfit',
+      }),
+    ]).toEqual([
+      'plan: its api reaches getMe, not createCalendarEntry or replaceCalendarEntryOutfit',
       undefined,
     ]);
   });

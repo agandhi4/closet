@@ -9,8 +9,9 @@ import type { WebOptions } from '../plugin';
 import { answerReplay, isReplay, replayNote } from '../offline-writes';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import {
-  WEATHER_LOCATION_LIMIT,
+  enforceLimit,
   WEATHER_SEARCH_LIMIT,
+  type WeatherLimits,
 } from '../security/rate-limit';
 import { type Actor, actorOf } from '../sharing/access';
 import { viewContext } from '../view-context';
@@ -84,11 +85,9 @@ import { TripPlaceResults, TripWeather } from './weather';
  *   the located destination) exist only with WEATHER_ENABLED, like
  *   /weather/*; the search is rate limited and its query never logged.
  */
-export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
-  app,
-  { db, config, logger, weather },
-  done,
-) => {
+export const tripRoutes: FastifyPluginCallbackTypebox<
+  WebOptions & WeatherLimits
+> = (app, { db, config, logger, weather, weatherLimits }, done) => {
   const today = () => todayIn(config.timeZone, new Date());
 
   function renderForm(
@@ -530,10 +529,13 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       `${TRIPS_PATH}/:id/destination`,
       {
         schema: { params: TripParams, body: PlaceBody },
-        config: { rateLimit: WEATHER_LOCATION_LIMIT },
       },
       async (request, reply) => {
         const actor = actorOf(request);
+        await enforceLimit(weatherLimits.destination, request, {
+          logger,
+          who: `user ${actor.userId}`,
+        });
         const { id } = request.params;
         await locateTrip(db, actor, id, pickedPlace(request.body));
         // The user, never the place: where someone travels is theirs.

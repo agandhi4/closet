@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { API_PREFIX } from '../surface';
 import { type ImageVariant, type StoredPhoto } from './image-variant';
 
 /** The parts of a photo a /file URL names: its stored set and `file.version`. */
@@ -39,8 +40,8 @@ export interface PrivatePhoto {
   version?: number;
 }
 
-// The single source of truth for photo paths (/file/**, /selfies/* and
-// /inspiration/photo/*), for JSX views and view-models that pre-build URLs.
+// The single source of truth for photo paths (/file/**, /selfies/*,
+// /inspiration/photo/*, /api/v1/look-photos/* and /api/v1/selfie-photos/*), for JSX views and view-models that pre-build URLs.
 // The routes are in routes.ts beside this file, src/web/selfies/routes.ts
 // and src/web/inspiration/routes.tsx, and must stay in step.
 //
@@ -86,6 +87,36 @@ export function inspirationPhotoUrl(
   variant: Exclude<ImageVariant, 'nobg'>,
 ): string {
   return privateUrl(INSPIRATION_PHOTO_ROOT, image, variant);
+}
+
+/**
+ * The same photos to a device token: GET /api/v1/look-photos/{fileName}
+ * (#193d, src/web/inspiration/api-routes.ts) and
+ * /api/v1/selfie-photos/{fileName} (#579, src/web/selfies/api-routes.ts),
+ * which never read the cookie the page routes need. `variant` is a query
+ * parameter there, so a photo's two URLs differ only in it; `v` is the
+ * version, as on the page's.
+ */
+export const LOOK_PHOTO_API_ROOT = `${API_PREFIX}/look-photos`;
+export const SELFIE_PHOTO_API_ROOT = `${API_PREFIX}/selfie-photos`;
+
+export const apiInspirationPhotoUrl = (
+  image: PrivatePhoto,
+  variant: Exclude<ImageVariant, 'nobg'>,
+): string => apiPrivatePhotoUrl(LOOK_PHOTO_API_ROOT, image, variant);
+
+export const apiSelfieUrl = (
+  image: PrivatePhoto,
+  variant: Exclude<ImageVariant, 'nobg'>,
+): string => apiPrivatePhotoUrl(SELFIE_PHOTO_API_ROOT, image, variant);
+
+function apiPrivatePhotoUrl(
+  root: string,
+  image: PrivatePhoto,
+  variant: Exclude<ImageVariant, 'nobg'>,
+): string {
+  const url = `${variantPath(root, image.fileName, 'original')}?v=${image.version ?? 1}`;
+  return variant === 'original' ? url : `${url}&variant=${variant}`;
 }
 
 function privateUrl(

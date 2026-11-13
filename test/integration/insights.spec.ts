@@ -9,6 +9,7 @@ import {
 } from '../../src/db/schema';
 import { addDays, type IsoDate } from '../../src/calendar-date';
 import { dateLabel } from '../../src/web/date-labels';
+import { deviceToken } from './api';
 import { createWishlistItem } from './garments';
 import {
   createTestApp,
@@ -561,6 +562,131 @@ describe('insights', () => {
       'COS',
     ]);
     expect(stats.condition).toEqual({ needsRepair: 1, replaceSoon: 1 });
+  });
+
+  it('GET /api/v1/insights maps the page’s figures: money strings, shares, pairs', async () => {
+    const { token } = await deviceToken(t);
+    const res = await t.api(token, {
+      method: 'GET',
+      url: '/api/v1/insights?unwornDays=180',
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const body = res.json<{
+      closet: unknown;
+      cost: {
+        best: { garment: { id: number }; cost: string; perWear: string }[];
+        worst: { garment: { id: number }; cost: string; perWear: string }[];
+        notWornYet: { garment: { id: number }; cost: string }[];
+        notWornYetCount: number;
+        closetValue: string;
+        priced: number;
+        unpriced: number;
+      };
+      pairs: { garments: { id: number }[]; days: number }[];
+      colours: { colour: string; closetPercent: number; wornPercent: number }[];
+      uncoloured: unknown;
+      categories: { key: string; garments: number; pieces: number }[];
+      brands: { key: string; closetPercent?: number; wornPercent: number }[];
+    }>();
+    // The page's own strings (cost per wear test above), as decimals.
+    expect(body.cost.closetValue).toBe('610.00');
+    expect(body.cost.best[0]).toMatchObject({
+      garment: { id: g.tee },
+      cost: '60.00',
+      perWear: '10.00',
+    });
+    expect(body.cost.best[1]).toMatchObject({
+      garment: { id: g.jeans },
+      cost: '100.00',
+      perWear: '25.00',
+    });
+    expect(
+      body.cost.worst.map((w) => [w.garment.id, w.cost, w.perWear]),
+    ).toEqual([
+      [g.jacket, '300.00', '100.00'],
+      [g.scarf, '40.00', '40.00'],
+    ]);
+    expect(body.cost.notWornYet.map((n) => [n.garment.id, n.cost])).toEqual([
+      [g.sandals, '60.00'],
+      [g.shirt, '50.00'],
+    ]);
+    expect(body.cost).toMatchObject({
+      notWornYetCount: 2,
+      priced: 6,
+      unpriced: 2,
+    });
+    expect(
+      body.pairs.map((p) => [...p.garments.map((x) => x.id), p.days]),
+    ).toEqual([
+      [g.tee, g.jeans, 4],
+      [g.tee, g.jacket, 2],
+      [g.jeans, g.jacket, 2],
+    ]);
+    expect(body.colours).toContainEqual({
+      colour: 'white',
+      closetPercent: 13,
+      wornPercent: 38,
+    });
+    expect(body.uncoloured).toEqual({
+      garments: 1,
+      closetPercent: 13,
+      wornPercent: 6,
+    });
+    expect(body.categories[0]).toMatchObject({
+      key: 'tops',
+      garments: 2,
+      pieces: 4,
+    });
+    expect(body.brands[0]).toMatchObject({ key: 'Uniqlo', wornPercent: 63 });
+  });
+
+  it('GET /api/v1/insights/recap maps the year’s pair and best value', async () => {
+    // Last year's fixed days, so the figures hold on any day of this one. The
+    // coat, dearer per wear, is the cost list's "worst", not the recap's best.
+    const email = 'recap@example.com';
+    const cookie = await t.register(email);
+    const recapOwner = await userIdOf(t, email);
+    const coat = await newGarment(
+      { name: 'Recap coat', category: 'outerwear', price: '45.5' },
+      cookie,
+    );
+    const hat = await newGarment(
+      { name: 'Recap hat', category: 'accessories', price: '12' },
+      cookie,
+    );
+    const year = Number(t.today().slice(0, 4)) - 1;
+    await asFixture(t.db, (tx) =>
+      tx.insert(garmentWear).values(
+        [coat, hat].flatMap((garmentId) =>
+          [`${year}-03-01`, `${year}-03-02`].map((day) => ({
+            garmentId,
+            ownerId: recapOwner,
+            day,
+          })),
+        ),
+      ),
+    );
+    const { token } = await deviceToken(t, { email });
+    const res = await t.api(token, {
+      method: 'GET',
+      url: `/api/v1/insights/recap?year=${year}`,
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const body = res.json<{
+      wears: number;
+      piecesWorn: number;
+      enough: boolean;
+      bestValue: { garment: { id: number }; cost: string; perWear: string }[];
+      pair: { garments: { id: number }[]; days: number };
+    }>();
+    expect(body).toMatchObject({ wears: 4, piecesWorn: 2, enough: false });
+    expect(
+      body.bestValue.map((b) => [b.garment.id, b.cost, b.perWear]),
+    ).toEqual([[hat, '12.00', '6.00']]);
+    expect(body.pair.garments.map((x) => x.id).sort()).toEqual(
+      [coat, hat].sort(),
+    );
+    expect(body.pair.days).toBe(2);
   });
 
   it('wardrobe_stats refuses a window outside the choices', async () => {

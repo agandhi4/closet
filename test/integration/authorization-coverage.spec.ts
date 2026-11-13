@@ -47,8 +47,14 @@ const EXEMPT: Record<RouteKey, string> = {
     'a redirect to the Wishlist inbox that reads nothing (#337, plans removed); covered by plans-removed.spec.ts',
   'GET /wardrobe/:id/plan-items':
     "a redirect to the garment's page that reads nothing (#337, plans removed): the page then authorizes; covered by plans-removed.spec.ts",
+  'GET /api/v1/garments/:id/goes-with':
+    '"Goes with my closet" (#194b) has no page route of its own (the wishlist item\'s page draws it for the owner alone, so no page case answers what the API\'s does): covered by authorization-wardrobe.spec.ts "GET /api/v1/garments/:id/goes-with is the owner\'s alone"',
   'DELETE /api/v1/garments/:id/wears/:day':
     'the undo of PUT …/wears/:day (#193a), whose matrix case needs a wear to undo, which the shared fixture must not have (insights lists its garment unworn); covered by authorization-wardrobe.spec.ts "DELETE /api/v1/garments/:id/wears/:day refuses as its PUT does"',
+  'PUT /api/v1/looks/:id/pieces':
+    "MCP's set_inspiration_pieces as a route (#193d): no page route sets a look's whole list (the page adds, saves and removes one piece at a time, whose twins the matrix replays); covered by api-inspiration.spec.ts \"sets the whole list as MCP does; another's look is a 404\"",
+  'DELETE /api/v1/garments/:id/clashes/:otherId':
+    'the undo of PUT …/clashes/:otherId (#193c), whose matrix case needs an avoided pair, which the shared fixture must not have (it would change what every ideas read draws); covered by api-ideas.spec.ts "avoids a pair once and allows it again; only between your own garments"',
 };
 
 interface AppRoute {

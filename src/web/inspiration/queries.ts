@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, type SQL, sql } from 'drizzle-orm';
 import type { IsoDate } from '../../calendar-date';
 import { initialCutoutState } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
@@ -112,24 +112,39 @@ function photoOf(row: {
     : { fileName: row.fileName, version: row.version ?? 1 };
 }
 
+/** A page of looks: those older than `before` (an id), at most `limit`. */
+export interface InspirationPage {
+  before?: number;
+  limit: number;
+}
+
 /**
  * The owner's looks, newest first: the Inspiration tab's one statement
  * after the session's (inspiration_owner_id_id_index, read backward), and
- * list_inspiration's.
+ * list_inspiration's; all of them, or a `page` (GET /api/v1/looks).
  */
 export async function listInspirations(
   db: Db,
   ownerId: number,
+  page?: InspirationPage,
 ): Promise<ListedInspiration[]> {
-  const rows = await db
+  const query = db
     .select({
       ...SUMMARY_COLUMNS,
       pieceCount: sql<number>`(select count(*)::int from ${inspirationPiece} where ${eq(inspirationPiece.inspirationId, inspiration.id)})`,
     })
     .from(inspiration)
     .leftJoin(file, eq(file.id, inspiration.photoId))
-    .where(eq(inspiration.ownerId, ownerId))
+    .where(
+      and(
+        eq(inspiration.ownerId, ownerId),
+        page?.before === undefined
+          ? undefined
+          : lt(inspiration.id, page.before),
+      ),
+    )
     .orderBy(desc(inspiration.id));
+  const rows = await (page ? query.limit(page.limit) : query);
   return rows.map(({ fileName, version, ...row }) => ({
     ...row,
     photo: photoOf({ fileName, version }),
@@ -351,12 +366,15 @@ export function setInspirationPhoto(
   });
 }
 
-/** The owner's look's title and note (the page's autosave); NotFound when not theirs. */
+/**
+ * The owner's look's title and note (the page's autosave, both; the API's
+ * PATCH, either: a field left undefined is kept). NotFound when not theirs.
+ */
 export async function updateInspirationText(
   db: Db,
   id: number,
   ownerId: number,
-  text: InspirationText,
+  text: Partial<InspirationText>,
 ): Promise<void> {
   const updated = await db
     .update(inspiration)

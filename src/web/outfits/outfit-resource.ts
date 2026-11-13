@@ -7,7 +7,9 @@ import { GARMENT_STATUSES } from '../../wardrobe/status';
 import { OUTFIT_DISMISS_REASONS } from '../../wardrobe/suggestions';
 import { literals, Nullable, withoutNulls } from '../api/resource';
 import type { ScheduleOutcome } from '../calendar/queries';
+import { HttpError } from '../errors';
 import { imageUrl } from '../files/image-url';
+import { t } from '../i18n';
 import { IsoDateSchema, RowId } from '../schemas';
 import type { OutfitContext } from './page-context';
 import {
@@ -31,7 +33,8 @@ import { DECLINE_NOTE_MAX, SlotCategory } from './schemas';
  * a client reads the rest from GET /garments/{id}.
  */
 
-const OutfitGarmentResource = Type.Object(
+/** Also a calendar entry's and a trip outfit's garments (calendar/entry-resource.ts, trips/trip-resource.ts). */
+export const OutfitGarmentResource = Type.Object(
   {
     id: Type.Integer(),
     name: Type.Optional(Type.String()),
@@ -41,7 +44,7 @@ const OutfitGarmentResource = Type.Object(
     status: literals(GARMENT_STATUSES),
     /** Signed, relative, immutable: from the cutout when it shows. */
     thumbUrl: Type.Optional(Type.String()),
-    /** Only on GET /outfits/{id}: where the piece is when not in the closet. */
+    /** On GET /outfits/{id} and calendar entries: where the piece is when not in the closet. */
     away: Type.Optional(literals(AWAY_REASONS)),
   },
   {
@@ -116,7 +119,7 @@ export const Outfit = Type.Object(
 );
 type Outfit = Static<typeof Outfit>;
 
-function toOutfitGarment(garment: OutfitGarment) {
+export function toOutfitGarment(garment: OutfitGarment) {
   return withoutNulls({
     id: garment.id,
     name: garment.name,
@@ -296,3 +299,28 @@ export const OutfitReacted = Type.Object(
   },
   { title: 'OutfitReacted' },
 );
+
+/**
+ * A body naming an outfit two ways, a saved one (`outfitId`) or an idea's
+ * garments (`garmentIds`), sent neither or both: the trip's
+ * (POST /trips/{id}/outfits) and the calendar entry's
+ * (PUT /calendar-entries/{id}/outfit) one refusal.
+ */
+export function outfitOrGarments(): HttpError {
+  const message = t('api.OUTFIT_ONE_OF');
+  return new HttpError(400, message, {
+    validation: [{ path: 'body/outfitId', message }],
+  });
+}
+
+/**
+ * `name` sent with `outfitId` alone: a saved outfit keeps its own name, and a
+ * name only goes with `garmentIds`, which make a new outfit. Pointed at the
+ * field at fault, not at `outfitId`.
+ */
+export function outfitNameNeedsGarments(): HttpError {
+  const message = t('api.OUTFIT_NAME_NEEDS_GARMENTS');
+  return new HttpError(400, message, {
+    validation: [{ path: 'body/name', message }],
+  });
+}

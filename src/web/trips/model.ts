@@ -16,6 +16,7 @@ import {
   packingList,
   type TripPhase,
   tripPhase,
+  wearableToday,
 } from '../../wardrobe/packing';
 import type { IsoDate } from '../../calendar-date';
 import type { SignablePhotoRef } from '../files/image-url';
@@ -78,8 +79,10 @@ export interface TripModel {
   packing: PackingList<PackingGarmentView>;
   items: TripItemRow[];
   /**
-   * Outfit id to its calendar entry worn today (only while the trip is on):
-   * the entry Undo unmarks.
+   * Trip outfit id to its calendar entry worn today (only while the trip is
+   * on, and only a copy wearable today: an outfit's entry is per day, so
+   * the same outfit's copy on another day is not worn): the entry Undo
+   * unmarks.
    */
   wornToday: ReadonlyMap<number, number>;
 }
@@ -212,6 +215,17 @@ async function readTrip(
   const trip = tripRow(row.trip);
   const phase = tripPhase(trip, today);
   const outfits = row.outfits.sort(byDayAndOccasion);
+  const entryOfOutfit = new Map(
+    row.wornToday.map((w) => [w.outfitId, w.entryId]),
+  );
+  const wornToday = new Map(
+    outfits.flatMap((o): [number, number][] => {
+      const entryId = entryOfOutfit.get(o.outfitId);
+      return entryId !== undefined && wearableToday(trip, o.day, today)
+        ? [[o.id, entryId]]
+        : [];
+    }),
+  );
   // Each garment's uses, in reading order (the order the list keeps).
   const uses = new Map<number, GarmentUse[]>();
   for (const view of outfits) {
@@ -252,11 +266,7 @@ async function readTrip(
       undated: outfits.filter((o) => o.day === null),
       packing: packingList({ garments, uses, packed, trip, today }),
       items: row.items,
-      wornToday: new Map(
-        phase === 'current'
-          ? row.wornToday.map((w) => [w.outfitId, w.entryId])
-          : [],
-      ),
+      wornToday,
     },
     copyFrom: row.copyFrom ?? [],
   };

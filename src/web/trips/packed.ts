@@ -159,7 +159,9 @@ export interface PackedChange {
  * garments off the list pruned. One statement under the trip's lock
  * (lockedTripCte), its three writes on disjoint rows: the prune only off
  * the list, the rest only on it. 'not-found' when the trip is not the
- * owner's.
+ * owner's. `onList` counts the ids named (either list) that are on the
+ * trip's list, read in the same statement: the API's one-garment tick is a
+ * 404 when it is 0 (trips/api-routes.ts); the page ignores it.
  */
 export async function setPacked(
   db: Queryable,
@@ -169,7 +171,7 @@ export async function setPacked(
     packed: readonly number[];
     unpacked: readonly number[];
   },
-): Promise<PackedChange | 'not-found'> {
+): Promise<(PackedChange & { onList: number }) | 'not-found'> {
   const { tripId } = input;
   const packed = intArray(input.packed);
   const locked = sql`exists (select 1 from locked)`;
@@ -178,6 +180,7 @@ export async function setPacked(
     found: boolean;
     packed: number;
     unpacked: number;
+    onList: number;
   }>(sql`
     with ${lockedTripCte(db, tripId, input.ownerId)},
     pruned as (
@@ -200,7 +203,12 @@ export async function setPacked(
     )
     select exists (select 1 from locked) as found,
       (select count(*)::int from packed) as packed,
-      (select count(*)::int from unpacked) as unpacked`);
+      (select count(*)::int from unpacked) as unpacked,
+      (
+        select count(distinct named.id)::int
+        from unnest(${intArray([...input.packed, ...input.unpacked])}) as named(id)
+        where named.id in ${listGarmentIdsSql(tripId)}
+      ) as "onList"`);
   const [{ found, ...change }] = rows;
   return found ? change : 'not-found';
 }

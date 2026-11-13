@@ -1,12 +1,6 @@
 import * as z from 'zod';
 import type { Occasion } from '../../../wardrobe/occasions';
-import {
-  conditionOf,
-  type DayForecast,
-  FORECAST_DAYS,
-  rainFrom,
-} from '../../../weather/forecast';
-import { type WeatherNeeds, weatherNeeds } from '../../../weather/match';
+import { FORECAST_DAYS } from '../../../weather/forecast';
 import {
   addDays,
   daysBetween,
@@ -14,8 +8,8 @@ import {
   todayIn,
 } from '../../../calendar-date';
 import { HttpError } from '../../errors';
-import type { TripTypicalDay } from '../../trips/forecast';
 import { userWeather, type UserWeather } from '../../weather/service';
+import { dayWeather } from '../../weather/weather-resource';
 import { defineTool } from '../tool';
 import { isoDate, occasionInput } from './common';
 
@@ -23,68 +17,8 @@ import { isoDate, occasionInput } from './common';
  * The weather tools (#14), listed only with WEATHER_ENABLED (mcpTools,
  * ./index.ts). The user's own location and forecast, as on their pages;
  * get_calendar and get_today add the same day summaries (weatherOfDays).
+ * A day's shape (dayWeather) is the API's too (weather-resource.ts).
  */
-
-const round1 = (value: number) => Math.round(value * 10) / 10;
-
-/**
- * A day's weather and what it asks of an outfit for `occasion`, for someone
- * whose personal offset is `offset`: the matching's needs
- * (src/weather/match.ts) in a tool's words.
- */
-export function dayWeather(
-  day: DayForecast,
-  occasion: Occasion,
-  offset: number,
-) {
-  const needs = weatherNeeds(day, occasion, offset);
-  return {
-    day: day.day,
-    condition: conditionOf(day.code),
-    highC: round1(day.high),
-    lowC: round1(day.low),
-    precipitationChance: day.precipitationChance,
-    rainFromHour: rainFrom(day, 0),
-    outfit: needs && outfitNeeds(needs),
-  };
-}
-
-/**
- * A trip day past the forecast (get_trip): the destination's climate
- * normals, marked `typical` so no agent reads them as a forecast, and what
- * a typical day asks of an all-day outfit.
- */
-export function typicalDayWeather({ day, normals, needs }: TripTypicalDay) {
-  return {
-    day,
-    typical: true,
-    highC: round1(normals.high),
-    lowC: round1(normals.low),
-    feelsLikeC: {
-      min: round1(normals.feelsLow),
-      max: round1(normals.feelsHigh),
-    },
-    rainChance: normals.rainChance,
-    outfit: needs && outfitNeeds(needs),
-  };
-}
-
-/** What a day asks of an outfit for its occasion, in a tool's words. */
-function outfitNeeds(needs: WeatherNeeds) {
-  return {
-    occasion: needs.occasion,
-    hours: needs.window,
-    feelsLikeC: {
-      min: round1(needs.feelsLike.min),
-      max: round1(needs.feelsLike.max),
-    },
-    torsoWarmth: needs.torso,
-    torsoWarmthWithoutLayer: needs.torsoWithoutLayer,
-    legsAndFeetWarmth: needs.limbs,
-    needsLayer: needs.layer,
-    needsWaterResistance: needs.rain,
-  };
-}
 
 /** The last day the forecast reaches from `today`. */
 function horizon(today: IsoDate): IsoDate {

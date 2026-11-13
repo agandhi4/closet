@@ -13,6 +13,11 @@ import {
   wardrobeInsights,
   type WardrobeInsights,
 } from '../../wardrobe/insights';
+import {
+  type RecapPeriod,
+  yearRecap,
+  type YearRecap,
+} from '../../wardrobe/recap';
 import { addDays, type IsoDate } from '../../calendar-date';
 import { repairCostSql } from '../wardrobe/repairs';
 import { type GarmentScope, inScope } from '../wardrobe/status';
@@ -171,4 +176,22 @@ export async function readInsights(
     recentWindow(today),
   );
   return wardrobeInsights(garments, pairs, unwornDays);
+}
+
+/**
+ * The owner's year in review: the same rows over the period, every garment
+ * owned now or once (one archived since was still that year's). The page
+ * and GET /api/v1/insights/recap share it.
+ */
+export async function readRecap(
+  db: Db,
+  ownerId: number,
+  period: RecapPeriod,
+): Promise<YearRecap<SignablePhotoRef>> {
+  const { garments, pairs } = await readInsightRows(db, ownerId, {
+    from: period.from,
+    to: period.to,
+    scope: 'owned',
+  });
+  return yearRecap(garments, pairs, period);
 }

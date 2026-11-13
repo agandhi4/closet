@@ -2272,7 +2272,8 @@ export const syncTombstone = pgTable(
 );
 
 /** What a wardrobe share lets the grantee do: read, or read and write. */
-export type SharePermission = 'VIEW' | 'MANAGE';
+export const SHARE_PERMISSIONS = ['VIEW', 'MANAGE'] as const;
+export type SharePermission = (typeof SHARE_PERMISSIONS)[number];
 
 // A grantor's wardrobe shared with a grantee. A pending invite has an
 // invite_token and no grantee yet.

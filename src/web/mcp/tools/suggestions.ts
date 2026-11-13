@@ -121,11 +121,7 @@ export const suggestionTools = [
     writes: false,
     async run(_args, ctx) {
       const [inbox, read] = await Promise.all([
-        readInbox(ctx.db, {
-          ownerId: ctx.userId,
-          viewerId: ctx.userId,
-          isOwner: true,
-        }),
+        readInbox(ctx.db, { ownerId: ctx.userId, isOwner: true }),
         selectScalars(ctx.db, { outfits: museOutfitsSql(ctx.userId) }),
       ]);
       return {

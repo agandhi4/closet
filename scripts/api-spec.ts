@@ -26,7 +26,9 @@ export const SPEC_PATH = join(PROJECT_ROOT, 'src/web/api/openapi.json');
  * The plugin is registered on a bare instance that never listens or serves
  * a request: registration only passes these references to hooks and
  * handlers, so nothing behind them is ever called. Each is the type's
- * shape and no more; the cast says it is not a working app.
+ * shape and no more; the cast says it is not a working app. `weather` is
+ * there so the routes that exist only with WEATHER_ENABLED are in the
+ * spec: it documents every feature on.
  */
 function unservedOptions(): ApiOptions {
   const logger = pino({ level: 'silent' });
@@ -35,6 +37,7 @@ function unservedOptions(): ApiOptions {
     logger,
     apiLogger: logger,
     mcpLogger: logger,
+    weather: {},
   } as unknown as ApiOptions;
 }
 
@@ -79,6 +82,7 @@ export async function generateApiSpec(): Promise<unknown> {
     ...unservedOptions(),
     signInLimit: app.createRateLimit(SIGN_IN_LIMIT),
     linkImportLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
+    inspirationLinkLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
   });
   await app.ready();
   const spec: unknown = app.swagger();

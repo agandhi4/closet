@@ -35,6 +35,8 @@ import {
   requireTripModel,
   requireTripPage,
   takeOffTrip,
+  tickTripGarment,
+  tickTripItem,
   wearTripOutfit,
 } from './trip-actions';
 
@@ -196,6 +198,24 @@ const paths: [string, (actor: Actor) => Promise<unknown>][] = [
     (actor) => {
       vi.mocked(setItemsPacked).mockResolvedValue('not-found');
       return packTripItems(db, actor, ticks);
+    },
+  ],
+  [
+    'tickTripGarment',
+    (actor) => {
+      vi.mocked(setPacked).mockResolvedValue('not-found');
+      return tickTripGarment(db, actor, {
+        tripId: TRIP,
+        garmentId: 1,
+        packed: true,
+      });
+    },
+  ],
+  [
+    'tickTripItem',
+    (actor) => {
+      vi.mocked(setItemsPacked).mockResolvedValue('not-found');
+      return tickTripItem(db, actor, { tripId: TRIP, itemId: 3, packed: true });
     },
   ],
   [

@@ -81,6 +81,7 @@ const deps = {
 const target = { entryId: ENTRY, day: DAY, occasion: 'work' as const };
 const unworn = {
   id: ENTRY,
+  day: DAY,
   occasion: 'work' as const,
   outfitId: 31,
   worn: false,

@@ -1,16 +1,21 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
-import type { LookupAddress } from 'node:dns';
 import {
+  type IncomingHttpHeaders,
   type IncomingMessage,
+  type OutgoingHttpHeaders,
   request as httpRequest,
-  type RequestOptions,
 } from 'node:http';
-import { request as httpsRequest } from 'node:https';
-import { isIP, type LookupFunction } from 'node:net';
-import type { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream';
+import type {
+  ClientHttp2Session,
+  ClientHttp2Stream,
+  IncomingHttpHeaders as Http2Headers,
+  IncomingHttpStatusHeader,
+} from 'node:http2';
+import { isIP, type Socket } from 'node:net';
+import { pipeline, type Readable, Transform } from 'node:stream';
 import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import type { Logger } from '../../logger';
+import { dial, type Protocol, type TrustedCertificates } from './outbound-dial';
 import { isPublicAddress } from './public-address';
 
 /**
@@ -27,10 +32,12 @@ import { isPublicAddress } from './public-address';
  *   and, when the request names `hosts`, only those hosts (redirects too);
  * - resolves the name once and refuses it if any answer is not a public
  *   address (public-address.ts), then connects to the checked address
- *   (`pinnedLookup`): the socket never resolves the name again, so DNS
- *   rebinding cannot swap the address between the check and the connect.
- *   TLS still gets the name for SNI and certificate checks, and Host is the
- *   name;
+ *   itself (`dial`, outbound-dial.ts, the one place a connection opens):
+ *   nothing resolves the name again, so DNS rebinding cannot swap the
+ *   address between the check and the connect. TLS still verifies the
+ *   certificate against the name, which is the SNI, and Host (h2's
+ *   `:authority`) is the name. ALPN picks HTTP/2 or HTTP/1.1 on that one
+ *   socket (#496b); either way one request per connection, never pooled;
  * - follows at most MAX_REDIRECTS redirects, each checked like the first;
  * - is bounded as a whole by one timeout (DNS, connects, redirects, body);
  * - reads the body only for a content type the caller accepts, and stops
@@ -45,8 +52,8 @@ import { isPublicAddress } from './public-address';
  *   (`authorization`) only to a request that names its `hosts`, which then
  *   follows no redirect, so the credential reaches those hosts and nothing
  *   else;
- * - logs one line naming the host(s), never the path or query (a product
- *   link can carry a tracking or session token).
+ * - logs one line naming the host(s) and the last hop's protocol, never the
+ *   path or query (a product link can carry a tracking or session token).
  *
  * Failures are `OutboundFetchError`s whose `reason` says which rule refused.
  * The per-user rate limit is the caller's (the route's), not this module's.
@@ -199,21 +206,36 @@ export interface OutboundFetcherOptions {
    * a loopback alias standing in for the internet on a random port.
    */
   destinations?: DestinationPolicy;
+  /**
+   * Specs only: the TLS fixture's certificates, trusted instead of the
+   * system's. Absent in production, which verifies against Node's roots.
+   */
+  tls?: TrustedCertificates;
   timeoutMs?: number;
 }
+
+/**
+ * The specs' stand-in internet, the only options AppOptions passes through
+ * (`outboundFetch`, `weather.fetch`, `orderMail.fetch`); production passes
+ * none of them.
+ */
+export type OutboundStandIn = Pick<
+  OutboundFetcherOptions,
+  'resolve' | 'destinations' | 'tls'
+>;
 
 const systemResolve: Resolve = (hostname) =>
   dnsLookup(hostname, { all: true, order: 'verbatim' });
 
 /**
- * The URL's host (an IPv6 literal without brackets) once its scheme, port
- * and lack of credentials pass. Nothing is resolved yet.
+ * The URL's host (an IPv6 literal without brackets) and port once its
+ * scheme, port and lack of credentials pass. Nothing is resolved yet.
  */
 function checkedHost(
   url: URL,
   destinations: DestinationPolicy,
   hosts: readonly string[] | undefined,
-): string {
+): { host: string; port: number } {
   const protocol = url.protocol;
   if (protocol !== 'http:' && protocol !== 'https:') {
     throw new OutboundFetchError(
@@ -240,14 +262,29 @@ function checkedHost(
       `${url.hostname} is not one of this fetch's hosts`,
     );
   }
-  return url.hostname.replace(/^\[(.*)\]$/, '$1');
+  return { host: url.hostname.replace(/^\[(.*)\]$/, '$1'), port };
 }
 
 /** A checked URL and the one address the socket will connect to. */
 interface PinnedTarget {
   url: URL;
   host: string;
+  port: number;
   address: ResolvedAddress;
+}
+
+/**
+ * One response, whatever the protocol spoke it: all the refusal rules and
+ * the body readers see (`refuseStatus`, `readResponse`, `decoded`), so each
+ * rule has one copy. `headers` are lower case, h2's pseudo-headers dropped.
+ */
+interface Answer {
+  protocol: Protocol;
+  status: number;
+  headers: IncomingHttpHeaders;
+  body: Readable;
+  /** Drops the response and its connection; harmless twice. */
+  destroy(): void;
 }
 
 export function createOutboundFetcher(
@@ -257,6 +294,7 @@ export function createOutboundFetcher(
     logger,
     resolve = systemResolve,
     destinations = PUBLIC_DESTINATIONS,
+    tls,
     timeoutMs = FETCH_TIMEOUT_MS,
   } = options;
 
@@ -266,7 +304,7 @@ export function createOutboundFetcher(
     request: FetchRequest,
     signal: AbortSignal,
   ): Promise<PinnedTarget> {
-    const host = checkedHost(url, destinations, request.hosts);
+    const { host, port } = checkedHost(url, destinations, request.hosts);
     const addresses = isIP(host)
       ? [{ address: host, family: isIP(host) }]
       : await resolveName(host, signal);
@@ -280,7 +318,32 @@ export function createOutboundFetcher(
     }
     // IPv4 first: the container has no IPv6 route.
     const address = addresses.find((a) => a.family === 4) ?? addresses[0];
-    return { url, host, address };
+    return { url, host, port, address };
+  }
+
+  /**
+   * One request to the target's checked address, on a connection of its
+   * own: a redirect's next hop is a new dial, never this session.
+   */
+  async function exchange(
+    target: PinnedTarget,
+    request: FetchRequest,
+    signal: AbortSignal,
+  ): Promise<Answer> {
+    const connection = await dial(
+      {
+        host: target.host,
+        address: target.address.address,
+        port: target.port,
+        secure: target.url.protocol === 'https:',
+        origin: target.url.origin,
+      },
+      signal,
+      tls,
+    );
+    return connection.protocol === 'h2'
+      ? sendHttp2(connection.session, target.url, request, signal)
+      : sendHttp1(connection.socket, target.url, request, signal);
   }
 
   async function resolveName(
@@ -310,16 +373,17 @@ export function createOutboundFetcher(
     start: URL,
     request: FetchRequest,
     signal: AbortSignal,
-    hosts: string[],
+    trail: Trail,
   ): Promise<FetchedResource> {
     let url = start;
     for (let redirects = 0; ; redirects++) {
       const target = await pin(url, request, signal);
-      const response = await send(target, request, signal);
-      const status = response.statusCode ?? 0;
-      const location = response.headers.location;
+      const answer = await exchange(target, request, signal);
+      trail.protocol = answer.protocol;
+      const { status } = answer;
+      const location = answer.headers.location;
       if (REDIRECT_STATUSES.has(status) && location) {
-        response.destroy();
+        answer.destroy();
         if (carriesCredentialOrBody(request)) {
           throw new OutboundFetchError(
             'http-status',
@@ -334,11 +398,11 @@ export function createOutboundFetcher(
           );
         }
         url = parseUrl(location, url);
-        hosts.push(url.hostname);
+        trail.hosts.push(url.hostname);
         continue;
       }
       return {
-        ...(await readResponse(response, request, signal)),
+        ...(await readResponse(answer, request, signal)),
         url,
         redirects,
       };
@@ -356,19 +420,19 @@ export function createOutboundFetcher(
       }
       const started = performance.now();
       const timeout = AbortSignal.timeout(timeoutMs);
-      const hosts: string[] = [];
+      const trail: Trail = { hosts: [] };
       try {
         const url = parseUrl(rawUrl);
-        hosts.push(url.hostname);
-        const fetched = await fetchFollowing(url, request, timeout, hosts);
+        trail.hosts.push(url.hostname);
+        const fetched = await fetchFollowing(url, request, timeout, trail);
         logger.info(
-          `Fetched ${fetched.kind} from ${hostChain(hosts)}: ${fetched.body.length} bytes${fetched.truncated ? ' (cut at the cap)' : ''} in ${elapsed(started)} ms`,
+          `Fetched ${fetched.kind} from ${trailText(trail)}: ${fetched.body.length} bytes${fetched.truncated ? ' (cut at the cap)' : ''} in ${elapsed(started)} ms`,
         );
         return fetched;
       } catch (error) {
         const refusal = asRefusal(error, timeout);
         logger.warn(
-          `Outbound fetch refused (${refusal.reason}): ${hostChain(hosts) || 'no host'}${refusal.status === undefined ? '' : ` answered ${refusal.status}`} after ${elapsed(started)} ms${networkCode(error)}`,
+          `Outbound fetch refused (${refusal.reason}): ${trailText(trail) || 'no host'}${refusal.status === undefined ? '' : ` answered ${refusal.status}`} after ${elapsed(started)} ms${networkCode(error)}`,
         );
         throw refusal;
       }
@@ -392,69 +456,227 @@ function parseUrl(value: string, base?: URL): URL {
 }
 
 /**
- * The socket's lookup, answering with the address that was checked and
- * never asking DNS. net.connect asks for every address (`all`) when it may
- * race IPv4 and IPv6 (autoSelectFamily), else for one.
+ * The request over HTTP/1.1 on `socket`, which `dial` connected: no agent,
+ * so nothing is pooled (a pooled socket could carry another hop's pin) and
+ * the request asks the server to close. Host is the URL's own (the name,
+ * with a port only when it is not the scheme's), set here rather than
+ * derived from a connect option.
  */
-function pinnedLookup({ address, family }: ResolvedAddress): LookupFunction {
-  return (_hostname, options, callback) => {
-    if (options.all) {
-      const all: LookupAddress[] = [{ address, family }];
-      callback(null, all);
-    } else {
-      callback(null, address, family);
-    }
-  };
-}
-
-function send(
-  { url, host, address }: PinnedTarget,
-  { accept, authorization, json }: FetchRequest,
+function sendHttp1(
+  socket: Socket,
+  url: URL,
+  request: FetchRequest,
   signal: AbortSignal,
-): Promise<IncomingMessage> {
-  const secure = url.protocol === 'https:';
-  const body = json === undefined ? undefined : JSON.stringify(json);
-  const options: RequestOptions & { servername?: string } = {
-    method: body === undefined ? 'GET' : 'POST',
-    host,
-    port: url.port || (secure ? 443 : 80),
-    path: `${url.pathname}${url.search}`,
-    headers: {
-      'user-agent': USER_AGENT,
-      accept: accept.map((kind) => ACCEPT_HEADERS[kind]).join(','),
-      'accept-encoding': 'gzip, deflate, br',
-      'accept-language': 'en',
-      ...(authorization !== undefined && { authorization }),
-      ...(body !== undefined && {
-        'content-type': 'application/json',
-        'content-length': Buffer.byteLength(body),
-      }),
-    },
-    lookup: pinnedLookup(address),
-    // A fresh socket per request: a pooled one could carry another pin.
-    agent: false,
-    signal,
-  };
-  // SNI and the certificate check use the name, never an IP (Node refuses
-  // an IP as servername). The Host header is the name for both schemes.
-  if (secure && !isIP(host)) options.servername = host;
+): Promise<Answer> {
+  const body = jsonBody(request);
   return new Promise((resolve, reject) => {
-    const request = (secure ? httpsRequest : httpRequest)(options);
-    request.once('response', resolve);
-    request.once('error', reject);
-    request.end(body);
+    const outgoing = httpRequest({
+      method: body === undefined ? 'GET' : 'POST',
+      path: `${url.pathname}${url.search}`,
+      headers: { host: url.host, ...requestHeaders(request, body) },
+      createConnection: () => socket,
+      signal,
+    });
+    // `on`, not `once`: a second error (a reset after an abort) with no
+    // listener would crash the process. A 1xx never reaches 'response'
+    // (Node emits it as 'information'), so it is ignored.
+    outgoing.on('error', reject);
+    outgoing.once('response', (response: IncomingMessage) => {
+      resolve({
+        protocol: 'http/1.1',
+        status: response.statusCode ?? 0,
+        headers: response.headers,
+        body: response,
+        destroy: () => {
+          response.destroy();
+          socket.destroy();
+        },
+      });
+    });
+    outgoing.end(body);
   });
 }
 
+/**
+ * The request over HTTP/2 on `session`, which `dial` built on the socket it
+ * connected: one stream, then the session is destroyed (readResponse, the
+ * redirect, or here on any failure before a response), never reused.
+ * `:authority` is the checked URL's host, like HTTP/1.1's Host. A 1xx is a
+ * `headers` event and trailers a `trailers` one, neither listened to, so
+ * both are ignored as over HTTP/1.1.
+ */
+function sendHttp2(
+  session: ClientHttp2Session,
+  url: URL,
+  request: FetchRequest,
+  signal: AbortSignal,
+): Promise<Answer> {
+  const body = jsonBody(request);
+  // Destroy, not close (which waits for the stream): the stream and the
+  // socket end at once, so a server stops sending (a redirect's body, a cap
+  // hit, a compression bomb).
+  const destroy = () => session.destroy();
+  return new Promise((resolve, reject) => {
+    // Every way a request fails before its response (the session's error,
+    // the stream's, a refused or dropped stream, request() throwing) ends
+    // here: no Answer exists yet whose destroy() a caller could reach, so
+    // the session is destroyed now rather than lingering to the timeout.
+    // Rejected first, so the first cause wins over the close it triggers.
+    let answered = false;
+    const fail = (error: Error) => {
+      reject(error);
+      if (!answered) destroy();
+    };
+    if (signal.aborted) {
+      fail(signal.reason as Error);
+      return;
+    }
+    signal.addEventListener('abort', destroy, { once: true });
+    session.once('close', () => signal.removeEventListener('abort', destroy));
+    session.on('error', fail);
+    let stream: ClientHttp2Stream;
+    try {
+      stream = session.request(
+        {
+          ':method': body === undefined ? 'GET' : 'POST',
+          ':scheme': 'https',
+          ':authority': url.host,
+          ':path': `${url.pathname}${url.search}`,
+          ...requestHeaders(request, body),
+        },
+        { endStream: body === undefined },
+      );
+    } catch (error) {
+      fail(error as Error);
+      return;
+    }
+    // `on`, not `once`, as over HTTP/1.1. A stream refused before its
+    // response with NO_ERROR, or dropped by a GOAWAY, closes with no error.
+    stream.on('error', fail);
+    stream.once('close', () => fail(new IncompleteAnswer('H2_STREAM_CLOSED')));
+    stream.once('response', (headers) => {
+      answered = true;
+      resolve({
+        protocol: 'h2',
+        status: headers[':status'] ?? 0,
+        headers: withoutPseudoHeaders(headers),
+        body: wholeBody(stream, headers),
+        destroy,
+      });
+    });
+    if (body !== undefined) stream.end(body);
+  });
+}
+
+function jsonBody({ json }: FetchRequest): string | undefined {
+  return json === undefined ? undefined : JSON.stringify(json);
+}
+
+/** Every request's headers but Host / `:authority`, lower case for h2. */
+function requestHeaders(
+  { accept, authorization }: FetchRequest,
+  body: string | undefined,
+): OutgoingHttpHeaders {
+  return {
+    'user-agent': USER_AGENT,
+    accept: accept.map((kind) => ACCEPT_HEADERS[kind]).join(','),
+    'accept-encoding': 'gzip, deflate, br',
+    'accept-language': 'en',
+    ...(authorization !== undefined && { authorization }),
+    ...(body !== undefined && {
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(body),
+    }),
+  };
+}
+
+function withoutPseudoHeaders(headers: Http2Headers): IncomingHttpHeaders {
+  return Object.fromEntries(
+    Object.entries(headers).filter(([name]) => !name.startsWith(':')),
+  );
+}
+
+/**
+ * An h2 answer that did not arrive whole: refused as `network`, its code
+ * logged. A plain error, not a refusal, so a timeout that destroyed the
+ * session still reads as `timeout` (asRefusal).
+ */
+class IncompleteAnswer extends Error {
+  constructor(
+    readonly code:
+      | 'H2_STREAM_CLOSED'
+      | 'H2_BODY_CUT_SHORT'
+      | 'H2_LENGTH_MISMATCH',
+  ) {
+    super('The site did not send its whole answer');
+    this.name = 'IncompleteAnswer';
+  }
+}
+
+/** RFC 9113 section 7. */
+const H2_NO_ERROR = 0;
+
+/**
+ * The h2 stream's bytes, refused unless they arrived whole. Node ends a
+ * client stream quietly, as if complete, when its session dies mid-body
+ * (the socket closed, a GOAWAY then the close), so the end alone proves
+ * nothing. Whole is: (a) a declared content-length, and exactly that many
+ * bytes received (as sent, before decoding); or (b) none declared, and the
+ * stream not closed by its session's death. (b) reads `rstCode`, which
+ * Node sets on the wire's schedule, never the reader's: NO_ERROR when
+ * nghttp2 closed the stream (END_STREAM both ways, which then outlives the
+ * session's close: a server that ends its answer and hangs up at once is
+ * whole however far behind decoding the reader is), CANCEL when the
+ * session's destruction closed it first (the cut), and still unset while a
+ * live session's stream ends. A RST_STREAM(NO_ERROR) before END_STREAM
+ * also closes it NO_ERROR, so without a length that reset reads as the end:
+ * Node shows no difference, and where the answer stops is then the
+ * server's own choice, like an early END_STREAM (docs/decisions.md
+ * 2026-11-13, #496b). nghttp2 itself resets a stream whose DATA passes its
+ * content-length or, at END_STREAM, falls short of it.
+ */
+function wholeBody(
+  stream: ClientHttp2Stream,
+  headers: IncomingHttpStatusHeader & Http2Headers,
+): Readable {
+  const length = headers['content-length'];
+  const declared = length === undefined ? undefined : Number(length);
+  let received = 0;
+  const counted = new Transform({
+    transform(chunk: Buffer, _encoding, done) {
+      received += chunk.length;
+      done(null, chunk);
+    },
+    flush(done) {
+      if (declared !== undefined) {
+        done(
+          received === declared
+            ? undefined
+            : new IncompleteAnswer('H2_LENGTH_MISMATCH'),
+        );
+      } else if (
+        stream.rstCode !== undefined &&
+        stream.rstCode !== H2_NO_ERROR
+      ) {
+        done(new IncompleteAnswer('H2_BODY_CUT_SHORT'));
+      } else {
+        done();
+      }
+    },
+  });
+  // Errors on either side destroy both; the reader sees the first.
+  return pipeline(stream, counted, () => undefined);
+}
+
 async function readResponse(
-  response: IncomingMessage,
+  answer: Answer,
   { accept, hosts }: FetchRequest,
   signal: AbortSignal,
 ): Promise<Omit<FetchedResource, 'url' | 'redirects'>> {
   try {
-    refuseStatus(response, hosts);
+    refuseStatus(answer, hosts);
     const { mediaType, charset } = parseContentType(
-      response.headers['content-type'],
+      answer.headers['content-type'],
     );
     const kind = accept.find((k) => MEDIA_TYPES[k].includes(mediaType));
     if (!kind) {
@@ -465,34 +687,32 @@ async function readResponse(
     }
     const limit = BYTE_LIMITS[kind];
     const cut = kind === 'html';
-    const declared = Number(response.headers['content-length']);
-    if (!cut && !response.headers['content-encoding'] && declared > limit) {
+    // An early refusal only: the guard is the counted bytes, since a server
+    // can declare less than it sends.
+    const declared = Number(answer.headers['content-length']);
+    if (!cut && !answer.headers['content-encoding'] && declared > limit) {
       throw tooLarge(limit);
     }
     const { body, truncated } = await readCapped(
-      decoded(response),
+      decoded(answer),
       limit,
       cut,
       signal,
     );
     return { kind, mediaType, charset, body, truncated };
   } finally {
-    response.destroy();
+    answer.destroy();
   }
 }
 
 /** Throws unless the answer is a 2xx that is not a bot's challenge. */
 function refuseStatus(
-  response: IncomingMessage,
+  { status, headers }: Answer,
   hosts: FetchRequest['hosts'],
 ): void {
-  const status = response.statusCode ?? 0;
   // Only a user's URL meets a shop's bot protection; a fixed API's 403 or
   // 429 is its own answer (a token's scope, a quota), told by its status.
-  if (
-    !hosts &&
-    (BLOCKING_STATUSES.has(status) || isChallenge(response.headers))
-  ) {
+  if (!hosts && (BLOCKING_STATUSES.has(status) || isChallenge(headers))) {
     throw new OutboundFetchError(
       'blocked-by-site',
       `The site refused an automated fetch (${status})`,
@@ -514,7 +734,7 @@ function refuseStatus(
  * `captcha`), which would otherwise read as a page with nothing on it;
  * Cloudflare marks its challenges `cf-mitigated: challenge`.
  */
-function isChallenge(headers: IncomingMessage['headers']): boolean {
+function isChallenge(headers: IncomingHttpHeaders): boolean {
   const waf = headerValue(headers['x-amzn-waf-action']);
   return (
     waf === 'challenge' ||
@@ -537,14 +757,14 @@ const DECODERS = new Map<string, () => Transform>([
 ]);
 
 /** The body as sent, decompressed; the cap applies to these bytes. */
-function decoded(response: IncomingMessage): Readable {
-  const encoding = (response.headers['content-encoding'] ?? 'identity')
+function decoded({ headers, body }: Answer): Readable {
+  const encoding = (headers['content-encoding'] ?? 'identity')
     .trim()
     .toLowerCase();
   const decoder = DECODERS.get(encoding)?.();
   if (decoder) {
     // Errors on either side destroy both; the reader sees the first.
-    return pipeline(response, decoder, () => undefined);
+    return pipeline(body, decoder, () => undefined);
   }
   if (encoding !== 'identity') {
     throw new OutboundFetchError(
@@ -552,7 +772,7 @@ function decoded(response: IncomingMessage): Readable {
       `Unsupported content encoding ${encoding}`,
     );
   }
-  return response;
+  return body;
 }
 
 /**
@@ -640,9 +860,21 @@ function networkCode(error: unknown): string {
     : ` (${code})`;
 }
 
-/** `shop.example -> cdn.example`: each host once per run of redirects to it. */
-function hostChain(hosts: readonly string[]): string {
-  return hosts.filter((host, i) => host && host !== hosts[i - 1]).join(' -> ');
+/** What one fetch's log line names: its hosts and the last hop's protocol. */
+interface Trail {
+  hosts: string[];
+  protocol?: Protocol;
+}
+
+/**
+ * `shop.example -> cdn.example over h2`: each host once per run of
+ * redirects to it, then the protocol of the last answer, once one came.
+ */
+function trailText({ hosts, protocol }: Trail): string {
+  const chain = hosts
+    .filter((host, i) => host && host !== hosts[i - 1])
+    .join(' -> ');
+  return protocol && chain ? `${chain} over ${protocol}` : chain;
 }
 
 function elapsed(started: number): number {

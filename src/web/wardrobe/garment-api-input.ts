@@ -24,6 +24,7 @@ import {
   WARMTHS,
 } from '../../wardrobe/properties';
 import { ENTRY_STATUSES, type EntryStatus } from '../../wardrobe/status';
+import { refusedBody } from '../api/refused-body';
 import { literals, Nullable } from '../api/resource';
 import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
@@ -60,7 +61,7 @@ const text = (maxLength: number, description?: string) =>
   Nullable(Type.String({ maxLength }), { description });
 
 /** Money as a client sends it: dollars, at most two decimals (numeric(10, 2)). */
-const MoneyInput = Type.String({
+export const MoneyInput = Type.String({
   pattern: '^\\d{1,8}(\\.\\d{1,2})?$',
   description: 'A decimal amount in the household currency, e.g. "49.90"',
 });
@@ -208,6 +209,14 @@ export const NewGarment = Type.Object(
     ...fields,
     destination: Destination,
     replacesGarmentId: ReplacesGarmentId,
+    boughtForNeedId: Type.Optional(
+      Type.Integer({
+        minimum: 1,
+        maximum: ROW_ID_MAX,
+        description:
+          '"Bought a different one": your own Muse need this closet garment was bought for instead of its options, settled by it in the same write. A need settled or set aside is a 404, one settled meanwhile a 409; `destination` closet only',
+      }),
+    ),
     clientId: Type.Optional(
       Type.String({
         format: 'uuid',
@@ -322,33 +331,6 @@ export function refusedGarmentBody(
 }
 
 /**
- * A form reader's refusal as the API's 400: `errors` names each field as
- * a schema validation does (`body/<pointer>`, where the JSON body holds
- * it), with the message the form shows under it; `detail` joins them.
- */
-function refusedBody<Field extends string>(
-  errors: FieldErrors<Field>,
-  pointerOf: Record<Field, string>,
-): HttpError {
-  const validation = (
-    Object.entries(errors) as [Field, string[] | undefined][]
-  ).flatMap(([field, messages = []]) =>
-    messages.map((message) => ({
-      path: `body${pointerOf[field]}`,
-      message,
-    })),
-  );
-  return new HttpError(
-    400,
-    validation.map(({ message }) => message).join(' '),
-    {
-      validation,
-      logDetail: `refused fields: ${Object.keys(errors).join(', ')}`,
-    },
-  );
-}
-
-/**
  * A wishlist item's replaced garment, given for anywhere else: a 400
  * naming the field (POST /garments, POST /garments/link-imports).
  */
@@ -360,6 +342,21 @@ export function refuseReplacesOffWishlist(
   const message = t('api.REPLACES_ON_WISHLIST_ONLY');
   throw new HttpError(400, message, {
     validation: [{ path: 'body/replacesGarmentId', message }],
+  });
+}
+
+/**
+ * A need bought for, given for a wishlist item: a 400 naming the field
+ * (POST /garments). "Bought a different one" puts a garment in the closet.
+ */
+export function refuseBoughtForOffCloset(
+  destination: EntryStatus,
+  boughtForNeedId: number | undefined,
+): void {
+  if (boughtForNeedId === undefined || destination === 'closet') return;
+  const message = t('api.BOUGHT_FOR_IN_CLOSET_ONLY');
+  throw new HttpError(400, message, {
+    validation: [{ path: 'body/boughtForNeedId', message }],
   });
 }
 

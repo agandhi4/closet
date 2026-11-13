@@ -120,6 +120,15 @@ export function dayOutsideWindow(
 }
 
 /**
+ * The API's 409 for a write whose day only the writer knew was ahead (a
+ * calendar entry's own day, PUT /calendar-entries/{id}/worn): the window's
+ * words for a day to come.
+ */
+export function dayAheadRefusal(logDetail: string): HttpError {
+  return new HttpError(409, REFUSAL_MESSAGES.future, { logDetail });
+}
+
+/**
  * What a queueable write's log line adds: ` (replayed, key 1a2b3c4d)`, or
  * the key alone for a live tap that sent one, or nothing. The key is a
  * client's header, so only its first characters of [A-Za-z0-9-] are

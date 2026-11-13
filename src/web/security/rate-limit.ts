@@ -12,7 +12,7 @@ import type { Logger } from '../../logger';
  * unless its route opts in with `config: { rateLimit: SIGN_IN_LIMIT }` (or
  * ACCOUNT_LIMIT, LINK_IMPORT_LIMIT, WEATHER_SEARCH_LIMIT, WEATHER_LOCATION_LIMIT,
  * VITALS_LIMIT, CLIENT_ERROR_LIMIT, MCP_LIMIT; HEALTH_LIMIT, SIGN_IN_LIMIT's
- * two sign-in doors, SIGN_IN_ACCOUNT_LIMIT and API_LIMIT through one
+ * two sign-in doors, SIGN_IN_ACCOUNT_LIMIT, API_LIMIT and API_PHOTO_LIMIT through one
  * createRateLimit checker each). Every limited route counts on its own. Counters live in
  * process memory, which is right for the single container this runs as.
  *
@@ -154,31 +154,68 @@ export const LINK_IMPORT_LIMIT = {
 } satisfies RateLimitOptions;
 
 /**
- * The weather's city search (GET /weather/places, src/web/weather): each
- * search is a call to Open-Meteo's geocoding. Per signed-in user, like
- * LINK_IMPORT_LIMIT: room for a few tries at a spelling, and a ceiling on
- * how hard one account can make the server ask a free service.
+ * The weather's city search (GET /weather/places, src/web/weather; a trip's,
+ * and the API's GET /api/v1/weather/places): each search is a call to
+ * Open-Meteo's geocoding. Per user (the session's or the device token's),
+ * like LINK_IMPORT_LIMIT: room for a few tries at a spelling, and a ceiling
+ * on how hard one account can make the server ask a free service. The
+ * weather page's search and the API's share ONE checker
+ * (`WeatherLimits.search`), so a user's two doors are 20 in all; a trip's
+ * search stays a route config of its own (decisions 2026-11-13).
  */
 export const WEATHER_SEARCH_LIMIT = {
   max: 20,
   timeWindow: MINUTE_MS,
   hook: 'preHandler',
-  keyGenerator: (request) => `user ${request.auth!.user.id}`,
+  keyGenerator: (request) =>
+    `user ${request.accessToken?.user.id ?? request.auth!.user.id}`,
 } satisfies RateLimitOptions;
 
 /**
  * The routes that set a location the weather will be fetched for (POST
- * /weather/home, /weather/here, /trips/:id/destination). Every new rounded
- * location misses the forecast cache, so each is an Open-Meteo request and
- * a weather_forecast row: per signed-in user, room for a few tries and a
- * ceiling on how many one account can make the server fetch and keep.
+ * /weather/home, /weather/here, /trips/:id/destination, and their API twins
+ * PUT /api/v1/weather/home, /weather/here, /trips/{id}/destination). Every
+ * new rounded location misses the forecast cache, so each is an Open-Meteo
+ * request and a weather_forecast row: per user (the session's or the device
+ * token's), room for a few tries and a ceiling on how many one account can
+ * make the server fetch and keep. Each page route counts on its own, and
+ * shares its checker with its API twin (`WeatherLimits`: home, here,
+ * destination), so a user's two doors are 10 in all per write.
  */
 export const WEATHER_LOCATION_LIMIT = {
   max: 10,
   timeWindow: MINUTE_MS,
   hook: 'preHandler',
-  keyGenerator: (request) => `user ${request.auth!.user.id}`,
+  keyGenerator: (request) =>
+    `user ${request.accessToken?.user.id ?? request.auth!.user.id}`,
 } satisfies RateLimitOptions;
+
+/**
+ * The budgets a weather page route and its API twin share, one checker each
+ * built by `createWeatherLimits` in webPlugin: the place search, the home
+ * and phone-location writes and a trip's destination. A route's
+ * `config.rateLimit` would count the page and the API apart, doubling the
+ * bound on the same Open-Meteo calls.
+ */
+export interface WeatherLimits {
+  weatherLimits: {
+    search: RateLimitChecker;
+    home: RateLimitChecker;
+    here: RateLimitChecker;
+    destination: RateLimitChecker;
+  };
+}
+
+export function createWeatherLimits(
+  app: FastifyInstance,
+): WeatherLimits['weatherLimits'] {
+  return {
+    search: app.createRateLimit(WEATHER_SEARCH_LIMIT),
+    home: app.createRateLimit(WEATHER_LOCATION_LIMIT),
+    here: app.createRateLimit(WEATHER_LOCATION_LIMIT),
+    destination: app.createRateLimit(WEATHER_LOCATION_LIMIT),
+  };
+}
 
 /**
  * The devices' timing beacon (POST /metrics/vitals, src/web/metrics): per
@@ -248,6 +285,33 @@ export const API_LIMIT = {
   timeWindow: MINUTE_MS,
   keyGenerator: (request: FastifyRequest) =>
     `token ${request.accessToken!.tokenId}`,
+};
+
+declare module 'fastify' {
+  interface FastifyContextConfig {
+    /**
+     * An /api/v1 route that serves a private photo's bytes (servePrivatePhoto):
+     * it counts on API_PHOTO_LIMIT, never API_LIMIT (the API plugin's
+     * preHandler picks). The one way an API route serves image bytes.
+     */
+    apiPhotoBytes?: boolean;
+  }
+}
+
+/**
+ * The API's photo-byte routes (`config: { apiPhotoBytes: true }`), per
+ * device token and a budget of their own: a client paints a page of
+ * thumbnails with one request each, and on API_LIMIT's 120 a minute a page
+ * of 50 would 429 its own JSON calls. 600 lets a 50-item page load twice a
+ * minute with room for a few more; photo bytes are immutable for a year
+ * (private-photo.ts), so a client that respects the cache stays far below it.
+ * The 401 is never counted, as with API_LIMIT.
+ */
+export const API_PHOTO_LIMIT = {
+  max: 600,
+  timeWindow: MINUTE_MS,
+  keyGenerator: (request: FastifyRequest) =>
+    `token ${request.accessToken!.tokenId} photos`,
 };
 
 /**

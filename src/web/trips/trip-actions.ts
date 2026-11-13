@@ -282,7 +282,7 @@ export async function packTrip(
   db: Db,
   actor: Actor,
   ticks: ChecklistTicks,
-): Promise<PackedChange> {
+): Promise<PackedChange & { onList: number }> {
   const change = await setPacked(db, { ...ticks, ownerId: actor.userId });
   if (change === 'not-found') throw tripNotFound();
   return change;
@@ -297,6 +297,59 @@ export async function packTripItems(
   const change = await setItemsPacked(db, { ...ticks, ownerId: actor.userId });
   if (change === 'not-found') throw tripNotFound();
   return change;
+}
+
+/** A one-row tick (the API's): packed or not, and whether it moved. */
+interface Tick {
+  tripId: number;
+  packed: boolean;
+}
+
+function ticksOf(id: number, { tripId, packed }: Tick): ChecklistTicks {
+  return {
+    tripId,
+    packed: packed ? [id] : [],
+    unpacked: packed ? [] : [id],
+  };
+}
+
+/**
+ * One garment of the actor's trip packed or not (setPacked), set-state: a
+ * garment the list does not hold (no outfit of the trip has it, or it left
+ * with one) is the garment's 404, which a queued tick may drop.
+ */
+export async function tickTripGarment(
+  db: Db,
+  actor: Actor,
+  tick: Tick & { garmentId: number },
+): Promise<{ changed: boolean }> {
+  const change = await packTrip(db, actor, ticksOf(tick.garmentId, tick));
+  if (change.onList === 0) {
+    throw new NotFound('garment', {
+      logDetail: `garment ${tick.garmentId} is not on trip ${tick.tripId}'s packing list`,
+    });
+  }
+  return { changed: change.packed + change.unpacked > 0 };
+}
+
+/**
+ * One extra of the actor's trip packed or not (setItemsPacked), set-state:
+ * the extra as it now is; one not on the trip is the trip's 404, as its
+ * removal is.
+ */
+export async function tickTripItem(
+  db: Db,
+  actor: Actor,
+  tick: Tick & { itemId: number },
+): Promise<{ item: TripItemRow; changed: boolean }> {
+  const change = await packTripItems(db, actor, ticksOf(tick.itemId, tick));
+  const item = change.items.find((row) => row.id === tick.itemId);
+  if (!item) {
+    throw new NotFound('trip', {
+      logDetail: `extra ${tick.itemId} is not on trip ${tick.tripId}`,
+    });
+  }
+  return { item, changed: change.packed + change.unpacked > 0 };
 }
 
 /** An extra on the actor's trip; the count added (0: the label is there already). */

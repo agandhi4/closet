@@ -12,7 +12,7 @@ import type { CalendarEntry } from './calendar-view';
 import {
   deleteEntry,
   findEntry,
-  type Scheduled,
+  type ScheduledEntry,
   scheduleOutfit,
 } from './queries';
 
@@ -33,15 +33,16 @@ export function calendarEntryNotFound(): NotFound {
 }
 
 /**
- * Plans the actor's outfit on a day (POST /calendar, schedule_outfit):
- * scheduleOutfit's answer, the occasion it is on that day included; an
- * outfit not theirs is NotFound('outfit').
+ * Plans the actor's outfit on a day (POST /calendar, schedule_outfit, POST
+ * /api/v1/calendar-entries): scheduleOutfit's answer, the entry and the
+ * occasion it is on that day included; an outfit not theirs is
+ * NotFound('outfit').
  */
 export async function planOutfit(
   db: Db,
   actor: Actor,
   entry: { outfitId: number; day: IsoDate; occasion: Occasion },
-): Promise<Scheduled & { occasion: Occasion }> {
+): Promise<ScheduledEntry> {
   const scheduled = await scheduleOutfit(db, {
     ownerId: actor.userId,
     ...entry,

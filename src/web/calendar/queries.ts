@@ -108,7 +108,13 @@ export function entriesSql(
       and ${outfitCalendar.day} between ${first} and ${last})`;
 }
 
-/** entriesSql alone: Today, the month, get_calendar. One statement. */
+/**
+ * The widest range of days a client reads at once (get_calendar, GET
+ * /api/v1/calendar-entries): two months, a planning conversation's horizon.
+ */
+export const MAX_CALENDAR_DAYS = 62;
+
+/** entriesSql alone: Today, the month, get_calendar, GET /api/v1/calendar-entries. One statement. */
 export async function findEntries(
   db: Queryable,
   ownerId: number,
@@ -197,6 +203,12 @@ export type Scheduled =
   | { outcome: 'scheduled'; id: number }
   | { outcome: 'already-scheduled'; adopted: boolean };
 
+/** What scheduleOutfit did, the entry the outfit is on that day included. */
+export type ScheduledEntry = Scheduled & {
+  entryId: number;
+  occasion: Occasion;
+};
+
 /**
  * Plans the owner's outfit on `day` for an occasion. Idempotent: planning
  * the same outfit on the same day again inserts nothing (the unique
@@ -204,19 +216,20 @@ export type Scheduled =
  * 'already-scheduled', so a double tap or a replayed form is not an error.
  * The ownership check and the write are one step under the owner lock, so
  * a replace or a re-plan never sees the day half changed. Answers the
- * occasion the outfit is on that day: the one asked, or the one it kept.
- * The check reads it with the outfit (#172: schedule_outfit read the whole
- * day's entries again after the write to say which), and the lock keeps it
- * true until the insert.
+ * entry and the occasion the outfit is on that day: the one asked, or the
+ * one it kept. The check reads the entry with the outfit (#172:
+ * schedule_outfit read the whole day's entries again after the write to
+ * say which; the API answers its id), and the lock keeps it true until the
+ * insert.
  */
 export function scheduleOutfit(
   db: Queryable,
   entry: NewEntry,
-): Promise<(Scheduled & { occasion: Occasion }) | 'no-such-outfit'> {
+): Promise<ScheduledEntry | 'no-such-outfit'> {
   return ownerTransaction(db, entry.ownerId, 'scheduleOutfit', async (tx) => {
     // The outfit is on a day once (the unique owner, day, outfit key): one row.
     const [owned] = await tx
-      .select({ kept: outfitCalendar.occasion })
+      .select({ entryId: outfitCalendar.id, kept: outfitCalendar.occasion })
       .from(outfit)
       .leftJoin(
         outfitCalendar,
@@ -231,7 +244,13 @@ export function scheduleOutfit(
       );
     if (!owned) return 'no-such-outfit';
     const scheduled = await insertEntry(tx, entry);
-    return { ...scheduled, occasion: owned.kept ?? entry.occasion };
+    return {
+      ...scheduled,
+      // Already scheduled: the entry the check read, which the lock kept.
+      entryId:
+        scheduled.outcome === 'scheduled' ? scheduled.id : owned.entryId!,
+      occasion: owned.kept ?? entry.occasion,
+    };
   });
 }
 
@@ -352,6 +371,7 @@ export async function entryOf(
 /** An entry replaceEntryOutfit is about to change, locked. */
 export interface EntryToReplace {
   id: number;
+  day: IsoDate;
   occasion: Occasion;
   outfitId: number;
   worn: boolean;
@@ -359,20 +379,22 @@ export interface EntryToReplace {
 }
 
 /**
- * Locks the owner's entry `entryId` if it is on `day` and, when given, for
+ * Locks the owner's entry `entryId` if it is, when given, on `day` and for
  * `occasion` (FOR UPDATE: setEntryWorn and setEntrySelfie lock it too, so a
  * wear marked meanwhile is seen here). Undefined for another's entry, a
  * missing one, or one elsewhere: a `replace=` naming an entry of another
- * day or occasion is a link that does not say what it would change.
+ * day or occasion is a link that does not say what it would change (the
+ * pages and MCP name the day; the API names the entry alone).
  */
 export async function lockEntryToReplace(
   tx: Queryable,
   ownerId: number,
-  target: { entryId: number; day: IsoDate; occasion?: Occasion },
+  target: { entryId: number; day?: IsoDate; occasion?: Occasion },
 ): Promise<EntryToReplace | undefined> {
   const [row] = await tx
     .select({
       id: outfitCalendar.id,
+      day: outfitCalendar.day,
       occasion: outfitCalendar.occasion,
       outfitId: outfitCalendar.outfitId,
       wornAt: outfitCalendar.wornAt,
@@ -383,7 +405,9 @@ export async function lockEntryToReplace(
       and(
         eq(outfitCalendar.id, target.entryId),
         eq(outfitCalendar.ownerId, ownerId),
-        eq(outfitCalendar.day, target.day),
+        target.day === undefined
+          ? undefined
+          : eq(outfitCalendar.day, target.day),
         target.occasion === undefined
           ? undefined
           : eq(outfitCalendar.occasion, target.occasion),
