@@ -18,6 +18,7 @@ import { createTestApp, type TestApp } from './harness';
 let t: TestApp;
 let token: string;
 let viewerToken: string;
+let managerToken: string;
 let ownerId: number;
 
 const api = (
@@ -50,19 +51,16 @@ async function pick(name: string, groupId: number, rank: number | null = null) {
 const groupRow = async (id: number) =>
   (await t.db.select().from(optionGroup).where(eq(optionGroup.id, id)))[0];
 
-beforeAll(async () => {
-  t = await createTestApp();
-  ownerId = t.owner.id;
-  token = (await deviceToken(t)).token;
-  await createGarment(t, { name: 'Raw jeans', category: 'bottoms' });
-  await createGarment(t, { name: 'Sneakers', category: 'footwear' });
-  const email = 'api-wishlist-viewer@example.com';
-  const viewerCookie = await t.register(email);
-  viewerToken = (await deviceToken(t, { email })).token;
+/** A fresh account the owner shares the wardrobe with; its device token. */
+async function shareWith(
+  email: string,
+  permission: 'VIEW' | 'MANAGE',
+): Promise<string> {
+  const cookie = await t.register(email);
   const invite = await t.inject({
     method: 'POST',
     url: '/wardrobe-share/create-invite-link',
-    payload: { permission: 'VIEW' },
+    payload: { permission },
     headers: { 'hx-request': 'true' },
   });
   const shareToken = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(
@@ -71,8 +69,19 @@ beforeAll(async () => {
   await t.inject({
     method: 'POST',
     url: `/wardrobe-share/invite/${shareToken}/accept`,
-    headers: { cookie: viewerCookie },
+    headers: { cookie },
   });
+  return (await deviceToken(t, { email })).token;
+}
+
+beforeAll(async () => {
+  t = await createTestApp();
+  ownerId = t.owner.id;
+  token = (await deviceToken(t)).token;
+  await createGarment(t, { name: 'Raw jeans', category: 'bottoms' });
+  await createGarment(t, { name: 'Sneakers', category: 'footwear' });
+  viewerToken = await shareWith('api-wishlist-viewer@example.com', 'VIEW');
+  managerToken = await shareWith('api-wishlist-manager@example.com', 'MANAGE');
 });
 
 afterAll(async () => {
@@ -370,5 +379,38 @@ describe('Bought it', () => {
       'not_found',
     );
     expect(await t.db.$count(garment)).toBe(before);
+  });
+
+  it("refuses a MANAGE share settling the owner's need, storing nothing", async () => {
+    const groupId = await need('A scarf');
+    await pick('Wool scarf', groupId);
+    const before = await t.db.$count(garment);
+    expectProblem(
+      await api(
+        'POST',
+        `/garments?ownerId=${ownerId}`,
+        {
+          category: 'accessories',
+          name: 'Silk scarf',
+          boughtForNeedId: groupId,
+        },
+        managerToken,
+      ),
+      404,
+      'not_found',
+    );
+    expect(await t.db.$count(garment)).toBe(before);
+    expect(await groupRow(groupId)).toMatchObject({
+      status: 'open',
+      resolvedGarmentId: null,
+    });
+    // The same share may still add a garment without the need.
+    const plain = await api(
+      'POST',
+      `/garments?ownerId=${ownerId}`,
+      { category: 'accessories', name: 'Silk scarf' },
+      managerToken,
+    );
+    expect(plain.statusCode, plain.body).toBe(201);
   });
 });
