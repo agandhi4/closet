@@ -807,3 +807,8 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 **Why:** 0051's ~30 `ALTER TABLE`s on root tables ran before 0052's `SET LOCAL lock_timeout`, so behind a long reader (a backup's `pg_dump`) the boot could wait without limit instead of failing and retrying. A new migration cannot help: the timeout must be in force while 0051 runs.
 **Decision:** edit 0051 (a leading `SET LOCAL lock_timeout = '5s'`) before production ever ran it (last ship 96b3ebc predates #566), under the `migration-contract` label. No schema changes; a database that already applied 0051 (dev, worktrees) is unaffected since Drizzle never re-checks hashes.
 **Consequence:** once a migration has shipped to production this hatch is closed; fix forward then.
+
+## 2026-11-13 — A migration that locks a table must start with lock_timeout (#603)
+
+**Decision:** `src/db/migration-lock-timeout.spec.ts` (unit tier, reads `drizzle/*.sql`) fails any file from 0051 on with `ALTER TABLE`, trigger, `DROP`, `TRUNCATE` or non-concurrent `CREATE INDEX` whose first statement is not `SET LOCAL lock_timeout`; 0000-0050 are exempt by number.
+**Consequence:** 0051 shipped without one and only review caught it (#601); a new migration now fails fast, naming file and fix.
