@@ -48,7 +48,7 @@ export const selfieRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/calendar/:id/selfie',
     { schema: { params: EntryParams, querystring: ReturnQuery } },
     async (request, reply) => {
-      const day = await attachSelfie(deps, actorOf(request), {
+      const { day } = await attachSelfie(deps, actorOf(request), {
         entryId: request.params.id,
         // One file: the photo (a second is a 413).
         parts: request.files({ limits: { files: 1 } }),

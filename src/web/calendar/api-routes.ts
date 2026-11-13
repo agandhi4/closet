@@ -17,6 +17,7 @@ import {
   EntryOutfitChanged,
   EntryOutfitInput,
   EntryWorn,
+  entryOutfitChoice,
   EntryWornInput,
   NewCalendarEntry,
   toCalendarEntryResource,
@@ -49,14 +50,21 @@ export const calendarApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         operationId: 'listCalendarEntries',
         tags: ['calendar'],
         summary: 'Your calendar over a range of days',
-        description: `Each entry's outfit with its garments (each piece away marked), whether it was worn, its selfie and who planned it. Without dates: this week from today. At most ${MAX_CALENDAR_DAYS} days, else a 400.`,
+        description: `Each entry's outfit with its garments (each piece away marked), whether it was worn, its selfie and who planned it. Seven days unless both ends are sent: from today without dates, from \`from\` with it alone, up to \`to\` with it alone. At most ${MAX_CALENDAR_DAYS} days, else a 400.`,
         querystring: CalendarEntryQuery,
         response: apiResponses({ 200: CalendarEntryList }),
       },
     },
     async (request) => {
-      const from = request.query.from ?? todayIn(config.timeZone, new Date());
-      const to = request.query.to ?? addDays(from, 6);
+      // A week by default: from today, or up to `to` when only it is sent
+      // (#570), so `?to=<yesterday>` is the week that ended then.
+      const { query } = request;
+      const from =
+        query.from ??
+        (query.to === undefined
+          ? todayIn(config.timeZone, new Date())
+          : addDays(query.to, -6));
+      const to = query.to ?? addDays(from, 6);
       const days = daysBetween(from, to) + 1;
       if (days < 1 || days > MAX_CALENDAR_DAYS) {
         throw new HttpError(
@@ -136,7 +144,7 @@ export const calendarApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         tags: ['calendar'],
         summary: "Changes an entry's outfit, keeping its day and occasion",
         description:
-          "Change on the calendar and Today. The entry becomes yours (out of the re-plan's reach); an outfit Plan my week made for it goes once nothing holds it; its selfie stays on the day as a look. A worn entry is a 409 (it is the record of that day: plan another outfit instead), and so is an outfit already on the day. Set-state: the outfit it holds already is `unchanged`.",
+          "Change on the calendar and Today, with a saved outfit (`outfitId`) or an idea's garments (`garmentIds`, from GET /ideas: saved as an outfit, or the outfit they are already). The entry becomes yours (out of the re-plan's reach); an outfit Plan my week made for it goes once nothing holds it; its selfie stays on the day as a look. A worn entry is a 409 (it is the record of that day: plan another outfit instead), and so is an outfit already on the day; nothing is saved then. Set-state: the outfit it holds already is `unchanged`.",
         params: EntryParams,
         body: EntryOutfitInput,
         response: apiResponses({ 200: EntryOutfitChanged }),
@@ -145,11 +153,10 @@ export const calendarApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
     async (request) => {
       const actor = actorOf(request);
       const target = { entryId: request.params.id };
-      const replaced = await replaceEntryOutfit(db, actor, target, {
-        outfitId: request.body.outfitId,
-      });
+      const choice = entryOutfitChoice(request.body);
+      const replaced = await replaceEntryOutfit(db, actor, target, choice);
       logger.info(replaceMessage(actor.userId, target, replaced, ' (API)'));
-      return toEntryOutfitChanged(replaced);
+      return toEntryOutfitChanged(replaced, choice);
     },
   );
 

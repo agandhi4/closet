@@ -161,15 +161,17 @@ export function matchGarment(garment: GarmentWeatherFields): MatchGarment {
 }
 
 /** What is wrong with an outfit for the weather; none means it fits. */
-export type FitProblem =
-  | 'too-cold'
-  | 'too-warm'
-  | 'needs-layer'
-  | 'legs-too-cold'
-  | 'legs-too-warm'
-  | 'feet-too-cold'
-  | 'feet-too-warm'
-  | 'needs-water-resistance';
+export const FIT_PROBLEMS = [
+  'too-cold',
+  'too-warm',
+  'needs-layer',
+  'legs-too-cold',
+  'legs-too-warm',
+  'feet-too-cold',
+  'feet-too-warm',
+  'needs-water-resistance',
+] as const;
+export type FitProblem = (typeof FIT_PROBLEMS)[number];
 
 export interface OutfitFit {
   fits: boolean;

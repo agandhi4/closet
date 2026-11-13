@@ -2,14 +2,17 @@ import { CloneType, type Static, Type } from '@sinclair/typebox';
 import { OCCASIONS } from '../../wardrobe/occasions';
 import { PLANNED_BY } from '../../wardrobe/week';
 import { literals, withoutNulls } from '../api/resource';
+import { MAX_PICKED } from '../gallery/pick';
+import { OUTFIT_NAME_MAX, outfitText } from '../outfits/queries';
 import {
   OutfitGarmentResource,
+  outfitOrGarments,
   toOutfitGarment,
 } from '../outfits/outfit-resource';
 import { IsoDateSchema, RowId } from '../schemas';
 import type { CalendarEntry } from './calendar-view';
 import { MAX_CALENDAR_DAYS, type ScheduleOutcome } from './queries';
-import type { Replaced } from './replace';
+import type { Replaced, ReplacementChoice } from './replace';
 
 /**
  * The API's calendar entry resources and inputs (#193b; docs/plans/
@@ -144,16 +147,58 @@ export const CalendarEntryScheduled = Type.Object(
   { title: 'CalendarEntryScheduled' },
 );
 
-/** PUT /calendar-entries/{id}/outfit. */
+/**
+ * PUT /calendar-entries/{id}/outfit: exactly one of the two (the handler
+ * says so, entryOutfitChoice; a union of objects would let ajv's
+ * removeAdditional strip one branch's fields while trying the other).
+ */
 export const EntryOutfitInput = Type.Object(
   {
-    outfitId: CloneType(RowId, {
-      description:
-        'One of your outfits, not on that day already (a 409) and with no piece to buy',
-    }),
+    outfitId: Type.Optional(
+      CloneType(RowId, {
+        description:
+          'One of your outfits, not on that day already (a 409) and with no piece to buy',
+      }),
+    ),
+    garmentIds: Type.Optional(
+      Type.Array(RowId, {
+        minItems: 1,
+        maxItems: MAX_PICKED,
+        description:
+          "An idea's garments, of your closet: the outfit they are, or a new one of them. One not in your closet refuses it, nothing written: a 404 when any is not yours, else a 409 naming them",
+      }),
+    ),
+    name: Type.Optional(
+      Type.String({
+        maxLength: OUTFIT_NAME_MAX,
+        description:
+          "With `garmentIds`, a new outfit's name: the idea's (its garments) unless sent",
+      }),
+    ),
   },
-  { title: 'CalendarEntryOutfitInput' },
+  {
+    title: 'CalendarEntryOutfitInput',
+    description: 'The outfit the entry holds now: `outfitId` or `garmentIds`',
+  },
 );
+
+/** The choice an EntryOutfitInput names; both or neither is a 400 `validation`. */
+export function entryOutfitChoice(
+  input: Static<typeof EntryOutfitInput>,
+): ReplacementChoice {
+  const { outfitId, garmentIds, name } = input;
+  if (
+    outfitId !== undefined &&
+    garmentIds === undefined &&
+    name === undefined
+  ) {
+    return { outfitId };
+  }
+  if (outfitId === undefined && garmentIds !== undefined) {
+    return { garmentIds, name: outfitText(name) ?? undefined };
+  }
+  throw outfitOrGarments();
+}
 
 const REPLACE_OUTCOMES = [
   'replaced',
@@ -169,6 +214,12 @@ export const EntryOutfitChanged = Type.Object(
     occasion: Occasion,
     outfitId: Type.Integer(),
     previousOutfitId: Type.Integer(),
+    alreadySaved: Type.Optional(
+      Type.Boolean({
+        description:
+          'With `garmentIds`: they were an outfit of yours already; false, a new one was saved',
+      }),
+    ),
     selfieKeptAsLook: Type.Boolean({
       description:
         'Its selfie stays on the day as a look: it shows the old outfit',
@@ -183,6 +234,7 @@ export const EntryOutfitChanged = Type.Object(
 
 export function toEntryOutfitChanged(
   replaced: Replaced,
+  choice: ReplacementChoice,
 ): Static<typeof EntryOutfitChanged> {
   return {
     outcome: replaced.outcome,
@@ -190,6 +242,7 @@ export function toEntryOutfitChanged(
     occasion: replaced.occasion,
     outfitId: replaced.outfitId,
     previousOutfitId: replaced.previousOutfitId,
+    ...('garmentIds' in choice && { alreadySaved: replaced.alreadySaved }),
     selfieKeptAsLook: replaced.selfieDetached !== undefined,
     plannerOutfitRemoved: replaced.outfitsRemoved > 0,
   };

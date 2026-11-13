@@ -9084,7 +9084,7 @@
         "tags": [
           "calendar"
         ],
-        "description": "Each entry's outfit with its garments (each piece away marked), whether it was worn, its selfie and who planned it. Without dates: this week from today. At most 62 days, else a 400.",
+        "description": "Each entry's outfit with its garments (each piece away marked), whether it was worn, its selfie and who planned it. Seven days unless both ends are sent: from today without dates, from `from` with it alone, up to `to` with it alone. At most 62 days, else a 400.",
         "parameters": [
           {
             "schema": {
@@ -9659,28 +9659,43 @@
         "tags": [
           "calendar"
         ],
-        "description": "Change on the calendar and Today. The entry becomes yours (out of the re-plan's reach); an outfit Plan my week made for it goes once nothing holds it; its selfie stays on the day as a look. A worn entry is a 409 (it is the record of that day: plan another outfit instead), and so is an outfit already on the day. Set-state: the outfit it holds already is `unchanged`.",
+        "description": "Change on the calendar and Today, with a saved outfit (`outfitId`) or an idea's garments (`garmentIds`, from GET /ideas: saved as an outfit, or the outfit they are already). The entry becomes yours (out of the re-plan's reach); an outfit Plan my week made for it goes once nothing holds it; its selfie stays on the day as a look. A worn entry is a 409 (it is the record of that day: plan another outfit instead), and so is an outfit already on the day; nothing is saved then. Set-state: the outfit it holds already is `unchanged`.",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "title": "CalendarEntryOutfitInput",
+                "description": "The outfit the entry holds now: `outfitId` or `garmentIds`",
                 "type": "object",
-                "required": [
-                  "outfitId"
-                ],
                 "properties": {
                   "outfitId": {
                     "description": "One of your outfits, not on that day already (a 409) and with no piece to buy",
                     "minimum": 1,
                     "maximum": 2147483647,
                     "type": "integer"
+                  },
+                  "garmentIds": {
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "description": "An idea's garments, of your closet: the outfit they are, or a new one of them. One not in your closet refuses it, nothing written: a 404 when any is not yours, else a 409 naming them",
+                    "type": "array",
+                    "items": {
+                      "minimum": 1,
+                      "maximum": 2147483647,
+                      "type": "integer"
+                    }
+                  },
+                  "name": {
+                    "maxLength": 255,
+                    "description": "With `garmentIds`, a new outfit's name: the idea's (its garments) unless sent",
+                    "type": "string"
                   }
                 }
               }
             }
-          }
+          },
+          "description": "The outfit the entry holds now: `outfitId` or `garmentIds`"
         },
         "parameters": [
           {
@@ -9778,6 +9793,10 @@
                     },
                     "previousOutfitId": {
                       "type": "integer"
+                    },
+                    "alreadySaved": {
+                      "description": "With `garmentIds`: they were an outfit of yours already; false, a new one was saved",
+                      "type": "boolean"
                     },
                     "selfieKeptAsLook": {
                       "description": "Its selfie stays on the day as a look: it shows the old outfit",
@@ -16599,6 +16618,1078 @@
                       "minimum": 0,
                       "description": "Pairings undone",
                       "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ideas": {
+      "get": {
+        "operationId": "listIdeas",
+        "summary": "Outfit ideas from your closet for a day and an occasion",
+        "tags": [
+          "ideas"
+        ],
+        "description": "The Ideas tab's cards, and Styling's Shuffle (its locked rows in `with`, one idea: `limit=1`, another `seed` per shuffle). Each says what is off about it, if anything. At most 300 ideas deep. Save one with POST /outfit-picks.",
+        "parameters": [
+          {
+            "schema": {
+              "format": "date",
+              "type": "string"
+            },
+            "in": "query",
+            "name": "day",
+            "required": false,
+            "description": "The day to dress for: today unless given. The weather counts from today to 15 days ahead"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "all-day"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "workout"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "work"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "daytime"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "evening"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "night-out"
+                  ]
+                }
+              ]
+            },
+            "in": "query",
+            "name": "occasion",
+            "required": false,
+            "description": "All day unless given"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "capsuleId",
+            "required": false,
+            "description": "Only garments of this capsule of yours; another is a 404"
+          },
+          {
+            "schema": {
+              "maxItems": 8,
+              "type": "array",
+              "items": {
+                "minimum": 1,
+                "maximum": 2147483647,
+                "type": "integer"
+              }
+            },
+            "in": "query",
+            "name": "with",
+            "required": false,
+            "description": "Garments of your closet every idea holds, repeated (`with=3&with=9`): \"Style this\", or Styling's locked rows. One not in your closet is a 404"
+          },
+          {
+            "schema": {
+              "minimum": 0,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "seed",
+            "required": false,
+            "description": "Which ideas: the day's unless given (the answer says which). The same seed and page are the same ideas; Shuffle is another seed"
+          },
+          {
+            "schema": {
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "description": "The previous page's `pagination.nextCursor`"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 6,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "description": "How many a page holds: 6 unless asked, at most 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ideas for a day and an occasion, those that fit first, then the near misses best first. Seeded, never stored: the same seed and page are the same ideas, and page 1 never changes when page 3 is read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "IdeaList",
+                  "description": "Ideas for a day and an occasion, those that fit first, then the near misses best first. Seeded, never stored: the same seed and page are the same ideas, and page 1 never changes when page 3 is read",
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "pagination",
+                    "day",
+                    "occasion",
+                    "seed"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "title": "Idea",
+                        "description": "A whole outfit from your closet: clean, at home, at most two colours beyond the neutrals and one pattern, never a pair you said clashes nor one of your saved outfits",
+                        "type": "object",
+                        "required": [
+                          "name",
+                          "garments",
+                          "fits",
+                          "problems",
+                          "brokenRules",
+                          "rested"
+                        ],
+                        "properties": {
+                          "name": {
+                            "description": "Its garments named top to toe: the name a pick saves",
+                            "type": "string"
+                          },
+                          "garments": {
+                            "description": "Top to toe",
+                            "type": "array",
+                            "items": {
+                              "title": "IdeaGarment",
+                              "type": "object",
+                              "required": [
+                                "id",
+                                "category",
+                                "role"
+                              ],
+                              "properties": {
+                                "id": {
+                                  "type": "integer"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "category": {
+                                  "type": "string"
+                                },
+                                "role": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "top"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "bottom"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "one-piece"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "layer"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "footwear"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "accessory"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "bag"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "none"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "thumbUrl": {
+                                  "description": "Signed, relative, immutable: from the cutout when it shows",
+                                  "type": "string"
+                                },
+                                "daysUnworn": {
+                                  "minimum": 0,
+                                  "description": "Days since it was last worn; absent when never",
+                                  "type": "integer"
+                                }
+                              }
+                            }
+                          },
+                          "fits": {
+                            "description": "No problem: it meets the weather and the occasion",
+                            "type": "boolean"
+                          },
+                          "problems": {
+                            "description": "What is off, the weather against its warmth and the occasion against its formality; `breaks-rule` when the garments sent in `with` break one of your outfit rules between them",
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "too-cold"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "too-warm"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "needs-layer"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "legs-too-cold"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "legs-too-warm"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "feet-too-cold"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "feet-too-warm"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "needs-water-resistance"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "too-casual"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "too-dressy"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "breaks-rule"
+                                  ]
+                                }
+                              ]
+                            }
+                          },
+                          "brokenRules": {
+                            "description": "Each outfit rule it breaks, in the app's words",
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "rested": {
+                            "description": "Its garments unworn the longest, which the rotation brought back",
+                            "type": "array",
+                            "items": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "pagination": {
+                      "title": "Pagination",
+                      "type": "object",
+                      "required": [
+                        "limit"
+                      ],
+                      "properties": {
+                        "nextCursor": {
+                          "type": "string"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "day": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "occasion": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "all-day"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "workout"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "work"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "daytime"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "evening"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "night-out"
+                          ]
+                        }
+                      ]
+                    },
+                    "seed": {
+                      "description": "The seed these ideas were drawn by",
+                      "type": "integer"
+                    },
+                    "weather": {
+                      "description": "The weather the ideas were matched to",
+                      "title": "IdeaWeather",
+                      "type": "object",
+                      "required": [
+                        "feelsLikeC",
+                        "needsLayer",
+                        "needsWaterResistance",
+                        "typical"
+                      ],
+                      "properties": {
+                        "feelsLikeC": {
+                          "title": "IdeaFeelsLike",
+                          "description": "The occasion's hours, °C, your temperature offset included",
+                          "type": "object",
+                          "required": [
+                            "min",
+                            "max"
+                          ],
+                          "properties": {
+                            "min": {
+                              "type": "number"
+                            },
+                            "max": {
+                              "type": "number"
+                            }
+                          }
+                        },
+                        "needsLayer": {
+                          "type": "boolean"
+                        },
+                        "needsWaterResistance": {
+                          "type": "boolean"
+                        },
+                        "typical": {
+                          "description": "A typical day's, not a forecast",
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/outfit-picks": {
+      "post": {
+        "operationId": "pickOutfit",
+        "summary": "Saves an idea's garments as an outfit",
+        "tags": [
+          "ideas"
+        ],
+        "description": "A card's pick, and Styling's Save of a new outfit: one transaction, once. Garments that are an outfit of yours already answer that one, 200 with `alreadySaved` (and planned when asked), so a retry creates nothing; a new one is 201 with its `Location`. Choosing Plan my week's outfit or entry makes it yours.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "OutfitPick",
+                "description": "An idea's garments saved as an outfit, and planned on a day when asked. To put them in a calendar entry's place, PUT /calendar-entries/{id}/outfit with them; on a trip, POST /trips/{id}/outfits",
+                "type": "object",
+                "required": [
+                  "garmentIds"
+                ],
+                "properties": {
+                  "garmentIds": {
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "description": "An idea's garments, of your closet. One not in your closet refuses the pick, nothing written: a 404 when any is not yours, else a 409 naming those archived or not bought yet",
+                    "type": "array",
+                    "items": {
+                      "minimum": 1,
+                      "maximum": 2147483647,
+                      "type": "integer"
+                    }
+                  },
+                  "name": {
+                    "maxLength": 255,
+                    "description": "A new outfit's name: the idea's (its garments) unless sent",
+                    "type": "string"
+                  },
+                  "plan": {
+                    "title": "OutfitPickPlan",
+                    "description": "Also plans it on a day (once: a day holds an outfit once)",
+                    "type": "object",
+                    "required": [
+                      "day"
+                    ],
+                    "properties": {
+                      "day": {
+                        "format": "date",
+                        "type": "string"
+                      },
+                      "occasion": {
+                        "description": "All day unless given",
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "all-day"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "workout"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "work"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "daytime"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "evening"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "night-out"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "clientId": {
+                    "format": "uuid",
+                    "description": "Your id for this pick, for retrying it offline: accepted, not yet stored (the same garments are the same outfit anyway)",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "description": "An idea's garments saved as an outfit, and planned on a day when asked. To put them in a calendar entry's place, PUT /calendar-entries/{id}/outfit with them; on a trip, POST /trips/{id}/outfits"
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "OutfitPicked",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "alreadySaved"
+                  ],
+                  "properties": {
+                    "id": {
+                      "description": "The outfit",
+                      "type": "integer"
+                    },
+                    "alreadySaved": {
+                      "description": "The garments were an outfit of yours already: it is the answer, nothing was created (a retry)",
+                      "type": "boolean"
+                    },
+                    "schedule": {
+                      "description": "With `plan`: planned now, or on that day already",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "scheduled"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "already-scheduled"
+                          ]
+                        }
+                      ]
+                    },
+                    "adopted": {
+                      "description": "Plan my week's outfit or entry, which this pick made yours: out of the re-plan's and Undo's reach",
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "OutfitPicked",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "alreadySaved"
+                  ],
+                  "properties": {
+                    "id": {
+                      "description": "The outfit",
+                      "type": "integer"
+                    },
+                    "alreadySaved": {
+                      "description": "The garments were an outfit of yours already: it is the answer, nothing was created (a retry)",
+                      "type": "boolean"
+                    },
+                    "schedule": {
+                      "description": "With `plan`: planned now, or on that day already",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "scheduled"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "already-scheduled"
+                          ]
+                        }
+                      ]
+                    },
+                    "adopted": {
+                      "description": "Plan my week's outfit or entry, which this pick made yours: out of the re-plan's and Undo's reach",
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/{id}/clashes/{otherId}": {
+      "put": {
+        "operationId": "avoidGarmentPair",
+        "summary": "Says two of your garments clash",
+        "tags": [
+          "ideas"
+        ],
+        "description": "The Ideas card's \"Clashes\": no idea pairs them again (Plan my week neither). Set-state: a pair avoided already is `changed: false`. A garment not yours, or the same one twice, is a 404.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "otherId",
+            "required": true,
+            "description": "Another garment of yours (the pair is the same either way)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "GarmentClash",
+                  "type": "object",
+                  "required": [
+                    "changed"
+                  ],
+                  "properties": {
+                    "changed": {
+                      "description": "False: the pair was avoided already (a retry)",
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "allowGarmentPair",
+        "summary": "Lets two garments be paired again",
+        "tags": [
+          "ideas"
+        ],
+        "description": "\"Allow again\", the undo of PUT. A pair you never avoided is a 404, which a retry may read as done.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "otherId",
+            "required": true,
+            "description": "Another garment of yours (the pair is the same either way)"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Allowed"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/calendar-entries/{id}/selfie": {
+      "put": {
+        "operationId": "setCalendarEntrySelfie",
+        "summary": "Takes an entry's outfit selfie",
+        "tags": [
+          "selfies"
+        ],
+        "description": "multipart/form-data with one `photo` part (a second file is a 413; an image it cannot read a 400). It marks the entry worn, and replaces the entry's last selfie. Another's entry is a 404 and a day still to come a 409, both before the photo is read. Each call stores a new photo.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "title": "SelfieUpload",
+                "type": "object",
+                "required": [
+                  "photo"
+                ],
+                "properties": {
+                  "photo": {
+                    "format": "binary",
+                    "description": "The mirror photo: JPEG, PNG, WebP, HEIC or AVIF, at most 64 megapixels; kept with its background",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "SelfieTaken",
+                  "type": "object",
+                  "required": [
+                    "selfieId",
+                    "day",
+                    "replaced",
+                    "worn"
+                  ],
+                  "properties": {
+                    "selfieId": {
+                      "type": "integer"
+                    },
+                    "day": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "replaced": {
+                      "description": "It replaced the entry's last selfie, which is gone",
+                      "type": "boolean"
+                    },
+                    "worn": {
+                      "title": "SelfieEntryWorn",
+                      "description": "Taking it says the entry was worn: it is marked so",
+                      "type": "object",
+                      "required": [
+                        "changed",
+                        "wears"
+                      ],
+                      "properties": {
+                        "changed": {
+                          "description": "False: it was worn already",
+                          "type": "boolean"
+                        },
+                        "wears": {
+                          "minimum": 0,
+                          "description": "Garment wears logged by marking it",
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/selfies/{id}": {
+      "delete": {
+        "operationId": "deleteSelfie",
+        "summary": "Removes an outfit selfie",
+        "tags": [
+          "selfies"
+        ],
+        "description": "An entry's, or a look kept on its day after its outfit changed or went. The entry stays worn. A selfie already gone is a 404, which a retry may read as done.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/weather/feedback": {
+      "post": {
+        "operationId": "sendTemperatureFeedback",
+        "summary": "Says an outfit felt too warm or too cold",
+        "tags": [
+          "weather"
+        ],
+        "description": "An Ideas card's and the profile's \"Too warm\" / \"Too cold\": your temperature offset moves a step, and the next ideas are matched to it. Not idempotent: each call is a step.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "TemperatureFeedback",
+                "type": "object",
+                "required": [
+                  "feeling"
+                ],
+                "properties": {
+                  "feeling": {
+                    "description": "`too-warm`: the weather felt warmer than it read, so lighter ideas follow; `too-cold` the other way",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "too-warm"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "too-cold"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "TemperatureOffset",
+                  "type": "object",
+                  "required": [
+                    "offset"
+                  ],
+                  "properties": {
+                    "offset": {
+                      "minimum": -5,
+                      "maximum": 5,
+                      "description": "Your temperature offset now: °C added to the feels-like temperature before ideas are matched to it. Each feedback moves it 0.5, within ±5",
+                      "type": "number"
                     }
                   }
                 }

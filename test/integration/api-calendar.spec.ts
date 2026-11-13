@@ -1,14 +1,20 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { addDays, type IsoDate } from '../../src/calendar-date';
-import { garmentWear, outfitCalendar, weekPlan } from '../../src/db/schema';
+import {
+  garmentWear,
+  outfitCalendar,
+  selfie,
+  weekPlan,
+} from '../../src/db/schema';
 import { deviceToken, expectProblem } from './api';
-import { createGarment } from './garments';
-import { createTestApp, type TestApp } from './harness';
+import { createGarment, jpegPhoto } from './garments';
+import { createTestApp, multipart, type TestApp } from './harness';
 
 /**
- * The calendar, Today's Wear this and the week plan on /api/v1 (#193b):
- * each its page twin's domain function with a JSON body. Who may do what
+ * The calendar, Today's Wear this, outfit selfies and the week plan on
+ * /api/v1 (#193b, #193c): each its page twin's domain function with a
+ * JSON (or, for a selfie, multipart) body. Who may do what
  * is the authorization matrix's (authorization-outfits.spec.ts and
  * authorization-account.spec.ts replay their cases on these twins); what
  * each costs is api-statements'.
@@ -163,6 +169,14 @@ describe('calendar entries', () => {
     expect(body.data.every((entry) => entry.day <= addDays(today, 6))).toBe(
       true,
     );
+    // `to` alone is the week up to it (#570): the week that ended yesterday.
+    const yesterday = addDays(today, -1);
+    const ended = await api('GET', `/calendar-entries?to=${yesterday}`);
+    expect(ended.statusCode, ended.body).toBe(200);
+    expect(ended.json()).toMatchObject({
+      from: addDays(yesterday, -6),
+      to: yesterday,
+    });
 
     const one = await api('GET', `/calendar-entries?from=${day}&to=${day}`);
     expect(one.json<{ data: unknown[] }>().data).toEqual([
@@ -355,6 +369,72 @@ describe("Today's Wear this", () => {
   });
 });
 
+describe('outfit selfies', () => {
+  const upload = async (entryId: number, as = token) =>
+    t.api(as, {
+      method: 'PUT',
+      url: `/api/v1/calendar-entries/${entryId}/selfie`,
+      ...(await multipart(
+        {},
+        {
+          photo: {
+            data: await jpegPhoto(320, 480),
+            filename: 'mirror.jpg',
+            contentType: 'image/jpeg',
+          },
+        },
+      )),
+    });
+
+  it("takes an entry's selfie, marking it worn, then replaces it; another's entry is a 404, a day ahead a 409", async () => {
+    const { id: outfitId } = await newOutfit('Mirror look');
+    const entry = await schedule(outfitId, t.today());
+    const before = await t.db.$count(selfie);
+    expectProblem(await upload(entry.id, strangerToken), 404, 'not_found');
+    const ahead = await schedule(outfitId, addDays(t.today(), 1));
+    expectProblem(await upload(ahead.id), 409, 'conflict');
+    expect(await t.db.$count(selfie)).toBe(before);
+
+    const taken = await upload(entry.id);
+    expect(taken.statusCode, taken.body).toBe(200);
+    const { selfieId } = taken.json<{ selfieId: number }>();
+    expect(taken.json()).toEqual({
+      selfieId,
+      day: t.today(),
+      replaced: false,
+      worn: { changed: true, wears: 1 },
+    });
+    expect((await entryRow(entry.id)).wornAt).not.toBeNull();
+    expect((await upload(entry.id)).json()).toEqual({
+      selfieId,
+      day: t.today(),
+      replaced: true,
+      worn: { changed: false, wears: 0 },
+    });
+    // Private: the entry's resource names it by id, never by a URL.
+    const listed = await api(
+      'GET',
+      `/calendar-entries?from=${t.today()}&to=${t.today()}`,
+    );
+    expect(listed.json<{ data: { selfieId?: number }[] }>().data).toEqual(
+      expect.arrayContaining([expect.objectContaining({ selfieId })]),
+    );
+  });
+
+  it('removes a selfie once, the entry still worn: 204, then the 404 a retry reads as done', async () => {
+    const { id: outfitId } = await newOutfit('Removed look');
+    const entry = await schedule(outfitId, t.today());
+    const { selfieId } = (await upload(entry.id)).json<{ selfieId: number }>();
+    const remove = (as = token) =>
+      api('DELETE', `/selfies/${selfieId}`, undefined, as);
+    expectProblem(await remove(strangerToken), 404, 'not_found');
+    expect((await remove()).statusCode).toBe(204);
+    expect(await t.db.$count(selfie, eq(selfie.id, selfieId))).toBe(0);
+    expect((await entryRow(entry.id)).wornAt).not.toBeNull();
+    expectProblem(await remove(), 404, 'not_found');
+  });
+});
+
 describe('the week plan', () => {
   const nightsOut = {
     days: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
@@ -421,7 +501,7 @@ describe('the week plan', () => {
     ).toEqual(saved.json());
   });
 
-  it('plans the week once, says so without a template, and undoes it once', async () => {
+  it('plans the week once, says so without a template; planning a planned entry takes it over, and Undo leaves it', async () => {
     const email = 'api-week-unset@example.com';
     await t.register(email);
     const unset = (await deviceToken(t, { email })).token;
@@ -462,17 +542,41 @@ describe('the week plan', () => {
     expect(again.json()).not.toHaveProperty('weekPlanId');
     expect(again.json<{ planned: unknown[] }>().planned).toEqual([]);
 
+    // Planning what the planner planned (#571): that entry, now the user's,
+    // out of the re-plan's and Undo's reach; said once.
+    const [taken] = plan.planned;
+    const { outfitId } = await entryRow(taken.entryId);
+    const adopt = () =>
+      api('POST', '/calendar-entries', {
+        outfitId,
+        day: taken.day,
+        occasion: taken.occasion,
+      });
+    const adopted = await adopt();
+    expect(adopted.statusCode, adopted.body).toBe(200);
+    expect(adopted.json()).toEqual({
+      id: taken.entryId,
+      outcome: 'already-scheduled',
+      occasion: taken.occasion,
+      adopted: true,
+    });
+    expect((await entryRow(taken.entryId)).plannedBy).toBe('user');
+    expect((await adopt()).json()).not.toHaveProperty('adopted');
+
     const undo = (as = token) =>
       api('DELETE', `/week-plans/${plan.weekPlanId}`, undefined, as);
     expectProblem(await undo(strangerToken), 404, 'not_found');
     const undone = await undo();
     expect(undone.statusCode, undone.body).toBe(200);
     expect(undone.json<{ entriesRemoved: number }>().entriesRemoved).toBe(
-      plan.planned.length,
+      plan.planned.length - 1,
     );
+    // The taken entry stays, and so does the batch that planned it: Undo
+    // again removes nothing.
+    expect(await entryRow(taken.entryId)).toBeDefined();
     expect(await t.db.$count(weekPlan, eq(weekPlan.id, plan.weekPlanId))).toBe(
-      0,
+      1,
     );
-    expectProblem(await undo(), 404, 'not_found');
+    expect((await undo()).json()).toMatchObject({ entriesRemoved: 0 });
   });
 });
