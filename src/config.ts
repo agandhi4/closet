@@ -101,8 +101,9 @@ const ConfigSchema = Type.Object({
   // Required when PWA_ENABLED (checked below).
   PUBLIC_VAPID_KEY: Type.Optional(NonEmpty()),
   PRIVATE_VAPID_KEY: Type.Optional(NonEmpty()),
-  // Also the VAPID subject of Web Push (src/web/push/sender.ts), which
-  // web-push requires to be https: when PWA_ENABLED is true.
+  // Also the VAPID subject of Web Push (src/web/push/sender.ts): web-push
+  // refuses anything but https: or mailto:, and a site address is not a mailto:, so
+  // PWA_ENABLED requires an https SITE_URL (checked below).
   SITE_URL: NonEmpty({ default: 'http://localhost:3000' }),
   // Full-size PNG under public/assets/ for Open Graph previews and the
   // share-link watermark. The manifest and apple-touch-icon use its
@@ -318,6 +319,15 @@ function crossFieldProblems(config: Config): string[] {
       if (!config[key]) {
         problems.push(`${key}: is required when PWA_ENABLED is true`);
       }
+    }
+    // The value stays out of the message (it can carry credentials in a URL).
+    if (
+      !URL.canParse(config.SITE_URL) ||
+      new URL(config.SITE_URL).protocol !== 'https:'
+    ) {
+      problems.push(
+        'SITE_URL: must be an https: URL when PWA_ENABLED is true (it is the Web Push VAPID subject)',
+      );
     }
   }
   problems.push(...orderMailProblems(config));

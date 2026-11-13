@@ -8,7 +8,11 @@ A fork of [Libre Closet](https://github.com/lazztech/libre-closet) by Lazztech L
 
 ## Quick start
 
-Closet needs a PostgreSQL 13+ database (production runs 18).
+Closet needs PostgreSQL 18, the version every test tier runs; the example below brings its own. Give the container about 5 GB of memory: the background-removal model (940 MB, downloaded on first boot into `closet_models`) runs in a child process outside Node's heap.
+
+<!-- smoke:quickstart -->
+
+`scripts/smoke-image.sh` runs the block below as written (the image name, the two `<...>` placeholders and the host port aside) and waits for `/health/ready`.
 
 ```yaml
 services:
@@ -18,15 +22,21 @@ services:
       - '3000:3000'
     volumes:
       - closet_data:/app/data
+      # The model is downloaded once; without this volume every `up -d` after a pull downloads it again.
+      - closet_models:/app/models
     environment:
       # Required: signs the session cookies. openssl rand -hex 32
       ACCESS_TOKEN_SECRET: '<secret>'
       # The household's time zone: decides "today" on the calendar.
       APP_TIMEZONE: America/New_York
-      PWA_ENABLED: 'true'
-      # Required when PWA_ENABLED is true: npx web-push generate-vapid-keys
-      PUBLIC_VAPID_KEY: '<public key>'
-      PRIVATE_VAPID_KEY: '<private key>'
+      # Installable app, offline shell and push reminders. Needs HTTPS: see "Behind HTTPS" below.
+      PWA_ENABLED: 'false'
+      # Behind HTTPS, set PWA_ENABLED to 'true' and add (SITE_URL must be https://, the VAPID subject):
+      # SITE_URL: https://closet.example.com
+      # TRUSTED_PROXIES: <your reverse proxy's address>
+      # Generate the pair with: npx web-push generate-vapid-keys
+      # PUBLIC_VAPID_KEY: '<public key>'
+      # PRIVATE_VAPID_KEY: '<private key>'
       DATA_PATH: /app/data
       DATABASE_HOST: postgres
       DATABASE_SCHEMA: closet
@@ -37,13 +47,14 @@ services:
         condition: service_healthy
     restart: unless-stopped
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: closet
       POSTGRES_PASSWORD: '<password>'
       POSTGRES_DB: closet
     volumes:
-      - closet_pg:/var/lib/postgresql/data
+      # Postgres 18 images keep the version's data directory under this path.
+      - closet_pg:/var/lib/postgresql
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U closet -d closet']
       interval: 5s
@@ -52,10 +63,13 @@ services:
 
 volumes:
   closet_data:
+  closet_models:
   closet_pg:
 ```
 
-Postgres 18 is current and is what production runs. The example keeps `postgres:17-alpine` because the 18 image expects its volume at `/var/lib/postgresql`, not `/var/lib/postgresql/data`, so moving an existing database to 18 means a dump and restore, not an image bump.
+**Upgrading from the earlier Postgres 17 example.** Postgres 18 keeps its data under `/var/lib/postgresql`, so pointing this block at a 17 volume starts an empty cluster and Closet migrates into an empty database: your wardrobe looks gone. Before switching, run `docker compose exec postgres pg_dumpall -U closet > closet.sql` on the old stack, bring up the new one, and restore with `docker compose exec -T postgres psql -U closet -d postgres < closet.sql`.
+
+**Behind HTTPS.** The installed app, its offline shell and push need a secure origin. With `PWA_ENABLED: 'true'` the server refuses to start unless `SITE_URL` is an `https://` URL and both VAPID keys are set, and it names the missing key. Set `TRUSTED_PROXIES` to your reverse proxy so the client address is read correctly.
 
 Open [http://localhost:3000](http://localhost:3000) and register an account: login is always required. Once everyone in the household has signed up, set `DISABLE_REGISTRATION=true`.
 
