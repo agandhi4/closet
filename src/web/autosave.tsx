@@ -1,4 +1,5 @@
 import type { Child } from 'hono/jsx';
+import type { QueueableKind } from '../offline-writes';
 import { t } from './i18n';
 
 /**
@@ -63,13 +64,16 @@ export function autosaveAttributes(url: string, target: string) {
  * (an element inside the form) it answers that region's contents.
  * `native`: the form also posts without script to `action` (the route
  * answers a plain post with a redirect). Every save needs the network
- * (data-needs-network, connectivity.js).
+ * (data-needs-network, connectivity.js), unless it is `offlineQueue`'s: a
+ * checklist whose ticks the page's outbox queues offline, one record per
+ * row (#178, src/web/outbox.tsx).
  */
 export function AutosaveForm(props: {
   action: string;
   /** An htmx target whose contents the answer replaces, instead of the status line. */
   region?: string;
   native?: boolean;
+  offlineQueue?: QueueableKind;
   class?: string;
   children: Child;
 }) {
@@ -84,7 +88,8 @@ export function AutosaveForm(props: {
         region ?? 'find [data-autosave-status]',
       )}
       hx-trigger="change, submit"
-      data-needs-network=""
+      data-needs-network={props.offlineQueue === undefined ? '' : undefined}
+      data-offline-queue={props.offlineQueue}
     >
       {props.children}
       {region === undefined && <AutosaveStatus />}

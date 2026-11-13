@@ -9,9 +9,18 @@ import {
   tripGarmentPacked,
   tripItem,
 } from '../../src/db/schema';
-import { QUEUEABLE_ROUTES } from '../../src/offline-writes';
+import {
+  QUEUEABLE_ROUTES,
+  queueableKindOf,
+  queuedTarget,
+} from '../../src/offline-writes';
 import { createGarment } from './garments';
-import { createTestApp, recordQueries, type TestApp } from './harness';
+import {
+  createTestApp,
+  recordQueries,
+  type TestApp,
+  unescapeHtml,
+} from './harness';
 
 /**
  * The server half of offline queued writes (#178a,
@@ -22,6 +31,11 @@ import { createTestApp, recordQueries, type TestApp } from './harness';
  * move a wash back, refuse another account's replay and keep a gone
  * target's 404. A tap without the header is the routes' own specs'
  * (wears, calendar, trips), unchanged.
+ *
+ * And the page half's markup (#178b, src/web/outbox.tsx): what the outbox
+ * reads to queue a tap, show its other state and its "Waiting to sync",
+ * and which account it saves for. Its behavior in a browser is
+ * test/offline-writes.spec.ts.
  */
 
 type Fields = Record<string, string | readonly string[]>;
@@ -340,5 +354,162 @@ describe('queued writes', () => {
       });
       expect([status, record.statements], url).toEqual([204, statements]);
     }
+  });
+
+  describe('the pages’ queueable controls', () => {
+    const page = async (url: string, anonymous = false) =>
+      unescapeHtml((await t.inject({ method: 'GET', url, anonymous })).body);
+    /** A region's opening tag, or undefined. */
+    const regionTag = (html: string, key: string) =>
+      new RegExp(`<[a-z]+ [^>]*data-outbox-key="${key}"[^>]*>`).exec(html)?.[0];
+    /** What a region with another state shows, and that state. */
+    const states = (html: string, key: string) => {
+      const from = html.indexOf(`data-outbox-key="${key}"`);
+      expect(from, key).toBeGreaterThan(-1);
+      const open = html.indexOf('<template data-outbox-state="">', from);
+      const close = html.indexOf('</template>', open);
+      return {
+        shown: html.slice(from, open),
+        alternate: html.slice(open, close),
+        chip: html.slice(close, html.indexOf('</span>', close)),
+      };
+    };
+    /** Every region's key names the kind its path replays as. */
+    const expectKeysMatchPaths = (html: string) => {
+      const regions = Array.from(
+        html.matchAll(/data-outbox-key="([^"]+)" data-outbox-path="([^"]+)"/g),
+      );
+      expect(regions.length).toBeGreaterThan(0);
+      for (const [, key, path] of regions) {
+        expect(queueableKindOf(path), key).toBe(key.split(':')[0]);
+      }
+      expect(html.match(/data-outbox-chip=""/g)).toHaveLength(regions.length);
+    };
+
+    it('marks each with its record, its other state and its chip, never the network guard', async () => {
+      const tee = await createGarment(t, {
+        name: 'Marked tee',
+        category: 'tops',
+      });
+      const today = t.today();
+      expect(
+        (await post(`/wardrobe/${tee}/wear`, { worn: '1' })).statusCode,
+      ).toBe(303);
+
+      // The garment page: worn today, so Undo shows and Wore today waits.
+      const garmentPage = await page(`/wardrobe/${tee}`);
+      const wear = queuedTarget('wear', tee, today);
+      expect(regionTag(garmentPage, wear.key)).toContain(
+        `data-outbox-path="${wear.path}" data-outbox-label="Marked tee" data-outbox-day="${today}"`,
+      );
+      const wore = states(garmentPage, wear.key);
+      expect(wore.shown).toMatch(
+        /data-offline-queue="wear"[^>]*><input type="hidden" name="worn" value="0"\/>/,
+      );
+      expect(wore.shown).toContain('Undo');
+      expect(wore.alternate).toMatch(
+        /data-offline-queue="wear"[^>]*><input type="hidden" name="worn" value="1"\/>/,
+      );
+      expect(wore.chip).toContain('Waiting to sync');
+      const wash = states(garmentPage, queuedTarget('wash', tee).key);
+      expect(wash.shown).toContain('data-offline-queue="wash"');
+      expect(wash.alternate).toContain('✓ Washed');
+      expect(wash.alternate).not.toContain('<form');
+      for (const part of [wore.shown, wore.alternate, wash.shown]) {
+        expect(part).not.toContain('data-needs-network');
+      }
+      expectKeysMatchPaths(garmentPage);
+
+      // The laundry: one native form, a wash per row.
+      const laundry = await page('/laundry');
+      expect(laundry).toMatch(
+        /<form [^>]*action="\/laundry"[^>]*data-offline-queue="wash"/,
+      );
+      expect(regionTag(laundry, `wash:${tee}`)).toContain(
+        'data-outbox-label="Marked tee"',
+      );
+      expectKeysMatchPaths(laundry);
+
+      // An entry: the calendar's pill (htmx) and Today's button (a PostForm).
+      const entry = await newEntry(await newOutfit([tee]), today);
+      const target = queuedTarget('entry', entry);
+      for (const url of [`/calendar?week=${today}`, '/']) {
+        const html = await page(url);
+        const pill = states(html, target.key);
+        expect(pill.shown, url).toMatch(
+          /data-offline-queue="entry"[^>]*><input type="hidden" name="worn" value="1"\/>/,
+        );
+        expect(pill.alternate, url).toContain('✓ Worn');
+        expect(pill.alternate, url).toContain('name="worn" value="0"');
+        expectKeysMatchPaths(html);
+      }
+
+      // A trip: each packing tick and extra is its own record; "Wore it"
+      // for an outfit not on the calendar plans one, so it needs the network.
+      const tripId = await newTrip(await newOutfit([tee]));
+      await post(`/trips/${tripId}/items`, { label: 'Charger' });
+      const [{ id: itemId }] = await t.db
+        .select({ id: tripItem.id })
+        .from(tripItem)
+        .where(eq(tripItem.tripId, tripId));
+      const trip = await page(`/trips/${tripId}`);
+      expect(trip).toMatch(
+        new RegExp(
+          `action="/trips/${tripId}/packed"[^>]*data-offline-queue="packed"`,
+        ),
+      );
+      expect(trip).toMatch(
+        new RegExp(
+          `action="/trips/${tripId}/items/packed"[^>]*data-offline-queue="item"`,
+        ),
+      );
+      expect(
+        regionTag(trip, queuedTarget('packed', tripId, tee).key),
+      ).toContain('data-outbox-label="Marked tee"');
+      expect(
+        regionTag(trip, queuedTarget('item', tripId, itemId).key),
+      ).toContain('data-outbox-label="Charger"');
+      expect(trip).toMatch(
+        new RegExp(
+          `action="/trips/${tripId}/outfits/\\d+/wear"[^>]*data-needs-network=""`,
+        ),
+      );
+      expect(trip).toMatch(
+        new RegExp(
+          `action="/trips/${tripId}/items/${itemId}/delete"[^>]*data-needs-network=""`,
+        ),
+      );
+      expectKeysMatchPaths(trip);
+    });
+
+    it('names the account and the zone, and loads the outbox, on signed-in pages only', async () => {
+      const signedIn = await page('/wardrobe');
+      expect(signedIn).toMatch(
+        new RegExp(
+          `<div id="app-status"[^>]* data-account="${t.owner.id}" data-time-zone="${t.timeZone}"`,
+        ),
+      );
+      expect(signedIn).toContain(
+        'data-text-outbox-waiting-many="{count} changes waiting to sync"',
+      );
+      expect(signedIn).toContain(
+        'data-text-outbox-not-saved="{label}, {action}: not saved, {reason}."',
+      );
+      expect(signedIn).toMatch(
+        /<script type="module" src="\/js\/outbox\.js\?v=[^"]+"><\/script>/,
+      );
+      expect(signedIn).toContain('id="outbox-notice"');
+
+      const signedOut = await page('/auth/login', true);
+      expect(signedOut).toContain('id="app-status"');
+      for (const absent of [
+        'data-account=',
+        'data-text-outbox-',
+        '/js/outbox.js',
+        'id="outbox-banner"',
+      ]) {
+        expect(signedOut).not.toContain(absent);
+      }
+    });
   });
 });

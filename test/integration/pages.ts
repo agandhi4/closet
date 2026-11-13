@@ -3,6 +3,7 @@ import type { LightMyRequestResponse } from 'fastify';
 import { expect } from 'vitest';
 import { outfit as outfitTable } from '../../src/db/schema';
 import { addDays } from '../../src/calendar-date';
+import { QUEUEABLE_ROUTES } from '../../src/offline-writes';
 import {
   createGarment,
   createWishlistItem,
@@ -354,11 +355,17 @@ export function expectNativePostForms(res: LightMyRequestResponse): void {
   expect(offenders).toEqual([]);
 }
 
+/** A form the outbox queues offline, of a kind it replays. */
+const QUEUED_FORM = new RegExp(
+  `\\bdata-offline-queue="(?:${Object.keys(QUEUEABLE_ROUTES).join('|')})"`,
+);
+
 /**
  * The `PostForm`s (marked by their `data-submit-once`) a page renders that
  * would post while offline: neither `data-needs-network`, which
  * public/js/connectivity.js disables offline with every control that
- * submits the form, nor an `allowOffline` reason (`data-allow-offline`).
+ * submits the form, nor an `allowOffline` reason (`data-allow-offline`),
+ * nor a write the outbox queues (`data-offline-queue`, #178).
  * Disabled is the default (#411; owner, 2026-10-22): a cached form posting
  * without a connection lands on the worker's offline page and loses what was
  * typed. Read per page, so a new form is checked by the page rendering it.
@@ -368,7 +375,8 @@ export function offlineUnguardedPostForms(html: string): string[] {
     (tag) =>
       /\bdata-submit-once=/.test(tag) &&
       !/\bdata-needs-network=/.test(tag) &&
-      !/\bdata-allow-offline="[^"]+"/.test(tag),
+      !/\bdata-allow-offline="[^"]+"/.test(tag) &&
+      !QUEUED_FORM.test(tag),
   );
 }
 

@@ -53,6 +53,19 @@ function OutlineIcon(props: { class: string; children: Child }) {
   );
 }
 
+/** Waiting: a queued write's "Waiting to sync" (src/web/outbox.tsx). */
+export function ClockIcon(props: { class: string }) {
+  return (
+    <OutlineIcon class={props.class}>
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+      />
+    </OutlineIcon>
+  );
+}
+
 /** Taking a photo with the camera: the garment photo form, outfit selfies. */
 export function CameraIcon(props: { class: string }) {
   return (

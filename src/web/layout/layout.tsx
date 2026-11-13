@@ -82,6 +82,17 @@ function ErrorScript({ ctx, v }: { ctx: ViewContext; v: string }) {
   );
 }
 
+/**
+ * The offline outbox (#178, src/web/shell/outbox.md): queues wears, washes
+ * and packing ticks offline and replays them. Signed-in pages only, whose
+ * #app-status names the account. Built from views/assets/outbox.ts
+ * (`npm run generate:outbox`); it imports from the importmap.
+ */
+function OutboxScript({ ctx, v }: { ctx: ViewContext; v: string }) {
+  if (!ctx.user) return null;
+  return <script type="module" src={`/js/outbox.js${v}`}></script>;
+}
+
 export function Layout({
   ctx,
   title,
@@ -174,6 +185,7 @@ export function Layout({
         {/* The shared photo viewer (src/web/files/photo-viewer.tsx): one
             document listener opens any [data-photo-open]. */}
         <script type="module" src={`/js/photo-viewer.js${v}`}></script>
+        <OutboxScript ctx={ctx} v={v} />
         {ctx.pwaEnabled && (
           // Service worker registration, update toast, Web Push, the install
           // dialog, iOS pull to refresh. In the head so hx-boost body swaps
@@ -203,7 +215,7 @@ export function Layout({
         class="h-screen flex flex-col"
       >
         {children}
-        <AppStatus />
+        <AppStatus ctx={ctx} />
         <PhotoViewer />
       </body>
     </html>

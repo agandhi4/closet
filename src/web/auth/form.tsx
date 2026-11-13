@@ -1,4 +1,5 @@
 import type { Child } from 'hono/jsx';
+import type { QueueableKind } from '../../offline-writes';
 
 /**
  * Building blocks of the account forms (login, registration, email,
@@ -130,6 +131,8 @@ export function ErrorAlert({ message }: { message: string }) {
  * the owner's call of 2026-10-22; it was each caller's opt-in and 15 forms
  * had left it out. `allowOffline` is the one way out, and guards.conf
  * `@post-form-offline` makes it carry its reason as a literal.
+ * `offlineQueue` is the other (#178): a write the page's outbox queues
+ * offline and replays (src/web/outbox.tsx), which stays enabled.
  */
 export function PostForm(props: {
   action: string;
@@ -142,6 +145,8 @@ export function PostForm(props: {
    * off. Rendered as `data-allow-offline`, so a reader of the page sees it.
    */
   allowOffline?: string;
+  /** Queued offline instead of disabled: the laundry, a worn entry. */
+  offlineQueue?: QueueableKind;
   /** Posts a file (multipart/form-data): selfies, garment photos, the add sheet. */
   multipart?: boolean;
   children?: Child;
@@ -155,8 +160,13 @@ export function PostForm(props: {
       class={props.class}
       hx-boost="false"
       data-confirm={props.confirm}
-      data-needs-network={props.allowOffline === undefined ? '' : undefined}
+      data-needs-network={
+        props.allowOffline === undefined && props.offlineQueue === undefined
+          ? ''
+          : undefined
+      }
       data-allow-offline={props.allowOffline}
+      data-offline-queue={props.offlineQueue}
       // One post per tap: public/js/submit-once.js (the layout loads it).
       data-submit-once=""
       onsubmit={

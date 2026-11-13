@@ -14,6 +14,7 @@ import { decide, markSuggestion } from '../../src/web/wishlist/decisions';
 import {
   createTestApp,
   recordQueries,
+  shownMarkup,
   type TestApp,
   unescapeHtml,
 } from './harness';
@@ -553,10 +554,10 @@ describe('Today', () => {
   });
 
   describe('"Wore it" on a planned outfit', () => {
-    /** The planned card of `entry` on Today, as its markup. */
+    /** The planned card of `entry` on Today, as it shows. */
     const cardOf = (html: string, entry: number) => {
       const start = html.indexOf(`data-entry="${entry}"`);
-      return html.slice(start, html.indexOf('</article>', start));
+      return shownMarkup(html.slice(start, html.indexOf('</article>', start)));
     };
 
     it('marks the entry worn and comes back to Today; an unsafe returnTo goes to the week', async () => {
@@ -565,7 +566,7 @@ describe('Today', () => {
       const entry = await planToday(planned, 'evening');
       const before = cardOf(unescapeHtml((await get('/')).body), entry);
       expect(before).toMatch(
-        /data-needs-network[\s\S]*name="worn" value="1"[\s\S]*Wore it/,
+        /data-offline-queue="entry"[\s\S]*name="worn" value="1"[\s\S]*Wore it/,
       );
       expect(before).toContain(`data-change-entry="${entry}"`);
       const res = await t.inject({

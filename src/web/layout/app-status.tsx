@@ -1,13 +1,21 @@
 import { t } from '../i18n';
+import type { ViewContext } from '../view-context';
+import { ClockIcon } from './parts';
 
 /**
- * Connectivity banner and toast host, owned by public/js/connectivity.js,
- * public/js/pwa.js and public/js/freshness.js. Lives inside <body>, so every
- * hx-boost swap replaces it with this empty copy; the scripts re-apply their
- * state on htmx:afterSettle. The strings travel as data attributes so the
- * scripts stay free of i18n.
+ * Connectivity banner, the outbox's status and notice, and the toast host,
+ * owned by public/js/connectivity.js, public/js/outbox.js, public/js/pwa.js
+ * and public/js/freshness.js. Lives inside <body>, so every hx-boost swap
+ * replaces it with this empty copy; the scripts re-apply their state on
+ * htmx:afterSettle. The strings travel as data attributes so the scripts
+ * stay free of i18n.
+ *
+ * Signed in, it also names the account and the household's time zone for
+ * the outbox (#178): its records are the account's (`data-account`, the id
+ * X-Page-Account sends), and a queued tap is dated in APP_TIMEZONE.
  */
-export function AppStatus() {
+export function AppStatus({ ctx }: { ctx: ViewContext }) {
+  const signedIn = ctx.user !== undefined;
   return (
     <div
       id="app-status"
@@ -20,17 +28,25 @@ export function AppStatus() {
       data-text-updated-ago={t('UPDATED_AGO', { ago: '{ago}' })}
       data-text-newer-page={t('NEWER_PAGE_AVAILABLE')}
       data-text-refresh={t('REFRESH')}
+      data-account={ctx.user && String(ctx.user.id)}
+      data-time-zone={signedIn ? ctx.timeZone : undefined}
+      {...(signedIn ? outboxText() : {})}
     >
-      <div
-        id="connectivity-banner"
-        role="status"
-        aria-live="polite"
-        class="hidden fixed top-16 left-rail right-0 z-[999] px-4 pt-2"
-      >
-        <div class="alert alert-warning alert-soft py-2 text-sm shadow-sm">
-          <OfflineIcon class="size-5 shrink-0" />
-          <span data-role="text"></span>
+      {/* The banners stack under the app bar; the stack itself takes no
+          taps, so an empty one never covers the page. */}
+      <div class="fixed top-16 left-rail right-0 z-[999] px-4 pt-2 flex flex-col gap-2 pointer-events-none">
+        <div
+          id="connectivity-banner"
+          role="status"
+          aria-live="polite"
+          class="hidden pointer-events-auto"
+        >
+          <div class="alert alert-warning alert-soft py-2 text-sm shadow-sm">
+            <OfflineIcon class="size-5 shrink-0" />
+            <span data-role="text"></span>
+          </div>
         </div>
+        {signedIn && <OutboxStatus />}
       </div>
       {/* Above the dock (4rem) so toasts never cover the primary navigation. */}
       <div
@@ -38,6 +54,92 @@ export function AppStatus() {
         class="toast toast-bottom toast-center mb-20 lg:mb-4 ml-[calc(var(--rail-width)/2)] z-[999]"
       ></div>
     </div>
+  );
+}
+
+/**
+ * The outbox's strings, as `data-text-outbox-*`: the counts come in a one
+ * and a many form, `{count}`, `{label}`, `{action}` and `{reason}` filled by
+ * the script.
+ */
+function outboxText(): Record<`data-text-outbox-${string}`, string> {
+  const count = { count: '{count}' };
+  const text = {
+    'waiting-one': t('outbox.WAITING_ONE'),
+    'waiting-many': t('outbox.WAITING_MANY', count),
+    'syncing-one': t('outbox.SYNCING_ONE'),
+    'syncing-many': t('outbox.SYNCING_MANY', count),
+    'saved-one': t('outbox.SAVED_ONE'),
+    'saved-many': t('outbox.SAVED_MANY', count),
+    'sign-in-one': t('outbox.SIGN_IN_ONE'),
+    'sign-in-many': t('outbox.SIGN_IN_MANY', count),
+    'discard-one': t('outbox.DISCARD_ONE'),
+    'discard-many': t('outbox.DISCARD_MANY', count),
+    full: t('outbox.FULL', count),
+    'stale-day': t('outbox.STALE_DAY'),
+    unavailable: t('outbox.UNAVAILABLE'),
+    'not-saved': t('outbox.NOT_SAVED', {
+      label: '{label}',
+      action: '{action}',
+      reason: '{reason}',
+    }),
+    'action-wear': t('outbox.action.WEAR'),
+    'action-wash': t('outbox.action.WASH'),
+    'action-entry': t('outbox.action.ENTRY'),
+    'action-packed': t('outbox.action.PACKED'),
+    'reason-gone': t('outbox.reason.GONE'),
+    'reason-too-old': t('outbox.reason.TOO_OLD'),
+    'reason-future': t('outbox.reason.FUTURE'),
+    'reason-account': t('outbox.reason.ACCOUNT'),
+    'reason-refused': t('outbox.reason.REFUSED'),
+  };
+  return Object.fromEntries(
+    Object.entries(text).map(([name, value]) => [
+      `data-text-outbox-${name}`,
+      value,
+    ]),
+  );
+}
+
+/**
+ * The outbox's banner ("3 changes waiting to sync", "Syncing 3 changes",
+ * "Sign in to save 3 changes") and its notice of the writes that were not
+ * saved, which stays until Dismiss. public/js/outbox.js fills both.
+ */
+function OutboxStatus() {
+  return (
+    <>
+      <div
+        id="outbox-banner"
+        role="status"
+        aria-live="polite"
+        class="hidden pointer-events-auto"
+      >
+        <div class="alert alert-info alert-soft py-2 text-sm shadow-sm">
+          <ClockIcon class="size-5 shrink-0" />
+          <span data-role="text"></span>
+        </div>
+      </div>
+      {/* A polite live region, not role="alert": it is on every signed-in
+          page, empty and hidden, and pages read an alert as their error. */}
+      <div
+        id="outbox-notice"
+        role="status"
+        aria-label={t('outbox.NOTICE')}
+        class="hidden pointer-events-auto"
+      >
+        <div class="alert alert-error alert-soft py-2 text-sm shadow-sm items-start">
+          <ul data-role="list" class="flex flex-col gap-1 flex-1 min-w-0"></ul>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            data-outbox-dismiss=""
+          >
+            {t('outbox.DISMISS')}
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 

@@ -9,6 +9,7 @@ import {
   hasText,
   hxLocationPath,
   recordQueries,
+  shownMarkup,
   TestApp,
   unescapeHtml,
 } from './harness';
@@ -805,7 +806,8 @@ describe('calendar', () => {
       expect(on.statusCode).toBe(200);
       expect(on.body).not.toContain('<html');
       expect(on.body).toContain(`hx-post="/calendar/${entry}/worn"`);
-      expect(on.body).toContain('data-needs-network');
+      // Queued offline, not disabled (#178).
+      expect(on.body).toContain('data-offline-queue="entry"');
       expect(on.body).toContain('badge-success');
       expect(hasText(on.body, '✓ Worn')).toBe(true);
       // The swapped pill offers the undo next, and keeps its way back.
@@ -840,7 +842,7 @@ describe('calendar', () => {
 
       // Undo: a past day's pill asks again.
       const off = await post(entry, { htmx: true, worn: '0' });
-      expect(off.body).not.toContain('badge-success');
+      expect(shownMarkup(off.body)).not.toContain('badge-success');
       expect(hasText(off.body, 'Worn?')).toBe(true);
       expect(hasText(off.body, 'Wore it')).toBe(false);
       expect(await wornAt(entry)).toBeNull();

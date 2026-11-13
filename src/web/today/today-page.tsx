@@ -229,6 +229,7 @@ function PlannedCard(props: {
           <WornControl
             entryId={entry.id}
             worn={entry.worn}
+            label={name}
             size="button"
             returnTo={TODAY_PATH}
           />

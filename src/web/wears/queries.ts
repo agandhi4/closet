@@ -159,6 +159,7 @@ export async function wearCountsByGarment(
 export type WearGarment = Pick<
   GarmentDetail,
   | 'id'
+  | 'name'
   | 'status'
   | 'category'
   | 'quantity'
@@ -185,6 +186,7 @@ export async function wearStatusOf(
     shown: sql<WearGarment | null>`(
       select json_build_object(
         'id', ${garment.id},
+        'name', ${garment.name},
         'status', ${garment.status},
         'category', ${garment.category},
         'quantity', ${garment.quantity},

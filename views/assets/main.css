@@ -302,6 +302,15 @@ html[data-connectivity='reconnecting'] [data-offline-note] {
   display: revert-layer;
 }
 
+/* A queued write's "Waiting to sync" (src/web/outbox.tsx): shown while
+   public/js/outbox.js marks its region pending, online or not. */
+[data-outbox-chip] {
+  display: none;
+}
+[data-outbox='pending'] [data-outbox-chip] {
+  display: inline-flex;
+}
+
 /*
  * pulltorefresh.js styling to pin refresh UI elements
  * under the app bar and match the daisyui theme

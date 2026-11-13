@@ -11,8 +11,9 @@
  *
  * A cached page asks the worker to revalidate itself as soon as this script
  * runs (checkDocument), and again whenever the device comes back online
- * while showing one (connectivity:change): the same REVALIDATE_PAGE request
- * either way. When the server's page differs it is swapped in at once if
+ * while showing one (connectivity:change), and any page once the outbox has
+ * saved queued writes (outbox:synced): the same REVALIDATE_PAGE request
+ * every time. When the server's page differs it is swapped in at once if
  * the page is untouched (no tap, key or wheel yet, scrolled to the top, no
  * dialog open); otherwise a toast offers it ("Newer version of this page",
  * Refresh), so content never moves under a thumb or a half-typed form. When
@@ -265,10 +266,9 @@ export function watchFreshness() {
     }
   });
 
-  // Back online (connectivity.js): a cached copy asks for the server's, a
-  // fragment for the fragment (the worker keys it apart from the page).
-  document.addEventListener('connectivity:change', (event) => {
-    if (event.detail.state !== 'online' || !display.fromCache) return;
+  // The server's copy of what is on screen, a fragment's for a fragment
+  // (the worker keys it apart from the page).
+  const revalidate = () => {
     const id = display.id;
     ask(
       {
@@ -278,7 +278,15 @@ export function watchFreshness() {
       },
       (answer) => onRevalidated(id, answer),
     );
+  };
+  // Back online (connectivity.js): a cached copy asks for the server's.
+  document.addEventListener('connectivity:change', (event) => {
+    if (event.detail.state === 'online' && display.fromCache) revalidate();
   });
+  // Queued writes saved (outbox.js, #178): what is on screen shows them only
+  // as the outbox drew them, so any copy asks, live or cached; the counts
+  // and lines come with the server's.
+  document.addEventListener('outbox:synced', revalidate);
 
   setInterval(render, TICK_MS);
   document.addEventListener('visibilitychange', render);

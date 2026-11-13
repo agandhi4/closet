@@ -148,6 +148,38 @@
   "UPDATE_AVAILABLE": "Update available",
   "RELOAD": "Reload",
   "UPDATED_AGO": "Updated {ago}",
+  "outbox": {
+    "WAITING": "Waiting to sync",
+    "WAITING_ONE": "1 change waiting to sync",
+    "WAITING_MANY": "{count} changes waiting to sync",
+    "SYNCING_ONE": "Syncing 1 change",
+    "SYNCING_MANY": "Syncing {count} changes",
+    "SAVED_ONE": "1 change saved",
+    "SAVED_MANY": "{count} changes saved",
+    "SIGN_IN_ONE": "Sign in to save 1 change",
+    "SIGN_IN_MANY": "Sign in to save {count} changes",
+    "FULL": "{count} changes waiting to sync: connect to save more",
+    "STALE_DAY": "This page is from another day: reload it to log today’s wear",
+    "UNAVAILABLE": "This device cannot keep changes offline: connect to save",
+    "DISCARD_ONE": "1 change has not synced. Sign out and discard it?",
+    "DISCARD_MANY": "{count} changes have not synced. Sign out and discard them?",
+    "NOTICE": "Changes not saved",
+    "NOT_SAVED": "{label}, {action}: not saved, {reason}.",
+    "DISMISS": "Dismiss",
+    "action": {
+      "WEAR": "Wore today",
+      "WASH": "Washed",
+      "ENTRY": "Worn",
+      "PACKED": "Packed"
+    },
+    "reason": {
+      "GONE": "it was deleted",
+      "TOO_OLD": "too long ago: add it from the calendar",
+      "FUTURE": "that day has not come yet",
+      "ACCOUNT": "it was saved while signed in as someone else",
+      "REFUSED": "it could not be saved"
+    }
+  },
   "NEWER_PAGE_AVAILABLE": "Newer version of this page",
   "REFRESH": "Refresh",
   "APP_VERSION": "Version",

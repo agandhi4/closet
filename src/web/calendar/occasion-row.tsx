@@ -98,6 +98,7 @@ export function OccasionRow(props: {
           <WornControl
             entryId={entry.id}
             worn={entry.worn}
+            label={name}
             size="pill"
             inPlace
             past={past}

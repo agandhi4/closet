@@ -15,6 +15,8 @@
     "src/cutout/child.ts",
     // Loaded by the pages' <script> tags (src/web/layout/), never imported.
     "public/js/*.js",
+    // The page's outbox, bundled into public/js/outbox.js by `npm run generate:outbox`.
+    "views/assets/outbox.ts",
     // The CSS entry of `npm run generate:tailwind`: its @import and @plugin lines use tailwindcss
     // and daisyui.
     "views/assets/main.css",

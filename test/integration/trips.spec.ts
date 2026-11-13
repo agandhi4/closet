@@ -863,7 +863,8 @@ describe('trips', () => {
         undoAt,
         wornPage.indexOf('</form>', undoAt),
       );
-      expect(undoForm).toContain('data-needs-network');
+      // Queued offline, not disabled (#178).
+      expect(undoForm).toContain('data-offline-queue="entry"');
       expect(undoForm).toContain('✓ Worn');
       expect(undoForm).toContain('name="worn" value="0"');
       expect(undoForm).toContain(`name="returnTo" value="/trips/${id}"`);

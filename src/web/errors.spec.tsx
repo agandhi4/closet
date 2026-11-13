@@ -31,6 +31,7 @@ const ctx: ViewContext = {
   orderReview: false,
   release: 'dev',
   appVersion: 'dev.test',
+  timeZone: 'America/New_York',
   canonicalUrl: 'http://localhost/boom',
   ogUrl: 'http://localhost/boom',
   ogImage: 'http://localhost/assets/icon.png',
