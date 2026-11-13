@@ -1,3 +1,8 @@
+-- Every ALTER TABLE below takes its table's ACCESS EXCLUSIVE lock until the boot's
+-- migration transaction commits; behind a long writer it gives up after 5 s and the
+-- boot fails and is retried, rather than queueing every request behind it (as 0052).
+SET LOCAL lock_timeout = '5s';
+--> statement-breakpoint
 CREATE TABLE "sync_tombstone" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"owner_id" integer NOT NULL,
