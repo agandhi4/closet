@@ -22,8 +22,9 @@ import { intArray, lockedTripCte, lockTrip, prunePacked } from './packed';
 /**
  * Trips' reads and writes (#10; docs/plans/2026-09-26-wardrobe-features.md,
  * section 4). The owner's own, like outfits: every function is scoped to
- * the signed-in owner, and another user's trip is a miss like a missing
- * one (the routes answer 404 either way). One writer per piece of state:
+ * the `ownerId` it is given, and another user's trip is a miss like a
+ * missing one. They trust that id: a surface reaches them through
+ * trip-actions.ts, which takes the Actor and throws the refusals. One writer per piece of state:
  * the trip (createTrip, updateTrip, setTripDestination, deleteTrip), its
  * outfits (addTripOutfit, pickForTrip, removeTripOutfit), its extras
  * (addTripItems, copyTripItems, setItemsPacked, removeTripItem); the
@@ -316,7 +317,13 @@ export interface TripSlot {
 
 export type TripOutfitAdded = 'added' | 'already';
 
-type TripRefusal = 'no-trip' | 'not-a-trip-day';
+/** A day the trip does not have: its dates as locked, for the refusal to name (trip-actions.ts). */
+export interface NotATripDay {
+  notATripDay: { startsOn: IsoDate; endsOn: IsoDate };
+}
+
+/** Why a trip outfit write wrote nothing: no such trip of the owner's, or a day outside it. */
+export type TripRefusal = 'no-trip' | NotATripDay;
 
 /**
  * Inserts the trip outfit once (the partial unique indexes: the same outfit
@@ -365,7 +372,14 @@ async function lockTripFor(
 ): Promise<TripRefusal | undefined> {
   const locked = await lockTrip(tx, tripId, ownerId);
   if (!locked) return 'no-trip';
-  return isTripDay(locked, day) ? undefined : 'not-a-trip-day';
+  return isTripDay(locked, day) ? undefined : notATripDay(locked);
+}
+
+function notATripDay(trip: {
+  startsOn: IsoDate;
+  endsOn: IsoDate;
+}): NotATripDay {
+  return { notATripDay: { startsOn: trip.startsOn, endsOn: trip.endsOn } };
 }
 
 /**
@@ -420,7 +434,7 @@ export function addTripOutfit(
       from locked`);
     const [found] = rows;
     if (!found) return 'no-trip';
-    if (!isTripDay(found, input.day)) return 'not-a-trip-day';
+    if (!isTripDay(found, input.day)) return notATripDay(found);
     if (!found.owned) return 'no-outfit';
     const outfitId = sql`${input.outfitId}::int`;
     const {

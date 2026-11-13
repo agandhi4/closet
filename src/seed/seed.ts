@@ -464,7 +464,9 @@ async function writeTrips(
         occasion: planned.occasion,
       });
       if (added !== 'added') {
-        throw new Error(`Trip ${trip.fields.name}: ${planned.outfit} ${added}`);
+        throw new Error(
+          `Trip ${trip.fields.name}: ${planned.outfit} ${JSON.stringify(added)}`,
+        );
       }
     }
     await addTripItems(

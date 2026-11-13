@@ -1,7 +1,6 @@
 import { type Static, Type } from '@sinclair/typebox';
 import type { FieldErrors } from '../auth/validation';
 import { daysBetween, parseIsoDate } from '../../calendar-date';
-import { HttpError } from '../errors';
 import { checklistBody } from '../checklist';
 import { t } from '../i18n';
 import { OccasionSchema, RowId } from '../schemas';
@@ -9,21 +8,14 @@ import type { TripFields } from './queries';
 
 /**
  * The trip routes' input (#10). Trips are the owner's own, like outfits: no
- * route takes `?ownerId=`, and another user's trip is a 404 like an unknown
- * id. The trip form is two layers, as the capsule and plan forms: TypeBox
- * caps shape and length (a 400 page; the inputs carry the same maxlength),
- * then readTripForm re-renders the form with a message for what a person
- * can get wrong (a blank name, a missing or backward date, a trip longer
+ * route takes `?ownerId=` (who may reach a trip is trip-actions.ts's). The
+ * trip form is two layers, as the capsule and plan forms: TypeBox caps
+ * shape and length (a 400 page; the inputs carry the same maxlength), then
+ * readTripForm re-renders the form with a message for what a person can
+ * get wrong (a blank name, a missing or backward date, a trip longer
  * than MAX_TRIP_DAYS). The other writes post ids and values the pages
  * built, so anything malformed is a 400.
  */
-
-const TRIP_NOT_FOUND = 'Trip not found';
-
-/** A trip that is not the signed-in owner's, whether it exists or not. */
-export function tripNotFound(): HttpError {
-  return new HttpError(404, TRIP_NOT_FOUND);
-}
 
 export const TRIP_NAME_MAX = 80;
 /** The weather's place names are this long at most (PLACE_NAME_MAX). */
@@ -109,7 +101,7 @@ function readDates(body: TripBody): {
 /**
  * POST /trips/:id/outfits (the add page's saved outfits): the outfit and,
  * optionally, the trip day and occasion it is for ('' for none: the page's
- * "Any day"). A day outside the trip is refused by the writer (400).
+ * "Any day"). A day outside the trip is refused by planTripOutfit (400).
  */
 export const AddOutfitBody = Type.Object({
   outfitId: RowId,
