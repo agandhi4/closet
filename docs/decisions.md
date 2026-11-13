@@ -737,26 +737,26 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 **Decision:** `GET /ideas` is ideasFor's statement with `with` (any closet garments locked: "Style this" and Shuffle's locked rows, read in the same statement, `ideasWith`) and an opaque cursor carrying the seed and offset; Shuffle is that read with another `seed`. `POST /outfit-picks` (`pickGarments`, shared with `pickTo` and `pick_outfit`) saves, or plans with `plan`; a pick's other destinations are their resources' writes with the idea's `garmentIds`: an entry's Change `PUT /calendar-entries/{id}/outfit`, a trip `POST /trips/{id}/outfits` (#194a), both refusing neither-or-both alike (`outfitOrGarments`). Clashes are `PUT`/`DELETE /garments/{id}/clashes/{otherId}`; selfies `PUT /calendar-entries/{id}/selfie` (multipart) and `DELETE /selfies/{id}`; the feedback `POST /weather/feedback`, which exists only with WEATHER_ENABLED (`scripts/api-spec.ts` documents every feature on).
 **Consequence:** `POST /styling` twins five operations, the gallery's pick three; Styling's Save of an edit is the outfit's PATCH. `GET /ideas?with=` costs one statement fewer than the page's `?with=`. No API route serves a selfie's bytes yet: a native client sees `selfieId`, not the photo (follow-up). `/calendar-entries?to=` alone is the week up to it (#570).
 
-## 2026-11-13 — The API's saved looks: `/looks`, the photo's bytes behind the token, the share target web-only (#193d)
-
-**Why:** a look's photo is private (`sendPrivatePhoto`), served by a page route that reads the session cookie, which no token request carries; the page's pieces are one autosave per piece while MCP sets the whole list; and the share target is the installed web app's worker answering Android's post.
-**Decision:** the resource is `/looks` (Inspiration's looks), owner-only, every route its page twin's writer. The photo's bytes get their own operation, `GET /api/v1/look-photos/{fileName}?variant=` (`servePrivatePhoto`, a problem 404 for anyone else), and a look's `photo` names those URLs (`apiInspirationPhotoUrl`). Pieces are `POST`, `PUT`/`DELETE .../pieces/{position}` and `PUT .../pieces` (`setInspirationPieces`, set_inspiration_pieces' twin). A piece write on a removed position is the page's 404; a stale position in `POST .../outfits` is `saveRecreation`'s 409. The paste's budget is one checker for both doors (`inspirationLinkLimit`). The share target stays web-only. No empty look: the table's check wants a photo or a link.
-**Consequence:** #193 has no `pending` line. Every look route costs its page twin's statements. `servePrivatePhoto` is where a selfie's bytes route would go too.
-
 ## 2026-11-13 — Specs hold under the shifted clock: a fixed TLS window, a refused upload stores nothing
 
 **Why:** the publisher's check at 471f4b8 failed clock-db-30d/365d: `selfSignedCertificate` dated its window from `Date.now()`, which the shift moves while OpenSSL checks the real clock ("not yet valid"); and `inspiration.spec.ts`'s reconciliation found an orphan another test left: a 413'd upload's photo, stored after the response (the parser reports the `fileSize` cut once the stream ends, after a JPEG decoded), with a real-clock mtime the shifted cutoff called old.
 **Decision:** the fixture's validity is a constant (2000-01-01 to RFC 5280's 99991231235959Z), never from `Date`; `Photos.storeUploadParts` awaits a started pipeline when the body is refused and deletes its bytes before rethrowing. Nothing went into `clock_shift.conf`: both causes could move.
 **Consequence:** every multipart route (garment photos, looks, selfies) stops leaking refused uploads to reconciliation; a fixture a real-clock validator reads is never dated from the JS clock.
 
-## 2026-11-13 — The API's photo bytes count on their own budget, `API_PHOTO_LIMIT`
-
-**Why:** a client paints a page of 50 thumbnails with one `GET /api/v1/look-photos/*` each; on `API_LIMIT`'s 120 a minute per token that 429s its own JSON calls. An exemption would leave the bytes uncounted.
-**Decision:** a route marked `config: { apiPhotoBytes: true }` counts on `API_PHOTO_LIMIT` (600 a minute per token: a 50-item page twice a minute with headroom, and immutable bytes mean a caching client stays far below), picked by the API plugin's preHandler, never a path regex. Neither budget counts a 401. The refused photo's 404 is `no-store`, as the page's.
-**Consequence:** `servePrivatePhoto` plus this flag is the one way an API route serves private image bytes; #579 (selfies) reuses both.
-
 ## 2026-11-13 — A trip outfit is worn today by its own copy, not its outfit (#573)
 
 **Why:** `tripModel.wornToday` was keyed by outfit id, so an outfit on several trip days (or also on "Any day") showed every copy "Worn" once today's was worn, on the page and as the API's `wornTodayEntryId`. A calendar entry is per (owner, day, outfit) and carries no trip outfit, so the copy is derived.
 **Decision:** `readTrip` keys the map by the trip outfit's id, and only for a copy `wearableToday` (today's or "Any day"); the page and `toTripOutfit` look up `outfit.id`.
 **Consequence:** a copy of another day is never worn. An "Any day" copy of an outfit also on today still shares today's entry (one entry per outfit per day), so both show worn.
+
+## 2026-11-13 — The API's saved looks: `/looks`, the photo's bytes behind the token, the share target web-only (#193d)
+
+**Why:** a look's photo is private (`sendPrivatePhoto`), served by a page route that reads the session cookie, which no token request carries; the page's pieces are one autosave per piece while MCP sets the whole list; and the share target is the installed web app's worker answering Android's post.
+**Decision:** the resource is `/looks` (Inspiration's looks), owner-only, every route its page twin's writer. The photo's bytes get their own operation, `GET /api/v1/look-photos/{fileName}?variant=` (`servePrivatePhoto`, a problem 404 for anyone else), and a look's `photo` names those URLs (`apiInspirationPhotoUrl`). Pieces are `POST`, `PUT`/`DELETE .../pieces/{position}` and `PUT .../pieces` (`setInspirationPieces`, set_inspiration_pieces' twin). A piece write on a removed position is the page's 404; a stale position in `POST .../outfits` is `saveRecreation`'s 409. The paste's budget is one checker for both doors (`inspirationLinkLimit`). The share target stays web-only. No empty look: the table's check wants a photo or a link.
+**Consequence:** #193 has no `pending` line. Every look route costs its page twin's statements. `servePrivatePhoto` is where a selfie's bytes route would go too.
+
+## 2026-11-13 — The API's photo bytes count on their own budget, `API_PHOTO_LIMIT`
+
+**Why:** a client paints a page of 50 thumbnails with one `GET /api/v1/look-photos/*` each; on `API_LIMIT`'s 120 a minute per token that 429s its own JSON calls. An exemption would leave the bytes uncounted.
+**Decision:** a route marked `config: { apiPhotoBytes: true }` counts on `API_PHOTO_LIMIT` (600 a minute per token: a 50-item page twice a minute with headroom, and immutable bytes mean a caching client stays far below), picked by the API plugin's preHandler, never a path regex. Neither budget counts a 401. The refused photo's 404 is `no-store`, as the page's.
+**Consequence:** `servePrivatePhoto` plus this flag is the one way an API route serves private image bytes; #579 (selfies) reuses both.
