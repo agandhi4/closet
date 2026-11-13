@@ -285,9 +285,9 @@ describe('the layer, drawn like the other roles (#646)', () => {
     ...([2, 2] as const).map((warmth) => garment('footwear', warmth)),
   ];
   // A dozen gallery openings, each its first page.
-  const pages = Array.from({ length: 12 }, (_, seed) =>
+  const layersOn = (garments: readonly IdeaGarment[], seed: number) =>
     generateIdeas({
-      pool,
+      pool: garments,
       needs: SPRING,
       formality: OCCASION_HINTS['all-day'].formality,
       seed,
@@ -296,8 +296,8 @@ describe('the layer, drawn like the other roles (#646)', () => {
     }).ideas.map((idea) => {
       expect(idea.score).toBe(0);
       return idea.garments.find((g) => g.role === 'layer')!.id;
-    }),
-  );
+    });
+  const pages = Array.from({ length: 12 }, (_, seed) => layersOn(pool, seed));
 
   it('puts no layer on more than half of the ideas', () => {
     const layers = pages.flat();
@@ -306,6 +306,13 @@ describe('the layer, drawn like the other roles (#646)', () => {
       const share = layers.filter((l) => l === layer).length;
       expect(share, `layer ${layer}`).toBeLessThanOrEqual(layers.length / 2);
     }
+  });
+
+  // `seed --reset` gives every garment a new id in the same order: the
+  // layer's sequence is keyed by places, not ids (seed.spec.ts's --reset).
+  it('draws the same layers when every id moves, as a reseed does', () => {
+    const moved = pool.map((g) => ({ ...g, id: g.id + 500 }));
+    expect(layersOn(moved, 3).map((layer) => layer - 500)).toEqual(pages[3]);
   });
 
   it('puts more than one layer on every page', () => {
@@ -341,8 +348,8 @@ const PINNED = {
     '102+144+189+207 1 too-dressy 144+189+207+102',
     '102+133+183+207 1 too-dressy 133+183+207+102',
     '102+169+189+207 1 too-dressy 169+189+207+102',
-    '107+161+183+207 1 too-dressy 161+183+207',
-    '103+173+192+207 1 too-dressy 173+192+207+103',
+    '102+161+183+207 1 too-dressy 161+183+207+102',
+    '102+173+192+207 1 too-dressy 173+192+207+102',
     '155+192+207 1 too-dressy 155+192+207',
     'more true',
   ],
@@ -356,12 +363,12 @@ const PINNED = {
     'more true',
   ],
   locked: [
-    '102+131+186+207 1 too-dressy 131+186+207+102',
-    '119+131+202+207 1 too-dressy 131+202+207+119',
-    '119+131+189+207 1 too-dressy 131+189+207+119',
-    '103+131+192+207 1 too-dressy 131+192+207+103',
-    '119+131+183+207 1 too-dressy 131+183+207+119',
-    '102+131+194+207 2 legs-too-cold/too-dressy 131+194+207+102',
+    '105+131+186+207 1 too-dressy 131+186+207+105',
+    '102+131+202+207 1 too-dressy 131+202+207+102',
+    '105+131+189+207 1 too-dressy 131+189+207+105',
+    '105+131+192+207 1 too-dressy 131+192+207+105',
+    '102+131+183+207 1 too-dressy 131+183+207+102',
+    '103+131+194+207 2 legs-too-cold/too-dressy 131+194+207+103',
     'more true',
   ],
   small: [
@@ -378,5 +385,5 @@ const PINNED = {
     'more false',
   ],
   goesWith: 'e987ba2187d97b3b',
-  sweep: '10878400dcf2cb5f',
+  sweep: '7c7f199b053a9cf9',
 };

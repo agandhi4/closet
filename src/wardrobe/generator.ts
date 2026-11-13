@@ -271,11 +271,13 @@ export function generateIdeas<G extends IdeaGarment>(
     layersOffered,
     compatible,
   });
+  const placeOf = placeKeyer(byRole, locked);
+  const layers = layersOffered ? (viable.get('layer') ?? []) : [];
   return drawPage(request, {
     outfits: outfitsOf(
       drawer(request.seed, templates, byRole, locked),
       new Set([...lockedIds, ...[...viable.values()].flat().map((g) => g.id)]),
-      repairer(request.seed, always),
+      repairer(request.seed, always, placeOf),
     ),
     bases,
     floor: scoreFloor(
@@ -285,7 +287,14 @@ export function generateIdeas<G extends IdeaGarment>(
       lockedRoles,
       request.formality,
     ),
-    layers: layersOffered ? (viable.get('layer') ?? []) : [],
+    layersFor: (base) =>
+      rotationOrder(
+        layers,
+        (layer) => layer,
+        'generator-layer',
+        request.seed,
+        placeOf(base),
+      ),
     rules: hardRules(request, compatible, always, rules.brokenAmong(locked)),
   });
 }
@@ -305,13 +314,13 @@ function drawPage<G extends IdeaGarment>(
     outfits,
     bases,
     floor,
-    layers,
+    layersFor,
     rules,
   }: {
     outfits: Outfits<G>;
     bases: number;
     floor: number;
-    layers: readonly G[];
+    layersFor: LayersFor<G>;
     rules: HardRules<G>;
   },
 ): IdeaPage<G> {
@@ -331,7 +340,7 @@ function drawPage<G extends IdeaGarment>(
     n += 1
   ) {
     const outfit = outfits.next();
-    const idea = outfit && bestIdea(outfit, layers, request, rules);
+    const idea = outfit && bestIdea(outfit, layersFor, request, rules);
     if (!idea) continue;
     (idea.score === 0 ? fitting : nearMisses).push(idea);
     if (idea.score === floor) atFloor += 1;
@@ -392,6 +401,7 @@ function outfitsOf<G extends IdeaGarment>(
 function repairer<G extends IdeaGarment>(
   seed: number,
   always: AlwaysCheck<G>,
+  placeOf: (garments: readonly G[]) => string,
 ): (base: G[]) => G[] {
   return (base) => {
     let outfit = base;
@@ -405,7 +415,7 @@ function repairer<G extends IdeaGarment>(
           (swap) => swap.mender,
           'generator-repair',
           seed,
-          keyOf(outfit),
+          placeOf(outfit),
           unmet.index,
         );
         outfit = mend.outfit;
@@ -644,6 +654,32 @@ export function keyOf(garments: readonly { id: number }[]): string {
     .join(',');
 }
 
+/**
+ * A combination's identity for keying a sequence: each garment's place in
+ * its role (byRole, in id order) or among the locks, never its id. A
+ * reseed (`seed --reset`) gives every garment a new id in the same
+ * relative order, so the places, and the sequences keyed by them, stay the
+ * same: the ideas are a function of the pool as a set, as the drawer's
+ * draws by position are.
+ */
+function placeKeyer<G extends IdeaGarment>(
+  byRole: Map<GarmentRole, readonly G[]>,
+  locked: readonly G[],
+): (garments: readonly G[]) => string {
+  const places = new Map<number, string>();
+  [...locked]
+    .sort((a, b) => a.id - b.id)
+    .forEach((g, n) => places.set(g.id, `locked${n}`));
+  for (const [role, garments] of byRole) {
+    garments.forEach((g, n) => places.set(g.id, `${role}${n}`));
+  }
+  return (garments) =>
+    garments
+      .map((g) => places.get(g.id)!)
+      .sort()
+      .join(',');
+}
+
 /** The part of an outfit the generator draws: what "equal to a saved outfit" compares. */
 function drawnKey(garments: readonly { id: number; role: GarmentRole }[]) {
   return keyOf(garments.filter((g) => DRAWN_ROLES.includes(g.role)));
@@ -729,6 +765,9 @@ export function colorsGoTogether(
   return accents.size <= MAX_ACCENT_COLORS && loud <= MAX_LOUD_PATTERNS;
 }
 
+/** The layers offered (none without a forecast) in the order a base tries them. */
+type LayersFor<G> = (base: readonly G[]) => Iterable<G>;
+
 interface Option<G> {
   garments: G[];
   score: number;
@@ -752,8 +791,7 @@ interface Option<G> {
  */
 function bestIdea<G extends IdeaGarment>(
   base: readonly G[],
-  /** The layers offered, in id order: none without a forecast. */
-  layers: readonly G[],
+  layersFor: LayersFor<G>,
   request: IdeaRequest<G>,
   rules: HardRules<G>,
 ): Idea<G> | undefined {
@@ -764,14 +802,7 @@ function bestIdea<G extends IdeaGarment>(
     return ideaOf(bare, rules.lockBroken);
   }
   options.push(bare);
-  const ordered = rotationOrder(
-    layers,
-    (layer) => layer,
-    'generator-layer',
-    request.seed,
-    keyOf(base),
-  );
-  for (const layer of ordered) {
+  for (const layer of layersFor(base)) {
     const garments = [...base, layer];
     const option = { garments, ...judge(garments, request) };
     if (option.score === 0 && rules.passes(garments)) {
