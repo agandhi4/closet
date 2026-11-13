@@ -535,11 +535,15 @@ export function describeMatrix(
         note: OWNER_SIZE_NOTE,
       });
       if (brandSizeId === 'brand-taken') throw new Error(`${brand} is taken`);
-      const outfitRuleId = await addOutfitRule(t.db, t.owner.id, {
-        kind: 'never',
-        a: { ...NO_MATCHER, garmentId },
-        b: { ...NO_MATCHER, color: 'black' },
-      });
+      const outfitRuleId = await addOutfitRule(
+        t.db,
+        { userId: t.owner.id },
+        {
+          kind: 'never',
+          a: { ...NO_MATCHER, garmentId },
+          b: { ...NO_MATCHER, color: 'black' },
+        },
+      );
       if (typeof outfitRuleId !== 'number') {
         throw new Error(`No outfit rule: ${outfitRuleId}`);
       }

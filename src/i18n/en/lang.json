@@ -244,6 +244,7 @@
       "capsule": "Capsule not found",
       "garment": "Garment not found",
       "outfit": "Outfit not found",
+      "outfitRule": "Outfit rule not found",
       "trip": "Trip not found",
       "wardrobe": "Wardrobe not found"
     }

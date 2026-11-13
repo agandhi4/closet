@@ -10,6 +10,7 @@ import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { renderPage } from '../render';
 import { RowId } from '../schemas';
+import { actorOf } from '../sharing/access';
 import { viewContext } from '../view-context';
 import { homeNameSql } from '../weather/queries';
 import { inTemplateOrder, weekTemplateSql } from '../week-plan/template';
@@ -49,8 +50,8 @@ const OutfitRuleParams = Type.Object({ id: RowId });
  * its outfit rules (#21b). Every write is a native post (PostForm), back to
  * the page with a toast, or the page again (400) with the rule form's
  * message. Validation: a rule's kind and sides are their sets' (else 400,
- * data a write stores); a side's garment not the owner's is a 404, like an
- * unknown id.
+ * data a write stores); a side's garment or a rule not the owner's is the
+ * writer's NotFound, like an unknown id.
  */
 export const styleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
@@ -129,7 +130,8 @@ export const styleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     OUTFIT_RULES_PATH,
     { schema: { body: OutfitRuleBody } },
     async (request, reply) => {
-      const userId = sessionUserId(request);
+      const actor = actorOf(request);
+      const { userId } = actor;
       const { body } = request;
       const a = readRuleSide(body.a);
       const b = readRuleSide(body.b);
@@ -147,8 +149,7 @@ export const styleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       };
       // Each side is one option, spelled one way, so equal is the same.
       if (body.a === body.b) return refuse(t('style.RULE_SAME'));
-      const added = await addOutfitRule(db, userId, { kind: body.kind, a, b });
-      if (added === 'not-found') throw new HttpError(404, 'Garment not found');
+      const added = await addOutfitRule(db, actor, { kind: body.kind, a, b });
       if (added === 'duplicate') return refuse(t('style.RULE_DUPLICATE'));
       logger.info(
         `Outfit rule ${added} added by user ${userId}: ${body.kind} ${body.a} with ${body.b}`,
@@ -161,12 +162,10 @@ export const styleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     `${OUTFIT_RULES_PATH}/:id/delete`,
     { schema: { params: OutfitRuleParams } },
     async (request, reply) => {
-      const userId = sessionUserId(request);
+      const actor = actorOf(request);
       const { id } = request.params;
-      if (!(await deleteOutfitRule(db, id, userId))) {
-        throw new HttpError(404, 'Outfit rule not found');
-      }
-      logger.info(`Outfit rule ${id} removed by user ${userId}`);
+      await deleteOutfitRule(db, actor, id);
+      logger.info(`Outfit rule ${id} removed by user ${actor.userId}`);
       return reply.redirect(styleSavedUrl('rule-removed'), 303);
     },
   );

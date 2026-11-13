@@ -16,6 +16,8 @@ import {
   type StoredMatcher,
   storedMatcher,
 } from '../../wardrobe/outfit-rules';
+import { NotFound } from '../refusals';
+import type { Actor } from '../sharing/access';
 import { inCloset, ownedGarment } from '../wardrobe/status';
 import type { StyleProfileFields } from './validation';
 
@@ -186,13 +188,14 @@ export interface NewOutfitRule {
 }
 
 /**
- * Adds one of the owner's rules (#21b), the one writer of outfit_rule: its
- * id; 'duplicate' when the owner has it already (the unique index, so a
- * concurrent add cannot slip past a check made first); 'not-found' when a
- * side names a garment that is not the owner's own (owned now or once, as
- * avoidPair's), writing nothing. The two sides must differ (the route
- * says so; the table checks only two garments). A type is its category's
- * by construction (readRuleSide), which the table does not check.
+ * Adds one of the actor's own rules (#21b), the one writer of outfit_rule:
+ * its id, or 'duplicate' when they have it already (the unique index, so a
+ * concurrent add cannot slip past a check made first). A side naming a
+ * garment that is not the actor's own (owned now or once, as avoidPair's)
+ * is NotFound, and nothing is written. The two sides must differ (the
+ * route says so; the table checks only two garments). A type is its
+ * category's by construction (readRuleSide), which the table does not
+ * check.
  *
  * One statement, as avoidPair: the check locks the sides' garments FOR
  * SHARE, and the insert runs only when it found them all, so a delete of
@@ -201,9 +204,10 @@ export interface NewOutfitRule {
  */
 export async function addOutfitRule(
   db: Queryable,
-  ownerId: number,
+  actor: Actor,
   rule: NewOutfitRule,
-): Promise<number | 'duplicate' | 'not-found'> {
+): Promise<number | 'duplicate'> {
+  const ownerId = actor.userId;
   const garmentIds = [rule.a.garmentId, rule.b.garmentId].filter(
     (id) => id !== null,
   );
@@ -235,19 +239,23 @@ export async function addOutfitRule(
     select (select count(*) from owned)::int as owned,
       (select id from added) as id`);
   const [{ owned: found, id }] = rows;
-  if (found !== garmentIds.length) return 'not-found';
+  if (found !== garmentIds.length) {
+    throw new NotFound('garment', {
+      logDetail: `outfit rule side: garments ${garmentIds.join(', ')} are not all user ${ownerId}'s`,
+    });
+  }
   return id ?? 'duplicate';
 }
 
-/** Deletes one of the owner's rules; false when `id` is not one of theirs. */
+/** Deletes one of the actor's own rules; anyone else's, or none, is NotFound. */
 export async function deleteOutfitRule(
   db: Queryable,
+  actor: Actor,
   id: number,
-  ownerId: number,
-): Promise<boolean> {
+): Promise<void> {
   const deleted = await db
     .delete(outfitRule)
-    .where(and(eq(outfitRule.id, id), eq(outfitRule.ownerId, ownerId)))
+    .where(and(eq(outfitRule.id, id), eq(outfitRule.ownerId, actor.userId)))
     .returning({ id: outfitRule.id });
-  return deleted.length > 0;
+  if (deleted.length === 0) throw new NotFound('outfitRule');
 }
