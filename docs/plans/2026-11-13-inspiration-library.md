@@ -1,6 +1,6 @@
 # Inspiration library and "recreate this look" (#22)
 
-Status: draft, awaiting the owner's go-ahead (the issue is in Later). Section 7 lists the decisions.
+Status: recommendations adopted by the coordinator 2026-11-13 under the owner's standing instruction to keep building on plan recommendations; the owner may veto any decision in "Owner decisions".
 
 ## 1. What exists
 
