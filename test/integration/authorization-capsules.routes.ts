@@ -9,7 +9,8 @@ import {
 export const ROUTES: Route[] = [
   // Capsules are part of the wardrobe (owner decision on #8): the same
   // ?ownerId= resolution as the garment routes. Without ?ownerId a grantee
-  // addresses their own wardrobe, which holds no such capsule.
+  // addresses their own wardrobe, which holds no such capsule. Every write,
+  // the list and a capsule's read replay on their /api/v1 twin (#194b, `api`).
   {
     name: 'GET /capsules',
     kind: 'read',
@@ -23,6 +24,10 @@ export const ROUTES: Route[] = [
       manager: ['hidden', 'ok'],
       viewer: ['hidden', 'ok'],
       stranger: ['hidden', 'notFound'],
+    },
+    api: {
+      ok: 200,
+      request: (_, q) => ({ method: 'GET', url: `/api/v1/capsules${q}` }),
     },
   },
   {
@@ -56,6 +61,15 @@ export const ROUTES: Route[] = [
       viewer: 'forbidden',
       stranger: 'notFound',
     },
+    api: {
+      ok: 201,
+      // A name of its own: the page's case planted the other.
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/capsules${q}`,
+        payload: { name: `Planted ${f.capsuleName}` },
+      }),
+    },
   },
   {
     name: 'GET /capsules/:id',
@@ -70,6 +84,13 @@ export const ROUTES: Route[] = [
       manager: ['notFound', 'ok'],
       viewer: ['notFound', 'ok'],
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'GET',
+        url: `/api/v1/capsules/${f.capsuleId}${q}`,
+      }),
     },
   },
   {
@@ -108,6 +129,14 @@ export const ROUTES: Route[] = [
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/capsules/${f.capsuleId}${q}`,
+        payload: { name: `Renamed ${f.capsuleName}` },
+      }),
+    },
   },
   {
     name: 'DELETE /capsules/:id',
@@ -124,6 +153,13 @@ export const ROUTES: Route[] = [
       manager: ['notFound', 'forbidden'],
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
+    },
+    api: {
+      ok: 204,
+      request: (f, q) => ({
+        method: 'DELETE',
+        url: `/api/v1/capsules/${f.capsuleId}${q}`,
+      }),
     },
   },
   {
@@ -145,6 +181,14 @@ export const ROUTES: Route[] = [
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PATCH',
+        url: `/api/v1/capsules/${f.capsuleId}/members${q}`,
+        payload: { remove: [f.garmentId] },
+      }),
+    },
   },
   {
     // The garment page's toggles: the capsule was listed and unchecked.
@@ -163,6 +207,14 @@ export const ROUTES: Route[] = [
       manager: ['notFound', 'ok'],
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PATCH',
+        url: `/api/v1/garments/${f.garmentId}/capsules${q}`,
+        payload: { remove: [f.capsuleId] },
+      }),
     },
   },
   {
