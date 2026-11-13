@@ -497,5 +497,5 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 ## 2026-11-13 — Metrics are a cleanup-round report; devkit's friction cuts synced
 
 **Why:** the owner: a per-PR ratchet is overkill; refactor/cleanup rounds can read it instead (devkit#497, devkit#498, devkit decisions 2026-11-13). Tighten commits and the `metrics-rebaseline` label cost turns and caught no defect.
-**Decision:** devkit synced to 1ee0e26. `make ci-metrics` prints WORSE/BETTER and exits 0; `GATE_JOBS_METRICS` and `TIER_BUDGET_ENFORCE` wording are gone, docs caps and tier budgets only warn.
+**Decision:** devkit synced to 1ee0e26. `make ci-metrics` prints WORSE/BETTER and exits 0; `GATE_JOBS_METRICS` and `TIER_BUDGET_ENFORCE` wording are gone, docs caps and tier budgets only warn. Floors only warn now too, so a lost test glob shows as a FLOOR warning in the tier output rather than a failure: read the warnings.
 **Consequence:** no per-PR `make metrics-tighten` or label; a cleanup round runs `make ci-metrics` and tightens. Earlier entries naming the label are history.

@@ -25,8 +25,8 @@ CI_BUILD_VERSION ?= dev
 SMOKE_PG_CONTAINER ?= $(shell $(PG) name closet-smoke-pg)
 
 # Test-tier budgets and floors (owner directive 2026-10-13, docs/decisions.md "Lean test suite"):
-# devkit's tier guard reports a tier over its wall-clock budget (OVERBUDGET, never fails) and fails one
-# that ran fewer tests than the floor (a lost glob passes green otherwise),
+# devkit's tier guard reports a tier over its wall-clock budget (OVERBUDGET) and one that ran fewer tests than
+# the floor (FLOOR); neither fails the run, so read the warnings (a lost glob shows only as FLOOR),
 # counting the runner's own summary line: tests that ran, never skipped ones. It prints one
 # `TIER <tier>` line and writes build/metrics/tier-<tier>.json. The floors are the counts at the
 # last change to the suite: raise them with new tests; lower them only in the PR that removes
