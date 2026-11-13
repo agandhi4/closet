@@ -1,14 +1,13 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
-import { QUANTITY_MAX } from '../../wardrobe/availability';
 import { sessionUserId } from '../auth/require-session';
-import { HttpError } from '../errors';
-import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { renderFragment } from '../render';
 import { GarmentParams, OwnerQuery } from '../schemas';
-import { garmentGuard, garmentNotFound } from './garment-access';
+import { actorOf } from '../sharing/access';
+import { garmentAddress, garmentGuard } from './garment-access';
+import { addGarmentCopies } from './garment-actions';
 import { LookalikesContent } from './lookalike-region';
-import { addCopies, closetLookalikes, LookalikesQuery } from './lookalikes';
+import { closetLookalikes, LookalikesQuery } from './lookalikes';
 import { garmentUrl, readIdList } from './urls';
 
 /**
@@ -57,33 +56,22 @@ export const lookalikeRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   // "Add a copy": one more of the closet garment instead of a new garment
-  // (addCopies, under the owner lock); 303 to its page with a toast. A
-  // native post from the form's LookalikeCopyForm: a refusal is the error
-  // page (a garment archived or moved meanwhile is a 409, past the cap too).
+  // (addGarmentCopies); 303 to its page with a toast. A native post from
+  // the form's LookalikeCopyForm: a refusal is the error page (a garment
+  // archived or moved meanwhile is a 409, past the cap too).
   app.post(
     '/wardrobe/:id/copies',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
       const { id } = request.params;
-      const userId = sessionUserId(request);
-      const { access, viewOwner } = await authorize(request, 'manage');
-      const outcome = await addCopies(db, access.ownerId, id, 1);
-      if (!outcome.ok) {
-        logger.info(
-          `Copy of garment ${id} refused for user ${userId} (${outcome.reason})`,
-        );
-        if (outcome.reason === 'not-found') {
-          throw garmentNotFound();
-        }
-        throw new HttpError(
-          409,
-          outcome.reason === 'too-many'
-            ? t('lookalikes.TOO_MANY', { max: QUANTITY_MAX })
-            : t('lookalikes.NOT_IN_CLOSET'),
-        );
-      }
+      const { access, viewOwner, from, to } = await addGarmentCopies(
+        db,
+        actorOf(request),
+        garmentAddress(request),
+        1,
+      );
       logger.info(
-        `Garment ${id} copy added by user ${userId} in wardrobe ${access.ownerId}: quantity ${outcome.from} -> ${outcome.to}`,
+        `Garment ${id} copy added by user ${sessionUserId(request)} in wardrobe ${access.ownerId}: quantity ${from} -> ${to}`,
       );
       return reply.redirect(
         garmentUrl(id, viewOwner, '', { copyAdded: 1 }),

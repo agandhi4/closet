@@ -1,8 +1,8 @@
 import type { FastifyReply } from 'fastify';
 import type { Db } from '../../db/client';
-import { HttpError } from '../errors';
-import type { PendingScope } from '../files/pending-photos';
+import { type PendingScope, pendingPhotoOf } from '../files/pending-photos';
 import { t } from '../i18n';
+import { NotFound } from '../refusals';
 import { renderPage } from '../render';
 import { viewContext } from '../view-context';
 import type { DraftQueue } from './draft-queue';
@@ -57,8 +57,23 @@ export interface GarmentFormRequest extends Omit<
 }
 
 /** The requester's draft addressed through another wardrobe than its batch's (#200). */
-export function draftNotFound(): HttpError {
-  return new HttpError(404, 'Photo not found');
+function draftNotFound(): NotFound {
+  return new NotFound('draft', { logDetail: 'a draft of another wardrobe' });
+}
+
+/**
+ * After a save's claim or a Discard that took nothing: a draft of another
+ * wardrobe is the 404 its form answers (#200); anything else (claimed,
+ * discarded, evicted) is the caller's to answer, so this returns.
+ */
+export async function refuseOtherWardrobesDraft(
+  db: Db,
+  fileName: string,
+  scope: PendingScope,
+): Promise<void> {
+  if ((await pendingPhotoOf(db, fileName, scope)) === 'otherWardrobe') {
+    throw draftNotFound();
+  }
 }
 
 /**

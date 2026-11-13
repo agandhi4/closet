@@ -277,10 +277,14 @@
       "brand": "Brand not found",
       "calendarEntry": "Calendar entry not found",
       "capsule": "Capsule not found",
+      "draft": "Photo not found",
       "garment": "Garment not found",
       "garmentPhoto": "Garment has no photo",
+      "need": "Need not found",
+      "orderItem": "Order item not found",
       "outfit": "Outfit not found",
       "outfitRule": "Outfit rule not found",
+      "repair": "Repair not found",
       "trip": "Trip not found",
       "wardrobe": "Wardrobe not found"
     }

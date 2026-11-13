@@ -414,8 +414,9 @@ describe('garment edit, clone and archive', () => {
         (await post(`/wardrobe/${id}/archive`, {}, alice.cookie)).statusCode,
       ).toBe(409);
       expect((await load(id)).status).toBe('archived');
-      expect(t.logs.messages('info', 'Web')).toContain(
-        `Garment ${id} archive refused: it is archived`,
+      // The refusal's detail rides on the error handler's line (logDetail).
+      expect(t.logs.messages('warn', 'Web')).toContain(
+        `POST /wardrobe/${id}/archive -> 409: Only a garment in the closet can be archived (garment ${id} is archived)`,
       );
     });
 

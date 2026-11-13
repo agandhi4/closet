@@ -1,23 +1,53 @@
 import { ownerTransaction } from '../auth/queries';
-import { buyGarment, type BuyOutcome, type Purchase } from '../wardrobe/status';
+import { HttpError } from '../errors';
+import { t } from '../i18n';
+import {
+  type Actor,
+  type AuthorizedWardrobe,
+  type WardrobeNeed,
+} from '../sharing/access';
+import {
+  type GarmentAddress,
+  garmentNotFound,
+  garmentWardrobe,
+} from '../wardrobe/garment-access';
+import { buyGarment, type Purchase } from '../wardrobe/status';
 import type { WardrobeDeps } from '../wardrobe/writes';
 import { decide } from './decisions';
+
+/**
+ * What "Bought it" needs of the wardrobe: a MANAGE share buys, and asking
+ * for the replaced garment's archive too is the owner's alone (a grantee
+ * asking is a 403 before anything is read or written). The route asks it
+ * first, for its refused form; buyWishlistItem again.
+ */
+export function purchaseNeed(archiveReplaced: boolean): WardrobeNeed {
+  return archiveReplaced ? 'own' : 'manage';
+}
 
 /**
  * "Bought it" (POST /wardrobe/:id/bought), in one owner transaction: the
  * buy (buyGarment: the wishlist item into the closet with its purchase,
  * and the garment it replaces archived when asked), then, for a Muse pick,
  * its need settled (decide's `bought`: resolved by it, its other open
- * picks set aside as chose_another, #333). `ownerId` is the wardrobe's
- * owner (the owner lock's key), not necessarily the requester: a MANAGE
- * grantee buys too.
+ * picks set aside as chose_another, #333). The lock is the wardrobe
+ * owner's, not necessarily the actor's: a MANAGE grantee buys too. An id
+ * outside the wardrobe is a 404, an item no longer on the wishlist a 409.
  */
 export async function buyWishlistItem(
   { db, logger }: Pick<WardrobeDeps, 'db' | 'logger'>,
-  garmentId: number,
-  ownerId: number,
+  actor: Actor,
+  address: GarmentAddress,
   purchase: Purchase & { archiveReplaced: boolean },
-): Promise<BuyOutcome> {
+): Promise<AuthorizedWardrobe & { archivedReplaced: number | null }> {
+  const wardrobe = await garmentWardrobe(
+    db,
+    actor,
+    address,
+    purchaseNeed(purchase.archiveReplaced),
+  );
+  const { ownerId } = wardrobe.access;
+  const garmentId = address.id;
   // The owner lock before buyGarment's garment locks: decide needs it, and a
   // pick takes it before its garments, so the other order could deadlock.
   const outcome = await ownerTransaction(
@@ -32,11 +62,16 @@ export async function buyWishlistItem(
       return { ...bought, settled };
     },
   );
-  if (!outcome.ok) return outcome;
+  if (!outcome.ok) {
+    if (outcome.reason === 'not-found') throw garmentNotFound();
+    throw new HttpError(409, t('wishlist.NOT_ON_WISHLIST'), {
+      logDetail: `garment ${garmentId} is ${outcome.status}`,
+    });
+  }
   if (outcome.settled.ok && outcome.settled.groupId !== null) {
     logger.info(
       `Garment ${garmentId} bought for user ${ownerId} resolves option group ${outcome.settled.groupId}; picks ${outcome.settled.dismissed.join(', ') || 'none'} set aside as chose_another`,
     );
   }
-  return { ok: true, archivedReplaced: outcome.archivedReplaced };
+  return { ...wardrobe, archivedReplaced: outcome.archivedReplaced };
 }

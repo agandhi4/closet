@@ -30,17 +30,15 @@ import { perWearCost, totalCost } from '../../../wardrobe/insights';
 import { todayIn } from '../../../calendar-date';
 import { capsulesOfGarmentSql } from '../../capsules/queries';
 import { HttpError } from '../../errors';
-import { t } from '../../i18n';
 import { normalizeCategory, normalizeSize } from '../../wardrobe/garment';
 import {
   type GarmentDetail,
   type GarmentSummary,
   garmentSummaries,
   type GridFilters,
-  updateGarmentFields,
 } from '../../wardrobe/queries';
 import { GRID_PAGE_SIZE } from '../../wardrobe/grid-page-size';
-import { addCopies, closetLookalikes } from '../../wardrobe/lookalikes';
+import { closetLookalikes } from '../../wardrobe/lookalikes';
 import { repairLogSql } from '../../wardrobe/repairs';
 import {
   BRAND_MAX,
@@ -76,10 +74,10 @@ import {
 import { centsPriceInput, isoDate, ownerIdInput, rowId } from './common';
 import {
   garmentIn,
-  garmentNotFound,
   garmentPhotoIn,
   searchGarments,
 } from '../../wardrobe/garment-access';
+import { addGarmentCopies, editGarment } from '../../wardrobe/garment-actions';
 import { addGarmentFromLink, refusedForm } from './link-import';
 
 /** A search or capsule hit, as the tools answer it. */
@@ -756,17 +754,16 @@ export const garmentTools = [
     writes: true,
     idempotent: true,
     async run({ id, ownerId, ...changes }, ctx) {
-      const access = await wardrobeFor(ctx, ownerId, 'manage');
-      const garment = await garmentIn(ctx.db, access, id);
-      const { fields, ignored } = garmentUpdate(garment, changes, {
-        owner: access.isOwner,
-      });
-      if (
-        Object.keys(fields).length > 0 &&
-        !(await updateGarmentFields(ctx.db, id, access.ownerId, fields))
-      ) {
-        throw garmentNotFound();
-      }
+      const { access, garment, edit } = await editGarment(
+        ctx.db,
+        actorOf(ctx),
+        { id, ownerId, unseen: 'wardrobe' },
+        (stored) =>
+          garmentUpdate(stored.garment, changes, {
+            owner: stored.access.isOwner,
+          }),
+      );
+      const { fields, ignored } = edit;
       ctx.webLogger.info(
         `Garment ${id} updated by user ${ctx.userId} (MCP): ${Object.keys(
           changes,
@@ -802,29 +799,14 @@ export const garmentTools = [
     writes: true,
     idempotent: false,
     async run(args, ctx) {
-      const access = await wardrobeFor(ctx, args.ownerId, 'manage');
-      const outcome = await addCopies(
+      const { access, from, to } = await addGarmentCopies(
         ctx.db,
-        access.ownerId,
-        args.id,
+        actorOf(ctx),
+        { id: args.id, ownerId: args.ownerId, unseen: 'wardrobe' },
         args.copies,
       );
-      if (!outcome.ok) {
-        ctx.webLogger.info(
-          `Copies of garment ${args.id} refused for user ${ctx.userId} (MCP): ${outcome.reason}`,
-        );
-        if (outcome.reason === 'not-found') {
-          throw garmentNotFound();
-        }
-        throw new HttpError(
-          409,
-          outcome.reason === 'too-many'
-            ? t('lookalikes.TOO_MANY', { max: QUANTITY_MAX })
-            : t('lookalikes.NOT_IN_CLOSET'),
-        );
-      }
       ctx.webLogger.info(
-        `Garment ${args.id} copies added by user ${ctx.userId} in wardrobe ${access.ownerId} (MCP): quantity ${outcome.from} -> ${outcome.to}`,
+        `Garment ${args.id} copies added by user ${ctx.userId} in wardrobe ${access.ownerId} (MCP): quantity ${from} -> ${to}`,
       );
       const saved = await garmentIn(ctx.db, access, args.id);
       return {
@@ -888,6 +870,8 @@ export const garmentTools = [
     idempotent: false,
     openWorld: true,
     async run(args, ctx) {
+      // The wardrobe before the rate limit, so a refused call spends none of
+      // it; addGarmentFromLink saves into the wardrobe authorized here.
       const access = await wardrobeFor(ctx, args.ownerId, 'manage');
       if (!(await ctx.allowLinkImport())) {
         throw new HttpError(

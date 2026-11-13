@@ -1,6 +1,7 @@
 import type { Db } from '../../db/client';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
+import { NotFound } from '../refusals';
 import type { WardrobeAccess } from '../sharing/access';
 import type { EntryStatus } from '../../wardrobe/status';
 import { decide } from '../wishlist/decisions';
@@ -36,7 +37,7 @@ async function resolveNeed(
   const need = access.isOwner
     ? await findNeedToBuyFor(db, access.ownerId, needId)
     : undefined;
-  if (!need) throw new HttpError(404, 'Need not found');
+  if (!need) throw new NotFound('need');
   return need;
 }
 
@@ -106,7 +107,7 @@ async function resolveOrderItem(
   const item = access.isOwner
     ? await findPendingOrderItem(db, orderItemId, access.ownerId)
     : undefined;
-  if (!item) throw new HttpError(404, 'Order item not found');
+  if (!item) throw new NotFound('orderItem');
   return item.id;
 }
 
