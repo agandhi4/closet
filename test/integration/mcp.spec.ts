@@ -1360,7 +1360,7 @@ describe('the MCP endpoint', () => {
       );
       expect(lines).toContainEqual(
         expect.stringMatching(
-          /^MCP update_garment by user \d+ \(token \d+\): refused 403 /,
+          /^MCP update_garment by user \d+ \(token \d+\): refused 403: Forbidden /,
         ),
       );
     });
