@@ -54,8 +54,9 @@ A feature is done when its domain function has a page caller, an API caller, and
 
 1. Add its operationId to `OPERATIONS` and turn its page twin's `pending` line into `api` (`operations.ts`). Write it in `src/web/<feature>/api-routes.ts`, a `FastifyPluginCallbackTypebox<ApiOptions>` registered in `apiPlugin`, calling the same domain function the page calls (parse, call, map). The user is `request.accessToken!.user.id`. A public route says `config: { public: true }` and `schema.security: []`.
 2. Declare `operationId` (camelCase, unique), `tags`, a `summary`, the TypeBox `body`/`querystring`/`params` (a multipart route: `multipartBody`, below), and `response: apiResponses({ 200: Resource })`. Resource schemas carry `title` and `description`. Fastify serializes through them, so an unlisted column never leaves. `requireContract` refuses the route at boot without them.
-3. JSON is camelCase and leaves out nulls. A household day is `YYYY-MM-DD`, an instant ISO 8601 with `Z`, money a decimal string, and lists `{ data, pagination }` (plan section 2).
-4. `npm run api:spec` and commit `src/web/api/openapi.json` in the same PR. Pin the route's statements in `api-statements.spec.ts`. Give each matrix route of its page twin an `api` request.
+3. A querystring is closed (#577): an undeclared parameter is a 400 `validation` whose `errors` name `querystring/<name>`, for every route with no per-route work (`validator.ts`: `declareQuerystring` gives a route without one an empty schema; the compiler sets `additionalProperties: false` and turns `removeAdditional` off). Declare every parameter the route accepts (`ownerId`, `v`), never loosen it; `api.spec.ts` sends a bogus one to every GET.
+4. JSON is camelCase and leaves out nulls. A household day is `YYYY-MM-DD`, an instant ISO 8601 with `Z`, money a decimal string, and lists `{ data, pagination }` (plan section 2).
+5. `npm run api:spec` and commit `src/web/api/openapi.json` in the same PR. Pin the route's statements in `api-statements.spec.ts`. Give each matrix route of its page twin an `api` request.
 
 ## Gotchas
 
