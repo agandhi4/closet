@@ -25,6 +25,7 @@ import {
   OCCASION_HINTS,
   type Occasion,
 } from './occasions';
+import type { OutfitRule } from './outfit-rules';
 import type { GarmentRole } from './properties';
 import type { GarmentStatus } from './status';
 import { occasionsOn, type TemplateSlot } from './week';
@@ -42,8 +43,8 @@ import { occasionsOn, type TemplateSlot } from './week';
  *   day occasion (all day, work, daytime) is filled by any of the three,
  *   since one outfit dresses the day. Today's slots whose window
  *   (OCCASION_HINTS) has ended are left alone.
- * - **Ideas come from the generator** (generateIdeas: its colour, clash and
- *   saved-outfit rules, the slot's weather needs and the occasion's
+ * - **Ideas come from the generator** (generateIdeas: its colour, clash,
+ *   outfit and saved-outfit rules, the slot's weather needs and the occasion's
  *   formality), one per slot, seeded by (day, occasion). The best idea is
  *   taken, a near miss included (its problems travel with it); a slot with
  *   no idea at all stays empty and is reported.
@@ -115,6 +116,8 @@ export interface WeekContext<G extends PlannerGarment> {
   /** The personal temperature offset, °C. */
   offset: number;
   avoid: readonly (readonly [number, number])[];
+  /** The owner's outfit rules (outfit_rule). */
+  rules: readonly OutfitRule[];
   /** The owner's saved outfits (the generator's duplicate rule). */
   saved: readonly SavedOutfit[];
 }
@@ -487,6 +490,7 @@ function ideaFor<G extends PlannerGarment>(
     needs,
     formality: OCCASION_HINTS[slot.occasion].formality,
     avoid: context.avoid,
+    rules: context.rules,
     saved: ledger.outfits,
     offset: 0,
     limit: 1,

@@ -9,11 +9,12 @@ import {
   outfitCount,
   PARTNERS_PER_ROLE,
 } from './goes-with';
-import type {
-  Formality,
-  GarmentColor,
-  GarmentRole,
-  Pattern,
+import {
+  builtInCategoriesOf,
+  type Formality,
+  type GarmentColor,
+  type GarmentRole,
+  type Pattern,
 } from './properties';
 
 /**
@@ -38,6 +39,8 @@ function garment(
   return {
     id: nextId++,
     role,
+    category: builtInCategoriesOf(role)[0],
+    type: null,
     colors: options.colors ?? ['black'],
     pattern: options.pattern ?? 'solid',
     formality: options.formality ?? null,
@@ -59,7 +62,7 @@ function request(
   closet: IdeaGarment[],
   avoid: [number, number][] = [],
 ): GoesWithRequest<IdeaGarment> {
-  return { item, closet, avoid, seed: 1 };
+  return { item, closet, avoid, rules: [], seed: 1 };
 }
 
 const ids = (garments: readonly { id: number }[]) => garments.map((g) => g.id);
