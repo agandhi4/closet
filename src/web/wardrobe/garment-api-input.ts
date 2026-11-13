@@ -202,15 +202,15 @@ export type NewGarment = Static<typeof NewGarment>;
 /** POST /garments/{id}/clones: the source's fields, with these changed. */
 export const GarmentClone = Type.Union(
   [
-    Type.Null(),
     Type.Object(
       { category: Type.Optional(Category({ minLength: 1 })), ...fields },
       {
         title: 'GarmentClone',
         description:
-          'What differs from the source; absent keeps its value, the name "Copy of …"',
+          'What differs from the source; an absent field keeps its value, but an absent name becomes "<the source\'s name> (cloned)"',
       },
     ),
+    Type.Null(),
   ],
   { description: 'None: a copy of the source as it is' },
 );
@@ -337,7 +337,6 @@ export const ConditionInput = Type.Object(
 
 /** POST /garments/{id}/copies: how many more identical copies. */
 export const CopiesInput = Type.Union([
-  Type.Null(),
   Type.Object(
     {
       copies: Type.Optional(
@@ -351,6 +350,7 @@ export const CopiesInput = Type.Union([
     },
     { title: 'GarmentCopiesInput' },
   ),
+  Type.Null(),
 ]);
 
 /**
@@ -397,20 +397,20 @@ const BulkIds = Type.Array(RowId, {
     'The garments to change; one this wardrobe does not hold, or whose role lacks the property, is skipped',
 });
 
-/** One property and its value for every garment named (`property` before `value`: see Nullable). */
+/** One property and its value for every garment named. */
 const bulk = <P extends string, V extends TSchema>(property: P, value: V) =>
   Type.Object({ ids: BulkIds, property: Type.Literal(property), value });
 
 /** PATCH /garments: select mode's "Set…" (bulkSetProperty). */
 export const BulkInput = Type.Union(
   [
-    bulk('warmth', Type.Union([Type.Null(), literals(WARMTHS)])),
-    bulk('formality', Type.Union([Type.Null(), literals(FORMALITIES)])),
+    bulk('warmth', Type.Union([literals(WARMTHS), Type.Null()])),
+    bulk('formality', Type.Union([literals(FORMALITIES), Type.Null()])),
     bulk('materials', literals(MATERIALS)),
-    bulk('pattern', Type.Union([Type.Null(), literals(PATTERNS)])),
-    bulk('fit', Type.Union([Type.Null(), literals(FITS)])),
-    bulk('sleeve', Type.Union([Type.Null(), literals(SLEEVES)])),
-    bulk('length', Type.Union([Type.Null(), literals(LENGTHS)])),
+    bulk('pattern', Type.Union([literals(PATTERNS), Type.Null()])),
+    bulk('fit', Type.Union([literals(FITS), Type.Null()])),
+    bulk('sleeve', Type.Union([literals(SLEEVES), Type.Null()])),
+    bulk('length', Type.Union([literals(LENGTHS), Type.Null()])),
     bulk('waterResistant', Type.Boolean()),
     bulk('condition', literals(CONDITIONS)),
   ],

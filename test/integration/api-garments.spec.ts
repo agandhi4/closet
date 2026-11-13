@@ -369,6 +369,39 @@ describe('the garment writes', () => {
     );
   });
 
+  it('takes a JSON body as sent: a never-wash 0 stays 0, a string for a number is a 400', async () => {
+    // Fastify's ajv coerces by default, which once turned this 0 into null
+    // (the role's default) through Nullable's null branch (validator.ts).
+    const neverWash = { care: { washAfterWears: 0 } };
+    const id = await created({ category: 'tops', ...neverWash });
+    expect((await garmentRow(t, id))?.washAfterWears).toBe(0);
+    const patched = await created({
+      category: 'tops',
+      care: { washAfterWears: 3 },
+    });
+    expect(
+      (await send('PATCH', `/garments/${patched}`, neverWash)).statusCode,
+    ).toBe(200);
+    expect((await garmentRow(t, patched))?.washAfterWears).toBe(0);
+    const clone = await send('POST', `/garments/${patched}/clones`, {
+      name: 'Never washed',
+      ...neverWash,
+    });
+    expect(clone.statusCode, clone.body).toBe(201);
+    expect(
+      (await garmentRow(t, clone.json<{ id: number }>().id))?.washAfterWears,
+    ).toBe(0);
+    const coerced = expectProblem(
+      await send('PATCH', `/garments/${id}`, {
+        care: { washAfterWears: '3' },
+      }),
+      400,
+      'validation',
+    );
+    expect(coerced.errors?.[0]?.path).toMatch(/^body\/care/);
+    expect((await garmentRow(t, id))?.washAfterWears).toBe(0);
+  });
+
   it('PUT /garments/{id}/status archives and restores, a repeat answered as it is', async () => {
     const id = await created({ category: 'tops' });
     const put = (status: string) =>

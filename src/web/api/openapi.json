@@ -1267,22 +1267,22 @@
                   "name": {
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "maxLength": 200,
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
                   "brand": {
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "maxLength": 100,
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
@@ -1395,22 +1395,22 @@
                     "description": "As on the label (XL is stored as X-Large)",
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "maxLength": 40,
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
                   "notes": {
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "maxLength": 4000,
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
@@ -1418,23 +1418,23 @@
                     "description": "What one copy cost",
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "pattern": "^\\d{1,8}(\\.\\d{1,2})?$",
                         "description": "A decimal amount in the household currency, e.g. \"49.90\"",
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
                   "acquiredOn": {
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "format": "date",
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
@@ -1442,11 +1442,11 @@
                     "description": "An http(s) link to the product",
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "maxLength": 2048,
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
@@ -1482,11 +1482,11 @@
                     "description": "What is wrong: kept only while the condition is not good",
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "maxLength": 200,
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
@@ -1499,19 +1499,16 @@
                         "description": "A type of the garment's category; a new one presets warmth, formality, sleeve and length where they were unset or still at the old type's",
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "maxLength": 40,
                             "type": "string"
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "warmth": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -1545,14 +1542,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "formality": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -1580,15 +1577,15 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "materials": {
                         "description": "The whole set; new materials preset the care label where it was unset or still at the old materials' care",
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "maxItems": 16,
                             "type": "array",
@@ -1692,14 +1689,14 @@
                                 }
                               ]
                             }
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "pattern": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -1745,14 +1742,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "fit": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -1780,14 +1777,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "sleeve": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -1815,14 +1812,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "length": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -1850,18 +1847,21 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "fabricWeightGsm": {
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "minimum": 1,
                             "maximum": 10000,
                             "type": "integer"
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
@@ -1876,9 +1876,6 @@
                     "properties": {
                       "wash": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -1912,14 +1909,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "bleach": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -1941,14 +1938,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "dry": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -1982,14 +1979,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "iron": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -2017,14 +2014,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "dryClean": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -2046,17 +2043,20 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "notes": {
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "maxLength": 4000,
                             "type": "string"
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       }
@@ -2070,9 +2070,6 @@
                       "washAfterWears": {
                         "description": "Wears before a wash; 0 never, null the role's default",
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -2136,6 +2133,9 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       }
@@ -2272,9 +2272,6 @@
                       "value": {
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "anyOf": [
                               {
                                 "type": "number",
@@ -2307,6 +2304,9 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       }
@@ -2339,9 +2339,6 @@
                       "value": {
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "anyOf": [
                               {
                                 "type": "number",
@@ -2368,6 +2365,9 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       }
@@ -2526,9 +2526,6 @@
                       "value": {
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "anyOf": [
                               {
                                 "type": "string",
@@ -2573,6 +2570,9 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       }
@@ -2605,9 +2605,6 @@
                       "value": {
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "anyOf": [
                               {
                                 "type": "string",
@@ -2634,6 +2631,9 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       }
@@ -2666,9 +2666,6 @@
                       "value": {
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "anyOf": [
                               {
                                 "type": "string",
@@ -2695,6 +2692,9 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       }
@@ -2727,9 +2727,6 @@
                       "value": {
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "anyOf": [
                               {
                                 "type": "string",
@@ -2756,6 +2753,9 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       }
@@ -3904,22 +3904,22 @@
                   "name": {
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "maxLength": 200,
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
                   "brand": {
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "maxLength": 100,
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
@@ -4032,22 +4032,22 @@
                     "description": "As on the label (XL is stored as X-Large)",
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "maxLength": 40,
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
                   "notes": {
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "maxLength": 4000,
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
@@ -4055,23 +4055,23 @@
                     "description": "What one copy cost",
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "pattern": "^\\d{1,8}(\\.\\d{1,2})?$",
                         "description": "A decimal amount in the household currency, e.g. \"49.90\"",
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
                   "acquiredOn": {
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "format": "date",
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
@@ -4079,11 +4079,11 @@
                     "description": "An http(s) link to the product",
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "maxLength": 2048,
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
@@ -4119,11 +4119,11 @@
                     "description": "What is wrong: kept only while the condition is not good",
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "maxLength": 200,
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
@@ -4136,19 +4136,16 @@
                         "description": "A type of the garment's category; a new one presets warmth, formality, sleeve and length where they were unset or still at the old type's",
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "maxLength": 40,
                             "type": "string"
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "warmth": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -4182,14 +4179,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "formality": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -4217,15 +4214,15 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "materials": {
                         "description": "The whole set; new materials preset the care label where it was unset or still at the old materials' care",
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "maxItems": 16,
                             "type": "array",
@@ -4329,14 +4326,14 @@
                                 }
                               ]
                             }
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "pattern": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -4382,14 +4379,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "fit": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -4417,14 +4414,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "sleeve": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -4452,14 +4449,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "length": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -4487,18 +4484,21 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "fabricWeightGsm": {
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "minimum": 1,
                             "maximum": 10000,
                             "type": "integer"
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
@@ -4513,9 +4513,6 @@
                     "properties": {
                       "wash": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -4549,14 +4546,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "bleach": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -4578,14 +4575,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "dry": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -4619,14 +4616,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "iron": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -4654,14 +4651,14 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "dryClean": {
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -4683,17 +4680,20 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "notes": {
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "maxLength": 4000,
                             "type": "string"
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       }
@@ -4707,9 +4707,6 @@
                       "washAfterWears": {
                         "description": "Wears before a wash; 0 never, null the role's default",
                         "anyOf": [
-                          {
-                            "type": "null"
-                          },
                           {
                             "anyOf": [
                               {
@@ -4773,6 +4770,9 @@
                                 ]
                               }
                             ]
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       }
@@ -5081,11 +5081,11 @@
                     "description": "What is wrong: kept only while the condition is not good",
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "maxLength": 200,
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   }
@@ -5199,11 +5199,8 @@
                 "description": "None: a copy of the source as it is",
                 "anyOf": [
                   {
-                    "type": "null"
-                  },
-                  {
                     "title": "GarmentClone",
-                    "description": "What differs from the source; absent keeps its value, the name \"Copy of …\"",
+                    "description": "What differs from the source; an absent field keeps its value, but an absent name becomes \"<the source's name> (cloned)\"",
                     "type": "object",
                     "properties": {
                       "category": {
@@ -5215,22 +5212,22 @@
                       "name": {
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "maxLength": 200,
                             "type": "string"
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "brand": {
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "maxLength": 100,
                             "type": "string"
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
@@ -5343,22 +5340,22 @@
                         "description": "As on the label (XL is stored as X-Large)",
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "maxLength": 40,
                             "type": "string"
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "notes": {
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "maxLength": 4000,
                             "type": "string"
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
@@ -5366,23 +5363,23 @@
                         "description": "What one copy cost",
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "pattern": "^\\d{1,8}(\\.\\d{1,2})?$",
                             "description": "A decimal amount in the household currency, e.g. \"49.90\"",
                             "type": "string"
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
                       "acquiredOn": {
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "format": "date",
                             "type": "string"
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
@@ -5390,11 +5387,11 @@
                         "description": "An http(s) link to the product",
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "maxLength": 2048,
                             "type": "string"
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
@@ -5430,11 +5427,11 @@
                         "description": "What is wrong: kept only while the condition is not good",
                         "anyOf": [
                           {
-                            "type": "null"
-                          },
-                          {
                             "maxLength": 200,
                             "type": "string"
+                          },
+                          {
+                            "type": "null"
                           }
                         ]
                       },
@@ -5447,19 +5444,16 @@
                             "description": "A type of the garment's category; a new one presets warmth, formality, sleeve and length where they were unset or still at the old type's",
                             "anyOf": [
                               {
-                                "type": "null"
-                              },
-                              {
                                 "maxLength": 40,
                                 "type": "string"
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           },
                           "warmth": {
                             "anyOf": [
-                              {
-                                "type": "null"
-                              },
                               {
                                 "anyOf": [
                                   {
@@ -5493,14 +5487,14 @@
                                     ]
                                   }
                                 ]
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           },
                           "formality": {
                             "anyOf": [
-                              {
-                                "type": "null"
-                              },
                               {
                                 "anyOf": [
                                   {
@@ -5528,15 +5522,15 @@
                                     ]
                                   }
                                 ]
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           },
                           "materials": {
                             "description": "The whole set; new materials preset the care label where it was unset or still at the old materials' care",
                             "anyOf": [
-                              {
-                                "type": "null"
-                              },
                               {
                                 "maxItems": 16,
                                 "type": "array",
@@ -5640,14 +5634,14 @@
                                     }
                                   ]
                                 }
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           },
                           "pattern": {
                             "anyOf": [
-                              {
-                                "type": "null"
-                              },
                               {
                                 "anyOf": [
                                   {
@@ -5693,14 +5687,14 @@
                                     ]
                                   }
                                 ]
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           },
                           "fit": {
                             "anyOf": [
-                              {
-                                "type": "null"
-                              },
                               {
                                 "anyOf": [
                                   {
@@ -5728,14 +5722,14 @@
                                     ]
                                   }
                                 ]
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           },
                           "sleeve": {
                             "anyOf": [
-                              {
-                                "type": "null"
-                              },
                               {
                                 "anyOf": [
                                   {
@@ -5763,14 +5757,14 @@
                                     ]
                                   }
                                 ]
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           },
                           "length": {
                             "anyOf": [
-                              {
-                                "type": "null"
-                              },
                               {
                                 "anyOf": [
                                   {
@@ -5798,18 +5792,21 @@
                                     ]
                                   }
                                 ]
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           },
                           "fabricWeightGsm": {
                             "anyOf": [
                               {
-                                "type": "null"
-                              },
-                              {
                                 "minimum": 1,
                                 "maximum": 10000,
                                 "type": "integer"
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           },
@@ -5824,9 +5821,6 @@
                         "properties": {
                           "wash": {
                             "anyOf": [
-                              {
-                                "type": "null"
-                              },
                               {
                                 "anyOf": [
                                   {
@@ -5860,14 +5854,14 @@
                                     ]
                                   }
                                 ]
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           },
                           "bleach": {
                             "anyOf": [
-                              {
-                                "type": "null"
-                              },
                               {
                                 "anyOf": [
                                   {
@@ -5889,14 +5883,14 @@
                                     ]
                                   }
                                 ]
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           },
                           "dry": {
                             "anyOf": [
-                              {
-                                "type": "null"
-                              },
                               {
                                 "anyOf": [
                                   {
@@ -5930,14 +5924,14 @@
                                     ]
                                   }
                                 ]
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           },
                           "iron": {
                             "anyOf": [
-                              {
-                                "type": "null"
-                              },
                               {
                                 "anyOf": [
                                   {
@@ -5965,14 +5959,14 @@
                                     ]
                                   }
                                 ]
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           },
                           "dryClean": {
                             "anyOf": [
-                              {
-                                "type": "null"
-                              },
                               {
                                 "anyOf": [
                                   {
@@ -5994,17 +5988,20 @@
                                     ]
                                   }
                                 ]
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           },
                           "notes": {
                             "anyOf": [
                               {
-                                "type": "null"
-                              },
-                              {
                                 "maxLength": 4000,
                                 "type": "string"
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           }
@@ -6018,9 +6015,6 @@
                           "washAfterWears": {
                             "description": "Wears before a wash; 0 never, null the role's default",
                             "anyOf": [
-                              {
-                                "type": "null"
-                              },
                               {
                                 "anyOf": [
                                   {
@@ -6084,12 +6078,18 @@
                                     ]
                                   }
                                 ]
+                              },
+                              {
+                                "type": "null"
                               }
                             ]
                           }
                         }
                       }
                     }
+                  },
+                  {
+                    "type": "null"
                   }
                 ]
               }
@@ -6179,9 +6179,6 @@
               "schema": {
                 "anyOf": [
                   {
-                    "type": "null"
-                  },
-                  {
                     "title": "GarmentCopiesInput",
                     "type": "object",
                     "properties": {
@@ -6192,6 +6189,9 @@
                         "type": "integer"
                       }
                     }
+                  },
+                  {
+                    "type": "null"
                   }
                 ]
               }
@@ -6291,9 +6291,6 @@
                   "warmth": {
                     "anyOf": [
                       {
-                        "type": "null"
-                      },
-                      {
                         "anyOf": [
                           {
                             "type": "number",
@@ -6326,14 +6323,14 @@
                             ]
                           }
                         ]
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   },
                   "formality": {
                     "anyOf": [
-                      {
-                        "type": "null"
-                      },
                       {
                         "anyOf": [
                           {
@@ -6361,6 +6358,9 @@
                             ]
                           }
                         ]
+                      },
+                      {
+                        "type": "null"
                       }
                     ]
                   }
