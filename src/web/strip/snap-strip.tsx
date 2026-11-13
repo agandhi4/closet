@@ -197,15 +197,19 @@ initSnapStrips(document);`,
  * hovers and is precise (the `fine` variant, views/assets/main.css), so one
  * markup serves every device. Wired by public/js/snap-strip.js. They follow
  * the hidden input in the frame, which keeps it the strip's
- * `nextElementSibling`.
+ * `nextElementSibling`. Rendered disabled: nothing steps until the script
+ * runs, and its `syncSteps` enables each where a step can go. Disabled is
+ * `aria-disabled` (daisyUI's `btn-disabled` look), never the attribute,
+ * which would drop a focused button's focus at an end (#469).
  */
 function StepButton(props: { step: -1 | 1; label: string }) {
   const previous = props.step < 0;
   return (
     <button
       type="button"
-      class={`btn btn-circle btn-sm absolute top-1/2 z-10 hidden -translate-y-1/2 fine:inline-flex ${previous ? 'left-1' : 'right-1'}`}
+      class={`btn btn-circle btn-sm aria-disabled:btn-disabled absolute top-1/2 z-10 hidden -translate-y-1/2 fine:inline-flex ${previous ? 'left-1' : 'right-1'}`}
       data-snap-step={props.step}
+      aria-disabled="true"
       aria-label={t(previous ? 'strip.PREVIOUS' : 'strip.NEXT', {
         label: props.label,
       })}

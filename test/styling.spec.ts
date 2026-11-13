@@ -23,6 +23,35 @@ const chosen = (rowLocator: Locator) =>
   rowLocator.locator('input[name="garmentId"]');
 
 /**
+ * Until `strip` has stopped on its chosen item: at once when the item sits
+ * centred, else at the strip's `scrollend`. Event-driven, never counting
+ * frames (#486): call it once the choice has moved (the observer marks the
+ * item as it crosses the centre, mid-scroll), so the chosen item is where
+ * the strip is going.
+ */
+async function settled(strip: Locator) {
+  await strip.evaluate(
+    (el) =>
+      new Promise<void>((resolve) => {
+        const centred = () => {
+          const item = el.querySelector('[data-selected]')!;
+          const box = el.getBoundingClientRect();
+          const at = item.getBoundingClientRect();
+          return (
+            Math.abs(at.left + at.width / 2 - (box.left + box.width / 2)) < 1
+          );
+        };
+        if (centred()) return resolve();
+        el.addEventListener('scrollend', function landed() {
+          if (!centred()) return;
+          el.removeEventListener('scrollend', landed);
+          resolve();
+        });
+      }),
+  );
+}
+
+/**
  * A thumb's tap on `role`'s garment where it shows in its strip, once the
  * strip has stopped scrolling. Not locator.click(): Playwright first scrolls
  * an element it judges out of view, and in a snapping strip that can centre
@@ -32,20 +61,7 @@ const chosen = (rowLocator: Locator) =>
 async function tap(page: Page, rowLocator: Locator, garmentId: string) {
   const strip = rowLocator.locator('.styling-strip');
   await strip.scrollIntoViewIfNeeded();
-  await strip.evaluate(
-    (el) =>
-      new Promise<void>((resolve) => {
-        let last = el.scrollLeft;
-        let still = 0;
-        const tick = () => {
-          if (el.scrollLeft === last) still += 1;
-          else [last, still] = [el.scrollLeft, 0];
-          if (still >= 3) resolve();
-          else requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      }),
-  );
+  await settled(strip);
   const box = (await strip.boundingBox())!;
   const item = (await strip
     .locator(`[data-snap-value="${garmentId}"]`)
@@ -54,6 +70,48 @@ async function tap(page: Page, rowLocator: Locator, garmentId: string) {
   const right = Math.min(box.x + box.width, item.x + item.width);
   expect(right - left, 'the garment shows in its strip').toBeGreaterThan(8);
   await page.mouse.click((left + right) / 2, item.y + item.height / 2);
+}
+
+/**
+ * Arrow keys as the keyboard sends them, to whatever has focus when each
+ * arrives, all in one task: no frame, observer callback or `scrollend` runs
+ * between them, so every key after the first lands while the strip's
+ * scroll is in flight, the window #469's edges lived in. Then `after`, in
+ * the same task. Returns the focused item's value after each key.
+ */
+function keysInFlight(
+  strip: Locator,
+  keys: string[],
+  after: 'click-focused' | 'focus-lock' | 'none' = 'none',
+) {
+  return strip.evaluate(
+    (el, { keys, after }) => {
+      const trail = keys.map((key, i) => {
+        document.activeElement!.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key,
+            repeat: i > 0 && key === keys[i - 1],
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        // An item by its value; anything else (<body>) by its tag.
+        const focused = document.activeElement as HTMLElement;
+        return focused.dataset.snapValue ?? focused.tagName;
+      });
+      // Enter on a focused link or button is a click on it.
+      if (after === 'click-focused') {
+        (document.activeElement as HTMLElement).click();
+      }
+      if (after === 'focus-lock') {
+        el.closest('[data-styling-row]')!
+          .querySelector<HTMLElement>('.styling-lock')!
+          .focus();
+      }
+      return trail;
+    },
+    { keys, after },
+  );
 }
 
 async function wardrobe(page: Page) {
@@ -86,9 +144,55 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
     String(g.newTee),
   );
 
+  // The keyboard (#311, #469): an arrow on a focused item moves focus to
+  // the step's target at once, so nothing acts on the item being left and
+  // nothing moves focus later. The strip is [No garment, new tee, old tee].
+  const strip = tops.locator('.styling-strip');
+  const item = (value: string | number) =>
+    strip.locator(`[data-snap-value="${value}"]`);
+  const [previous, next] = [
+    tops.locator('[data-snap-step="-1"]'),
+    tops.locator('[data-snap-step="1"]'),
+  ];
+  const lock = tops.getByRole('checkbox', { name: 'Lock Top' });
+  await expect(previous).toBeEnabled();
+  await expect(next).toBeEnabled();
+  await item(g.newTee).focus();
+  await test.step('focus moved away mid-scroll stays where it went', async () => {
+    expect(await keysInFlight(strip, ['ArrowLeft'], 'focus-lock')).toEqual([
+      '',
+    ]);
+    await expect(chosen(tops)).toHaveValue('');
+    await expect(lock).toBeFocused();
+    await expect(lock).not.toBeChecked();
+    await settled(strip);
+  });
+  await test.step('a held arrow keeps focus on each step’s item', async () => {
+    await item('').focus();
+    // The third repeat has nowhere to go: focus stays on the last item.
+    expect(
+      await keysInFlight(strip, ['ArrowRight', 'ArrowRight', 'ArrowRight']),
+    ).toEqual([String(g.newTee), String(g.oldTee), String(g.oldTee)]);
+    await expect(chosen(tops)).toHaveValue(String(g.oldTee));
+    await expect(item(g.oldTee)).toBeFocused();
+    await expect(next).toBeDisabled();
+    await expect(previous).toBeEnabled();
+    await settled(strip);
+  });
+  await test.step('Enter right after an arrow acts on its item', async () => {
+    // The new tee is not chosen yet, so Enter centres it rather than
+    // opening the old tee, the item the arrow left.
+    expect(await keysInFlight(strip, ['ArrowLeft'], 'click-focused')).toEqual([
+      String(g.newTee),
+    ]);
+    await expect(chosen(tops)).toHaveValue(String(g.newTee));
+    await expect(item(g.newTee)).toBeFocused();
+    await expect(page).toHaveURL(/\/styling$/);
+    await settled(strip);
+  });
+
   // A swipe is the strip's own scrolling: wheel it one item on and the
   // older tee snaps to the centre and becomes the choice.
-  const strip = tops.locator('.styling-strip');
   const box = (await strip.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.wheel(box.width / 3, 0);
@@ -106,9 +210,12 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
 
   // Lock the old tee, then Shuffle: it stays, the rest come from ideas.
   // The lock is daisyUI's swap: the label is what a thumb taps.
+  // Locked, the old tee's neighbour is inert: no step goes to it.
+  await expect(previous).toBeEnabled();
   await tops.locator('label.swap').click();
-  await expect(tops.getByRole('checkbox', { name: 'Lock Top' })).toBeChecked();
+  await expect(lock).toBeChecked();
   await expect(tops.locator('input[name="lock"]')).toHaveValue('1');
+  await expect(previous).toBeDisabled();
   await page.getByRole('button', { name: /Shuffle/ }).click();
   await expect(page.locator('#styling-rows input[name="seed"]')).toHaveCount(1);
   await expect(chosen(row(page, 'top'))).toHaveValue(String(g.oldTee));

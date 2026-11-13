@@ -291,6 +291,21 @@ describe('Styling', () => {
         );
       });
 
+      // Nothing steps before public/js/snap-strip.js runs, which enables
+      // each step that has an item to go to (#469). aria-disabled, never
+      // the attribute: a disabled button drops its focus to <body>.
+      it('renders every strip’s previous and next disabled', async () => {
+        const res = await get('/styling');
+        const steps = [
+          ...res.body.matchAll(/<button [^>]*data-snap-step[^>]*>/g),
+        ];
+        expect(steps).toHaveLength(2 * rowsOf(res.body).length);
+        for (const [step] of steps) {
+          expect(step).toContain('aria-disabled="true"');
+          expect(step).not.toMatch(/ disabled[ =>]/);
+        }
+      });
+
       // A tab root the worker opens stale (page-cache.ts): the same bytes
       // until the wardrobe changes, so nothing of the day's seed.
       it('renders the fresh stack byte for byte the same, without a seed', async () => {

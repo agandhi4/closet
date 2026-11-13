@@ -20,8 +20,10 @@
  *   opens).
  * - A mouse has two more ways in (#311): the strip's previous/next buttons
  *   (`data-snap-step`, CSS-hidden on touch devices) and the arrow keys while
- *   focus is in a strip. Both centre the neighbour of the chosen item, so
- *   the choice moves through the same observer and `snap-strip:choose`.
+ *   focus is in a strip. Both centre the neighbour of the chosen item (or of
+ *   the one a step is already heading for), so the choice moves through the
+ *   same observer and `snap-strip:choose`; an arrow on a focused item moves
+ *   focus to that neighbour at once.
  * - A page with rules of its own listens on the document, nothing else:
  *   `snap-strip:choose` (cancelable, on the strip, detail.item) before an
  *   item is chosen, cancelled to keep the choice as it is; `snap-strip:watch`
@@ -95,7 +97,6 @@ function choose(strip, item) {
     }
   }
   syncSteps(strip);
-  refocus(strip, item);
 }
 
 /** Scrolls `item` to the middle of its strip. */
@@ -138,32 +139,64 @@ document.addEventListener(
 );
 
 /**
- * The item a step is already heading for, per strip, while its smooth scroll
- * is in flight: `data-selected` only moves when the observer sees the item
- * cross the centre, so a quick second press would otherwise repeat the first.
+ * The item a step is heading for, per strip, while its smooth scroll is in
+ * flight: `data-selected` only moves when the observer sees the item cross
+ * the centre, so steps count from here (a quick second press would
+ * otherwise repeat the first) and the step buttons say where it can go next.
  */
 const heading = new WeakMap();
 
-/** Centres the item `step` places from the one the strip holds or is heading for; the item, or null at an end. */
-function stepStrip(strip, step) {
+/** The strip's items and the index steps count from: the item a step is heading for, else the chosen one. */
+function position(strip) {
   const items = [...strip.querySelectorAll('[data-snap-item]')];
   const aimed = heading.get(strip);
-  const from = aimed?.isConnected
+  const at = aimed?.isConnected
     ? items.indexOf(aimed)
     : items.findIndex((item) => item.hasAttribute('data-selected'));
-  const target = items[from + step];
-  // Not inert: a locked Styling row's neighbours are, and stay unchosen.
-  if (from < 0 || !target || target.inert) return null;
+  return { items, at };
+}
+
+/** The item `step` places from `at`; null past an end or when it is inert (a locked Styling row's neighbours, which stay unchosen). */
+function stepTarget({ items, at }, step) {
+  const target = at < 0 ? undefined : items[at + step];
+  return target && !target.inert ? target : null;
+}
+
+/** Centres the item `step` places from where the strip is or is heading; the item, or null when there is none to go to. */
+function stepStrip(strip, step) {
+  const target = stepTarget(position(strip), step);
+  if (!target) return null;
   heading.set(strip, target);
   centre(strip, target, smooth());
+  syncSteps(strip);
   return target;
+}
+
+/**
+ * Previous/next say whether they would move the strip: not at an end, not
+ * onto an inert item. `aria-disabled`, not `disabled`: a disabled button
+ * loses focus to <body>, so a key held on Next would drop it at the end.
+ * The server renders both disabled (the strip does nothing before this
+ * script runs). Styling calls this when a lock makes neighbours inert.
+ */
+export function syncSteps(strip) {
+  const where = position(strip);
+  const buttons = strip.parentElement.querySelectorAll('[data-snap-step]');
+  for (const button of buttons) {
+    const target = stepTarget(where, Number(button.dataset.snapStep));
+    button.setAttribute('aria-disabled', String(!target));
+  }
 }
 
 // Whatever ended the scroll (arrival or a swipe taking over), the strip's own
 // state is the truth again.
 document.addEventListener(
   'scrollend',
-  (event) => heading.delete(event.target),
+  (event) => {
+    const strip = event.target;
+    if (!(strip instanceof Element) || !heading.delete(strip)) return;
+    syncSteps(strip);
+  },
   { capture: true },
 );
 
@@ -175,37 +208,6 @@ document.addEventListener('click', (event) => {
 });
 
 const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]';
-
-/**
- * Where a keyboard step from a focused item wants focus once the new item is
- * the chosen one: that item. Focus moves in choose(), after the selection
- * has changed.
- */
-const wantsFocus = new WeakMap();
-// Not cleared on `scrollend`: the scroll a focus() itself causes ends after
-// the next key press has begun. A step that has not landed by now is stale.
-const FOCUS_WINDOW = 1500;
-
-function refocus(strip, item) {
-  const want = wantsFocus.get(strip);
-  if (want?.item !== item) return;
-  wantsFocus.delete(strip);
-  if (performance.now() - want.at > FOCUS_WINDOW) return;
-  // No scroll: the smooth one is already under way.
-  if (!item.matches(FOCUSABLE)) item.setAttribute('tabindex', '-1');
-  item.focus({ preventScroll: true });
-}
-
-/** Previous/next are disabled where the chosen item has no neighbour that way. */
-function syncSteps(strip) {
-  const items = [...strip.querySelectorAll('[data-snap-item]')];
-  const at = items.findIndex((item) => item.hasAttribute('data-selected'));
-  if (at < 0) return;
-  const buttons = strip.parentElement.querySelectorAll('[data-snap-step]');
-  for (const button of buttons) {
-    button.disabled = !items[at + Number(button.dataset.snapStep)];
-  }
-}
 
 // Arrow keys while focus is in a strip (an item or the scroller itself). Not
 // in a field: its caret keys are its own.
@@ -219,10 +221,15 @@ document.addEventListener('keydown', (event) => {
   event.preventDefault();
   const source = event.target.closest('[data-snap-item]');
   const target = stepStrip(strip, step);
-  // Focus follows the choice, so Enter acts on what was chosen; the strip
-  // itself keeps focus when it was the focus target.
-  if (target && source && event.target === source) {
-    wantsFocus.set(strip, { item: target, at: performance.now() });
+  // A focused item hands focus to the step's target now, not when the
+  // observer chooses it: Enter or a held key's next repeat then acts on
+  // where the strip is going, never the item it is leaving, and nothing
+  // moves focus later (it would pull it from wherever the user went since).
+  // No scroll: the smooth one is already under way. The strip itself keeps
+  // focus when it was the focus target.
+  if (target && event.target === source) {
+    if (!target.matches(FOCUSABLE)) target.setAttribute('tabindex', '-1');
+    target.focus({ preventScroll: true });
   }
 });
 
