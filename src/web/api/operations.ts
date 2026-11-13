@@ -165,6 +165,8 @@ export const PAGE_WRITES: Readonly<
   'POST /inspiration/:id/pieces': { pending: '#193' },
   'POST /inspiration/:id/pieces/:position': { pending: '#193' },
   'POST /inspiration/:id/pieces/:position/delete': { pending: '#193' },
+  'POST /inspiration/:id/pieces/:position/find': { pending: '#193' },
+  'POST /inspiration/:id/recreate/outfit': { pending: '#193' },
 
   // The calendar, the week plan and selfies.
   'POST /calendar': { pending: '#193' },

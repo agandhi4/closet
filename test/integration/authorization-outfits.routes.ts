@@ -741,6 +741,43 @@ export const ROUTES: Route[] = [
       stranger: 'notFound',
     },
   },
+  // The match view's writes (#22c): the outfit and the wishlist item are
+  // the owner's, made from the owner's look alone.
+  {
+    name: 'POST /inspiration/:id/recreate/outfit',
+    kind: 'write',
+    ok: 303,
+    secret: inspirationTitle,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/inspiration/${f.inspirationId}/recreate/outfit${q}`,
+      payload: { position: ['0'], garment: [String(f.inspirationTeeId)] },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /inspiration/:id/pieces/:position/find',
+    kind: 'write',
+    ok: 303,
+    secret: inspirationTitle,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/inspiration/${f.inspirationId}/pieces/0/find${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
   // A look's photo: the owner's session only, never by name alone.
   ...(['', 'thumb/'] as const).map(
     (variant): Route => ({

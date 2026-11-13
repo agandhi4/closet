@@ -1623,6 +1623,17 @@
     "AGREES_COLOR": "Same color",
     "AGREES_CLOSE_COLOR": "Close color",
     "AGREES_PATTERN": "Same pattern",
-    "AGREES_ROLE": "Same kind of piece"
+    "AGREES_ROLE": "Same kind of piece",
+    "NO_MATCH": "None",
+    "NO_MATCH_HINT": "Leave this piece out",
+    "SAVE_OUTFIT": "Save as outfit",
+    "SAVE_OUTFIT_HINT": "Saves the garments in the middle of each row. Pieces set to None, and pieces still to find, are left out.",
+    "FIND_THIS": "Find this",
+    "FIND_THIS_LABEL": "Find this ({piece}): add it to your wishlist",
+    "ON_WISHLIST": "On your wishlist",
+    "NOTHING_CHOSEN": "Choose a garment for at least one piece to save an outfit.",
+    "LOOK_CHANGED": "This look changed since the page opened. Reload it and choose again.",
+    "FOUND_NOTE": "From your saved look “{look}”.",
+    "FOUND_NOTE_LINK": "From your saved look “{look}”: {link}"
   }
 }

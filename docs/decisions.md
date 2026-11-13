@@ -607,6 +607,24 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Decision:** `removeShare`, `updateBrandSize`, `deleteBrandSize`, `attachSelfie` and `removeSelfie` take the `Actor` and throw `NotFound` (`share`, `brand`, `calendarEntry`, `selfie`); `updatePasswordHash` and `lockOwner` throw `NotFound('account'|'wardrobe')`. The five request concerns throw `NotServed` (`refusals.ts`: 404, the status text, no resource), allowed only at the sites guards.conf `@not-served` lists, each with its reason in the rule's comment: an only-text allow list, not a `known` count, since they are design, not debt.
 **Consequence:** the `[refusals]` known list is empty. Messages changed: removing a share the user is no party to reads "Share not found" (was "Not Found"); statuses and every public `/file/**` and `/metrics` body unchanged. A new site answering a path as absent adds its file to `@not-served` with its reason; an access refusal is never NotServed.
 
+## 2026-11-13 — A look's choices live in matched_garment_id; Save is pickIdea; Find this makes no product link (#22c)
+
+**Why:** plan `docs/plans/2026-11-13-inspiration-library.md` §4 and §7.5: the match view saves the chosen set as an outfit and turns a missing piece into a wishlist item at once, and a double tap must not make two of either.
+**Decision:** `matched_garment_id` holds whichever garment was chosen for a piece: the closet garment the save recorded, or the wishlist item "Find this" made (a wishlist piece shows "On your wishlist" with no strip; once bought it is a closet match like any). No column for "None": it is stored as null, so the page offers the closest again. Save is `pickIdea` inside one owner transaction with the look locked and the choices recorded by one guarded `UPDATE ... FROM (VALUES ...)` (owner's garment, the piece's category), so the once-per-garment-set rule is the double-tap guard. Find this locks the piece row, then asks in a second statement whether its match is already on the wishlist (a single statement's snapshot would miss a twin's commit). The item has **no product link**, unlike the plan: a look's page is not a shop, and Muse's never-again rule compares products by link; the look goes in its notes.
+**Consequence:** "Save with wishlist pieces" (plan §4) is not built; MCP's 22d tools read `matched` from the same `lookJsonSql`.
+
+## 2026-11-13 — Piece edits take the look's lock; wishlisted pieces leave the assignment (#22c review)
+
+**Why:** a piece's autosave raced the save (a role changed under it, a top recorded for a bottom), and one joined `FOR UPDATE` statement reads the pieces from its start snapshot, not after the wait. A wishlisted piece in `recreateLook` reserved a garment a later piece needed.
+**Decision:** `updateInspirationPiece` runs in a transaction under `lockOwnLook`, the save's lock; `lockLookForSave` locks, then reads roles in a second statement. The GET passes only unwishlisted pieces to `recreateLook` and maps results back.
+**Consequence:** a save after an edit sees the edited role, and its category check refuses a stale choice (409).
+
+## 2026-11-13 — Recreate: saved choices are pinned in the matching, duplicates are refused
+
+Why: a saved garment (`matched_garment_id`) lived outside `recreateLook`, so truncating to the top three could drop it, and two strips could default to or post one garment, which `pickIdea`'s Set dedup silently collapsed.
+Decision: `recreateLook` takes `saved` per piece; a saved garment that still matches is that piece's only candidate in the assignment and leads its matches, and no other piece is offered it. `saveRecreation` answers 409 for one garment on two pieces.
+Consequence: the page's defaults are unique by construction; the view no longer picks the saved garment itself.
+
 ## 2026-11-13 — API parity is one reviewed manifest, not a flag on each route (#191)
 
 **Why:** the plan (2026-11-12-json-api.md section 5) had each page write route declare `config.operation|webOnly|apiPending`, and an `api.pending_routes` ratchet key. Metrics are report-only since devkit 2026-11-13, so a ratchet would gate nothing, and a config on every write route across the feature plugins would scatter what the issue asked for: one reviewed allow-list.

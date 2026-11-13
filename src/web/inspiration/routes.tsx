@@ -1,14 +1,22 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
-import { Type } from '@sinclair/typebox';
+import { type Static, Type } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { todayIn } from '../../calendar-date';
-import { recreateLook } from '../../wardrobe/recreate';
+import {
+  type Recreation,
+  type RecreateRequest,
+  recreateLook,
+} from '../../wardrobe/recreate';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
+import { HttpError } from '../errors';
 import { INSPIRATION_PHOTO_ROOT } from '../files/image-url';
 import { sendPrivatePhoto } from '../files/private-photo';
 import { t } from '../i18n';
+import { alreadySavedParam } from '../gallery/urls';
 import { loggableUrl } from '../loggable-url';
+import { outfitUrl } from '../outfits/urls';
+import type { RecreatePoolGarment } from '../gallery/queries';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { RowId } from '../schemas';
@@ -26,17 +34,22 @@ import { NewInspirationPage } from './new-page';
 import { PieceBody, pieceKindValue, readPiece } from './piece-input';
 import {
   addInspirationPiece,
+  addPieceToWishlist,
   deleteInspirationPiece,
   findInspiration,
+  INSPIRATION_MAX_PIECES,
   INSPIRATION_NOTE_MAX,
   INSPIRATION_TITLE_MAX,
   isOwnInspirationPhoto,
   listInspirations,
   recreateInputs,
+  type StoredPiece,
+  wishlisted,
   updateInspirationPiece,
   updateInspirationText,
 } from './queries';
 import { RecreatePage } from './recreate-page';
+import { type PostedChoice, saveRecreation } from './recreate-writes';
 import { InspirationPage } from './show-page';
 import {
   INSPIRATION_LINK_PATH,
@@ -44,6 +57,7 @@ import {
   inspirationPiecesUrl,
   inspirationUrl,
   NEW_INSPIRATION_PATH,
+  recreatePieceUrl,
 } from './urls';
 import {
   addLinkedInspiration,
@@ -58,9 +72,17 @@ const LOOK_ROUTE = `${INSPIRATION_PATH}/:id`;
 
 const LookParams = Type.Object({ id: RowId });
 /** A piece's place in its look (inspiration_piece.position, a smallint). */
-const PieceParams = Type.Object({
-  id: RowId,
-  position: Type.Integer({ minimum: 0, maximum: 32_767 }),
+const PIECE_POSITION = Type.Integer({ minimum: 0, maximum: 32_767 });
+const PieceParams = Type.Object({ id: RowId, position: PIECE_POSITION });
+// The match view's save (#22c): each strip's piece and its choice, pairs in
+// document order ('' is None; a single strip posts scalars, which ajv's
+// `coerceTypes: 'array'` makes arrays). Stored data, so anything else, or
+// unequal counts, is a 400.
+const ChoicesBody = Type.Object({
+  position: Type.Array(PIECE_POSITION, { maxItems: INSPIRATION_MAX_PIECES }),
+  garment: Type.Array(Type.Union([Type.Literal(''), RowId]), {
+    maxItems: INSPIRATION_MAX_PIECES,
+  }),
 });
 // `?unread=` is URL state (a redirect's one-shot note): anything unknown
 // shows no note, never a 400.
@@ -92,6 +114,32 @@ const FileParams = Type.Object({ fileName: Type.String() });
  * with a 303 to the look's page, the list after a delete; the autosave is
  * answered with its status line.
  */
+/**
+ * recreateLook over the pieces still to match: a piece already on the
+ * wishlist has its choice made, so it takes no part in the assignment (it
+ * would reserve a garment a later piece needs). Results come back in the
+ * look's piece order, a wishlisted piece with no matches.
+ */
+function recreateClosetPieces(
+  pieces: readonly StoredPiece[],
+  request: Omit<RecreateRequest<RecreatePoolGarment>, 'pieces' | 'saved'>,
+): Recreation<RecreatePoolGarment> {
+  const open = pieces.flatMap((piece, index) =>
+    wishlisted(piece) ? [] : [index],
+  );
+  const found = recreateLook({
+    ...request,
+    pieces: open.map((index) => pieces[index]),
+    saved: open.map((index) => pieces[index].matched?.id ?? null),
+  });
+  const result: Recreation<RecreatePoolGarment> = {
+    pieces: pieces.map(() => ({ matches: [], repicked: false })),
+    unfixed: found.unfixed.map((at) => open[at]),
+  };
+  open.forEach((index, at) => (result.pieces[index] = found.pieces[at]));
+  return result;
+}
+
 export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
   { db, photos, logger, fetcher, config },
@@ -312,8 +360,7 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         userId,
         today,
       );
-      const recreation = recreateLook({
-        pieces: look.pieces,
+      const recreation = recreateClosetPieces(look.pieces, {
         closet,
         avoid,
         rules,
@@ -326,6 +373,54 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           recreation={recreation}
         />,
       );
+    },
+  );
+
+  // "Save as outfit" (#22c): the chosen garments as an outfit, each choice
+  // recorded on its piece; the outfit's page next (with "Already saved"
+  // when these garments were one already, so a double tap makes one).
+  app.post(
+    `${LOOK_ROUTE}/recreate/outfit`,
+    { schema: { params: LookParams, body: ChoicesBody } },
+    async (request, reply) => {
+      const { id } = request.params;
+      const userId = sessionUserId(request);
+      const saved = await saveRecreation(
+        db,
+        userId,
+        id,
+        postedChoices(request.body),
+      );
+      const { outfit } = saved;
+      logger.info(
+        outfit.alreadySaved
+          ? `Inspiration ${id} recreated by user ${userId}: its ${saved.garments} garment(s) are already outfit ${outfit.id}, nothing created`
+          : `Inspiration ${id} saved as outfit ${outfit.id} by user ${userId} with ${saved.garments} garment(s)`,
+      );
+      const flag = alreadySavedParam(outfit);
+      return reply.redirect(
+        `${outfitUrl(outfit.id)}${flag && `?${flag}`}`,
+        303,
+      );
+    },
+  );
+
+  // "Find this" (#22c): a wishlist item for a missing piece, at once (plan
+  // section 7: one tap, reversible); the match view again, at the piece,
+  // which now says it is on the wishlist.
+  app.post(
+    `${LOOK_ROUTE}/pieces/:position/find`,
+    { schema: { params: PieceParams } },
+    async (request, reply) => {
+      const { id, position } = request.params;
+      const userId = sessionUserId(request);
+      const found = await addPieceToWishlist(db, userId, id, position);
+      logger.info(
+        found.created
+          ? `Inspiration ${id} piece ${position} added to the wishlist of user ${userId} as garment ${found.garmentId}`
+          : `Inspiration ${id} piece ${position} already on the wishlist of user ${userId} as garment ${found.garmentId}, nothing created`,
+      );
+      return reply.redirect(recreatePieceUrl(id, position), 303);
     },
   );
 
@@ -370,3 +465,17 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   done();
 };
+
+/** The save's choices: the posted pairs, a 400 when they do not pair up or name a piece twice. */
+function postedChoices(body: Static<typeof ChoicesBody>): PostedChoice[] {
+  if (body.position.length !== body.garment.length) {
+    throw new HttpError(400, 'Each piece needs a position and a choice');
+  }
+  if (new Set(body.position).size !== body.position.length) {
+    throw new HttpError(400, 'A piece chosen twice');
+  }
+  return body.position.map((position, index) => {
+    const garment = body.garment[index];
+    return { position, garmentId: garment === '' ? null : garment };
+  });
+}
