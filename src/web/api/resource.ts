@@ -15,6 +15,19 @@ export function literals<T extends string | number>(values: readonly T[]) {
   return Type.Union(values.map((value) => Type.Literal(value)));
 }
 
+/**
+ * An optional input field a client may set to null, which clears it (a
+ * PATCH's absent field is left alone). Null comes first: Fastify's ajv
+ * coerces types, and in an anyOf it would turn a null into the first
+ * branch's type ("" for a string) before reaching the null branch.
+ */
+export function Nullable<T extends TSchema>(
+  schema: T,
+  options: { description?: string } = {},
+) {
+  return Type.Optional(Type.Union([Type.Null(), schema], options));
+}
+
 /** A list's page size: `limit`, the feature's own page by default, at most 100. */
 export const LIST_LIMIT_MAX = 100;
 

@@ -24,7 +24,7 @@ import {
   updateGarmentProperties,
 } from './queries';
 import { addRepair, deleteRepair, type NewRepair } from './repairs';
-import { setGarmentStatus } from './status';
+import { setGarmentStatus, type StatusOutcome } from './status';
 import {
   removeGarment,
   replacePhoto,
@@ -166,7 +166,7 @@ export async function changeGarmentStatus(
   actor: Actor,
   address: GarmentAddress,
   event: keyof typeof STATUS_REFUSED,
-): Promise<AuthorizedWardrobe & { from: GarmentStatus; to: GarmentStatus }> {
+): Promise<AuthorizedWardrobe & StatusMove> {
   const wardrobe = await garmentWardrobe(db, actor, address, 'own');
   const outcome = await setGarmentStatus(
     db,
@@ -174,13 +174,59 @@ export async function changeGarmentStatus(
     wardrobe.access.ownerId,
     { event },
   );
-  if (!outcome.ok) {
-    if (outcome.reason === 'not-found') throw garmentNotFound();
-    throw new HttpError(409, STATUS_REFUSED[event], {
-      logDetail: `garment ${address.id} is ${outcome.status}`,
-    });
-  }
+  if (!outcome.ok) throw statusRefusal(address, event, outcome);
   return { ...wardrobe, from: outcome.from, to: outcome.to };
+}
+
+interface StatusMove {
+  from: GarmentStatus;
+  to: GarmentStatus;
+}
+
+/** The statuses an owned garment is put in by hand ("Bought it" is the wishlist's). */
+export const OWNED_STATUSES = ['closet', 'archived'] as const;
+export type OwnedStatus = (typeof OWNED_STATUSES)[number];
+
+/** The event that puts a garment in each. */
+const EVENT_TO = { archived: 'archive', closet: 'restore' } as const;
+
+/**
+ * PUT /garments/{id}/status (#192b): the garment put in `to`, through the
+ * same event as Archive or Restore, owner only. Set-state, so a garment
+ * already there is answered as moved there (`from` = `to`, nothing
+ * written): a client's retry after a lost answer is not a 409. Any other
+ * status that does not take the event is Archive's or Restore's 409.
+ */
+export async function putGarmentStatus(
+  db: Db,
+  actor: Actor,
+  address: GarmentAddress,
+  to: OwnedStatus,
+): Promise<AuthorizedWardrobe & StatusMove> {
+  const wardrobe = await garmentWardrobe(db, actor, address, 'own');
+  const event = EVENT_TO[to];
+  const outcome = await setGarmentStatus(
+    db,
+    address.id,
+    wardrobe.access.ownerId,
+    { event },
+  );
+  if (outcome.ok) return { ...wardrobe, from: outcome.from, to: outcome.to };
+  if (outcome.reason === 'not-allowed' && outcome.status === to) {
+    return { ...wardrobe, from: to, to };
+  }
+  throw statusRefusal(address, event, outcome);
+}
+
+function statusRefusal(
+  address: GarmentAddress,
+  event: keyof typeof STATUS_REFUSED,
+  outcome: StatusOutcome & { ok: false },
+): HttpError {
+  if (outcome.reason === 'not-found') return garmentNotFound();
+  return new HttpError(409, STATUS_REFUSED[event], {
+    logDetail: `garment ${address.id} is ${outcome.status}`,
+  });
 }
 
 /**

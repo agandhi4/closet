@@ -295,3 +295,63 @@ function ownerCare(
     costPerWear: cost === null ? null : perWearCost(cost, wear.worn),
   });
 }
+
+/*
+ * What a garment write answers (#192b): what it changed, never the garment
+ * read again, so a write costs what its page twin does (the page redirects
+ * to the garment; a client that needs it whole reads GET /garments/{id}).
+ */
+
+export const GarmentRef = Type.Object(
+  { id: Type.Integer() },
+  {
+    title: 'GarmentRef',
+    description: 'The new garment: `Location` is its URL',
+  },
+);
+
+export const GarmentUpdated = Type.Object(
+  {
+    /**
+     * The properties not kept (`properties.sleeve`): given for a role
+     * without them, or set before and dropped by a new category.
+     */
+    ignored: Type.Array(Type.String()),
+  },
+  { title: 'GarmentUpdated', description: 'Saved' },
+);
+
+export const GarmentStatusAnswer = Type.Object(
+  { status: literals(GARMENT_STATUSES) },
+  { title: 'GarmentStatus', description: 'Where the garment now is' },
+);
+
+export const GarmentCondition = Type.Object(
+  {
+    condition: literals(CONDITIONS),
+    conditionNote: Type.Optional(Type.String()),
+  },
+  { title: 'GarmentCondition', description: 'The condition as saved' },
+);
+
+export const GarmentQuantity = Type.Object(
+  { quantity: Type.Integer({ minimum: 1 }) },
+  { title: 'GarmentQuantity', description: 'Its copies now' },
+);
+
+export const GarmentTagged = Type.Object(
+  {
+    /** The properties the tap changed, a new type's presets included. */
+    changed: Type.Array(Type.String()),
+  },
+  { title: 'GarmentTagged', description: 'Saved' },
+);
+
+export const GarmentsUpdated = Type.Object(
+  {
+    updated: Type.Integer({ minimum: 0 }),
+    /** Named but not changed: not in this wardrobe, or without the property. */
+    skipped: Type.Integer({ minimum: 0 }),
+  },
+  { title: 'GarmentsUpdated', description: 'How many were set' },
+);
