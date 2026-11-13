@@ -4,11 +4,7 @@ import type { FastifyReply } from 'fastify';
 import { sessionUserId } from '../auth/require-session';
 import { todayIn } from '../../calendar-date';
 import { HttpError } from '../errors';
-import {
-  type ImageVariant,
-  parseStoredName,
-  unkeyedPhoto,
-} from '../files/image-variant';
+import { sendPrivatePhoto } from '../files/private-photo';
 import type { WebOptions } from '../plugin';
 import { RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
@@ -38,19 +34,6 @@ const ReturnBody = Type.Union([
 // Checked by the handler, like /file/**: anything that is not a photo name
 // is a 404 like a missing photo.
 const FileParams = Type.Object({ fileName: Type.String() });
-
-/**
- * Selfies are served to their owner only, never under the public /file/**
- * (which refuses their names): a mirror photo is more personal than a
- * garment's, and an unguessable name is a capability anyone it reaches
- * holds for good. The URL carries `?v=<file.version>` like every photo URL
- * (selfieUrl), so the bytes are immutable for a year; `private` keeps them
- * out of any shared cache. The service worker never stores one (no image
- * route matches /selfies/, and its page cache keeps only HTML), so the
- * browser's own HTTP cache holds them: offline they still show, and signing
- * out empties it (Clear-Site-Data: "cache").
- */
-const PRIVATE_IMMUTABLE_YEAR = 'private, max-age=31536000, immutable';
 
 export const selfieRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
@@ -96,41 +79,31 @@ export const selfieRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  const sendSelfie = async (
-    fileName: string,
-    variant: Exclude<ImageVariant, 'nobg'>,
-    ownerId: number,
+  // The images: the owner's session only (sendPrivatePhoto), never by
+  // name alone.
+  const sendSelfie = (
     reply: FastifyReply,
-  ) => {
-    // An <img> gets a bare 404, not the error page (which would echo the
-    // name back in its path and canonical URL): not a photo name, not a
-    // selfie, or someone else's are all the same miss.
-    if (
-      parseStoredName(fileName)?.variant !== 'original' ||
-      !(await isOwnSelfie(db, fileName, ownerId))
-    ) {
-      logger.debug(`Selfie photo ${fileName} is not user ${ownerId}'s`);
-      return reply.status(404).header('Cache-Control', 'no-store').send();
-    }
-    const stream = await photos.getVariant(unkeyedPhoto(fileName), variant);
-    stream.on('error', (error) =>
-      logger.error({ err: error }, `Streaming selfie ${fileName} failed`),
-    );
-    return reply
-      .header('Cache-Control', PRIVATE_IMMUTABLE_YEAR)
-      .type('image/webp')
-      .send(stream);
-  };
+    fileName: string,
+    variant: 'original' | 'thumb',
+    ownerId: number,
+  ) =>
+    sendPrivatePhoto({ photos, logger }, reply, {
+      fileName,
+      variant,
+      ownerId,
+      kind: 'Selfie',
+      isOwn: (name, owner) => isOwnSelfie(db, name, owner),
+    });
 
   app.get(
     '/selfies/:fileName',
     { schema: { params: FileParams } },
     async (request, reply) =>
       sendSelfie(
+        reply,
         request.params.fileName,
         'original',
         sessionUserId(request),
-        reply,
       ),
   );
   app.get(
@@ -138,10 +111,10 @@ export const selfieRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     { schema: { params: FileParams } },
     async (request, reply) =>
       sendSelfie(
+        reply,
         request.params.fileName,
         'thumb',
         sessionUserId(request),
-        reply,
       ),
   );
 

@@ -24,6 +24,7 @@ describe('sectionOf', () => {
     ['/outfits', 'outfits'],
     ['/outfits/ideas?for=day:2026-10-05', 'outfits'],
     ['/outfits/7', 'outfits'],
+    ['/inspiration/4?unread=no-photo', 'outfits'],
     ['/calendar', 'calendar'],
     ['/calendar?week=2026-09-20&calMonth=2026-10', 'calendar'],
     ['/trips', 'calendar'],

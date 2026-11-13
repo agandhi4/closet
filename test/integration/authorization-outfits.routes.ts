@@ -7,10 +7,12 @@ import {
   garmentName,
   outfitName,
   calendarEntry,
+  inspirationPhotoName,
+  inspirationTitle,
   selfieName,
 } from './authorization-matrix';
 
-// The authorization matrix (authorization-matrix.ts): outfits, Styling, the calendar and its weekly auto-plan, laundry, insights, selfies and images.
+// The authorization matrix (authorization-matrix.ts): outfits, Styling, the calendar and its weekly auto-plan, laundry, insights, selfies, saved looks and images.
 export const ROUTES: Route[] = [
   // Outfits and calendar are not shared and ignore ?ownerId; the ownerId
   // via proves a grantee cannot reach them by naming the owner.
@@ -564,6 +566,147 @@ export const ROUTES: Route[] = [
         viewer: 'notFound',
         stranger: 'notFound',
       },
+    }),
+  ),
+  // Saved looks (#22) are the owner's like the style profile: the list is
+  // anyone's own, every refusal of a look a 404 that stores nothing (an
+  // upload is refused before its body is read), and `?ownerId=` is ignored.
+  {
+    name: 'GET /inspiration',
+    kind: 'read',
+    ok: 200,
+    secret: inspirationTitle,
+    shows: true,
+    vias: BOTH,
+    request: (_, q) => ({ method: 'GET', url: `/inspiration${q}` }),
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: 'hidden',
+    },
+  },
+  {
+    name: 'GET /inspiration/:id',
+    kind: 'read',
+    ok: 200,
+    secret: inspirationTitle,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/inspiration/${f.inspirationId}${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /inspiration/:id',
+    kind: 'write',
+    ok: 303,
+    secret: inspirationTitle,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/inspiration/${f.inspirationId}${q}`,
+      payload: { title: 'Renamed', note: 'A note' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /inspiration/:id/photo',
+    kind: 'write',
+    ok: 303,
+    secret: inspirationTitle,
+    vias: BOTH,
+    request: async (f, q) => {
+      const body = await multipart(
+        {},
+        {
+          photo: {
+            data: f.photo,
+            filename: 'look.jpg',
+            contentType: 'image/jpeg',
+          },
+        },
+      );
+      return {
+        method: 'POST',
+        url: `/inspiration/${f.inspirationId}/photo${q}`,
+        ...body,
+      };
+    },
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /inspiration/:id/delete',
+    kind: 'write',
+    ok: 303,
+    secret: inspirationTitle,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/inspiration/${f.inspirationId}/delete${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  // A look's photo: the owner's session only, never by name alone.
+  ...(['', 'thumb/'] as const).map(
+    (variant): Route => ({
+      name: `GET /inspiration/photo/${variant}:fileName`,
+      kind: 'read',
+      ok: 200,
+      secret: inspirationPhotoName,
+      vias: ['own'],
+      request: (f) => ({
+        method: 'GET',
+        url: `/inspiration/photo/${variant}${f.inspirationFileName}?v=1`,
+      }),
+      expect: {
+        owner: 'ok',
+        manager: 'notFound',
+        viewer: 'notFound',
+        stranger: 'notFound',
+      },
+    }),
+  ),
+  ...(['', 'thumb/', 'nobg/'] as const).map(
+    (variant): Route => ({
+      name: `GET /file/${variant}:fileName of a saved look`,
+      kind: 'read',
+      ok: 200,
+      secret: inspirationPhotoName,
+      vias: ['own'],
+      request: (f) => ({
+        method: 'GET',
+        url: `/file/${variant}${f.inspirationFileName}?v=1`,
+      }),
+      expect: {
+        owner: 'notFound',
+        manager: 'notFound',
+        viewer: 'notFound',
+        stranger: 'notFound',
+      },
+      anonymous: 'notFound',
     }),
   ),
   // The public image routes serve garment photos by unguessable name to

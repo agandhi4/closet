@@ -47,6 +47,17 @@ export const GARMENT_ROLES = [
 ] as const;
 export type GarmentRole = (typeof GARMENT_ROLES)[number];
 
+/**
+ * The roles a piece of a saved look can play (#22, inspiration_piece): every
+ * role an outfit is drawn from. `none` is left out: it is never matched.
+ */
+export type InspirationPieceRole = Exclude<GarmentRole, 'none'>;
+export const INSPIRATION_PIECE_ROLES: readonly InspirationPieceRole[] =
+  GARMENT_ROLES.filter((role): role is InspirationPieceRole => role !== 'none');
+
+/** The colours a look's piece is read with: a main one and an accent. */
+export const INSPIRATION_PIECE_MAX_COLORS = 2;
+
 const CATEGORY_ROLES: Record<GarmentCategory, GarmentRole> = {
   [GarmentCategory.TOPS]: 'top',
   [GarmentCategory.BOTTOMS]: 'bottom',

@@ -44,6 +44,7 @@ import {
 } from './harness';
 import { jpeg, type LinkSites, startLinkSites } from './link-sites';
 import { mintToken } from './mcp';
+import { addLook } from './inspiration';
 import { planEntry, takeSelfie } from './selfies';
 import { startJmapStub } from '../support/jmap-stub';
 import { startWeatherStub } from '../support/weather-stub';
@@ -80,7 +81,8 @@ import { startWeatherStub } from '../support/weather-stub';
  * style profile (#34) is private like outfits: anyone else sees their own.
  * Outfit selfies (#19) are the calendar's: taking,
  * removing and seeing one is the owner's alone, and the public /file/**
- * routes refuse a selfie's name and share id to everyone, the owner too.
+ * routes refuse a selfie's name and share id to everyone, the owner too;
+ * saved looks (#22) and their photos the same, like the style profile.
  * Trips (#10) are the owner's like outfits: every refusal is a 404 (or the
  * requester's own list), including a gallery pick for someone else's trip.
  * So are the weekly auto-plan's batches and the order mail's review list
@@ -150,6 +152,10 @@ export interface Fixture {
   selfieId: number;
   selfieFileName: string;
   selfieShareableId: string;
+  /** A saved look of the owner's (#22) with a photo, and its title and photo's name. */
+  inspirationId: number;
+  inspirationTitle: string;
+  inspirationFileName: string;
   /** The owner's id. */
   ownerId: number;
   /**
@@ -247,6 +253,8 @@ export const sizeNote = () => OWNER_SIZE_NOTE;
 export const calendarEntry = (f: Fixture) =>
   `/styling?outfit=${f.outfitId}&amp;returnTo=`;
 export const selfieName = (f: Fixture) => f.selfieFileName;
+export const inspirationTitle = (f: Fixture) => f.inspirationTitle;
+export const inspirationPhotoName = (f: Fixture) => f.inspirationFileName;
 export const OWNER_TOKEN_NAME = 'Owner laptop token';
 export const OWNER_DEVICE_NAME = 'Owner phone app';
 /** A rule side with no matcher set: a fixture's sides spread one in. */
@@ -327,6 +335,9 @@ const TABLES = [
   'option_group',
   // The Style page's outfit rules (#21b).
   'outfit_rule',
+  // Saved looks (#22).
+  'inspiration',
+  'inspiration_piece',
 ];
 
 interface Case {
@@ -651,6 +662,17 @@ export function describeMatrix(
         cookie,
       );
 
+      // A saved look (#22), named through its page's autosave.
+      const inspirationTitle = `Inspo ${tag}`;
+      const look = await addLook(t, photo, cookie);
+      const named = await t.inject({
+        method: 'POST',
+        url: `/inspiration/${look.id}`,
+        payload: { title: inspirationTitle, note: '' },
+        headers: { cookie, 'hx-request': 'true' },
+      });
+      expect(named.statusCode).toBe(200);
+
       await saveStyleProfile(t.db, t.owner.id, {
         ...EMPTY_STYLE_PROFILE,
         notes: OWNER_STYLE_NOTE,
@@ -758,6 +780,9 @@ export function describeMatrix(
         selfieId: ownSelfie.id,
         selfieFileName: ownSelfie.fileName,
         selfieShareableId: ownSelfie.shareableId,
+        inspirationId: look.id,
+        inspirationTitle,
+        inspirationFileName: look.fileName,
         today,
         ownerId: t.owner.id,
         tripId,
