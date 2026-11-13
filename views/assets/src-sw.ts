@@ -45,6 +45,17 @@ import {
   type WarmList,
 } from '../../src/web/shell/offline-warm';
 import { WARM_REQUEST_HEADER } from '../../src/warm-request';
+import {
+  OUTBOX_SYNCED,
+  showsQueuedWrite,
+  syncedWritePaths,
+} from '../../src/offline-writes';
+import {
+  inTransaction,
+  openOutboxChannel,
+  openOutboxDatabase,
+  type OutboxChange,
+} from './outbox-store';
 import { openNotification } from '../../src/web/push/notification-click';
 import { parsePushPayload, type PushPayload } from '../../src/web/push/payload';
 
@@ -75,6 +86,9 @@ import { parsePushPayload, type PushPayload } from '../../src/web/push/payload';
  *  - WARM_PAGES (from pwa.js, at most once a day): the account's whole
  *    wardrobe, its pages and thumbs, fetched into the session caches through
  *    the same plugins, so it reads offline (src/web/shell/offline-warm.md).
+ *  - The page's outbox (outbox.ts) queues writes; the worker sends none. It
+ *    deletes the queue's records at session boundaries, and refetches the
+ *    cached pages a sync changed (OUTBOX_SYNCED; src/web/shell/outbox.md).
  *  - Anything unmatched (other POSTs, /health/live) goes straight to the network.
  *
  * Built by `npm run generate:sw` with NODE_ENV=production, which strips
@@ -162,20 +176,20 @@ interface RevalidationResult {
 let generation = 0;
 
 /**
- * The generation each warm request belongs to: its run's (#286). drainWarm
- * awaits between its generation check and a job's start, so a drop can fall
- * there; a job stamped with the generation current at its start would then
+ * The generation each of the worker's own page and image requests (a warm's,
+ * a synced page's refetch) belongs to: its run's (#286). drainWarm awaits
+ * between its generation check and a job's start, so a drop can fall there; a job stamped with the generation current at its start would then
  * be the next session's, and store the previous account's page or thumb in
  * it. Keyed by the Request handed to handleAll, which handlerWillStart gets.
  */
-const warmRunOf = new WeakMap<Request, number>();
+const runOf = new WeakMap<Request, number>();
 
 /**
- * What a page or image request records in handlerWillStart: a warm's run,
+ * What a page or image request records in handlerWillStart: its run's,
  * else the generation it starts in.
  */
 function generationFor(request: Request): number {
-  return warmRunOf.get(request) ?? generation;
+  return runOf.get(request) ?? generation;
 }
 
 /** The generation a request recorded in its handlerWillStart. */
@@ -266,6 +280,16 @@ function claimPageCache(
     if (isStale(since, path)) return false;
     const owner = await readRecord(OWNER_KEY);
     if (owner === account) return true;
+    // A new owner, whether the cache held another account's pages or none
+    // (a sign-in drops it first): every other account's queued writes go
+    // unsent, as the page's own rule does (outbox.ts, claimForAccount). Not
+    // for a signed-out page: signing back in as the same account replays
+    // them. Not awaited under the lock: the page's rule is the other half.
+    if (account !== '') {
+      event.waitUntil(
+        deleteQueuedWrites('a page for another account arrived', account),
+      );
+    }
     if (owner !== undefined) {
       // This answer is the new session's first word and keeps its place;
       // every other request of the old generation is refused.
@@ -631,6 +655,15 @@ const sessionBoundaryHandler = async ({
   if (change) {
     await changeSession(event, change, change !== 'session started');
   }
+  // Signed out or deleted here: the queue goes with the session, before the
+  // landing page loads (the page's own sign-out discards first, after asking;
+  // this is what a tab that never asked left). A revoked session keeps it,
+  // for a sign-in as the same account, and so does a post that got no
+  // answer above: a needless drop of the caches costs a refetch, of the
+  // queue the user's taps.
+  if (change === 'session ended') {
+    await deleteQueuedWrites(`${url.pathname}: the session ended`);
+  }
   return answerFor(request, response);
 };
 
@@ -650,6 +683,48 @@ async function dropPushSubscription(): Promise<void> {
     console.info('[sw] session ended, push subscription dropped');
   } catch (error) {
     console.warn('[sw] could not drop the push subscription', error);
+  }
+}
+
+// The outbox's records (#178, views/assets/outbox-store.ts): only ever
+// deleted here, never sent. The open tabs re-read the store on the channel's
+// message and draw what is left.
+const outboxChannel = openOutboxChannel();
+
+/**
+ * Deletes the queued writes: every one, or every other account's than
+ * `keep`. Never throws: a store that cannot be opened (private mode) holds
+ * nothing to delete, and a session boundary must not fail on it.
+ */
+async function deleteQueuedWrites(
+  reason: string,
+  keep?: string,
+): Promise<void> {
+  try {
+    const db = await openOutboxDatabase();
+    let deleted = 0;
+    try {
+      await inTransaction(db, 'readwrite', (store) => {
+        const cursor = store.openCursor();
+        cursor.onsuccess = () => {
+          const row = cursor.result;
+          if (!row) return;
+          const { account } = row.value as { account?: unknown };
+          if (keep === undefined || account !== keep) {
+            row.delete();
+            deleted += 1;
+          }
+          row.continue();
+        };
+      });
+    } finally {
+      db.close();
+    }
+    if (deleted === 0) return;
+    outboxChannel?.postMessage({ drain: false } satisfies OutboxChange);
+    console.info(`[sw] ${reason}: ${deleted} queued change(s) deleted unsent`);
+  } catch (error) {
+    console.warn('[sw] could not delete the queued changes', error);
   }
 }
 
@@ -861,6 +936,82 @@ async function revalidateForPage(
 }
 
 /**
+ * OUTBOX_SYNCED (#178, src/web/shell/outbox.md): the page's outbox saved
+ * queued writes. Every cached page that shows one (showsQueuedWrite: the
+ * garment's page, the laundry, a trip's, Today and the calendar's weeks for
+ * an entry), page or `|hx` fragment, is fetched again through the page
+ * plugins (owner-checked, stamped, refused across a drop), so a page
+ * reopened offline later shows what was saved, not the copy from before the
+ * tap. Only cached ones: this adds no page. Not the sender's own page:
+ * freshness.js's REVALIDATE_PAGE compares that copy with the server's to
+ * swap it in, and would find it already new. One at a time, stopping at the
+ * first unreachable answer or a drop; a 404 deletes the copy, as a warm's
+ * does. Marked as the worker's (WARM_REQUEST_HEADER): no person waits on it.
+ */
+async function refetchSyncedPages(
+  event: ExtendableMessageEvent,
+  writes: string[],
+): Promise<void> {
+  const run = generation;
+  const source = event.source;
+  const sendersPage =
+    source && 'url' in source ? withoutHash(source.url) : undefined;
+  const cache = await self.caches.open(PAGES_CACHE);
+  const due = (await cache.keys()).filter((key) => {
+    const url = new URL(pageUrlOfCacheKey(key.url));
+    return (
+      url.origin === self.location.origin &&
+      url.href !== sendersPage &&
+      writes.some((write) => showsQueuedWrite(write, url.pathname))
+    );
+  });
+  let refetched = 0;
+  let removed = 0;
+  let failed = 0;
+  let stop: string | undefined;
+  for (const key of due) {
+    if (generation !== run) {
+      stop = 'the session changed';
+      break;
+    }
+    const href = pageUrlOfCacheKey(key.url);
+    const headers: Record<string, string> = { [WARM_REQUEST_HEADER]: '1' };
+    // As htmx asked, so the answer lands under the same `|hx` key.
+    if (href !== key.url) headers['HX-Request'] = 'true';
+    const request = new Request(href, { headers });
+    runOf.set(request, run);
+    try {
+      const [response, done] = pageWarmer.handleAll({ event, request });
+      const answer = await response;
+      await done;
+      if (sessionEndedBy(answer)) {
+        stop = 'signed out';
+        await endFetchedSession(event, run, `${href} (refetch)`);
+        break;
+      }
+      if (answer.ok) refetched += 1;
+      else if (answer.status === 404) {
+        removed += await deleteCachedPages(run, (url) => url.href === href);
+      } else failed += 1;
+    } catch {
+      stop = 'unreachable';
+      break;
+    }
+  }
+  const summary =
+    `${writes.length} synced write(s): ${refetched} of ${due.length} cached ` +
+    `page(s) refetched, ${removed} removed, ${failed} failed`;
+  if (stop) console.info(`[sw] ${summary}, stopped: ${stop}`);
+  else console.info(`[sw] ${summary}`);
+}
+
+function withoutHash(href: string): string {
+  const url = new URL(href);
+  url.hash = '';
+  return url.href;
+}
+
+/**
  * WARM_PAGES (#286, src/web/shell/offline-warm.md): the signed-in account's
  * whole wardrobe, read offline. The server lists it (GET /offline/warm: the
  * session's own wardrobe, never a shared one); the worker removes the
@@ -870,7 +1021,7 @@ async function revalidateForPage(
  * nothing a request of an older generation brought back is stored. A drop
  * (sign-out, sign-in, another account's page) mid-warm stops it, and every
  * request of the run, in flight or started after, is refused by the
- * generation check (warmRunOf). An answer saying the session is over (the
+ * generation check (runOf). An answer saying the session is over (the
  * gate's 401, X-Session-Ended) is a drop of its own. Runs at most once a
  * day (WARMED_AT_KEY, which a drop takes with the cache, so a new session
  * warms at once, and so does a new worker: WARMED_AT_KEY older than
@@ -1001,18 +1152,19 @@ function sessionEndedBy(response: Response): boolean {
 }
 
 /**
- * The warm's half of what sessionBoundaryHandler does for a revoked
- * session: the session caches and the push subscription go. Only while the
- * generation the answer was asked in lasts: a later one is another
- * session's, whose caches an older answer must not empty.
+ * The worker's own fetches' half (a warm's, a synced page's refetch) of
+ * what sessionBoundaryHandler does for a revoked session: the session
+ * caches and the push subscription go. Only while the generation the
+ * answer was asked in lasts: a later one is another session's, whose caches
+ * an older answer must not empty. `what` names the fetch in the log.
  */
-async function endWarmedSession(
+async function endFetchedSession(
   event: ExtendableEvent,
   since: number,
-  path: string,
+  what: string,
 ): Promise<void> {
   if (since !== generation) return;
-  await changeSession(event, `${path} (warm): the session ended`, true);
+  await changeSession(event, `${what}: the session ended`, true);
 }
 
 /**
@@ -1020,7 +1172,7 @@ async function endWarmedSession(
  * account (it says whose it is, like a page): undefined, with nothing
  * stored, when it cannot be had or a drop overtook it. A list refused for
  * want of a session means it ended away from this device: the session's
- * caches go (endWarmedSession).
+ * caches go (endFetchedSession).
  */
 async function fetchWarmList(
   event: ExtendableEvent,
@@ -1037,7 +1189,7 @@ async function fetchWarmList(
     return undefined;
   }
   if (sessionEndedBy(response)) {
-    await endWarmedSession(event, since, WARM_LIST_PATH);
+    await endFetchedSession(event, since, `${WARM_LIST_PATH} (warm)`);
     console.info('[sw] warm list: signed out, nothing warmed');
     return undefined;
   }
@@ -1152,7 +1304,7 @@ async function dueJobs(
 /**
  * Runs the jobs WARM_CONCURRENCY at a time, through each cache's strategy
  * (handleAll: its plugins, each request stamped with the run's generation,
- * warmRunOf). Stops at the first fetch that fails (the device went offline:
+ * runOf). Stops at the first fetch that fails (the device went offline:
  * the next page resumes), at a drop, at an answer saying the session ended,
  * or once the warm has added WARM_USAGE_BUDGET_BYTES to `usageAtStart`.
  */
@@ -1175,13 +1327,13 @@ async function drainWarm(
         }
       }
       // After the await: a drop meanwhile ends the run here. One that falls
-      // later still finds the job stamped with the run (warmRunOf).
+      // later still finds the job stamped with the run (runOf).
       if (generation !== run) {
         stop ??= 'the session changed';
         return;
       }
       started += 1;
-      warmRunOf.set(job.request, run);
+      runOf.set(job.request, run);
       try {
         const [response, done] = job.strategy.handleAll({
           event,
@@ -1196,10 +1348,10 @@ async function drainWarm(
           if (generation !== run) stop ??= 'the session changed';
           else {
             stop ??= 'the session ended';
-            await endWarmedSession(
+            await endFetchedSession(
               event,
               run,
-              new URL(job.request.url).pathname,
+              `${new URL(job.request.url).pathname} (warm)`,
             );
           }
           return;
@@ -1217,8 +1369,7 @@ async function drainWarm(
               (url) => url.href === href,
             );
           }
-        }
-        else tally.failed += 1;
+        } else tally.failed += 1;
       } catch {
         stop ??= 'unreachable';
       }
@@ -1258,7 +1409,8 @@ function formatBytes(bytes: number): string {
 // worker that seizes control mid-session leaves pages holding stale asset
 // URLs, which is the black-screen bug the old hard-navigate hack papered over.
 // The page's own questions come from public/js/freshness.js, each with a
-// MessagePort for the answer; WARM_PAGES from public/js/pwa.js wants none.
+// MessagePort for the answer; WARM_PAGES from public/js/pwa.js and
+// OUTBOX_SYNCED from outbox.js want none.
 self.addEventListener('message', (event) => {
   const type: unknown = event.data?.type;
   const [port] = event.ports;
@@ -1276,6 +1428,15 @@ self.addEventListener('message', (event) => {
     );
   } else if (type === 'WARM_PAGES') {
     event.waitUntil(warmPages(event));
+  } else if (type === OUTBOX_SYNCED) {
+    const writes = syncedWritePaths(event.data.paths);
+    if (writes.length > 0) {
+      event.waitUntil(
+        refetchSyncedPages(event, writes).catch((error: unknown) => {
+          console.warn('[sw] could not refetch the synced pages', error);
+        }),
+      );
+    }
   }
 });
 

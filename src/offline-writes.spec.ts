@@ -16,7 +16,9 @@ import {
   retryDelayMs,
   routesThroughOutbox,
   sharedUntilRejected,
+  showsQueuedWrite,
   type StoredRecord,
+  syncedWritePaths,
   takesDay,
 } from './offline-writes';
 
@@ -233,6 +235,54 @@ describe('replayVerdict', () => {
   ] as const)('reads %i (%s)', (status, outcome, verdict) => {
     expect(replayVerdict(status, outcome)).toEqual(verdict);
   });
+});
+
+describe('after a sync, the worker’s refetch', () => {
+  it('acts only on the allowlist’s paths, each once', () => {
+    expect(
+      syncedWritePaths([
+        '/wardrobe/41/wear',
+        '/wardrobe/41/wear',
+        '/trips/7/items/packed',
+        '/wardrobe/41',
+        'https://elsewhere.test/wardrobe/41/wear',
+        '/wardrobe/41/wear?x=1',
+        41,
+        null,
+      ]),
+    ).toEqual(['/wardrobe/41/wear', '/trips/7/items/packed']);
+    expect(syncedWritePaths('/wardrobe/41/wear')).toEqual([]);
+    expect(syncedWritePaths(undefined)).toEqual([]);
+  });
+
+  it.each([
+    [
+      '/wardrobe/41/wear',
+      ['/wardrobe/41', '/laundry'],
+      ['/wardrobe/4', '/wardrobe/410', '/wardrobe', '/'],
+    ],
+    [
+      '/wardrobe/41/washed',
+      ['/wardrobe/41', '/laundry'],
+      ['/wardrobe/41/edit', '/calendar'],
+    ],
+    [
+      '/calendar/88/worn',
+      ['/', '/calendar', '/laundry', '/trips/7'],
+      ['/calendar/month', '/trips', '/trips/7/edit', '/wardrobe/88'],
+    ],
+    ['/trips/7/packed', ['/trips/7'], ['/trips/70', '/trips', '/', '/laundry']],
+    ['/trips/7/items/packed', ['/trips/7'], ['/trips/8']],
+    ['/wardrobe/41', [], ['/wardrobe/41', '/laundry']],
+  ])(
+    'refetches for %s exactly the pages that draw it',
+    (write, shown, notShown) => {
+      for (const page of shown)
+        expect(showsQueuedWrite(write, page), page).toBe(true);
+      for (const page of notShown)
+        expect(showsQueuedWrite(write, page), page).toBe(false);
+    },
+  );
 });
 
 describe('retryDelayMs', () => {

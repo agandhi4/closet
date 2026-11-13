@@ -292,6 +292,61 @@ export function replayVerdict(
  */
 export const REPLAY_TIMEOUT_MS = 15_000;
 
+/**
+ * The page's message to the service worker after a drain saved queued
+ * writes (plan section 5): `{ type, paths }`, the saved records' paths. The
+ * worker refetches the cached pages that show them (`showsQueuedWrite`), so
+ * a page reopened offline later shows the synced state, not the one cached
+ * before the tap (views/assets/src-sw.ts, refetchSyncedPages).
+ */
+export const OUTBOX_SYNCED = 'OUTBOX_SYNCED';
+
+/**
+ * An OUTBOX_SYNCED message's paths as the worker may act on them: only a
+ * path the replay allowlist takes, each once. Anything else is dropped, so
+ * a message can never make the worker fetch a page of its choosing.
+ */
+export function syncedWritePaths(paths: unknown): string[] {
+  if (!Array.isArray(paths)) return [];
+  const accepted = paths.filter(
+    (path): path is string =>
+      typeof path === 'string' && queueableKindOf(path) !== undefined,
+  );
+  return [...new Set(accepted)];
+}
+
+// The pages that render a queued write's state (as literals: this layer
+// imports no web/ module): a garment's own page (its wear section) and the
+// laundry (a wear makes a garment dirty, a wash clean); Today, the calendar's
+// weeks and a trip's page (each draws WornControl, and the entry's wears
+// feed the laundry); a trip's page for its ticks.
+const LAUNDRY_PAGE = '/laundry';
+const ENTRY_PAGES = new Set(['/', '/calendar', LAUNDRY_PAGE]);
+const TRIP_PAGE = /^\/trips\/[1-9]\d{0,9}$/;
+
+/**
+ * Whether a page (its pathname; any query, so every cached week or filter)
+ * shows the state the queued write at `writePath` changes. A garment's wear
+ * count on the pages of an entry's outfit is left to the page's own
+ * revalidation: the entry's path does not name its garments.
+ */
+export function showsQueuedWrite(writePath: string, pagePath: string): boolean {
+  const kind = queueableKindOf(writePath);
+  const id = writePath.split('/')[2];
+  switch (kind) {
+    case 'wear':
+    case 'wash':
+      return pagePath === `/wardrobe/${id}` || pagePath === LAUNDRY_PAGE;
+    case 'entry':
+      return ENTRY_PAGES.has(pagePath) || TRIP_PAGE.test(pagePath);
+    case 'packed':
+    case 'item':
+      return pagePath === `/trips/${id}`;
+    case undefined:
+      return false;
+  }
+}
+
 const RETRY_FIRST_MS = 5_000;
 const RETRY_MAX_MS = 5 * 60_000;
 

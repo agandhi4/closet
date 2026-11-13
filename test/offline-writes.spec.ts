@@ -1,6 +1,7 @@
 import { expect, type Page, type Route, test } from '@playwright/test';
 import { createGarment, createOutfit } from './support/e2e-data';
 import {
+  APP_ORIGIN,
   E2E_PASSWORD,
   SAME_ORIGIN,
   signIn,
@@ -8,8 +9,16 @@ import {
 } from './support/e2e-session';
 import { householdToday } from './support/household-today';
 import { pageErrors } from './support/page-errors';
+import {
+  cachePage,
+  networkSwitch,
+  waitForServiceWorker,
+  withoutWarming,
+} from './support/service-worker';
+import { WEBKIT_CANNOT_WATCH_WORKER } from './support/webkit-limits';
 import { addDays } from '../src/calendar-date';
 import { queueableKindOf, REPLAY_TIMEOUT_MS } from '../src/offline-writes';
+import { CACHED_AT_HEADER } from '../src/web/page-cache';
 
 /**
  * Every PostForm is disabled offline (#411; owner, 2026-10-22): when
@@ -27,7 +36,9 @@ import { queueableKindOf, REPLAY_TIMEOUT_MS } from '../src/offline-writes';
  * them. A tap behind a record still waiting (backing off, or in flight, in
  * this tab or another) goes through the outbox too, so the older one never
  * lands after it; a tap that never reached the server, a replay that never
- * answers and a refusal each end where the user can see.
+ * answers and a refusal each end where the user can see. With the service
+ * worker (its own context: the rest blocks it), a sync refetches the cached
+ * pages it changed, and signing out deletes the queue.
  * Their markup is test/integration/queued-writes.spec.ts's.
  */
 
@@ -76,6 +87,40 @@ async function setWritesReachable(page: Page, reachable: boolean) {
   await setReachable(page, reachable);
 }
 
+/** The worker's copy of a page: when it was cached (0: none). */
+function cachedAtOf(page: Page, path: string): Promise<number> {
+  return page.evaluate(
+    async ([key, header]) => {
+      const copy = await (await caches.open('pages-v2')).match(key);
+      return Number(copy?.headers.get(header) ?? 0);
+    },
+    [path, CACHED_AT_HEADER],
+  );
+}
+
+/** How many records the outbox's store holds (views/assets/outbox-store.ts). */
+function outboxSize(page: Page): Promise<number> {
+  return page.evaluate(
+    () =>
+      new Promise<number>((resolve, reject) => {
+        const open = indexedDB.open('closet-outbox', 1);
+        open.onsuccess = () => {
+          const count = open.result
+            .transaction('writes')
+            .objectStore('writes')
+            .count();
+          count.onsuccess = () => {
+            open.result.close();
+            resolve(count.result);
+          };
+          count.onerror = () =>
+            reject(count.error ?? new Error('count failed'));
+        };
+        open.onerror = () => reject(open.error ?? new Error('open failed'));
+      }),
+  );
+}
+
 /** Fails the heartbeat (or lets it through) and tells the page to probe. */
 async function setReachable(page: Page, reachable: boolean) {
   if (reachable) await page.unroute('**/health/live');
@@ -94,6 +139,8 @@ async function setReachable(page: Page, reachable: boolean) {
 // timeout can be jumped past instead of waited for.
 test('offline: PostForms are guarded, and queued writes wait, save and stay ordered', async ({
   page,
+  browser,
+  browserName,
 }) => {
   await page.clock.install();
   const errors = pageErrors(page);
@@ -432,6 +479,119 @@ test('offline: PostForms are guarded, and queued writes wait, save and stay orde
     await page.reload();
     await expect(undo).toBeVisible();
     expect(otherErrors).toEqual([]);
+  });
+
+  await test.step('the worker refetches what a sync saved, and the queue ends with the session', async (step) => {
+    step.skip(
+      process.env.PWA_ENABLED !== 'true',
+      'needs a server started with PWA_ENABLED=true',
+    );
+    // networkSwitch routes the worker's own fetches, and a refetch is one.
+    step.skip(browserName === 'webkit', WEBKIT_CANNOT_WATCH_WORKER);
+    step.skip(
+      browserName === 'firefox',
+      'service workers are untested in Firefox here',
+    );
+    const context = await browser.newContext({
+      baseURL: APP_ORIGIN,
+      viewport: { width: 390, height: 844 },
+      serviceWorkers: 'allow',
+    });
+    try {
+      // The caches hold this step's visits alone, so only the sync's
+      // refetch can renew the garment page's copy.
+      await withoutWarming(context);
+      const network = await networkSwitch(context);
+      const app = await context.newPage();
+      const appErrors = pageErrors(app);
+      await signIn(app, 'outbox-worker');
+      const chinos = await createGarment(app, 'Synced chinos');
+      const garmentPage = `/wardrobe/${chinos}`;
+      const wore = app.getByRole('button', { name: 'Wore today', exact: true });
+      const undo = app.getByRole('button', { name: 'Undo “Wore today”' });
+      const goOnline = async (online: boolean) => {
+        await network(online ? 'online' : 'offline');
+        await app.evaluate(
+          (event) => window.dispatchEvent(new Event(event)),
+          online ? 'online' : 'offline',
+        );
+        await expect(app.locator('#connectivity-banner')).toBeVisible({
+          visible: !online,
+        });
+      };
+      await waitForServiceWorker(app);
+      await cachePage(app, '/auth/profile');
+      await cachePage(app, garmentPage);
+
+      // Worn offline, then the app left for a page the sync does not touch
+      // (whose own copy freshness.js revalidates instead).
+      await goOnline(false);
+      await wore.click();
+      await expect(undo).toBeVisible();
+      await app.goto('/auth/profile');
+      await expect(app.locator('#outbox-banner')).toHaveText(
+        '1 change waiting to sync',
+      );
+      const cachedBefore = await cachedAtOf(app, garmentPage);
+      expect(cachedBefore).toBeGreaterThan(0);
+      await goOnline(true);
+      await expect(app.getByText('1 change saved')).toBeVisible();
+      await expect
+        .poll(() => cachedAtOf(app, garmentPage))
+        .toBeGreaterThan(cachedBefore);
+
+      // Reopened offline, the garment page is the synced one: worn, from
+      // the server's markup, with nothing waiting.
+      await goOnline(false);
+      await app.goto(garmentPage);
+      await expect(undo).toBeVisible();
+      await expect(app.locator('[data-outbox="pending"]')).toHaveCount(0);
+
+      // A failure left in the store that no sign-out asked about (submit()
+      // fires no submit event, so the page's own rule never runs): the
+      // worker's logout boundary deletes it before the login page loads.
+      await network('online');
+      await app.goto('/auth/profile');
+      await app.evaluate(
+        ([id, label]) =>
+          new Promise<void>((resolve, reject) => {
+            const open = indexedDB.open('closet-outbox', 1);
+            open.onsuccess = () => {
+              const write = open.result.transaction('writes', 'readwrite');
+              write.objectStore('writes').put({
+                id: '00000000-0000-4000-8000-000000000178',
+                account: document.getElementById('app-status')?.dataset.account,
+                kind: 'wash',
+                key: `wash:${id}`,
+                path: `/wardrobe/${id}/washed`,
+                fields: {},
+                label,
+                queuedAt: Date.now(),
+                attempts: 1,
+                state: 'failed',
+                reason: 'refused',
+              });
+              write.oncomplete = () => {
+                open.result.close();
+                resolve();
+              };
+              write.onerror = () =>
+                reject(write.error ?? new Error('write failed'));
+            };
+            open.onerror = () => reject(open.error ?? new Error('open failed'));
+          }),
+        [String(chinos), 'Synced chinos'],
+      );
+      expect(await outboxSize(app)).toBe(1);
+      await app.evaluate(() =>
+        document.querySelector<HTMLFormElement>('#logout-form')?.submit(),
+      );
+      await expect(app).toHaveURL(/\/auth\/login$/);
+      expect(await outboxSize(app)).toBe(0);
+      expect(appErrors).toEqual([]);
+    } finally {
+      await context.close();
+    }
   });
 
   expect(errors).toEqual([]);
