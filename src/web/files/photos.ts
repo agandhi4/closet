@@ -15,6 +15,7 @@ import {
 import type { CutoutEvent, Transition } from '../../cutout/state';
 import type { Db } from '../../db/client';
 import { HttpError } from '../errors';
+import { NotServed } from '../refusals';
 import { errorFields, type Logger } from '../../logger';
 import { PROJECT_ROOT } from '../../project-root';
 import {
@@ -942,11 +943,11 @@ export class Photos {
   /**
    * The share-preview image of the photo behind `shareableId`: the original
    * as a JPEG within 1080px, with the app icon composited when
-   * WATERMARK_ENABLED. A 404 HttpError when there is no such photo.
+   * WATERMARK_ENABLED. NotServed when no garment photo has that share id.
    */
   async watermarked(shareableId: string): Promise<Readable> {
     const fileName = await findPhotoByShareableId(this.db, shareableId);
-    if (!fileName) throw new HttpError(404);
+    if (!fileName) throw new NotServed();
     const transformer = decoder()
       .jpeg()
       .resize(IMAGE_MAX_PX, IMAGE_MAX_PX, { fit: sharp.fit.inside });
@@ -987,9 +988,14 @@ export class Photos {
     return this.watermark;
   }
 
+  // Bytes missing from storage: what the image server answers for a name
+  // it has no file of, whoever asked (rotateStored's caller reads it as a
+  // concurrent swap, wardrobe/writes.ts).
   private async getOrNotFound(fileName: string): Promise<Readable> {
     const stream = await this.storage.get(fileName);
-    if (!stream) throw new HttpError(404);
+    if (!stream) {
+      throw new NotServed({ logDetail: `${fileName} is not in storage` });
+    }
     return stream;
   }
 

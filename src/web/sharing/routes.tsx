@@ -1,11 +1,11 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
 import { sessionUserId } from '../auth/require-session';
-import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage, wantsFragment } from '../render';
 import { requestOrigin } from '../security/origin';
 import { viewContext } from '../view-context';
+import { actorOf } from './access';
 import { InviteLinkResult, InvitePage, inviteUrl, parseRefusal } from './pages';
 import {
   acceptInvite,
@@ -80,18 +80,15 @@ export const sharingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // Grantor revoking or grantee leaving. A share this user is no party to
-  // is a 404 like an unknown id: share ids reveal nothing.
+  // Grantor revoking or grantee leaving (removeShare refuses any other).
   app.post(
     '/wardrobe-share/:id/remove',
     { schema: { params: ShareParams } },
     async (request, reply) => {
-      const userId = sessionUserId(request);
+      const actor = actorOf(request);
       const shareId = request.params.id;
-      if ((await removeShare(db, shareId, userId)) === 'not-found') {
-        throw new HttpError(404);
-      }
-      logger.info(`User ${userId} removed share ${shareId}`);
+      await removeShare(db, actor, shareId);
+      logger.info(`User ${actor.userId} removed share ${shareId}`);
       return reply.redirect(SHARING_PATH, 302);
     },
   );

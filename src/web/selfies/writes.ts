@@ -2,11 +2,14 @@ import type { MultipartFile } from '@fastify/multipart';
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
 import type { IsoDate } from '../../calendar-date';
+import { calendarEntryNotFound } from '../calendar/entry-actions';
 import { ownEntryDay } from '../calendar/queries';
 import { HttpError } from '../errors';
 import { unkeyedPhoto } from '../files/image-variant';
 import type { Photos } from '../files/photos';
 import type { NewPhotoRow } from '../files/queries';
+import { NotFound } from '../refusals';
+import type { Actor } from '../sharing/access';
 import { deleteSelfie, type SelfieOutcome, setEntrySelfie } from './queries';
 
 /**
@@ -16,16 +19,17 @@ import { deleteSelfie, type SelfieOutcome, setEntrySelfie } from './queries';
  * the entry's worn mark in one transaction; bytes of a refused or failed
  * write are deleted, and bytes a committed write replaced or removed are
  * unlinked after the commit.
+ *
+ * Selfies are private like the calendar (AGENTS.md): each write takes the
+ * Actor and reaches only `actor.userId`'s own entries and selfies, so a
+ * grantee of any share is a stranger here, refused with the 404 of an
+ * unknown id, never a 403.
  */
 
 export interface SelfieDeps {
   db: Db;
   photos: Photos;
   logger: Logger;
-}
-
-function entryNotFound(): HttpError {
-  return new HttpError(404, 'Calendar entry not found');
 }
 
 function notYetWorn(): HttpError {
@@ -43,16 +47,17 @@ function notYetWorn(): HttpError {
  */
 export async function attachSelfie(
   { db, photos, logger }: SelfieDeps,
+  actor: Actor,
   input: {
     entryId: number;
-    ownerId: number;
     parts: AsyncIterable<MultipartFile>;
     today: IsoDate;
   },
 ): Promise<IsoDate> {
-  const { entryId, ownerId, today } = input;
+  const { entryId, today } = input;
+  const ownerId = actor.userId;
   const day = await ownEntryDay(db, entryId, ownerId);
-  if (day === undefined) throw entryNotFound();
+  if (day === undefined) throw calendarEntryNotFound();
   if (day > today) throw notYetWorn();
   const photo = await photos.storeUploadParts(input.parts, ownerId);
   if (!photo) throw new HttpError(400, 'No file uploaded');
@@ -90,25 +95,30 @@ async function commitSelfie(
   }
   if (outcome === 'not-found' || outcome === 'future') {
     await photos.deleteVariants(unkeyedPhoto(photo.fileName));
-    throw outcome === 'not-found' ? entryNotFound() : notYetWorn();
+    throw outcome === 'not-found' ? calendarEntryNotFound() : notYetWorn();
   }
   return outcome;
 }
 
 /**
- * POST /selfies/:id/delete: removes the owner's selfie (an entry's, or a
- * look kept after its outfit was deleted), row then bytes. False when it is
- * not theirs.
+ * POST /selfies/:id/delete: removes the actor's selfie (an entry's, or a
+ * look kept after its outfit was deleted), row then bytes; anyone else's
+ * is NotFound('selfie').
  */
 export async function removeSelfie(
   { db, photos, logger }: SelfieDeps,
+  actor: Actor,
   selfieId: number,
-  ownerId: number,
-): Promise<boolean> {
-  const fileName = await deleteSelfie(db, selfieId, ownerId);
-  if (fileName === undefined) return false;
+): Promise<void> {
+  const fileName = await deleteSelfie(db, selfieId, actor.userId);
+  if (fileName === undefined) {
+    throw new NotFound('selfie', {
+      logDetail: `selfie ${selfieId} is not user ${actor.userId}'s`,
+    });
+  }
   // Only after commit: an unlink cannot be rolled back.
   await photos.deleteVariants(unkeyedPhoto(fileName));
-  logger.info(`Selfie ${selfieId} removed by user ${ownerId}: ${fileName}`);
-  return true;
+  logger.info(
+    `Selfie ${selfieId} removed by user ${actor.userId}: ${fileName}`,
+  );
 }

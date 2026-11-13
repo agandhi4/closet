@@ -2,8 +2,8 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { Type } from '@sinclair/typebox';
 import type { FastifyReply } from 'fastify';
 import type { Readable } from 'node:stream';
-import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
+import { NotServed } from '../refusals';
 import { type PhotoUrlQuery, signedPhoto } from './image-url';
 import { type ImageVariant, parseStoredName } from './image-variant';
 import { publicPhoto } from './references';
@@ -44,7 +44,9 @@ const ShareParams = Type.Object({ shareableId: Type.String() });
  * are the exception: only their owner sees them (GET /selfies/*, session
  * checked, src/web/selfies/routes.ts), so here their names are a 404 like
  * a missing photo, and knowing one is not a way in. Failures answer the
- * error handler's bare `{ statusCode, message }` (no page context).
+ * error handler's bare `{ statusCode, message }` (no page context): a
+ * refusal here is NotServed, the status text alone, since no actor asked
+ * and no resource is named (guards.conf `@not-served`).
  *
  * A URL imageUrl signed is served without a statement (#162): the
  * signature proves the name is no selfie's and names the set to serve.
@@ -68,7 +70,7 @@ export const fileRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     reply: FastifyReply,
   ) => {
     if (parseStoredName(fileName)?.variant !== 'original') {
-      throw new HttpError(404);
+      throw new NotServed();
     }
     const signed = signedPhoto(fileName, query);
     if (signed) {
@@ -92,7 +94,7 @@ export const fileRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       logger.warn(
         `Refused a private photo (a selfie or a saved look) on the public /file route: ${fileName}`,
       );
-      throw new HttpError(404);
+      throw new NotServed();
     }
     const stream = await photos.getVariant(photo, variant);
     return sendImage(reply, stream, 'image/webp', PRIVATE_IMMUTABLE_YEAR);

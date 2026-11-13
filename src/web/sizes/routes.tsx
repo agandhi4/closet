@@ -4,11 +4,11 @@ import type { FastifyReply } from 'fastify';
 import { MEASUREMENTS } from '../../wardrobe/measurements';
 import { sessionUserId } from '../auth/require-session';
 import type { FieldErrors } from '../auth/validation';
-import { HttpError } from '../errors';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import { RowId } from '../schemas';
+import { actorOf } from '../sharing/access';
 import { viewContext } from '../view-context';
 import {
   addBrandSize,
@@ -188,8 +188,12 @@ export const sizesRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           400,
         );
       if (!form.ok) return refuse(form.errors);
-      const updated = await updateBrandSize(db, id, userId, form.fields);
-      if (updated === 'not-found') throw new HttpError(404, 'Brand not found');
+      const updated = await updateBrandSize(
+        db,
+        actorOf(request),
+        id,
+        form.fields,
+      );
       if (updated === 'brand-taken') {
         return refuse({ brand: [t('sizes.BRAND_TAKEN')] });
       }
@@ -204,11 +208,10 @@ export const sizesRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     `${BRAND_SIZES_PATH}/:id/delete`,
     { schema: { params: BrandSizeParams } },
     async (request, reply) => {
-      const userId = sessionUserId(request);
+      const actor = actorOf(request);
       const { id } = request.params;
-      const brand = await deleteBrandSize(db, id, userId);
-      if (brand === undefined) throw new HttpError(404, 'Brand not found');
-      logger.info(`Brand size ${id} removed by user ${userId}`);
+      await deleteBrandSize(db, actor, id);
+      logger.info(`Brand size ${id} removed by user ${actor.userId}`);
       return reply.redirect(sizesSavedUrl('removed'), 303);
     },
   );
