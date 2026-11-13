@@ -4,6 +4,7 @@ import { readdir } from 'node:fs/promises';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { TokenKind } from '../../src/credential-names';
+import committedSpec from '../../src/web/api/openapi.json';
 import {
   optionGroup,
   orderItem,
@@ -997,6 +998,41 @@ export function describeMatrix(
       unauthorized: 401,
     };
 
+    /**
+     * Whether the API twin takes `?ownerId=` (the committed spec's declared
+     * parameters). The API's querystring is closed (#577): on an owner-only
+     * route (trips, outfits) the page's "ownerId ignored" is a 400 there.
+     */
+    const apiTakesOwnerId = (request: InjectOptions): boolean => {
+      const path = (request.url as string).split('?')[0];
+      // The most literal template wins, as the router's: /garments/washes
+      // beats /garments/{id}.
+      const [, operations] = Object.entries(committedSpec.paths)
+        .filter(([template]) =>
+          new RegExp(`^${template.replace(/\{[^}]+\}/g, '[^/]+')}$`).test(path),
+        )
+        .sort(([a], [b]) => a.split('{').length - b.split('{').length)[0];
+      const operation = (
+        operations as Record<
+          string,
+          { parameters?: { name: string; in: string }[] }
+        >
+      )[String(request.method).toLowerCase()];
+      return (operation.parameters ?? []).some(
+        (parameter) => parameter.in === 'query' && parameter.name === 'ownerId',
+      );
+    };
+
+    const expectOwnerIdRefused = async (
+      actor: ActorName,
+      request: InjectOptions,
+      secret: string,
+    ) => {
+      const res = await send('api', actor, request);
+      expect(res.statusCode).toBe(actor === 'anonymous' ? 401 : 400);
+      expect(res.body).not.toContain(secret);
+    };
+
     /** The case's request and success status on its surface. */
     const onSurface = async (
       { route, surface }: Pick<Case, 'route' | 'surface'>,
@@ -1114,6 +1150,11 @@ export function describeMatrix(
 
       if (outcome === 'ok' && route.kind === 'clone') {
         await expectCloned(matrixCase, ok, request);
+        return;
+      }
+
+      if (surface === 'api' && via === 'ownerId' && !apiTakesOwnerId(request)) {
+        await expectOwnerIdRefused(actor, request, secret);
         return;
       }
 
