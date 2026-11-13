@@ -182,6 +182,15 @@ export interface TestApp {
   /** The user registered at boot, whose session t.inject() sends by default. */
   owner: TestUser;
   inject: (options: TestInjectOptions) => Promise<LightMyRequestResponse>;
+  /**
+   * A JSON API request as a native client sends it (test/integration/
+   * api.ts): `token`, if any, as `Authorization: Bearer`, and no session
+   * cookie and no Origin unless the request's own headers add them.
+   */
+  api: (
+    token: string | undefined,
+    options: TestInjectOptions,
+  ) => Promise<LightMyRequestResponse>;
   /** The app's Drizzle instance (no identity map: reads see every commit). */
   db: Db;
   /**
@@ -326,6 +335,16 @@ export async function createTestApp(
     }
     return app.inject({ ...options, headers });
   };
+  const api = (token: string | undefined, options: TestInjectOptions) =>
+    inject({
+      ...options,
+      anonymous: true,
+      sameOrigin: false,
+      headers: {
+        ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+        ...options.headers,
+      },
+    });
   // A sign-in that set no session names what the app logged at warn and
   // above while it ran: a setup 500 otherwise says only its status, and the
   // cause sits in t.logs, which no spec prints once createTestApp throws
@@ -388,6 +407,7 @@ export async function createTestApp(
     orderMail,
     owner,
     inject,
+    api,
     db,
     database: dbConfig(config),
     logger,

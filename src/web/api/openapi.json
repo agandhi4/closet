@@ -1,0 +1,362 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Closet API",
+    "version": "v1",
+    "description": "Closet's JSON API for native clients. Sign in with POST /api/v1/auth/token and send the device token as `Authorization: Bearer <token>`. A 401 on any route means sign in again. Errors are RFC 9457 problem+json; switch on `code`."
+  },
+  "components": {
+    "securitySchemes": {
+      "deviceToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A device token from POST /api/v1/auth/token, valid until revoked."
+      }
+    },
+    "schemas": {
+      "Problem": {
+        "title": "Problem",
+        "type": "object",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "requestId"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "about:blank"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "minimum": 400,
+            "maximum": 599,
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "validation"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "unauthorized"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "forbidden"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "not_found"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "conflict"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "stale"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "rate_limited"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "busy"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "internal"
+                ]
+              }
+            ]
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "message"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/v1/openapi.json": {
+      "get": {
+        "operationId": "getOpenApi",
+        "summary": "This API, as OpenAPI 3.1",
+        "tags": [
+          "meta"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The OpenAPI document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "description": "The OpenAPI document",
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/token": {
+      "post": {
+        "operationId": "signIn",
+        "summary": "Sign a device in: a device token for this account",
+        "tags": [
+          "auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "password",
+                  "deviceName"
+                ],
+                "properties": {
+                  "email": {
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  "password": {
+                    "maxLength": 1024,
+                    "type": "string"
+                  },
+                  "deviceName": {
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "pattern": "\\S",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "responses": {
+          "201": {
+            "description": "Signed in: the device token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "DeviceToken",
+                  "description": "Signed in: the device token",
+                  "type": "object",
+                  "required": [
+                    "token",
+                    "tokenId"
+                  ],
+                  "properties": {
+                    "token": {
+                      "type": "string"
+                    },
+                    "tokenId": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "signOut",
+        "summary": "Sign this device out: revoke the calling token",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "204": {
+            "description": "Signed out"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "operationId": "getMe",
+        "summary": "Who the token acts as, and the household day",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "The account the token acts as",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Me",
+                  "description": "The account the token acts as",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "timeZone",
+                    "today"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "email": {
+                      "type": "string"
+                    },
+                    "timeZone": {
+                      "type": "string"
+                    },
+                    "today": {
+                      "format": "date",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "deviceToken": []
+    }
+  ]
+}

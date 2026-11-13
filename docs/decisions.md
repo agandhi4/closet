@@ -487,6 +487,7 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Why:** a desktop week read as a 40rem column of seven stacked days; `/calendar` is a cached tab root, so a `?view=` page would be another cache key that fails offline, and the server cannot see the width.
 **Decision:** CSS only: the days' wrapper is `lg:grid-cols-7` with a row per week occasion (`weekOccasions`, template plus used, pure); each day a subgrid; pieces placed by `lg:row-start-*` inside `contents` cell wrappers, keeping the phone's DOM order (entries, then open slots) rather than interleaving them by occasion. Empty cells from today on hold a desktop-only "+ Occasion" opener; past empty cells render nothing. `PageMain` gains `agenda` (narrow, wide from lg).
 **Consequence:** the phone renders pixel-identical (390 px screenshots against main); desktop focus order is the phone's, so an open slot can be focused after an entry drawn below it. A seventh occasion means a longer `WEEK_ROWS`/`ROW_START` table.
+
 ## 2026-11-13 — Outfit rules on the Style page: one select per side, its options the schema (#21b)
 
 **Why:** the plan's §4: the owner adds and removes rules as a native form on a phone, with no script, and a side is a garment, a category (and maybe its type), a colour or a pattern.
@@ -546,3 +547,21 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Why:** #188 section 4, order item 3: the capsule routes, the inbox's decisions and need page, and the capsule and Muse MCP tools each turned an outcome into their own 404 or 409 (`'Not found'` in the inbox, `'Capsule not found'` spelled twice).
 **Decision:** `capsules/capsule-actions.ts` (`requireCapsule`, `capsuleIn`, create, rename, delete, `setCapsuleMembers`, `setGarmentCapsules`; `capsuleNotFound` moved there) and `wishlist/suggestion-actions.ts` (`requireNeed`, `makeDecision` over decide's page decisions, and Muse's `checkSuggestionRoom`, `markSuggestedPick`, `createNeed`, whose 409 wordings moved from the tool) take `(db, actor, address, input)` and throw the typed refusals; `goesWithCloset(db, actor, id)` throws `NotFound('wishlistItem')` ("Not on your wishlist", unchanged). Create and rename still ask the guard (rename the capsule) before the form, so a refused form is drawn only for the owner; the writer's own check is then free, and statement counts hold.
 **Consequence:** an unseen wardrobe now reads as what the URL names: a decision's "Garment not found" or "Need not found" (was "Not found" or "Wardrobe not found"), the garment page's capsule toggles "Garment not found" (was "Capsule not found"); statuses unchanged. suggest_outfit's refusals are the outfit writer's (`proposeOutfit`) and move with outfits (188d). `[refusals]` known: 24 lines (37 sites) to 19 (29).
+
+## 2026-11-13 — The API is a surface, named by the route or its path, and answers problem+json (#190)
+
+**Why:** `config.bearer` was read in three hooks, each deciding alone that a request was not a page; a second bearer client (`/api`) and its unmatched paths needed the same answer everywhere. A first build read the cookie on `GET /api/v2/x`: the static files' `GET /*` wildcard matched it, so `is404` was false.
+**Decision:** `config.surface` (`page`|`mcp`|`api`) replaces `bearer`. The root onRoute hook `assignSurface` stamps `api` on every `/api/v1` route and stops the boot on any disagreement. `surfaceOf` reads the route's surface, else the path, in any case, so any `/api` request no route matched is `api`. The error handler answers `api` with RFC 9457 `{ type: about:blank, title, status, detail, code, requestId, errors? }`, built in `errors.tsx` (the guard's one `node:http` importer); `HttpError.retryAfterSeconds` sets `Retry-After`.
+**Consequence:** a new bearer client is a new surface value, never a flag; `src/web/surface.ts`'s readers are the list to extend. An unknown `/api` path never echoes its URL.
+
+## 2026-11-13 — One sign-in budget for both doors, and a per-account cap on the API's (#190)
+
+**Why:** route-config limits are a counter per route, so the login page and the API sign-in would each give an address 5 guesses a minute. An API sign-in mints a token that lasts until revoked, so guesses spread over many addresses matter more there.
+**Decision:** `SIGN_IN_LIMIT` is one `createRateLimit` checker (`signInLimit`, built in `webPlugin`) that both doors count on in onRequest: 5 a minute per address in all, the 6th a 429. The API door also counts `SIGN_IN_ACCOUNT_LIMIT`, 5 a minute per SHA-256 of the normalized email (preHandler, after the body). Both doors check through `checkSignIn`, one bcrypt comparison on every path.
+**Consequence:** the page login has no per-account cap yet (an owner call: it would let anyone slow one person's browser sign-in). Registration keeps its own route-config counter.
+
+## 2026-11-13 — The OpenAPI spec is committed and served as committed; swagger is a devDependency (#190)
+
+**Why:** a Swift client generated from the spec needs every contract change to be a reviewed diff, and generating at boot would put a dev tool in the image and serve whatever the build happened to produce.
+**Decision:** `npm run api:spec` (`scripts/api-spec.ts`) registers `apiPlugin` on a bare Fastify with `@fastify/swagger` (OpenAPI 3.1, `info.version: v1`) and writes `src/web/api/openapi.json`. `GET /api/v1/openapi.json` serves that file, imported. `scripts/api-spec.spec.ts` (unit) fails when the file differs from what the routes generate, and validates it. `requireContract` refuses a route at boot that lacks its operationId, tags, 2xx and problem responses.
+**Consequence:** every `/api/v1` change runs `npm run api:spec` and commits the file. `Problem` is one shared schema (`addSchema`, by `$id`); a new shared resource schema can join it the same way.

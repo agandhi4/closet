@@ -5,10 +5,13 @@ import type {
 } from 'fastify';
 import type { IncomingHttpHeaders } from 'node:http';
 import { loggableUrl } from '../loggable-url';
+import { sendProblem } from '../errors';
+import { surfaceOf } from '../surface';
 import type { Logger } from '../../logger';
 import { originOf, requestOrigin } from './origin';
 
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+const CROSS_ORIGIN_REFUSED = 'Cross-origin request refused';
 
 /**
  * The origin a browser says a request comes from: the Origin header, which
@@ -31,7 +34,7 @@ function claimedOrigin(headers: IncomingHttpHeaders): string | undefined {
  * absent), either the origin it was sent to (requestOrigin: the Host as
  * Fastify trusts it) or SITE_URL's origin (the canonical https name, which a
  * proxy missing from TRUSTED_PROXIES reports as plain http). Anything else,
- * including neither header, is a 403; only a bearer route (the MCP endpoint)
+ * including neither header, is a 403; only a bearer surface (/mcp, /api)
  * accepts neither header.
  *
  * The session cookie is SameSite=Lax as well (session-cookie.ts); this
@@ -54,20 +57,28 @@ export function createSameOriginHook(options: {
     if (claimed !== undefined && (claimed === own || claimed === siteOrigin)) {
       return;
     }
-    // A bearer route (the MCP endpoint) is called by programs, which send no
-    // Origin. A cookie grants nothing there and a page cannot attach the
-    // Authorization header cross-site without a CORS preflight, which is
-    // never answered, so an absent Origin is no CSRF. A present foreign one
-    // is still refused: the MCP spec's defence against DNS rebinding.
-    if (claimed === undefined && request.routeOptions.config.bearer === true) {
-      return;
-    }
+    // A bearer surface (/mcp, /api: the route's config, or the not-found
+    // config of an unmatched /api path, surfaceOf) is called by programs,
+    // which send no Origin. The cookie is never read there and a page cannot
+    // attach the Authorization header cross-site without a CORS preflight,
+    // which is never answered, so an absent Origin is no CSRF. A present
+    // foreign one is still refused: the MCP spec's defence against DNS
+    // rebinding.
+    const surface = surfaceOf(request);
+    if (claimed === undefined && surface !== 'page') return;
     logger.warn(
       `Refused ${request.method} ${loggableUrl(request)} from origin ${claimed ?? 'none'} (accepts ${own} and ${siteOrigin ?? 'no SITE_URL'})`,
     );
+    if (surface === 'api') {
+      return sendProblem(request, reply, {
+        status: 403,
+        message: CROSS_ORIGIN_REFUSED,
+        code: 'forbidden',
+      });
+    }
     return reply
       .status(403)
       .type('text/plain; charset=utf-8')
-      .send('Cross-origin request refused');
+      .send(CROSS_ORIGIN_REFUSED);
   };
 }

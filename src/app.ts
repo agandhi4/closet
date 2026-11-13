@@ -41,6 +41,7 @@ import {
 } from './web/security/outbound-fetch';
 import { registerRateLimit } from './web/security/rate-limit';
 import { createSameOriginHook } from './web/security/same-origin';
+import { assignSurface, surfaceOf } from './web/surface';
 import { isWarmRequest } from './warm-request';
 import { createQueuedWriteHook } from './web/offline-writes';
 import { createViewContextBuilder } from './web/view-context';
@@ -257,6 +258,9 @@ export async function createApp(
       parent.child({}, options),
   });
   if (options.onRoute) app.addHook('onRoute', options.onRoute);
+  // Before any route: every /api/v1 route is the API surface and no other
+  // route is (src/web/surface.ts); a route that disagrees stops the boot.
+  app.addHook('onRoute', assignSurface);
   // The queue and the weather's background refreshes first: a job still
   // running needs the pool to record itself, a refresh to save its row.
   // The error tracker last, so a failure on the way out is still sent.
@@ -320,13 +324,11 @@ export async function createApp(
   // and a request it refuses must already have its session and page context
   // for the 400 page. It runs for the not-found handler too, so a 404 page
   // shows who is signed in.
-  // Bearer routes (the MCP endpoint) skip it too: their credential is a
-  // token, a cookie never counts there, and without a page context their
-  // errors answer as JSON.
+  // The bearer surfaces (/mcp, /api, an unmatched /api path included:
+  // surfaceOf) skip it too: their credential is a token, the cookie is never
+  // read there, and without a page context their errors answer as data.
   app.addHook('preValidation', async (request, reply) => {
-    if (isStaticPath(request.url) || request.routeOptions.config.bearer) {
-      return;
-    }
+    if (isStaticPath(request.url) || surfaceOf(request) !== 'page') return;
     request.auth = await resolveSession(request, reply);
     reply.locals = buildViewContext(request, request.auth);
   });
@@ -368,6 +370,9 @@ export async function createApp(
           status: reply.statusCode,
           duration_ms: Number(reply.elapsedTime.toFixed(1)),
           db_statements: request.timing?.dbStatements,
+          // A bearer request's caller: the token's row id, never the token.
+          user_id: request.accessToken?.user.id,
+          token_id: request.accessToken?.tokenId,
         },
         `${request.method} ${loggableUrl(request)} ${reply.statusCode} ${reply.elapsedTime.toFixed(1)}ms${warm}`,
       );
@@ -397,9 +402,13 @@ export async function createApp(
   const web = logger.child({ logger: 'Web' });
   app.setErrorHandler(createErrorHandler(web, errors));
   // A path no route matches is the 404 page (a static path, which has no
-  // page context, gets data from the error handler instead).
+  // page context, gets data from the error handler instead); under /api a
+  // problem 404 that does not echo the URL, which a client may have put a
+  // token in.
   app.setNotFoundHandler((request) => {
-    throw new HttpError(404, `Cannot ${request.method} ${request.url}`);
+    throw surfaceOf(request) === 'api'
+      ? new HttpError(404)
+      : new HttpError(404, `Cannot ${request.method} ${request.url}`);
   });
 
   await app.register(webPlugin, {
@@ -422,6 +431,7 @@ export async function createApp(
     fetcher,
     weather,
     mcpLogger: logger.child({ logger: 'Mcp' }),
+    apiLogger: logger.child({ logger: 'Api' }),
     push,
     metrics,
     errors,

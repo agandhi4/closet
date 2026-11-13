@@ -5,26 +5,17 @@ import { AppBar } from './layout/app-bar';
 import { Dock } from './layout/dock';
 import { Layout } from './layout/layout';
 import { loggableUrl } from './loggable-url';
+import {
+  type ErrorCode,
+  type Problem,
+  PROBLEM_CONTENT_TYPE,
+  type ProblemAnswer,
+} from './problem';
 import type { Logger } from '../logger';
 import type { ErrorTracker } from '../metrics/error-tracker';
 import { renderPage } from './render';
+import { surfaceOf } from './surface';
 import type { ViewContext } from './view-context';
-
-/**
- * The stable machine word of a refusal, which a JSON client switches on
- * (docs/plans/2026-11-12-json-api.md section 2): the API's problem body
- * carries it, a page shows the message instead.
- */
-export type ErrorCode =
-  | 'validation'
-  | 'unauthorized'
-  | 'forbidden'
-  | 'not_found'
-  | 'conflict'
-  | 'stale'
-  | 'rate_limited'
-  | 'busy'
-  | 'internal';
 
 const CODE_OF_STATUS: Readonly<Record<number, ErrorCode>> = {
   400: 'validation',
@@ -55,16 +46,23 @@ function codeOfStatus(status: number): ErrorCode {
 export class HttpError extends Error {
   readonly logDetail?: string;
   readonly code: ErrorCode;
+  /** Sent as `Retry-After`: a rate limit's window, the owner lock's wait. */
+  readonly retryAfterSeconds?: number;
 
   constructor(
     readonly statusCode: number,
     message: string = STATUS_CODES[statusCode] ?? 'Error',
-    options: { logDetail?: string; code?: ErrorCode } = {},
+    options: {
+      logDetail?: string;
+      code?: ErrorCode;
+      retryAfterSeconds?: number;
+    } = {},
   ) {
     super(message);
     this.name = 'HttpError';
     this.logDetail = options.logDetail;
     this.code = options.code ?? codeOfStatus(statusCode);
+    this.retryAfterSeconds = options.retryAfterSeconds;
   }
 }
 
@@ -92,10 +90,44 @@ export function errorBody(
 export interface ErrorAnswer {
   status: number;
   message: string;
+  /** The machine word the API's problem body carries (HttpError.code). */
+  code: ErrorCode;
   /** For the log line, never the answer (HttpError.logDetail). */
   logDetail?: string;
+  retryAfterSeconds?: number;
+  /** A schema validation's failures, each where and what (Fastify's). */
+  validation?: ValidationFailure[];
   /** A crash, not a chosen answer: logged with its stack. */
   unexpected: boolean;
+}
+
+export interface ValidationFailure {
+  /** `body/email`: the part of the request, then the JSON pointer in it. */
+  path: string;
+  message: string;
+}
+
+/**
+ * Fastify's validation error carries ajv's failures and which part of the
+ * request failed; anything else has none. Ajv's messages name the rule
+ * ("must be string"), never the value sent.
+ */
+function validationFailures(
+  error: Error & { validation?: unknown; validationContext?: unknown },
+): ValidationFailure[] | undefined {
+  if (!Array.isArray(error.validation)) return undefined;
+  const part =
+    typeof error.validationContext === 'string' ? error.validationContext : '';
+  return error.validation.map((failure: unknown) => {
+    const { instancePath, message } = failure as {
+      instancePath?: unknown;
+      message?: unknown;
+    };
+    return {
+      path: `${part}${typeof instancePath === 'string' ? instancePath : ''}`,
+      message: typeof message === 'string' ? message : 'is invalid',
+    };
+  });
 }
 
 /**
@@ -109,7 +141,9 @@ export function describeError(error: unknown): ErrorAnswer {
     return {
       status: error.statusCode,
       message: error.message,
+      code: error.code,
       logDetail: error.logDetail,
+      retryAfterSeconds: error.retryAfterSeconds,
       unexpected: false,
     };
   }
@@ -120,16 +154,70 @@ export function describeError(error: unknown): ErrorAnswer {
       statusCode >= 400 &&
       statusCode < 500
     ) {
-      return { status: statusCode, message: error.message, unexpected: false };
+      return {
+        status: statusCode,
+        message: error.message,
+        code: codeOfStatus(statusCode),
+        validation: validationFailures(error),
+        unexpected: false,
+      };
     }
   }
-  return { status: 500, message: INTERNAL_ERROR, unexpected: true };
+  return {
+    status: 500,
+    message: INTERNAL_ERROR,
+    code: 'internal',
+    unexpected: true,
+  };
+}
+
+/**
+ * The problem body of an error answer. `about:blank` (RFC 9457 4.2.1): the
+ * status says what kind of problem it is, so `title` is the status text.
+ * A 500 carries no detail: what failed is in the log, under `requestId`.
+ */
+export function problemOf(
+  request: Pick<FastifyRequest, 'id'>,
+  answer: ProblemAnswer,
+): Problem {
+  return {
+    type: 'about:blank',
+    title: STATUS_CODES[answer.status] ?? 'Error',
+    status: answer.status,
+    ...(answer.status < 500 ? { detail: answer.message } : {}),
+    code: answer.code,
+    requestId: request.id,
+    ...(answer.validation ? { errors: [...answer.validation] } : {}),
+  };
+}
+
+/**
+ * Answers `reply` with the problem. A 401 names the scheme to retry with
+ * (RFC 6750: a native client signs in again); a rate limit or a busy
+ * wardrobe says when to retry.
+ */
+export function sendProblem(
+  request: Pick<FastifyRequest, 'id'>,
+  reply: FastifyReply,
+  answer: ProblemAnswer,
+): FastifyReply {
+  if (answer.status === 401) {
+    reply.header('WWW-Authenticate', 'Bearer realm="closet"');
+  }
+  if (answer.retryAfterSeconds !== undefined) {
+    reply.header('Retry-After', String(Math.ceil(answer.retryAfterSeconds)));
+  }
+  return reply
+    .status(answer.status)
+    .type(PROBLEM_CONTENT_TYPE)
+    .send(problemOf(request, answer));
 }
 
 /**
  * The app's error handler (set at the root by createApp(), so every route
- * and the not-found handler share it): the error page, in the layout, with
- * the status of the failure. The login redirect and 401 never reach it,
+ * and the not-found handler share it): on the API surface a problem body
+ * (src/web/problem.ts), elsewhere the error page, in the layout, with the
+ * status of the failure. The login redirect and 401 never reach it,
  * requireSession answers those itself.
  *
  * Only an unexpected error (the 500) goes to the error tracker (#117).
@@ -147,7 +235,8 @@ export function createErrorHandler(logger: Logger, errors: ErrorTracker) {
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<FastifyReply | undefined> {
-    const { status, message, logDetail, unexpected } = describeError(error);
+    const answer = describeError(error);
+    const { status, message, logDetail, unexpected } = answer;
     const url = loggableUrl(request);
     if (unexpected) {
       logger.error({ err: error }, `${request.method} ${url} -> ${status}`);
@@ -157,7 +246,7 @@ export function createErrorHandler(logger: Logger, errors: ErrorTracker) {
           route: request.routeOptions.url ?? 'unmatched',
           method: request.method,
         },
-        userId: request.auth?.user.id,
+        userId: request.auth?.user.id ?? request.accessToken?.user.id,
       });
     } else {
       logger.warn(
@@ -168,6 +257,11 @@ export function createErrorHandler(logger: Logger, errors: ErrorTracker) {
     if (reply.sent) {
       logger.warn(`${url}: response already sent, no error page`);
       return;
+    }
+    // The API answers problem+json whatever failed, an unmatched path
+    // included (surfaceOf), and never has a page context.
+    if (surfaceOf(request) === 'api') {
+      return sendProblem(request, reply, answer);
     }
     // No page context: a static path (the root hook skips those; their
     // routes, /file/**, /health/* and /manifest.json, answer data), or a
