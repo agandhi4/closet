@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as random from '../random';
 import { generateIdeas, type IdeaGarment, MAX_DRAWS } from './generator';
 import { goesWith } from './goes-with';
-import type { Formality, GarmentColor, GarmentRole } from './properties';
+import type { OutfitRule } from './outfit-rules';
+import {
+  builtInCategoriesOf,
+  type Formality,
+  type GarmentColor,
+  type GarmentRole,
+} from './properties';
 
 /**
  * When the generator stops drawing (#168). Every page it gives is the one
@@ -13,12 +19,15 @@ import type { Formality, GarmentColor, GarmentRole } from './properties';
  */
 
 let draws = 0;
+/** Sequences the always-rules' repair keyed (one a mended base). */
+let repairs = 0;
 
 vi.mock('../random', async (importOriginal) => {
   const actual = await importOriginal<typeof random>();
   return {
     ...actual,
     seededRandom: (...key: (string | number)[]) => {
+      if (key[0] === 'generator-repair') repairs += 1;
       const sequence = actual.seededRandom(...key);
       return {
         ...sequence,
@@ -33,6 +42,7 @@ vi.mock('../random', async (importOriginal) => {
 
 beforeEach(() => {
   draws = 0;
+  repairs = 0;
 });
 
 let nextId = 1;
@@ -45,6 +55,8 @@ function garment(
   return {
     id: nextId++,
     role,
+    category: builtInCategoriesOf(role)[0],
+    type: null,
     colors,
     pattern: 'solid',
     formality,
@@ -95,6 +107,56 @@ describe('when the generator stops drawing (#168)', () => {
     expect(draws).toBe(0);
   });
 
+  it('never draws when a never-rule leaves a role nothing beside the locks (#21)', () => {
+    // Every bottom is blue, and the locked top is red.
+    const red = garment('top', ['red']);
+    const never: OutfitRule = {
+      kind: 'never',
+      a: { by: 'color', color: 'red' },
+      b: { by: 'color', color: 'blue' },
+    };
+    const page = generateIdeas({
+      seed: 1,
+      pool: closet(),
+      locked: [red],
+      rules: [never],
+      offset: 0,
+      limit: 6,
+    });
+    expect(page).toEqual({ ideas: [], more: false });
+    expect(draws).toBe(0);
+  });
+
+  it('mends each base that breaks an always-rule once, before judging it (#21)', () => {
+    const top = garment('top');
+    const bottom = garment('bottom');
+    const shoes = [
+      garment('footwear'),
+      garment('footwear'),
+      garment('footwear'),
+    ];
+    const loafers = garment('footwear', ['brown']);
+    const always: OutfitRule = {
+      kind: 'always',
+      a: { by: 'garment', garmentId: top.id },
+      b: { by: 'garment', garmentId: loafers.id },
+    };
+    const page = generateIdeas({
+      seed: 1,
+      pool: [bottom, ...shoes, loafers],
+      locked: [top],
+      rules: [always],
+      offset: 0,
+      limit: 6,
+    });
+    // The four bases are drawn; the three without the loafers are mended
+    // into the one with them, judged once.
+    expect(page.ideas.map((idea) => idea.garments)).toEqual([
+      [top, bottom, loafers],
+    ]);
+    expect(repairs).toBe(3);
+  });
+
   it('stops once every combination was drawn', () => {
     const small = [
       garment('top'),
@@ -135,6 +197,7 @@ describe('when the generator stops drawing (#168)', () => {
       item,
       closet: [...closet(3), ...casualLayers],
       avoid: [],
+      rules: [],
       seed: item.id,
     });
     const layers = found.roles.find((role) => role.role === 'layer')!;

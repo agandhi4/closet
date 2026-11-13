@@ -258,6 +258,7 @@ describe('the garment page', () => {
         'garment_wear',
         'outfit_slot',
         'generator_avoid',
+        'outfit_rule',
         'garment_repair',
       ]) {
         expect(all).not.toContain(`"${owners}"`);
@@ -283,6 +284,7 @@ describe('the garment page', () => {
       expect(record.statements).toBe(3);
       const context = record.sql.find((text) => text.includes('json_agg'));
       expect(context).toContain('"generator_avoid"');
+      expect(context).toContain('"outfit_rule"');
       expect(context).toContain('"brand_size"');
       expect(record.sql.join('\n')).not.toContain('"garment_wear"');
     });

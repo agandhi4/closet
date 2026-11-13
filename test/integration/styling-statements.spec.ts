@@ -22,8 +22,13 @@ import { HX_FRAGMENT } from './pages';
  * counts. Their behaviour is styling-picks.spec.ts's.
  */
 
-/** Tables only the wardrobe's owner may read through Styling: their wears, outfits and clashes. */
-const OWNERS_RECORDS = ['"garment_wear"', '"outfit_slot"', '"generator_avoid"'];
+/** Tables only the wardrobe's owner may read through Styling: their wears, outfits, clashes and rules. */
+const OWNERS_RECORDS = [
+  '"garment_wear"',
+  '"outfit_slot"',
+  '"generator_avoid"',
+  '"outfit_rule"',
+];
 
 describe('Styling statements (#163)', () => {
   let t: TestApp;
@@ -212,6 +217,7 @@ describe('Styling statements (#163)', () => {
       const record = await statementsOf(`/styling?with=${tops[0]}`);
       expect(record.statements).toBe(3);
       expect(record.sql[1]).toContain('"generator_avoid"');
+      expect(record.sql[1]).toContain('"outfit_rule"');
       const page = (await get(`/styling?with=${tops[0]}`)).body;
       expect(stripOf(page, 'top')).toContain(tops[0]);
       expect((await get(`/styling?with=${bottom + 1000}`)).statusCode).toBe(

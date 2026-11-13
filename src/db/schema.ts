@@ -99,6 +99,10 @@ import {
   type Weekday,
 } from '../wardrobe/week';
 import {
+  OUTFIT_RULE_KINDS,
+  type OutfitRuleKind,
+} from '../wardrobe/outfit-rules';
+import {
   ALL_GARMENT_TYPES,
   type Condition,
   CONDITIONS,
@@ -108,6 +112,7 @@ import {
   type Formality,
   FORMALITIES,
   GARMENT_COLORS,
+  GarmentCategory,
   type GarmentColor,
   type Length,
   LENGTHS,
@@ -1645,6 +1650,149 @@ export const generatorAvoid = pgTable(
       .onDelete('cascade'),
   ],
 );
+
+// The owner's outfit rules (#21; src/wardrobe/outfit-rules.ts): "never A
+// with B" or "always B with A", each side one matcher: a garment of theirs,
+// a built-in category (and maybe one of its types), a colour or a pattern.
+// The generator reads them beside generator_avoid's pairs
+// (src/web/gallery/queries.ts, generatorMemorySql). The owner's own, like
+// the style profile: no share reaches them. Which category a type belongs
+// to, and that a side's garment is the owner's, are the writer's rules, as
+// on garment. A deleted garment or owner takes its rules with it.
+export const outfitRule = pgTable(
+  'outfit_rule',
+  {
+    id: serial('id').primaryKey(),
+    ownerId: integer('owner_id').notNull(),
+    kind: text('kind').$type<OutfitRuleKind>().notNull(),
+    aGarmentId: integer('a_garment_id'),
+    aCategory: text('a_category').$type<GarmentCategory>(),
+    aType: text('a_type'),
+    aColor: text('a_color').$type<GarmentColor>(),
+    aPattern: text('a_pattern').$type<Pattern>(),
+    bGarmentId: integer('b_garment_id'),
+    bCategory: text('b_category').$type<GarmentCategory>(),
+    bType: text('b_type'),
+    bColor: text('b_color').$type<GarmentColor>(),
+    bPattern: text('b_pattern').$type<Pattern>(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      'outfit_rule_kind_check',
+      sql`${table.kind} in (${sqlList(OUTFIT_RULE_KINDS)})`,
+    ),
+    ...ruleSideChecks('a', {
+      garmentId: table.aGarmentId,
+      category: table.aCategory,
+      type: table.aType,
+      color: table.aColor,
+      pattern: table.aPattern,
+    }),
+    ...ruleSideChecks('b', {
+      garmentId: table.bGarmentId,
+      category: table.bCategory,
+      type: table.bType,
+      color: table.bColor,
+      pattern: table.bPattern,
+    }),
+    check(
+      'outfit_rule_garments_check',
+      sql`${table.aGarmentId} <> ${table.bGarmentId}`,
+    ),
+    // A rule is stored once. Its sides' unset columns are null, which a
+    // unique constraint counts as distinct, so the index compares them
+    // coalesced (0 is no garment id: serial starts at 1). Every column is
+    // an expression for drizzle-kit's introspection (src/db/AGENTS.md:
+    // capsule_owner_id_lower_name_unique). Leads with owner_id: also the
+    // owner_id foreign key's index, and the generator's read.
+    uniqueIndex('outfit_rule_owner_id_kind_a_b_unique').on(
+      sql`${table.ownerId}`,
+      sql`${table.kind}`,
+      ...coalescedSide(table.aGarmentId, [
+        table.aCategory,
+        table.aType,
+        table.aColor,
+        table.aPattern,
+      ]),
+      ...coalescedSide(table.bGarmentId, [
+        table.bCategory,
+        table.bType,
+        table.bColor,
+        table.bPattern,
+      ]),
+    ),
+    index('outfit_rule_a_garment_id_index').on(table.aGarmentId),
+    index('outfit_rule_b_garment_id_index').on(table.bGarmentId),
+    foreignKey({
+      name: 'outfit_rule_owner_id_foreign',
+      columns: [table.ownerId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'outfit_rule_a_garment_id_foreign',
+      columns: [table.aGarmentId],
+      foreignColumns: [garment.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'outfit_rule_b_garment_id_foreign',
+      columns: [table.bGarmentId],
+      foreignColumns: [garment.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+/**
+ * One side of an outfit_rule: exactly one matcher (a type only with its
+ * category), each from its value set in src/wardrobe/properties.ts.
+ */
+function ruleSideChecks(
+  side: 'a' | 'b',
+  columns: Record<
+    'garmentId' | 'category' | 'type' | 'color' | 'pattern',
+    AnyPgColumn
+  >,
+) {
+  const { garmentId, category, type, color, pattern } = columns;
+  return [
+    check(
+      `outfit_rule_${side}_check`,
+      sql`num_nonnulls(${garmentId}, ${category}, ${color}, ${pattern}) = 1 and (${type} is null or ${category} is not null)`,
+    ),
+    check(
+      `outfit_rule_${side}_category_check`,
+      sql`${category} in (${sqlList(Object.values(GarmentCategory))})`,
+    ),
+    check(
+      `outfit_rule_${side}_type_check`,
+      sql`${type} in (${sqlList(ALL_GARMENT_TYPES)})`,
+    ),
+    check(
+      `outfit_rule_${side}_color_check`,
+      sql`${color} in (${sqlList(GARMENT_COLORS)})`,
+    ),
+    check(
+      `outfit_rule_${side}_pattern_check`,
+      sql`${pattern} in (${sqlList(PATTERNS)})`,
+    ),
+  ];
+}
+
+/** A rule side's columns as outfit_rule's unique index compares them: null as 0 or ''. */
+function coalescedSide(garmentId: AnyPgColumn, words: readonly AnyPgColumn[]) {
+  return [
+    sql`coalesce(${garmentId}, 0)`,
+    ...words.map((column) => sql`coalesce(${column}, '')`),
+  ];
+}
 
 // A stored coordinate (trip, user_weather's home and here, the forecast and
 // normals caches): rounded to COORDINATE_DECIMALS places

@@ -4,6 +4,7 @@ import {
   generatorAvoid,
   outfit,
   outfitCalendar,
+  outfitRule,
   outfitSlot,
   userWeather,
 } from '../../src/db/schema';
@@ -677,6 +678,46 @@ describe('outfit gallery', () => {
     });
   });
 
+  describe('outfit rules (#21)', () => {
+    // Rows, as the Style page's form (#21b) will write them: never a blue
+    // garment with the brown boots; the white tee always with the sneakers.
+    beforeAll(async () => {
+      await t.db.insert(outfitRule).values([
+        {
+          ownerId: t.owner.id,
+          kind: 'never',
+          aColor: 'blue',
+          bColor: 'brown',
+        },
+        {
+          ownerId: t.owner.id,
+          kind: 'always',
+          aGarmentId: tops[0],
+          bGarmentId: shoes[0],
+        },
+      ]);
+    });
+
+    afterAll(async () => {
+      await t.db.delete(outfitRule);
+    });
+
+    it('every idea keeps them, and they ride in the ideas statement', async () => {
+      const ideas = await allIdeas('/outfits/ideas');
+      const blue = [tops[2], bottoms[0]];
+      const [sneakers, boots] = shoes;
+      for (const idea of ideas) {
+        const anyBlue = blue.some((id) => idea.includes(id));
+        expect(anyBlue && idea.includes(boots), String(idea)).toBe(false);
+        if (idea.includes(tops[0])) expect(idea).toContain(sneakers);
+      }
+      // The always-rule narrows the white tee's ideas, never empties them.
+      expect(ideas.some((idea) => idea.includes(tops[0]))).toBe(true);
+      const read = await recordQueries(() => get('/outfits/ideas'));
+      expect(read.statements).toBe(2);
+    });
+  });
+
   describe('entry points', () => {
     it('the calendar plan page offers Ideas for its day and occasion', async () => {
       const day = addDays(t.today(), 2);
@@ -843,7 +884,7 @@ describe('outfit gallery', () => {
   // trip (#156), so each route's count is pinned: a new read shows up here.
   // Every request's first statement is the session's user.
   describe('statements per request (#168)', () => {
-    it('the page: the session, then the pool, saved outfits, clashes and the capsule menu in one', async () => {
+    it('the page: the session, then the pool, saved outfits, clashes, rules and the capsule menu in one', async () => {
       const read = await recordQueries(() => get('/outfits/ideas'));
       expect(read.statements).toBe(2);
       const [, ideas] = read.sql;
@@ -851,6 +892,7 @@ describe('outfit gallery', () => {
         '"garment_wear"',
         '"outfit_slot"',
         '"generator_avoid"',
+        '"outfit_rule"',
         '"capsule"',
       ]) {
         expect(ideas).toContain(table);
