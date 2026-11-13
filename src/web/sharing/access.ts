@@ -3,18 +3,18 @@ import type { FastifyRequest } from 'fastify';
 import type { Db } from '../../db/client';
 import { type SharePermission, user, wardrobeShare } from '../../db/schema';
 import { sessionUserId } from '../auth/require-session';
-import { HttpError } from '../errors';
+import { Forbidden, NotFound, type Resource } from '../refusals';
 import { ROW_ID_MAX } from '../schemas';
 
 /**
- * What the requesting user may do with the wardrobe a request addresses.
- * `ownerId` is the wardrobe actually being read or written (the requester's
- * own unless a share is in play), so callers pass it straight on.
+ * What the actor may do with the wardrobe a call addresses. `ownerId` is
+ * the wardrobe actually being read or written (the actor's own unless a
+ * share is in play), so callers pass it straight on.
  *
- * Refusal policy (callers turn this into a status): without `canView` the
- * wardrobe does not exist for the requester, a 404, so ids never reveal
- * whose data exists. With `canView` but not what the route needs
- * (`canManage`, or ownership), a 403: they know it exists.
+ * Refusal policy (authorizeWardrobe throws it): without `canView` the
+ * wardrobe does not exist for the actor, a 404, so ids never reveal whose
+ * data exists. With `canView` but not what the call needs (`canManage`, or
+ * ownership), a 403: they know it exists.
  */
 export interface WardrobeAccess {
   ownerId: number;
@@ -23,14 +23,6 @@ export interface WardrobeAccess {
   canManage: boolean;
   permission?: SharePermission;
 }
-
-/**
- * Who asks: a signed-in request (a page or a form, whose session statement
- * may have read the share its `?ownerId=` names already: shareToReadAhead),
- * or a user id (the MCP tools, which have no cookie session and read the
- * share themselves).
- */
-export type Requester = FastifyRequest | number;
 
 /** The one definition of a share that opens `ownerId`'s wardrobe to `userId`. */
 function acceptedShare(ownerId: number, userId: number) {
@@ -115,39 +107,40 @@ export function actorOf(request: FastifyRequest): Actor {
   return shareReadAhead ? { userId, shareReadAhead } : { userId };
 }
 
-/** The requester's share of `ownerId`'s wardrobe: the one read ahead when it is this wardrobe's, else a statement. */
+/** The actor's share of `ownerId`'s wardrobe: the one read ahead when it is this wardrobe's, else a statement. */
 async function sharePermission(
   db: Db,
-  requester: Requester,
-  userId: number,
+  actor: Actor,
   ownerId: number,
 ): Promise<SharePermission | null> {
-  const ahead =
-    typeof requester === 'number' ? undefined : sharesReadAhead.get(requester);
+  const ahead = actor.shareReadAhead;
   if (ahead?.ownerId === ownerId) return ahead.permission;
   const [share] = await db
     .select({ permission: wardrobeShare.permission })
     .from(wardrobeShare)
-    .where(acceptedShare(ownerId, userId));
+    .where(acceptedShare(ownerId, actor.userId));
   return share?.permission ?? null;
 }
 
 /**
- * The single ownership resolver for wardrobe routes (src/web/wardrobe). At
- * most one share lookup: none for the requester's own wardrobe, and none
- * for a request whose session statement read the share already.
+ * The single ownership resolver for wardrobe access. At most one share
+ * lookup: none for the actor's own wardrobe, and none for a page whose
+ * session statement read the share already.
  */
 async function resolveWardrobeAccess(
   db: Db,
-  requester: Requester,
+  actor: Actor,
   ownerId: number | undefined,
 ): Promise<WardrobeAccess> {
-  const userId =
-    typeof requester === 'number' ? requester : sessionUserId(requester);
-  if (ownerId == null || ownerId === userId) {
-    return { ownerId: userId, isOwner: true, canView: true, canManage: true };
+  if (ownerId == null || ownerId === actor.userId) {
+    return {
+      ownerId: actor.userId,
+      isOwner: true,
+      canView: true,
+      canManage: true,
+    };
   }
-  const permission = await sharePermission(db, requester, userId, ownerId);
+  const permission = await sharePermission(db, actor, ownerId);
   return {
     ownerId,
     isOwner: false,
@@ -157,7 +150,7 @@ async function resolveWardrobeAccess(
   };
 }
 
-/** What a route needs of the wardrobe it addresses. */
+/** What a call needs of the wardrobe it addresses. */
 export type WardrobeNeed = 'view' | 'manage' | 'own';
 
 export interface AuthorizedWardrobe {
@@ -168,27 +161,24 @@ export interface AuthorizedWardrobe {
 
 /**
  * The refusal policy above, applied: resolves the wardrobe `ownerId` names
- * (`''` or absent: the requester's own) and throws unless the requester has
- * what the route `need`s: a view (404 without one, `notFound` its message,
- * so the page reads like an unknown id), a MANAGE share or ownership (403),
- * or ownership (403). Every route that takes `?ownerId=` goes through it,
- * a route plugin through its wardrobeGuard.
+ * (`''` or absent: the actor's own) and throws unless the actor has what
+ * the call `need`s: a view (NotFound without one, of `unseen`, so the
+ * answer reads like an unknown id of what was asked for), a MANAGE share or
+ * ownership (Forbidden), or ownership (Forbidden). Every route that takes
+ * `?ownerId=` goes through it (a route plugin through its wardrobeGuard),
+ * and so does every MCP tool that addresses a wardrobe (wardrobeFor).
  */
 export async function authorizeWardrobe(
   db: Db,
-  requester: Requester,
+  actor: Actor,
   ownerId: number | '' | undefined,
   need: WardrobeNeed,
-  notFound: string,
+  unseen: Resource,
 ): Promise<AuthorizedWardrobe> {
-  const access = await resolveWardrobeAccess(
-    db,
-    requester,
-    ownerId || undefined,
-  );
-  if (!access.canView) throw new HttpError(404, notFound);
-  if (need === 'manage' && !access.canManage) throw new HttpError(403);
-  if (need === 'own' && !access.isOwner) throw new HttpError(403);
+  const access = await resolveWardrobeAccess(db, actor, ownerId || undefined);
+  if (!access.canView) throw new NotFound(unseen);
+  if (need === 'manage' && !access.canManage) throw new Forbidden();
+  if (need === 'own' && !access.isOwner) throw new Forbidden();
   // `?ownerId=<self>` is the own wardrobe (nobody shares with themselves),
   // and its links must not carry the parameter.
   return { access, viewOwner: access.isOwner ? undefined : access.ownerId };
@@ -206,13 +196,19 @@ export type WardrobeGuard = (
 ) => Promise<AuthorizedWardrobe>;
 
 /**
- * A feature's guard, bound once per plugin with the feature's 404 message
- * (garmentGuard, the capsule and wishlist plugins), so no route re-declares
- * the wrapper or relays `request.query.ownerId` by hand.
+ * A feature's guard, bound once per plugin with what an unseen wardrobe
+ * reads as (garmentGuard, the capsule and wishlist plugins), so no route
+ * re-declares the wrapper or relays `request.query.ownerId` by hand.
  */
-export function wardrobeGuard(db: Db, notFound: string): WardrobeGuard {
+export function wardrobeGuard(db: Db, unseen: Resource): WardrobeGuard {
   return (request, need) =>
-    authorizeWardrobe(db, request, request.query.ownerId, need, notFound);
+    authorizeWardrobe(
+      db,
+      actorOf(request),
+      request.query.ownerId,
+      need,
+      unseen,
+    );
 }
 
 export interface SharedWardrobe {

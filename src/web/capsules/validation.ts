@@ -14,7 +14,7 @@ import type { CapsuleFields } from './queries';
  * only; ids outside the wardrobe are dropped by the writer, not refused.
  */
 
-export const CAPSULE_NOT_FOUND = 'Capsule not found';
+const CAPSULE_NOT_FOUND = 'Capsule not found';
 
 /**
  * A capsule outside the addressed wardrobe, whether it exists or not: the

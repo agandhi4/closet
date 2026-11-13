@@ -106,7 +106,7 @@ export const inboxRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 ) => {
   const { db, logger } = options;
 
-  const authorize = wardrobeGuard(db, NOT_FOUND);
+  const authorize = wardrobeGuard(db, 'wardrobe');
 
   /** The addressed wardrobe's inbox: the page's, and its next pages' groups alone. */
   async function addressedInbox(request: WardrobeRequest, groupsOnly: boolean) {

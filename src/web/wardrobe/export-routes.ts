@@ -25,7 +25,7 @@ export const exportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   { db, config, logger },
   done,
 ) => {
-  const authorize = wardrobeGuard(db, 'Wardrobe not found');
+  const authorize = wardrobeGuard(db, 'wardrobe');
   for (const format of EXPORT_FORMATS) {
     app.get(
       wardrobeExportPath(format),

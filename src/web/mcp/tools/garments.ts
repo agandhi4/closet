@@ -28,17 +28,14 @@ import {
 } from '../../../wardrobe/care';
 import { perWearCost, totalCost } from '../../../wardrobe/insights';
 import { todayIn } from '../../../calendar-date';
-import { capsulesOfGarmentSql, findCapsule } from '../../capsules/queries';
+import { capsulesOfGarmentSql } from '../../capsules/queries';
 import { HttpError } from '../../errors';
 import { t } from '../../i18n';
-import { publicPhoto } from '../../files/references';
 import { normalizeCategory, normalizeSize } from '../../wardrobe/garment';
 import {
-  findGarment,
   type GarmentDetail,
   type GarmentSummary,
   garmentSummaries,
-  gridCount,
   type GridFilters,
   updateGarmentFields,
 } from '../../wardrobe/queries';
@@ -70,13 +67,19 @@ import {
 } from '../../wears/queries';
 import { wishlistItems } from '../../wishlist/queries';
 import {
+  actorOf,
   defineTool,
   ImageAnswer,
   type ToolContext,
   wardrobeFor,
 } from '../tool';
 import { centsPriceInput, isoDate, ownerIdInput, rowId } from './common';
-import { garmentNotFound } from '../../wardrobe/garment-access';
+import {
+  garmentIn,
+  garmentNotFound,
+  garmentPhotoIn,
+  searchGarments,
+} from '../../wardrobe/garment-access';
 import { addGarmentFromLink, refusedForm } from './link-import';
 
 /** A search or capsule hit, as the tools answer it. */
@@ -189,14 +192,9 @@ async function garmentOut(
   };
 }
 
-async function garmentIn(ctx: ToolContext, id: number, ownerId: number) {
-  const garment = await findGarment(ctx.db, id, ownerId);
-  if (!garment) throw garmentNotFound();
-  return garment;
-}
-
 /** A type only with its own category, as the grid (gridSearch) allows it. */
 export function checkedType(category: string, type: string): string {
+  if (!category) throw new HttpError(400, 'A type needs its category');
   const found = findType(category, type);
   if (!found) {
     const types = typesOf(category).map((t) => t.value);
@@ -587,8 +585,9 @@ type SearchArgs = z.output<typeof SearchInput>;
 
 /**
  * search_garments' arguments as the grid's filters (gridSearch's rules: a
- * category normalized, a type only of its category, a size normalized),
- * after refuseSearch.
+ * category normalized, a type only with its category, a size normalized);
+ * a type without one, or not of it, is a 400 (checkedType) before the
+ * wardrobe is read.
  */
 function searchFilters(args: SearchArgs): GridFilters {
   const category = args.category ? normalizeCategory(args.category) : '';
@@ -608,31 +607,6 @@ function searchFilters(args: SearchArgs): GridFilters {
     attention: args.needsAttention,
     needsTags: args.needsTagging,
   };
-}
-
-/**
- * What search_garments refuses where the grid would quietly drop or 404: a
- * type without its category, needs-wash on a shared wardrobe (it reads the
- * owner's wears; an unfiltered answer would be misread), a capsule outside
- * the wardrobe.
- */
-async function refuseSearch(
-  ctx: ToolContext,
-  args: SearchArgs,
-  access: { ownerId: number; isOwner: boolean },
-): Promise<void> {
-  if (args.type && !args.category) {
-    throw new HttpError(400, 'A type needs its category');
-  }
-  if (args.needsWash && !access.isOwner) {
-    throw new HttpError(403, 'needsWash reads your own wears only');
-  }
-  if (
-    args.capsuleId !== undefined &&
-    !(await findCapsule(ctx.db, args.capsuleId, access.ownerId))
-  ) {
-    throw new HttpError(404, 'Capsule not found');
-  }
 }
 
 /**
@@ -668,21 +642,17 @@ export const garmentTools = [
     input: SearchInput,
     writes: false,
     async run(args, ctx) {
-      const access = await wardrobeFor(ctx, args.ownerId, 'view');
-      await refuseSearch(ctx, args, access);
-      const filters = searchFilters(args);
-      const [page, total] = await Promise.all([
-        garmentSummaries(ctx.db, access.ownerId, filters, {
+      const { total, garments, next } = await searchGarments(
+        ctx.db,
+        actorOf(ctx),
+        {
+          ownerId: args.ownerId,
+          filters: searchFilters(args),
           before: args.before,
           limit: GRID_PAGE_SIZE,
-        }),
-        gridCount(ctx.db, access.ownerId, filters),
-      ]);
-      return {
-        total,
-        garments: page.garments.map(summaryOut),
-        next: page.before ?? null,
-      };
+        },
+      );
+      return { total, garments: garments.map(summaryOut), next };
     },
   }),
 
@@ -731,7 +701,7 @@ export const garmentTools = [
     writes: false,
     async run({ id, ownerId }, ctx) {
       const access = await wardrobeFor(ctx, ownerId, 'view');
-      const garment = await garmentIn(ctx, id, access.ownerId);
+      const garment = await garmentIn(ctx.db, access, id);
       return garmentOut(ctx, garment, access.ownerId, access.isOwner);
     },
   }),
@@ -745,18 +715,12 @@ export const garmentTools = [
     writes: false,
     async run({ id, ownerId }, ctx) {
       const access = await wardrobeFor(ctx, ownerId, 'view');
-      const garment = await garmentIn(ctx, id, access.ownerId);
-      if (!garment.photo) throw new HttpError(404, 'Garment has no photo');
-      // A garment's photo is never a selfie (each has its own file row),
-      // but the rule that no selfie leaves through anything but its owner's
-      // session is checked here as on the public /file routes.
-      const photo = await publicPhoto(ctx.db, garment.photo.fileName);
-      if (!photo) {
-        ctx.webLogger.warn(
-          `Refused a selfie as garment ${id}'s photo to user ${ctx.userId} (MCP)`,
-        );
-        throw garmentNotFound();
-      }
+      const { garment, photo } = await garmentPhotoIn(
+        ctx.db,
+        ctx.webLogger,
+        access,
+        id,
+      );
       const thumb = await buffer(await ctx.photos.getVariant(photo, 'thumb'));
       return new ImageAnswer(
         { id: garment.id, name: garment.name, category: garment.category },
@@ -793,7 +757,7 @@ export const garmentTools = [
     idempotent: true,
     async run({ id, ownerId, ...changes }, ctx) {
       const access = await wardrobeFor(ctx, ownerId, 'manage');
-      const garment = await garmentIn(ctx, id, access.ownerId);
+      const garment = await garmentIn(ctx.db, access, id);
       const { fields, ignored } = garmentUpdate(garment, changes, {
         owner: access.isOwner,
       });
@@ -862,7 +826,7 @@ export const garmentTools = [
       ctx.webLogger.info(
         `Garment ${args.id} copies added by user ${ctx.userId} in wardrobe ${access.ownerId} (MCP): quantity ${outcome.from} -> ${outcome.to}`,
       );
-      const saved = await garmentIn(ctx, args.id, access.ownerId);
+      const saved = await garmentIn(ctx.db, access, args.id);
       return {
         garment: await garmentOut(ctx, saved, access.ownerId, access.isOwner),
       };
@@ -932,7 +896,7 @@ export const garmentTools = [
         );
       }
       const saved = await addGarmentFromLink(ctx, access, args);
-      const garment = await garmentIn(ctx, saved.id, access.ownerId);
+      const garment = await garmentIn(ctx.db, access, saved.id);
       // The garment form's duplicate check (#20), after the fact: a tool
       // call has no form to ask on before saving.
       const lookalikes =
