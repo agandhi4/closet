@@ -27,6 +27,7 @@ import {
   expectNoScriptNavigation,
   HX_FRAGMENT,
 } from './pages';
+import { interleave } from './interleave';
 
 /**
  * Today (#15), the home screen at GET /: a row per occasion planned today,
@@ -487,29 +488,11 @@ describe('Today', () => {
         today: t.today(),
         at: new Date(),
       };
-      let picked!: () => void;
-      const aPicked = new Promise<void>((resolve) => (picked = resolve));
-      let release!: () => void;
-      const aReleased = new Promise<void>((resolve) => (release = resolve));
-      const a = t.db.transaction(async (tx) => {
-        const result = await wearIdea(tx, ownerId, input);
-        picked();
-        await aReleased;
-        return result;
-      });
-      await aPicked;
-      const b = wearIdea(t.db, ownerId, input);
-      await expect
-        .poll(async () => {
-          const { rows } = await t.db.execute<{ waiting: number }>(
-            sql`select count(*)::int as waiting from pg_stat_activity
-                where datname = current_database() and wait_event_type = 'Lock'`,
-          );
-          return rows[0].waiting;
-        })
-        .toBe(1);
-      release();
-      const [first, second] = await Promise.all([a, b]);
+      const [first, second] = await interleave(
+        t.db,
+        (tx) => wearIdea(tx, ownerId, input),
+        () => wearIdea(t.db, ownerId, input),
+      );
       expect(first).toMatchObject({ worn: { changed: true } });
       expect(second).toMatchObject({
         entryId: (first as { entryId: number }).entryId,

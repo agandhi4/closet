@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   outfit,
@@ -31,6 +31,7 @@ import {
   expectNoScriptNavigation,
 } from './pages';
 import { takeSelfie } from './selfies';
+import { interleave } from './interleave';
 
 /**
  * Changing a planned outfit in place (#69): one replace write,
@@ -376,34 +377,11 @@ describe('changing a planned outfit in place', () => {
       const idea = [tops[1], bottoms[1], shoes[0]];
       const target = { entryId, day, occasion: 'evening' as const };
       const owner = { userId: t.owner.id };
-      // A holds its transaction open, as a slow first tap would.
-      let replaced!: () => void;
-      const aReplaced = new Promise<void>((resolve) => (replaced = resolve));
-      let release!: () => void;
-      const aReleased = new Promise<void>((resolve) => (release = resolve));
-      const a = t.db.transaction(async (tx) => {
-        const result = await replaceEntryOutfit(tx, owner, target, {
-          garmentIds: idea,
-        });
-        replaced();
-        await aReleased;
-        return result;
-      });
-      await aReplaced;
-      const b = replaceEntryOutfit(t.db, owner, target, {
-        garmentIds: idea,
-      });
-      await expect
-        .poll(async () => {
-          const { rows } = await t.db.execute<{ waiting: number }>(
-            sql`select count(*)::int as waiting from pg_stat_activity
-                where datname = current_database() and wait_event_type = 'Lock'`,
-          );
-          return rows[0].waiting;
-        })
-        .toBe(1);
-      release();
-      const [first, second] = await Promise.all([a, b]);
+      const [first, second] = await interleave(
+        t.db,
+        (tx) => replaceEntryOutfit(tx, owner, target, { garmentIds: idea }),
+        () => replaceEntryOutfit(t.db, owner, target, { garmentIds: idea }),
+      );
       expect(first).toMatchObject({ outcome: 'replaced', alreadySaved: false });
       expect(second).toMatchObject({
         outcome: 'unchanged',

@@ -25,6 +25,7 @@ import {
 } from './harness';
 import { callTool, createAccessToken } from './mcp';
 import { expectFragment, expectFullPage, HX_FRAGMENT } from './pages';
+import { interleave } from './interleave';
 
 /**
  * The outfit gallery (#9): the Outfits page's Ideas tab over the generator
@@ -549,34 +550,12 @@ describe('outfit gallery', () => {
       const day = addDays(t.today(), 6);
       const plan = { day, occasion: 'evening' as const };
       const ownerId = t.owner.id;
-      // A picks and holds its transaction open, as a slow first tap would.
-      let picked!: () => void;
-      const aPicked = new Promise<void>((resolve) => (picked = resolve));
-      let release!: () => void;
-      const aReleased = new Promise<void>((resolve) => (release = resolve));
-      const a = t.db.transaction(async (tx) => {
-        const result = await pickIdea(tx, ownerId, {
-          garmentIds: racing,
-          plan,
-        });
-        picked();
-        await aReleased;
-        return result;
-      });
-      await aPicked;
       // B, the second tap, must wait for A's commit and then find its outfit.
-      const b = pickIdea(t.db, ownerId, { garmentIds: racing, plan });
-      await expect
-        .poll(async () => {
-          const { rows } = await t.db.execute<{ waiting: number }>(
-            sql`select count(*)::int as waiting from pg_stat_activity
-                where datname = current_database() and wait_event_type = 'Lock'`,
-          );
-          return rows[0].waiting;
-        })
-        .toBe(1);
-      release();
-      const [first, second] = await Promise.all([a, b]);
+      const [first, second] = await interleave(
+        t.db,
+        (tx) => pickIdea(tx, ownerId, { garmentIds: racing, plan }),
+        () => pickIdea(t.db, ownerId, { garmentIds: racing, plan }),
+      );
       expect(first).toMatchObject({
         alreadySaved: false,
         schedule: 'scheduled',
