@@ -7,6 +7,7 @@ import { unchecked } from '../checklist';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import {
+  actorOf,
   sharedWardrobesSql,
   toSharedWardrobe,
   wardrobeGuard,
@@ -19,18 +20,18 @@ import { CapsulePage } from './capsule-page';
 import { CapsuleFormPage, type CapsuleFormModel } from './form-page';
 import { CapsulesPage } from './list-page';
 import {
-  type CapsuleDetail,
-  capsuleListSql,
-  changeMembership,
-  createCapsule,
-  deleteCapsule,
-  findCapsule,
-  readCapsuleList,
-  updateCapsule,
-} from './queries';
+  capsuleAddress,
+  capsuleIn,
+  createOwnCapsule,
+  deleteOwnCapsule,
+  renameCapsule,
+  requireCapsule,
+  setCapsuleMembers,
+  setGarmentCapsules,
+} from './capsule-actions';
+import { capsuleListSql, readCapsuleList } from './queries';
 import {
   CapsuleBody,
-  capsuleNotFound,
   CapsulePageQuery,
   type CapsuleForm,
   CapsuleParams,
@@ -39,7 +40,7 @@ import {
   nameTaken,
   readCapsuleForm,
 } from './validation';
-import { garmentNotFound } from '../wardrobe/garment-access';
+import { garmentAddress } from '../wardrobe/garment-access';
 
 /** One capsule's route: its page, its rename and its delete. */
 const CAPSULE_ROUTE = '/capsules/:id';
@@ -52,7 +53,9 @@ const CAPSULE_ROUTE = '/capsules/:id';
  * also changes their membership (the picker, the garment page's toggles),
  * and only the owner creates, renames and deletes them. A capsule outside
  * the addressed wardrobe is a 404 like an unknown id; one the requester
- * can see but not change is a 403.
+ * can see but not change is a 403. Each refusal is the capsule access
+ * path's (capsule-actions.ts, #188); a route asks its guard first only
+ * where a refused form must be drawn for the right audience.
  */
 export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
@@ -62,15 +65,6 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   const { db, logger } = options;
 
   const authorize = wardrobeGuard(db, 'capsule');
-
-  async function requireCapsule(
-    id: number,
-    ownerId: number,
-  ): Promise<CapsuleDetail> {
-    const capsule = await findCapsule(db, id, ownerId);
-    if (!capsule) throw capsuleNotFound();
-    return capsule;
-  }
 
   function renderForm(
     reply: FastifyReply,
@@ -149,15 +143,26 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/capsules',
     { schema: { querystring: OwnerQuery, body: CapsuleBody } },
     async (request, reply) => {
-      const { access } = await authorize(request, 'own');
+      // The guard before the form: a refused form is the owner's to see.
+      await authorize(request, 'own');
       const form = readCapsuleForm(request.body);
       if (!form.ok) return refuseForm(reply, form);
-      const id = await createCapsule(db, access.ownerId, form.fields);
-      if (id === 'name-taken') {
+      const created = await createOwnCapsule(
+        db,
+        actorOf(request),
+        request.query.ownerId,
+        form.fields,
+      );
+      if (created === 'name-taken') {
         return refuseForm(reply, nameTaken(request.body));
       }
-      logger.info(`Capsule ${id} created by user ${access.ownerId}`);
-      return reply.redirect(capsuleUrl(id, undefined, '', { created: 1 }), 303);
+      logger.info(
+        `Capsule ${created.id} created by user ${created.access.ownerId}`,
+      );
+      return reply.redirect(
+        capsuleUrl(created.id, undefined, '', { created: 1 }),
+        303,
+      );
     },
   );
 
@@ -172,7 +177,7 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       // they read.
       const filters = { ...CLOSET_FILTERS, capsule: request.params.id };
       const [capsule, page, count] = await Promise.all([
-        requireCapsule(request.params.id, access.ownerId),
+        capsuleIn(db, access, request.params.id),
         gridPage(db, access.ownerId, filters, { ownerView: access.isOwner }),
         gridCount(db, access.ownerId, filters),
       ]);
@@ -203,8 +208,12 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/capsules/:id/edit',
     { schema: { params: CapsuleParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access } = await authorize(request, 'own');
-      const capsule = await requireCapsule(request.params.id, access.ownerId);
+      const { capsule } = await requireCapsule(
+        db,
+        actorOf(request),
+        capsuleAddress(request),
+        'own',
+      );
       return renderForm(reply, {
         capsuleId: capsule.id,
         values: { name: capsule.name, notes: capsule.notes ?? '' },
@@ -223,17 +232,19 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const { access } = await authorize(request, 'own');
-      const { id } = request.params;
-      await requireCapsule(id, access.ownerId);
+      const actor = actorOf(request);
+      const address = capsuleAddress(request);
+      const { id } = address;
+      // The capsule before the form: a blank name on another's capsule is
+      // its 404, and a refused form is the owner's to see.
+      await requireCapsule(db, actor, address, 'own');
       const form = readCapsuleForm(request.body);
       if (!form.ok) return refuseForm(reply, form, id);
-      const saved = await updateCapsule(db, id, access.ownerId, form.fields);
-      if (saved === 'not-found') throw capsuleNotFound();
+      const saved = await renameCapsule(db, actor, address, form.fields);
       if (saved === 'name-taken') {
         return refuseForm(reply, nameTaken(request.body), id);
       }
-      logger.info(`Capsule ${id} updated by user ${access.ownerId}`);
+      logger.info(`Capsule ${id} updated by user ${saved.access.ownerId}`);
       return reply.redirect(capsuleUrl(id, undefined), 303);
     },
   );
@@ -243,11 +254,12 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     CAPSULE_ROUTE,
     { schema: { params: CapsuleParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access } = await authorize(request, 'own');
       const { id } = request.params;
-      if (!(await deleteCapsule(db, id, access.ownerId))) {
-        throw capsuleNotFound();
-      }
+      const { access } = await deleteOwnCapsule(
+        db,
+        actorOf(request),
+        capsuleAddress(request),
+      );
       logger.info(`Capsule ${id} deleted by user ${access.ownerId}`);
       return navigateTo(reply, '/capsules');
     },
@@ -269,18 +281,14 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const { access, viewOwner } = await authorize(request, 'manage');
       const { id } = request.params;
       const { ids, shown } = request.body ?? {};
-      const { added, removed, capsules } = await changeMembership(
+      const { access, viewOwner, added, removed } = await setCapsuleMembers(
         db,
-        access.ownerId,
-        {
-          add: { capsuleIds: [id], garmentIds: ids ?? [] },
-          remove: { capsuleIds: [id], garmentIds: unchecked(shown, ids) },
-        },
+        actorOf(request),
+        capsuleAddress(request),
+        { add: ids ?? [], remove: unchecked(shown, ids) },
       );
-      if (!capsules.has(id)) throw capsuleNotFound();
       logger.info(
         `Capsule ${id} garments chosen by user ${sessionUserId(request)} in wardrobe ${access.ownerId}: ${added} added, ${removed} removed, ${shown?.length ?? 0} shown`,
       );
@@ -308,16 +316,15 @@ export const capsuleRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const { access } = await authorize(request, 'manage');
       const { id } = request.params;
       const { capsuleIds, shown } = request.body ?? {};
-      const result = await changeMembership(db, access.ownerId, {
-        add: { capsuleIds: capsuleIds ?? [], garmentIds: [id] },
-        remove: { capsuleIds: unchecked(shown, capsuleIds), garmentIds: [id] },
-      });
-      if (!result.garments.has(id)) {
-        throw garmentNotFound();
-      }
+      const result = await setGarmentCapsules(
+        db,
+        actorOf(request),
+        garmentAddress(request),
+        { add: capsuleIds ?? [], remove: unchecked(shown, capsuleIds) },
+      );
+      const { access } = result;
       logger.info(
         `Garment ${id} capsules set by user ${sessionUserId(request)} in wardrobe ${access.ownerId}: ${result.added} added, ${result.removed} removed`,
       );

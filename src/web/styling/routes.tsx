@@ -8,7 +8,7 @@ import { GARMENT_ROLES, type GarmentRole } from '../../wardrobe/properties';
 import { sessionUserId } from '../auth/require-session';
 import { type IsoDate, todayIn } from '../../calendar-date';
 import type { CapsuleRef } from '../capsules/queries';
-import { capsuleNotFound } from '../capsules/validation';
+import { capsuleNotFound } from '../capsules/capsule-actions';
 import { HttpError } from '../errors';
 import { aimIdeas, type IdeasAim } from '../gallery/aim';
 import { dailySeed, ideaName, parseSeed, shuffledSeed } from '../gallery/ideas';

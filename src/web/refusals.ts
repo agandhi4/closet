@@ -28,6 +28,7 @@ const NOT_FOUND_MESSAGE = {
   repair: 'refusal.notFound.repair',
   trip: 'refusal.notFound.trip',
   wardrobe: 'refusal.notFound.wardrobe',
+  wishlistItem: 'refusal.notFound.wishlistItem',
 } as const satisfies Record<string, StringKey>;
 
 export type Resource = keyof typeof NOT_FOUND_MESSAGE;
