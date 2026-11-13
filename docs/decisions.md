@@ -877,6 +877,12 @@ Why: htmx swaps no 4xx/5xx, so a refused tap (a deleted garment's 404, the owner
 Decision: the root error handler decides by request kind: a fragment request gets its status, no body and `HX-Trigger` `closet:request-failed` `{ message, requestId }` (i18n, never the error's text; the 500 a fixed line); a navigation or boosted tap the error page. `public/js/request-failures.js` swaps a boosted error page that is ours (`X-Request-ID`), toasts the trigger, a foreign error answer and `htmx:timeout` (`HTMX_CONFIG.timeout` = `REPLAY_TIMEOUT_MS`); a queueable form's timeout is queued by the outbox instead. Not `responseHandling`: its rules see only the status, not `boosted`, and swapping every 4xx would empty a fragment target with the bodiless answer.
 Consequence: a route throws to refuse an htmx request; the link photo choice's 200-with-error is gone, the registration's inline validation stays 200 (a message is its answer, not a failure). The 404 handler's message no longer echoes the URL.
 
+## 2026-11-13 — An outfit's origin, and one list rule for Saved and the pickers (#659)
+
+**Why:** every list was "all the owner's outfits", so after a few weeks of Plan my week and Wear this, curated outfits sat under dozens of machine-named one-offs in Saved, the calendar's plan page and a trip's add page; the calendar's x also left the planner's outfit behind.
+**Decision:** `outfit.origin` (`person`, `agent`, `idea`, `planner`; `src/wardrobe/outfit-origin.ts`), required by `createOutfit`/`pickIdea`. A reuse only raises it (`adoptOutfit`), any edit makes it `person`. `keptOutfit()` (`person`, `agent`) is the one predicate, read only through `savedOutfitsSql(owner, list)` and the API's `show`; the rest sit behind "Worn and planned" (`?show=one-offs`, lenient). `deleteEntry` applies Undo's rule. Migration 0053 moves only provable rows (proposals to `agent`; unadopted, untouched planner outfits to `planner`) under the owners' locks; everything else stays `person`.
+**Consequence:** older one-offs (Wear this, planner outfits whose entries were already removed) stay on Saved; a no-op save of a planner outfit before 0053 backfills `planner`. A synced copy without `origin` is `person`. Not pruned: an idea one-off whose entry is removed, a planner outfit whose entry the person took over; both stay under "Worn and planned".
+
 ## 2026-11-13 — The error page names what the person can do, by status class (#644)
 
 **Why:** upstream's debug view (Path, Time, a lone Return to Home in `p-20`) made a deleted garment look like a crash with no way back.

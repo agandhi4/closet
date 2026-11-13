@@ -156,7 +156,8 @@ describe('outfit saves', () => {
     it("the outfit form's Save that waited on a pick of the same garments reuses its outfit", async () => {
       const [picked, saved] = await interleave(
         t.db,
-        (tx) => pickIdea(tx, t.owner.id, { garmentIds: look() }),
+        (tx) =>
+          pickIdea(tx, t.owner.id, { garmentIds: look(), origin: 'person' }),
         () => formSave(look(), { name: 'Friday' }),
       );
       if (picked === 'not-found') throw new Error('the pick was refused');
@@ -174,8 +175,10 @@ describe('outfit saves', () => {
           createOutfit(tx, t.owner.id, {
             name: 'Friday',
             slots: look().map((garmentId) => ({ category: 'tops', garmentId })),
+            origin: 'person',
           }),
-        () => pickIdea(t.db, t.owner.id, { garmentIds: look() }),
+        () =>
+          pickIdea(t.db, t.owner.id, { garmentIds: look(), origin: 'person' }),
       );
       expect(created.alreadySaved).toBe(false);
       expect(picked).toMatchObject({
@@ -189,7 +192,8 @@ describe('outfit saves', () => {
     it('Styling’s Save that waited on a pick lands on the same outfit, “Already saved”', async () => {
       const [picked, saved] = await interleave(
         t.db,
-        (tx) => pickIdea(tx, t.owner.id, { garmentIds: look() }),
+        (tx) =>
+          pickIdea(tx, t.owner.id, { garmentIds: look(), origin: 'person' }),
         () => stylingSave(lookRows(), { name: 'Mine' }),
       );
       if (picked === 'not-found') throw new Error('the pick was refused');
@@ -203,7 +207,8 @@ describe('outfit saves', () => {
     it('create_outfit that waited on a pick answers the pick’s outfit, alreadySaved', async () => {
       const [picked, created] = await interleave(
         t.db,
-        (tx) => pickIdea(tx, t.owner.id, { garmentIds: look() }),
+        (tx) =>
+          pickIdea(tx, t.owner.id, { garmentIds: look(), origin: 'person' }),
         () =>
           tool<{ id: number; alreadySaved: boolean }>(
             t,
@@ -225,6 +230,7 @@ describe('outfit saves', () => {
           createOutfit(tx, t.owner.id, {
             name: 'Friday',
             slots: look().map((garmentId) => ({ category: 'tops', garmentId })),
+            origin: 'person',
           }),
         // As "Plan my week" writes: under the owner lock, which it waits on.
         () =>
@@ -233,6 +239,7 @@ describe('outfit saves', () => {
             const picked = await pickIdea(tx, t.owner.id, {
               garmentIds: look(),
               plan: { day, occasion: 'all-day', plannedBy: 'auto' },
+              origin: 'planner',
             });
             if (picked === 'not-found') throw new Error('refused');
             const [entry] = await tx
@@ -266,6 +273,7 @@ describe('outfit saves', () => {
       const planned = await pickIdea(t.db, t.owner.id, {
         garmentIds: look(),
         plan: { day, occasion: 'all-day', plannedBy: 'auto' },
+        origin: 'planner',
       });
       if (planned === 'not-found') throw new Error('refused');
       // The planner made it: a batch row says it created the outfit.
@@ -352,6 +360,7 @@ describe('outfit saves', () => {
       const saved = await createOutfit(t.db, t.owner.id, {
         name: 'Kept',
         slots: look().map((garmentId) => ({ category: 'tops', garmentId })),
+        origin: 'person',
       });
       await setGarmentStatus(t.db, shoes, t.owner.id, { event: 'archive' });
       const kept = await stylingSave(lookRows(), { outfit: String(saved.id) });
@@ -389,6 +398,7 @@ describe('outfit saves', () => {
         name: 'On the day',
         slots: [{ category: 'bottoms', garmentId: bottom }],
         plan: { day, occasion: 'work' },
+        origin: 'person',
       });
       const [entry] = await t.db
         .select({ id: outfitCalendar.id })
@@ -399,6 +409,7 @@ describe('outfit saves', () => {
       const actor = { userId: t.owner.id };
       const refusal: unknown = await replaceEntryOutfit(t.db, actor, target, {
         garmentIds: look(),
+        origin: 'idea',
       }).catch((error: unknown) => error);
       expect(refusal).toBeInstanceOf(OutfitGarmentsGone);
       expect(refusal).toMatchObject({
@@ -412,6 +423,7 @@ describe('outfit saves', () => {
       await expect(
         replaceEntryOutfit(t.db, actor, target, {
           garmentIds: [bottom, 2147483000],
+          origin: 'idea',
         }),
       ).rejects.toMatchObject({
         statusCode: 404,
@@ -483,6 +495,7 @@ describe('outfit saves', () => {
           category: 'tops',
           garmentId,
         })),
+        origin: 'person',
       });
       const [, res] = await interleave(
         t.db,

@@ -309,6 +309,7 @@ export async function writeAutoPick(
   const picked = await pickIdea(tx, ownerId, {
     garmentIds: pick.garments.map((g) => g.id),
     plan: { day: pick.day, occasion: pick.occasion, plannedBy: 'auto' },
+    origin: 'planner',
   });
   if (picked === 'not-found' || picked.schedule !== 'scheduled') {
     return undefined;

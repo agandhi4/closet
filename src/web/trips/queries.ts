@@ -19,6 +19,7 @@ import {
   tripOutfit,
 } from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
+import type { OutfitOrigin } from '../../wardrobe/outfit-origin';
 import type { Location } from '../../weather/location';
 import { addDays, type IsoDate } from '../../calendar-date';
 import { pickIdea, type PickResult } from '../outfits/pick';
@@ -501,6 +502,7 @@ export function pickForTrip(
     tripId: number;
     garmentIds: readonly number[];
     name?: string;
+    origin: OutfitOrigin;
   } & TripSlot,
 ): Promise<
   { outfit: PickResult; added: TripOutfitAdded } | TripRefusal | 'not-found'
@@ -511,6 +513,7 @@ export function pickForTrip(
     const picked = await pickIdea(tx, ownerId, {
       garmentIds: input.garmentIds,
       name: input.name,
+      origin: input.origin,
     });
     if (picked === 'not-found') return 'not-found';
     const added = await insertTripOutfit(tx, input.tripId, picked.id, input);

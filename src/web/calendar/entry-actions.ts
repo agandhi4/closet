@@ -88,8 +88,10 @@ export async function requireEntry(
 }
 
 /**
- * POST /calendar/:id/delete: deletes the actor's entry with its wears and
- * its selfie's row (deleteEntry, one transaction), then the selfie's bytes,
+ * POST /calendar/:id/delete: deletes the actor's entry with its wears,
+ * its selfie's row and, for a planner's entry, the outfit "Plan my week"
+ * made for it once nothing holds it (deleteEntry, one transaction, Undo's
+ * rule: #659), then the selfie's bytes,
  * which no transaction holds (AGENTS.md Gotchas, "The DB cascade deletes
  * rows, never bytes").
  */
@@ -104,11 +106,15 @@ export async function removeEntry(
   for (const fileName of outcome.selfies) {
     await photos.deleteVariants(unkeyedPhoto(fileName));
   }
+  const selfie =
+    outcome.selfies.length > 0
+      ? ` with its selfie ${outcome.selfies.join(', ')}`
+      : '';
+  const planner =
+    outcome.plannerOutfitRemoved === null
+      ? ''
+      : `, planner's outfit ${outcome.plannerOutfitRemoved} removed`;
   logger.info(
-    `Calendar entry ${id} deleted by user ${actor.userId}${
-      outcome.selfies.length > 0
-        ? ` with its selfie ${outcome.selfies.join(', ')}`
-        : ''
-    }`,
+    `Calendar entry ${id} deleted by user ${actor.userId}${selfie}${planner}`,
   );
 }

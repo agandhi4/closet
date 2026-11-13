@@ -5,6 +5,7 @@ import {
   file,
   garment,
   outfit,
+  outfitCalendar,
   outfitSlot,
   wardrobeShare,
 } from '../../src/db/schema';
@@ -403,6 +404,63 @@ describe('GET /offline/warm', () => {
       ].map((match) => match[1]);
       expect(shown.length).toBeGreaterThan(0);
       expect(warmedGarments).toEqual(expect.arrayContaining(shown));
+    });
+  });
+
+  // #659: one-offs sit behind "Worn and planned", but Today and the
+  // calendar open the ones this week and next hold, so those warm first,
+  // ahead of the kept outfits that fill the cap; the rest are only kept.
+  describe('one-offs', () => {
+    it('warms the near-term one-offs first, then the kept ones to the cap, and only keeps the other one-offs', async () => {
+      const email = 'warm-one-offs@example.com';
+      const cookie = await t.register(email);
+      const ownerId = await userIdOf(t, email);
+      const ids = await asFixture(t.db, async (tx) => {
+        const insert = async (origin: 'idea' | 'planner'): Promise<number> => {
+          const [row] = await tx
+            .insert(outfit)
+            .values({ shareableId: randomUUID(), ownerId, origin })
+            .returning({ id: outfit.id });
+          return row.id;
+        };
+        // The oldest first, so newest-first order alone would cut them.
+        const planned = await insert('planner');
+        const later = await insert('idea');
+        const unplanned = await insert('idea');
+        await tx.insert(outfitCalendar).values([
+          { day: t.today(), outfitId: planned, ownerId },
+          // Past next week: not near-term.
+          { day: addDays(t.today(), 21), outfitId: later, ownerId },
+        ]);
+        const kept = await tx
+          .insert(outfit)
+          .values(
+            Array.from({ length: WARM_OUTFIT_CAP }, () => ({
+              shareableId: randomUUID(),
+              ownerId,
+            })),
+          )
+          .returning({ id: outfit.id });
+        return {
+          planned,
+          later,
+          unplanned,
+          kept: kept.map((row) => row.id).reverse(),
+        };
+      });
+      const list = await warmList(cookie);
+      expect(
+        list.pages.filter((path) => /^\/outfits\/\d+$/.test(path)),
+      ).toEqual(
+        [ids.planned, ...ids.kept.slice(0, WARM_OUTFIT_CAP - 1)].map(
+          (id) => `/outfits/${id}`,
+        ),
+      );
+      expect(list.keep).toEqual(
+        [ids.kept[WARM_OUTFIT_CAP - 1], ids.unplanned, ids.later].map(
+          (id) => `/outfits/${id}`,
+        ),
+      );
     });
   });
 });

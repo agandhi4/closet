@@ -5,6 +5,7 @@ import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { ideasUrl } from '../gallery/urls';
 import type { GarmentOutfit } from '../outfits/queries';
+import type { OutfitList } from '../outfits/outfit-list';
 import { SavedOutfitPicker } from '../outfits/saved-outfit-button';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
@@ -17,8 +18,10 @@ import { dayUrl, planPageUrl } from './urls';
 export interface PlanModel extends DayChoice {
   day: IsoDate;
   occasion: Occasion;
-  /** The owner's own outfits, newest first (savedOutfitsSql). */
+  /** The owner's own outfits of `list`, newest first (savedOutfitsSql). */
   outfits: GarmentOutfit[];
+  /** `?show=` (#659): the kept outfits, or the one-offs. */
+  list: OutfitList;
 }
 
 /**
@@ -69,6 +72,8 @@ export function PlanPage(props: { ctx: ViewContext; model: PlanModel }) {
         <SavedOutfitPicker
           heading={t('CALENDAR_PLAN_SAVED')}
           action="/calendar"
+          list={model.list}
+          href={planPageUrl(destination)}
           outfits={model.outfits}
           noteOf={(outfit) => plannedNote(model, outfit.id)}
         >

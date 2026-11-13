@@ -243,7 +243,8 @@ export function entryOutfitChoice(
     return { outfitId };
   }
   if (outfitId === undefined && garmentIds !== undefined) {
-    return { garmentIds, name: outfitText(name) ?? undefined };
+    // An idea's garments for the entry's day: a one-off (#659).
+    return { garmentIds, name: outfitText(name) ?? undefined, origin: 'idea' };
   }
   throw outfitOrGarments();
 }

@@ -10,6 +10,8 @@ import { t } from '../i18n';
 import { garmentsGoneError } from '../outfits/gone-garments';
 import { outfitNotFound } from '../outfits/outfit-actions';
 import type { PickResult } from '../outfits/pick';
+import type { OutfitOrigin } from '../../wardrobe/outfit-origin';
+import type { OutfitList } from '../outfits/outfit-list';
 import { type GarmentOutfit, savedOutfitsSql } from '../outfits/queries';
 import { NotFound } from '../refusals';
 import type { Actor } from '../sharing/access';
@@ -111,12 +113,13 @@ export async function requireTripModel(
 
 /**
  * The add page's read, one statement: the trip, the actor's saved outfits
- * and the trip's outfits with their days.
+ * of `list` (#659) and the trip's outfits with their days.
  */
 export async function requireAddOutfitPage(
   db: Db,
   actor: Actor,
   id: number,
+  list: OutfitList,
 ): Promise<{
   trip: TripRow;
   outfits: GarmentOutfit[];
@@ -124,7 +127,7 @@ export async function requireAddOutfitPage(
 }> {
   const found = await selectScalars(db, {
     trip: ownTripSql(id, actor.userId),
-    outfits: savedOutfitsSql(actor.userId),
+    outfits: savedOutfitsSql(actor.userId, list),
     onTrip: tripOutfitDaysSql(id, actor.userId),
   });
   if (!found.trip) throw tripNotFound();
@@ -196,6 +199,8 @@ export async function pickIdeaForTrip(
     tripId: number;
     garmentIds: readonly number[];
     name?: string;
+    /** `idea` for a picked idea, `person` for Styling's composed save (#659). */
+    origin: OutfitOrigin;
   } & TripSlot,
 ): Promise<{ outfit: PickResult; added: TripOutfitAdded }> {
   const outcome = await pickForTrip(db, actor.userId, input);

@@ -100,6 +100,7 @@ import {
   WEEKDAYS,
   type Weekday,
 } from '../wardrobe/week';
+import { OUTFIT_ORIGINS, type OutfitOrigin } from '../wardrobe/outfit-origin';
 import {
   OUTFIT_RULE_KINDS,
   type OutfitRuleKind,
@@ -979,6 +980,10 @@ export const outfit = pgTable(
     ownerNote: text('owner_note'),
     dismissedReason: text('dismissed_reason').$type<OutfitDismissReason>(),
     reactedAt: timestamp('reacted_at', { withTimezone: true }),
+    // Who made it (#659, src/wardrobe/outfit-origin.ts): the Saved tab and
+    // the pickers list the kept ones (keptOutfit). Written by createOutfit,
+    // raised by adoptOutfit, made 'person' by an edit (lockForEdit).
+    origin: text('origin').$type<OutfitOrigin>().notNull().default('person'),
     revision: syncRevision(),
     updatedAt: syncUpdatedAt(),
     clientId: clientId(),
@@ -1015,6 +1020,10 @@ export const outfit = pgTable(
     check(
       'outfit_proposal_check',
       sql`(${table.proposedAt} is null) = (${table.reaction} is null) and (${table.proposedAt} is not null or (${table.proposedByTokenId} is null and ${table.proposalNote} is null and ${table.ownerNote} is null and ${table.reactedAt} is null))`,
+    ),
+    check(
+      'outfit_origin_check',
+      sql`${table.origin} in (${sqlList(OUTFIT_ORIGINS)})`,
     ),
     check(
       'outfit_reaction_check',

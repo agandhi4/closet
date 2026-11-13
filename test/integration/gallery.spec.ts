@@ -553,8 +553,14 @@ describe('outfit gallery', () => {
       // B, the second tap, must wait for A's commit and then find its outfit.
       const [first, second] = await interleave(
         t.db,
-        (tx) => pickIdea(tx, ownerId, { garmentIds: racing, plan }),
-        () => pickIdea(t.db, ownerId, { garmentIds: racing, plan }),
+        (tx) =>
+          pickIdea(tx, ownerId, { garmentIds: racing, plan, origin: 'person' }),
+        () =>
+          pickIdea(t.db, ownerId, {
+            garmentIds: racing,
+            plan,
+            origin: 'person',
+          }),
       );
       expect(first).toMatchObject({
         alreadySaved: false,

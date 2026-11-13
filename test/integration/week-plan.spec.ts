@@ -1,4 +1,4 @@
-import { and, asc, eq, gt } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray } from 'drizzle-orm';
 import {
   afterAll,
   afterEach,
@@ -759,6 +759,135 @@ describe('the weekly auto-plan', () => {
         cookie: stranger,
       });
       expect(banner.body).not.toContain('id="planned-week"');
+    });
+  });
+
+  // #659: an outfit's origin and the one list rule of Saved and the pickers.
+  describe('the outfits a person kept, and the one-offs', () => {
+    beforeEach(clearWeek);
+
+    /** The origin of each of `outfitIds`, by id. */
+    const originsOf = async (outfitIds: number[]) =>
+      new Map(
+        (
+          await t.db
+            .select({ id: outfit.id, origin: outfit.origin })
+            .from(outfit)
+            .where(inArray(outfit.id, outfitIds))
+        ).map((row) => [row.id, row.origin]),
+      );
+
+    /** The outfit ids a page lists: Saved's tiles, or a picker's buttons. */
+    const listed = (body: string, attribute: 'data-outfit-id' | 'value') =>
+      [...body.matchAll(new RegExp(`${attribute}="(\\d+)"`, 'g'))].map((m) =>
+        Number(m[1]),
+      );
+
+    it('Saved, the plan page and a trip’s add page list the kept outfits; "Worn and planned" the planner’s; a bad value is the kept list', async () => {
+      const [tee] = await t.db
+        .select({ id: garment.id })
+        .from(garment)
+        .where(eq(garment.name, 'Tee 0'));
+      const saved = await post('/outfits', {
+        name: 'Kept look',
+        category: 'tops',
+        garmentId: String(tee.id),
+      });
+      const keptId = Number(
+        /\/outfits\/(\d+)/.exec(saved.headers.location!)![1],
+      );
+      await post('/calendar/plan-week');
+      const planner = [
+        ...new Set((await weekEntries()).map((e) => e.outfitId)),
+      ];
+      expect(planner).toHaveLength(8);
+      const origins = await originsOf([keptId, ...planner]);
+      expect(origins.get(keptId)).toBe('person');
+      expect(planner.map((id) => origins.get(id))).toEqual(
+        planner.map(() => 'planner'),
+      );
+
+      const tripId = await onTrip(keptId);
+      const surfaces = [
+        { url: '/outfits', attribute: 'data-outfit-id' as const },
+        {
+          url: `/calendar/plan?for=day:${WEEK[1]}&occasion=evening`,
+          attribute: 'value' as const,
+        },
+        { url: `/trips/${tripId}/outfits/new`, attribute: 'value' as const },
+      ];
+      for (const { url, attribute } of surfaces) {
+        const sep = url.includes('?') ? '&' : '?';
+        const kept = await get(url);
+        expect(kept.statusCode).toBe(200);
+        expect(listed(kept.body, attribute)).toEqual([keptId]);
+        expect(unescapeHtml(kept.body)).toContain('Worn and planned');
+        const oneOffs = await get(`${url}${sep}show=one-offs`);
+        expect(listed(oneOffs.body, attribute).sort()).toEqual(
+          [...planner].sort(),
+        );
+        // Navigation state: an unknown list is the kept one, never a 400.
+        const bad = await get(`${url}${sep}show=everything`);
+        expect(bad.statusCode).toBe(200);
+        expect(listed(bad.body, attribute)).toEqual([keptId]);
+      }
+
+      // A rename keeps a one-off: it is the person's now, on Saved.
+      const [renamed] = planner;
+      const slots = await t.db
+        .select()
+        .from(outfitSlot)
+        .where(eq(outfitSlot.outfitId, renamed));
+      await post(`/outfits/${renamed}`, {
+        name: 'Tuesday, kept',
+        category: slots.map((s) => s.category),
+        garmentId: slots.map((s) => String(s.garmentId)),
+      });
+      expect((await originsOf([renamed])).get(renamed)).toBe('person');
+      expect(listed((await get('/outfits')).body, 'data-outfit-id')).toEqual([
+        renamed,
+        keptId,
+      ]);
+    });
+
+    it('the calendar’s x takes a planner entry’s outfit once nothing holds it; an adopted, packed or twice-planned one stays', async () => {
+      await post('/calendar/plan-week');
+      const [plain, adopted, packed, twice] = (await weekEntries()).filter(
+        (e) => e.occasion === 'all-day',
+      );
+      // A pick of its garments with no day: the person's now.
+      await post('/outfits/ideas/pick', {
+        garmentId: (await garmentsOf(adopted.outfitId)).map(String),
+      });
+      await onTrip(packed.outfitId);
+      // The same planner-made outfit on a second day.
+      expect(
+        await insertEntry(t.db, {
+          ownerId: t.owner.id,
+          outfitId: twice.outfitId,
+          day: addDays(TODAY, 20),
+          occasion: 'evening',
+        }),
+      ).toMatchObject({ outcome: 'scheduled' });
+
+      t.logs.clear();
+      for (const entry of [plain, adopted, packed, twice]) {
+        const removed = await post(`/calendar/${entry.id}/delete`);
+        expect(removed.statusCode).toBe(303);
+      }
+      const left = await originsOf(
+        [plain, adopted, packed, twice].map((e) => e.outfitId),
+      );
+      expect(left.has(plain.outfitId)).toBe(false);
+      expect(left.get(adopted.outfitId)).toBe('person');
+      expect(left.get(packed.outfitId)).toBe('planner');
+      expect(left.get(twice.outfitId)).toBe('planner');
+      expect(t.logs.messages('info', 'Web')).toContainEqual(
+        `Calendar entry ${plain.id} deleted by user ${t.owner.id}, planner's outfit ${plain.outfitId} removed`,
+      );
+      expect(t.logs.messages('info', 'Web')).toContainEqual(
+        `Calendar entry ${twice.id} deleted by user ${t.owner.id}`,
+      );
     });
   });
 
