@@ -30,8 +30,37 @@ export interface AuthContext {
  * wardrobe, that share), or why it no longer opens one.
  */
 type CookieVerdict =
-  | { auth: AuthContext; account?: AccountRow; share?: ShareReadAhead }
+  | {
+      auth: AuthContext;
+      fingerprint: string;
+      account?: AccountRow;
+      share?: ShareReadAhead;
+    }
   | { rejected: string };
+
+/**
+ * The password fingerprint each request's session was judged by (its
+ * token's `pwf`, equal to the row's when it was read), by request: kept off
+ * `request.auth` with the hash, as accountsWithHash.
+ */
+const sessionFingerprints = new WeakMap<FastifyRequest, string>();
+
+/**
+ * The fingerprint the request's session was opened with, for a write that
+ * must not outlive the session: it rechecks it under the user's row lock,
+ * which a new password's writer takes too (upsertDevice, updatePasswordHash),
+ * since the session lookup read the row before that lock. Calling it on a
+ * request without a session is a programming error.
+ */
+export function sessionFingerprint(request: FastifyRequest): string {
+  const fingerprint = sessionFingerprints.get(request);
+  if (fingerprint === undefined) {
+    throw new Error(
+      `sessionFingerprint() on ${request.method} ${loggableUrl(request)}, which has no session`,
+    );
+  }
+  return fingerprint;
+}
 
 /**
  * The account rows the session lookup read with their hash, by request: kept
@@ -110,6 +139,7 @@ export function createSessionResolver(deps: {
     const user = { id: row.id, email: row.email };
     return {
       auth: { user },
+      fingerprint: claims.pwf,
       account:
         row.password === undefined
           ? undefined
@@ -130,6 +160,7 @@ export function createSessionResolver(deps: {
 
     const verdict = await judge(token, request);
     if ('auth' in verdict) {
+      sessionFingerprints.set(request, verdict.fingerprint);
       if (verdict.account) accountsWithHash.set(request, verdict.account);
       if (verdict.share) rememberShareReadAhead(request, verdict.share);
       return verdict.auth;

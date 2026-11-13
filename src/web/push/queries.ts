@@ -1,7 +1,8 @@
 import { and, eq, inArray, isNotNull, lt, ne, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Db, Queryable } from '../../db/client';
-import { pushReminder, userDevice } from '../../db/schema';
+import { pushReminder, user, userDevice } from '../../db/schema';
+import { passwordFingerprintSql } from '../auth/tokens';
 import type { IsoDate } from '../../calendar-date';
 import type {
   DueReminder,
@@ -35,39 +36,49 @@ export interface DeviceRow {
  * The endpoint belongs to whoever is signed in on that browser now; its
  * reminders and Muse's rounds were the previous account's choice, so a
  * move turns them off (opt-in per device and per person).
+ *
+ * Undefined, storing nothing, when the session that sent it has ended: the
+ * row is selected from the user's own, locked, only while its password
+ * fingerprint is still `fingerprint` (the session's, sessionFingerprint).
+ * The lock is the one a new password's writer takes (updatePasswordHash),
+ * so the two take turns (#512): a subscribe holding it commits first and
+ * the password's revocation, read after its own wait, deletes the row; a
+ * password holding it commits first and this statement, re-reading the
+ * locked row once granted, finds the fingerprint moved and inserts nothing.
+ * Without the lock the foreign key's check took only a share lock, and a
+ * row committed meanwhile outlived the new password. `no key update`, not
+ * `update`: it conflicts with the password's update all the same, without
+ * holding up the household's inserts that check a foreign key to the user.
+ *
+ * One statement, as before the lock (the subscribe's budget,
+ * auth-statements.spec). Raw SQL: Drizzle's insert-select must select every
+ * column, the serial id included (insertUser).
  */
 export async function upsertDevice(
-  db: Db,
+  db: Queryable,
   userId: number,
+  fingerprint: string,
   subscription: SubscriptionInput,
   userAgent: string | undefined,
-): Promise<number> {
-  const values = {
-    userId,
-    pushEndpoint: subscription.endpoint,
-    keyP256dh: subscription.keys.p256dh,
-    keyAuth: subscription.keys.auth,
-    userAgent: userAgent ?? null,
-  };
-  const [row] = await db
-    .insert(userDevice)
-    .values(values)
-    .onConflictDoUpdate({
-      target: userDevice.pushEndpoint,
-      set: {
-        userId: values.userId,
-        keyP256dh: values.keyP256dh,
-        keyAuth: values.keyAuth,
-        userAgent: values.userAgent,
-        updatedAt: sql`now()`,
-        morningReminder: sql`case when ${userDevice.userId} = excluded.user_id then ${userDevice.morningReminder} end`,
-        eveningReminder: sql`case when ${userDevice.userId} = excluded.user_id then ${userDevice.eveningReminder} end`,
-        remindersSetAt: sql`case when ${userDevice.userId} = excluded.user_id then ${userDevice.remindersSetAt} end`,
-        museRounds: sql`${userDevice.userId} = excluded.user_id and ${userDevice.museRounds}`,
-      },
-    })
-    .returning({ id: userDevice.id });
-  return row.id;
+): Promise<number | undefined> {
+  const { rows } = await db.execute<{ id: number }>(sql`
+    insert into ${userDevice} (user_id, push_endpoint, key_p256dh, key_auth, user_agent)
+    select ${user.id}, ${subscription.endpoint}, ${subscription.keys.p256dh}, ${subscription.keys.auth}, ${userAgent ?? null}
+    from ${user}
+    where ${user.id} = ${userId} and ${passwordFingerprintSql} = ${fingerprint}
+    for no key update
+    on conflict (push_endpoint) do update set
+      user_id = excluded.user_id,
+      key_p256dh = excluded.key_p256dh,
+      key_auth = excluded.key_auth,
+      user_agent = excluded.user_agent,
+      updated_at = now(),
+      morning_reminder = case when ${userDevice.userId} = excluded.user_id then ${userDevice.morningReminder} end,
+      evening_reminder = case when ${userDevice.userId} = excluded.user_id then ${userDevice.eveningReminder} end,
+      reminders_set_at = case when ${userDevice.userId} = excluded.user_id then ${userDevice.remindersSetAt} end,
+      muse_rounds = ${userDevice.userId} = excluded.user_id and ${userDevice.museRounds}
+    returning id`);
+  return rows[0]?.id;
 }
 
 /**

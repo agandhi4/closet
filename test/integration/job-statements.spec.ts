@@ -23,7 +23,7 @@ import { DEFAULT_REMINDER_TIMES } from '../../src/push/reminders';
 import { WEEKDAYS } from '../../src/wardrobe/week';
 import type { DayForecast } from '../../src/weather/forecast';
 import { instantAt, type IsoDate } from '../../src/calendar-date';
-import { saveReminderSettings, upsertDevice } from '../../src/web/push/queries';
+import { saveReminderSettings } from '../../src/web/push/queries';
 import {
   pruneReminders,
   type ReminderDeps,
@@ -46,6 +46,7 @@ import {
   createTestApp,
   PWA_ENV,
   recordQueries,
+  subscribeAs,
   type TestApp,
   userIdOf,
 } from './harness';
@@ -170,12 +171,10 @@ describe('background jobs: statements per run (#173)', () => {
       location: { latitude: 40.69, longitude: -73.98 },
     });
     const endpoint = `https://fcm.googleapis.com/fcm/send/jobs-${i}`;
-    const deviceId = await upsertDevice(
-      t.db,
-      id,
-      { endpoint, keys: { p256dh: 'p'.repeat(87), auth: 'a'.repeat(22) } },
-      undefined,
-    );
+    const deviceId = await subscribeAs(t.db, id, {
+      endpoint,
+      keys: { p256dh: 'p'.repeat(87), auth: 'a'.repeat(22) },
+    });
     await saveReminderSettings(
       t.db,
       id,

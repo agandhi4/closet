@@ -9,7 +9,8 @@ import type { Db, Queryable } from '../../src/db/client';
  * backend of this database waits), then `meanwhile` runs (a third write
  * committed while the second waits), then the first commits. Answers both.
  * A first writer that fails ends the wait at once instead of hanging.
- * Used by owner-lock.spec.ts, outfit-saves.spec.ts and trips.spec.ts.
+ * Used by every spec that proves two writers take turns on a lock
+ * (owner-lock, access-tokens, push-revocation and others: grep interleave).
  */
 export async function interleave<A, B>(
   db: Db,

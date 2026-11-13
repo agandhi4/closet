@@ -64,9 +64,18 @@ export function createSessionHook(logger: Logger) {
         logger.debug(
           `${loggableUrl(request)} -> 401, HX-Redirect ${LOGIN_PATH}`,
         );
-        return reply.status(401).header('HX-Redirect', LOGIN_PATH).send();
+        return loginRequired(reply);
     }
   };
+}
+
+/**
+ * The bodiless 401 a fetch or htmx request without a session gets, its
+ * `HX-Redirect` sending the page to log in: the gate's answer, and a write's
+ * that finds its session ended under it (/push/subscribe).
+ */
+export function loginRequired(reply: FastifyReply): FastifyReply {
+  return reply.status(401).header('HX-Redirect', LOGIN_PATH).send();
 }
 
 /**
