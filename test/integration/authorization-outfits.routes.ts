@@ -132,6 +132,28 @@ export const ROUTES: Route[] = [
     },
   },
   {
+    // The fit line (#468b, WEATHER_ENABLED only): the rows' outfit against
+    // the requester's own weather. A grantee's own rows hold no such
+    // garment; over a share it answers nothing (the owner's weather is
+    // theirs); a stranger naming the owner is refused.
+    name: 'GET /styling/fit',
+    kind: 'read',
+    ok: 200,
+    secret: garmentName,
+    feature: 'weather',
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/styling/fit${q ? `${q}&` : '?'}role=top&garmentId=${f.garmentId}&lock=`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: ['hidden', 'notFound'],
+    },
+  },
+  {
     // Save: the requester's own garments only, whatever the share.
     name: 'POST /styling',
     kind: 'write',

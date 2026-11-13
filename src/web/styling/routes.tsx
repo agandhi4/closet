@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { type Static, Type } from '@sinclair/typebox';
 import type { Idea } from '../../wardrobe/generator';
 import { DEFAULT_OCCASION, type Occasion } from '../../wardrobe/occasions';
+import { assessOutfit } from '../../weather/match';
 import { GARMENT_ROLES, type GarmentRole } from '../../wardrobe/properties';
 import { sessionUserId } from '../auth/require-session';
 import { type IsoDate, todayIn } from '../../calendar-date';
@@ -58,6 +59,7 @@ import {
   savedGarments,
 } from './queries';
 import {
+  fitReads,
   ideaReads,
   type StripsReads,
   stripsReads,
@@ -68,11 +70,14 @@ import {
   ScopeMenu,
   type StylingModel,
   StylingPage,
+  FitLine,
+  StylingFit,
   StylingPreview,
   StylingRows,
 } from './styling-page';
 import { type RowContext, StripPage } from './styling-row';
 import {
+  STYLING_FIT_PATH,
   STYLING_GARMENTS_PATH,
   STYLING_PATH,
   STYLING_ROW_PATH,
@@ -703,6 +708,8 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         {/* The preview follows the rows (StylingPreview): out of band, as
             its slots are the rows' and the page keeps it beside them. */}
         <StylingPreview rows={rows} oob />
+        {/* A fresh fit slot loads the line again for the new rows. */}
+        {weather && input.context.viewOwner === undefined && <StylingFit oob />}
         {input.scope && (
           <ScopeMenu {...input.scope} state={input.context.state} oob />
         )}
@@ -824,6 +831,54 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       });
     },
   );
+
+  // The fit line (#468b): how the posted rows' outfit meets the aimed day's
+  // weather (assessOutfit, the gallery's words), for the page's `?for=` as
+  // Shuffle aims it (aimIdeas: today all day without one, a trip's day and
+  // destination). Only with WEATHER_ENABLED, like /weather/*: no route
+  // without it. Nothing over a shared wardrobe (browseIdea reads none of
+  // the owner's weather), without a garment, or without a forecast for the
+  // day. The rows are checked as Shuffle's are (a 400 when they do not line
+  // up; a garment the rows may not carry is left out); the capsule is not
+  // read, as nothing here depends on it. One statement after the session
+  // (fitReads), a trip's lookup before it; it writes nothing.
+  if (weather) {
+    app.get(
+      STYLING_FIT_PATH,
+      { schema: { querystring: RowsQuery } },
+      async (request, reply) => {
+        const userId = sessionUserId(request);
+        const { query } = request;
+        const posted = postedStates(query);
+        const scope = await scopeOf(request);
+        const heldIds = heldIdsOf(posted);
+        if (scope.shared || heldIds.length === 0) {
+          return renderFragment(reply, <FitLine />);
+        }
+        const now = new Date();
+        const today = todayIn(config.timeZone, now);
+        const aim = await aimOf(userId, false, query, today);
+        const read = await fitReads({ db, weather }, scope, {
+          heldIds,
+          aim,
+          today,
+          now,
+        });
+        const fit =
+          read.weather && read.garments.length > 0
+            ? {
+                problems: assessOutfit(read.weather.needs, read.garments)
+                  .problems,
+                typical: read.weather.typical,
+              }
+            : undefined;
+        logger.debug(
+          `Styling fit for user ${userId}: ${read.garments.length} garment(s) for ${aim.planning.day} (${aim.planning.occasion}), ${fit ? fit.problems.join(', ') || 'fits' : 'no weather'}`,
+        );
+        return renderFragment(reply, <FitLine fit={fit} />);
+      },
+    );
+  }
 
   // A strip's next page (its sentinel). Always a fragment. The capsule
   // needs no lookup here: inCapsule matches none of the wardrobe's

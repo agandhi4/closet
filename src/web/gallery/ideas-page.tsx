@@ -27,6 +27,13 @@ import { tripUrl } from '../trips/urls';
 import type { ViewContext } from '../view-context';
 import { categoryLabel } from '../wardrobe/garment';
 import { UNIT_SYMBOLS } from '../weather/views';
+import {
+  type Chip,
+  ChipList,
+  fitsChip,
+  problemChip,
+  warningChip,
+} from './chips';
 import { ideaName, type IdeasWeather, shuffledSeed } from './ideas';
 import type { PoolGarment } from './queries';
 import { type GalleryState, ideasUrl } from './urls';
@@ -424,39 +431,20 @@ export function Reasons({
     .map((g) => g.name)
     .slice(0, 2);
   // A broken rule is named, one chip each (brokenRuleLabels), not the flag.
-  const problems = idea.problems.filter((problem) => problem !== 'breaks-rule');
-  const chips = [
-    ...[
-      ...problems.map((problem) => t(`gallery.problem.${problem}`)),
-      ...brokenRuleLabels(idea),
-    ].map((text) => ({ text, tone: 'badge-warning' })),
-    ...(weather && idea.problems.length === 0
-      ? [
-          {
-            text: t(
-              weather.typical ? 'gallery.FITS_TYPICAL' : 'gallery.FITS_WEATHER',
-            ),
-            tone: 'badge-success',
-          },
-        ]
-      : []),
+  const chips: Chip[] = [
+    ...idea.problems.flatMap((problem) =>
+      problem === 'breaks-rule' ? [] : [problemChip(problem)],
+    ),
+    ...brokenRuleLabels(idea).map(warningChip),
+    ...(weather && idea.problems.length === 0 ? [fitsChip(weather)] : []),
     ...(rested.length > 0
       ? [
           {
             text: t('gallery.RESTED', { names: rested.join(', ') }),
-            tone: 'badge-ghost',
+            tone: 'badge-ghost' as const,
           },
         ]
       : []),
   ];
-  if (chips.length === 0) return null;
-  return (
-    <ul class="flex flex-wrap gap-1">
-      {chips.map((chip) => (
-        <li class={`badge badge-sm badge-soft ${chip.tone} h-auto py-0.5`}>
-          {chip.text}
-        </li>
-      ))}
-    </ul>
-  );
+  return <ChipList chips={chips} />;
 }

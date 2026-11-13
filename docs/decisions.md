@@ -482,6 +482,12 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Decision:** one wording, `src/web/style/labels.ts`: `brokenRuleLabels` ("Breaks: Never {a} with {b}", a chip per rule) on Ideas' `Reasons` and Styling's Shuffle (`StylingModel.broken`); the rule's garments are named from the idea's own (a broken rule is two locked garments'), so no read is added. MCP `fits` is the card's, `problems.length === 0`, with `brokenRules` beside it. `get_style_profile` adds `outfitRules` (kind, `a`, `b`, `sentence`) and the gallery's `avoidedPairs`, still one statement. No write tool (plan §4).
 **Consequence:** only Shuffle locks two garments today, so Ideas, Today and `suggest_outfits` (one lock at most) cannot show a flagged idea yet; their code is correct by construction, proven only on Shuffle (`styling.spec.ts`). The generic `gallery.problem.breaks-rule` string is gone.
 
+## 2026-11-13 — Styling's fit line loads on intersect, desktop only (#468b)
+
+**Why:** plan §2 (owner decision 3: the weather fit line, desktop first): Styling should say how the rows' outfit meets the day, while `/styling` stays a byte-stable tab root and a phone, where the line is hidden, pays nothing.
+**Decision:** `GET /styling/fit` (only with `WEATHER_ENABLED`) answers `assessOutfit` for `aimIdeas`' day in the gallery's words (`gallery/chips.tsx`, shared with `Reasons`), in one statement: `rowWeatherSql` under the rows' one carry rule, beside ideasFor's own `weatherColumn`/`weatherFrom` (split out of `ideasColumns`/`ideasFrom`, so both read a day the same way). The slot triggers on `intersect once`, not the plan's `load`, and on `styling:outfit-changed`, which styling.js sends only when a choice changed the preview and the slot is shown, not `snap-strip:chosen from:#styling-rows` (that element is replaced by every rows answer, and the event fires on every first watch). Rows answers send the slot out of band to reload it.
+**Consequence:** the slot's request is cached by the worker like any fragment (`|hx`); offline it dims and says so. Formality is not judged (weather only). Showing it on a phone later is a CSS change and dropping the `offsetParent` gate.
+
 ## 2026-11-13 — The garment access path takes an Actor; an unseen wardrobe reads as what the caller named (#188b-1)
 
 **Why:** #188's plan §4: the domain function enforces access and throws the typed refusal, so pages, MCP and the API refuse alike; garments first, reads before writes (the L area split, 188b-2 the writes).
