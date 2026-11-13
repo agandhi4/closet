@@ -25,6 +25,10 @@ import type { Photos } from './photos';
  */
 const PRIVATE_IMMUTABLE_YEAR = 'private, max-age=31536000, immutable';
 
+/** A refused photo is never cached, so a later grant or upload is seen. */
+const refuse = (reply: FastifyReply): FastifyReply =>
+  reply.header('Cache-Control', 'no-store');
+
 export interface PrivatePhotoRequest {
   fileName: string;
   /** Private photos have no cutout, so no nobg. */
@@ -49,14 +53,14 @@ export async function sendPrivatePhoto(
   request: PrivatePhotoRequest,
 ): Promise<FastifyReply> {
   if (!(await isServablePrivatePhoto(deps, request))) {
-    return reply.status(404).header('Cache-Control', 'no-store').send();
+    return refuse(reply.status(404)).send();
   }
   return streamPrivatePhoto(deps, reply, request);
 }
 
 /**
  * The API's answer (GET /api/v1/look-photos/{fileName}, #193d): the same
- * check, refused as `refusal`'s NotFound, a problem 404 that names nothing
+ * check, refused (`no-store`, as the page's) as `refusal`'s NotFound, a problem 404 that names nothing
  * (the error handler's on the api surface, never the error page).
  */
 export async function servePrivatePhoto(
@@ -66,6 +70,7 @@ export async function servePrivatePhoto(
   refusal: Resource,
 ): Promise<FastifyReply> {
   if (!(await isServablePrivatePhoto(deps, request))) {
+    refuse(reply);
     throw new NotFound(refusal);
   }
   return streamPrivatePhoto(deps, reply, request);

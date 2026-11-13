@@ -12,7 +12,7 @@ import type { Logger } from '../../logger';
  * unless its route opts in with `config: { rateLimit: SIGN_IN_LIMIT }` (or
  * ACCOUNT_LIMIT, LINK_IMPORT_LIMIT, WEATHER_SEARCH_LIMIT, WEATHER_LOCATION_LIMIT,
  * VITALS_LIMIT, CLIENT_ERROR_LIMIT, MCP_LIMIT; HEALTH_LIMIT, SIGN_IN_LIMIT's
- * two sign-in doors, SIGN_IN_ACCOUNT_LIMIT and API_LIMIT through one
+ * two sign-in doors, SIGN_IN_ACCOUNT_LIMIT, API_LIMIT and API_PHOTO_LIMIT through one
  * createRateLimit checker each). Every limited route counts on its own. Counters live in
  * process memory, which is right for the single container this runs as.
  *
@@ -248,6 +248,33 @@ export const API_LIMIT = {
   timeWindow: MINUTE_MS,
   keyGenerator: (request: FastifyRequest) =>
     `token ${request.accessToken!.tokenId}`,
+};
+
+declare module 'fastify' {
+  interface FastifyContextConfig {
+    /**
+     * An /api/v1 route that serves a private photo's bytes (servePrivatePhoto):
+     * it counts on API_PHOTO_LIMIT, never API_LIMIT (the API plugin's
+     * preHandler picks). The one way an API route serves image bytes.
+     */
+    apiPhotoBytes?: boolean;
+  }
+}
+
+/**
+ * The API's photo-byte routes (`config: { apiPhotoBytes: true }`), per
+ * device token and a budget of their own: a client paints a page of
+ * thumbnails with one request each, and on API_LIMIT's 120 a minute a page
+ * of 50 would 429 its own JSON calls. 600 lets a 50-item page load twice a
+ * minute with room for a few more; photo bytes are immutable for a year
+ * (private-photo.ts), so a client that respects the cache stays far below it.
+ * The 401 is never counted, as with API_LIMIT.
+ */
+export const API_PHOTO_LIMIT = {
+  max: 600,
+  timeWindow: MINUTE_MS,
+  keyGenerator: (request: FastifyRequest) =>
+    `token ${request.accessToken!.tokenId} photos`,
 };
 
 /**

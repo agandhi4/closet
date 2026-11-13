@@ -501,3 +501,39 @@ describe('recreating a look', () => {
     expect(row.matched).toBe(garmentId);
   });
 });
+
+describe('look photos: their own rate budget', () => {
+  const email = 'api-photo-budget@example.com';
+  let budgetToken: string;
+  // A name that is no photo: a 404 still counts, and costs no file read.
+  const photoCall = () =>
+    api('GET', '/look-photos/none.webp', undefined, budgetToken);
+
+  beforeAll(async () => {
+    await t.register(email);
+    budgetToken = (await deviceToken(t, { email })).token;
+  });
+
+  it('refuses a photo with no-store', async () => {
+    const refused = await photoCall();
+    expectProblem(refused, 404, 'not_found');
+    expect(refused.headers['cache-control']).toBe('no-store');
+  });
+
+  it('counts photo bytes past API_LIMIT without spending it, and 429s past its own 600 a minute', async () => {
+    // 1 already spent above; 130 is past API_LIMIT's 120.
+    for (let i = 0; i < 130; i++) {
+      expect((await photoCall()).statusCode).toBe(404);
+    }
+    expect(
+      (await api('GET', '/looks', undefined, budgetToken)).statusCode,
+    ).toBe(200);
+
+    for (let i = 131; i < 600; i++) await photoCall();
+    expectProblem(await photoCall(), 429, 'rate_limited');
+    // The JSON budget is untouched by the exhausted photo one.
+    expect(
+      (await api('GET', '/looks', undefined, budgetToken)).statusCode,
+    ).toBe(200);
+  });
+});

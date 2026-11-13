@@ -747,3 +747,9 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 **Why:** the publisher's check at 471f4b8 failed clock-db-30d/365d: `selfSignedCertificate` dated its window from `Date.now()`, which the shift moves while OpenSSL checks the real clock ("not yet valid"); and `inspiration.spec.ts`'s reconciliation found an orphan another test left: a 413'd upload's photo, stored after the response (the parser reports the `fileSize` cut once the stream ends, after a JPEG decoded), with a real-clock mtime the shifted cutoff called old.
 **Decision:** the fixture's validity is a constant (2000-01-01 to RFC 5280's 99991231235959Z), never from `Date`; `Photos.storeUploadParts` awaits a started pipeline when the body is refused and deletes its bytes before rethrowing. Nothing went into `clock_shift.conf`: both causes could move.
 **Consequence:** every multipart route (garment photos, looks, selfies) stops leaking refused uploads to reconciliation; a fixture a real-clock validator reads is never dated from the JS clock.
+
+## 2026-11-13 — The API's photo bytes count on their own budget, `API_PHOTO_LIMIT`
+
+**Why:** a client paints a page of 50 thumbnails with one `GET /api/v1/look-photos/*` each; on `API_LIMIT`'s 120 a minute per token that 429s its own JSON calls. An exemption would leave the bytes uncounted.
+**Decision:** a route marked `config: { apiPhotoBytes: true }` counts on `API_PHOTO_LIMIT` (600 a minute per token: a 50-item page twice a minute with headroom, and immutable bytes mean a caching client stays far below), picked by the API plugin's preHandler, never a path regex. Neither budget counts a 401. The refused photo's 404 is `no-store`, as the page's.
+**Consequence:** `servePrivatePhoto` plus this flag is the one way an API route serves private image bytes; #579 (selfies) reuses both.

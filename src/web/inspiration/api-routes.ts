@@ -534,6 +534,7 @@ export const lookApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
   app.get(
     '/look-photos/:fileName',
     {
+      config: { apiPhotoBytes: true },
       schema: {
         operationId: 'getLookPhoto',
         tags: ['inspiration'],

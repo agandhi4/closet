@@ -12,7 +12,11 @@ import { outfitApiRoutes } from '../outfits/api-routes';
 import type { WebOptions } from '../plugin';
 import { Problem } from '../problem';
 import { selfieApiRoutes } from '../selfies/api-routes';
-import { API_LIMIT, enforceLimit } from '../security/rate-limit';
+import {
+  API_LIMIT,
+  API_PHOTO_LIMIT,
+  enforceLimit,
+} from '../security/rate-limit';
 import { API_PREFIX } from '../surface';
 import { todayApiRoutes } from '../today/api-routes';
 import { tripApiRoutes } from '../trips/api-routes';
@@ -64,7 +68,8 @@ const SPEC_BODY = JSON.stringify(spec);
  *  - registration refuses a route without its contract (requireContract);
  *  - onRequest: a token in the query string is a 400, then a device token,
  *    unless `config.public` (before the body is read);
- *  - preHandler: API_LIMIT per token, one budget for the whole API.
+ *  - preHandler: API_LIMIT per token, one budget for the whole API, but a
+ *    route with `config.apiPhotoBytes` counts on API_PHOTO_LIMIT instead.
  * A feature's API routes live beside its pages (`src/web/<feature>/
  * api-routes.ts`) and register here.
  */
@@ -80,9 +85,11 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
   app.addHook('onRequest', refuseQueryToken);
   app.addHook('onRequest', createDeviceTokenHook({ db, logger: apiLogger }));
   const apiLimit = app.createRateLimit(API_LIMIT);
+  const photoLimit = app.createRateLimit(API_PHOTO_LIMIT);
   app.addHook('preHandler', async (request: FastifyRequest) => {
-    if (request.routeOptions.config.public === true) return;
-    await enforceLimit(apiLimit, request, {
+    const { config } = request.routeOptions;
+    if (config.public === true) return;
+    await enforceLimit(config.apiPhotoBytes ? photoLimit : apiLimit, request, {
       logger: apiLogger,
       who: `token ${request.accessToken!.tokenId}`,
     });
