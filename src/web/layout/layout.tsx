@@ -1,5 +1,4 @@
 import type { Child } from 'hono/jsx';
-import { CLIENT_MODULE_PATHS } from '../../asset-cache';
 import { REPLAY_TIMEOUT_MS } from '../../offline-writes';
 import { appIconFile } from '../app-icon';
 import { jsonForScript } from '../html';
@@ -36,8 +35,7 @@ const HTMX_CONFIG = {
 };
 
 // Bare specifiers for every ES module the pages import, so the versioned URL
-// lives here once; the /modules/ paths are CLIENT_MODULE_PATHS, the list the
-// service worker's install keeps per build (src/asset-cache.ts). Page-specific modules (the snap strip's snap-strip, which
+// lives here once. Page-specific modules (the snap strip's snap-strip, which
 // Styling's styling imports, the garment page's mask-editor and photo-input,
 // select mode's select-count, the recap's recap-export, the share
 // confirmation's share-confirm and click-gate, a look's share-saved) are
@@ -46,10 +44,10 @@ function importMap(version: string) {
   const v = `?v=${version}`;
   return {
     imports: {
-      'workbox-window': `${CLIENT_MODULE_PATHS.workboxWindow}${v}`,
+      'workbox-window': `/modules/workbox-window.prod.mjs${v}`,
       // pwa.js imports these two only where they do something.
-      'pwa-install': `${CLIENT_MODULE_PATHS.pwaInstall}${v}`,
-      pulltorefreshjs: `${CLIENT_MODULE_PATHS.pullToRefresh}${v}`,
+      'pwa-install': `/modules/pwa-install.bundle.js${v}`,
+      pulltorefreshjs: `/modules/pulltorefresh/index.esm.js${v}`,
       toast: `/js/toast.js${v}`,
       'mask-editor': `/js/mask-editor.js${v}`,
       'photo-input': `/js/photo-input.js${v}`,
@@ -177,7 +175,7 @@ export function Layout({
         <ErrorScript ctx={ctx} v={v} />
         {/* Libraries are served from node_modules (registerStaticAssets in
             app.ts), never a CDN. */}
-        <script defer src={`${CLIENT_MODULE_PATHS.htmx}${v}`}></script>
+        <script defer src={`/modules/htmx.min.js${v}`}></script>
         <script defer src={`/js/color-multiselect.js${v}`}></script>
         <script
           type="importmap"

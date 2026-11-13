@@ -20,13 +20,12 @@
     // The CSS entry of `npm run generate:tailwind`: its @import and @plugin lines use tailwindcss
     // and daisyui.
     "views/assets/main.css",
-    // Tool configs read by workbox-cli and lhci, which have no knip plugin.
-    "workbox-config.js",
+    // Tool config read by lhci, which has no knip plugin.
     "lighthouserc.js",
     // Forked or loaded by path from the specs (the cutout runner's specs,
     // test/support/legacy-migrations.ts).
     "test/fixtures/cutout-children/*.mjs",
-    "test/support/legacy-migrations/*.ts"
+    "test/support/legacy-migrations/*.ts",
   ],
   // The browser's importmap (importMap() in src/web/layout/layout.tsx): the bare names public/js/
   // modules import each other by. Keep in step with it; an alias missing here reads as an
@@ -46,7 +45,9 @@
     "recap-export": ["public/js/recap-export.js"],
     "click-gate": ["public/js/click-gate.js"],
     "share-saved": ["public/js/share-saved.js"],
-    "pwa-install": ["node_modules/@khmyznikov/pwa-install/dist/pwa-install.bundle.js"]
+    "pwa-install": [
+      "node_modules/@khmyznikov/pwa-install/dist/pwa-install.bundle.js",
+    ],
   },
   "ignoreDependencies": [
     // Copied from node_modules into public/modules/ by path (CLIENT_MODULES in
@@ -56,6 +57,6 @@
     "@fontsource-variable/fraunces",
     "@fontsource-variable/inter",
     // A pino transport, named by string in src/logger.ts.
-    "pino-pretty"
-  ]
+    "pino-pretty",
+  ],
 }

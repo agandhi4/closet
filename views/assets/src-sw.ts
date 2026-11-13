@@ -1,7 +1,7 @@
-import { clientsClaim, copyResponse } from 'workbox-core';
+import { cacheNames, clientsClaim, copyResponse } from 'workbox-core';
 import type { WorkboxPlugin } from 'workbox-core/types';
 import * as navigationPreload from 'workbox-navigation-preload';
-import { matchPrecache, precacheAndRoute } from 'workbox-precaching';
+import { PrecacheController, PrecacheRoute } from 'workbox-precaching';
 import { warmStrategyCache } from 'workbox-recipes';
 import { registerRoute, setCatchHandler } from 'workbox-routing';
 import { CacheableResponsePlugin } from 'workbox-cacheable-response';
@@ -47,13 +47,16 @@ import {
 } from '../../src/web/shell/offline-warm';
 import { WARM_REQUEST_HEADER } from '../../src/warm-request';
 import {
+  ACTIVATED_KEY,
   answerVersionedAsset,
   ASSET_VERSION_HEADER,
   assetBuildOf,
-  BuildAssets,
-  buildFilePaths,
-  isStorableAsset,
-} from '../../src/asset-cache';
+  dropOtherPrecaches,
+  INSTALLED_KEY,
+  isInstalled,
+  precacheName,
+  staticBuildId,
+} from '../../src/static-build';
 import {
   receiveShare,
   SHARE_STASH_CACHE,
@@ -78,7 +81,8 @@ import { parsePushPayload, type PushPayload } from '../../src/web/push/payload';
  * Caching model (public/js/pwa.js and public/js/freshness.js are the page
  * side):
  *  - App shell files under public/ are precached by content hash
- *    (workbox-config.js), so a repeat visit paints from cache.
+ *    (scripts/generate-sw.ts), one precache per static build, so a repeat
+ *    visit paints from cache.
  *  - The tab roots (/wardrobe, /outfits, /calendar) opened as a document are
  *    stale-while-revalidate: the cached copy at once, kept only until the
  *    page (freshness.js) reads it was cached through Navigation Timing and
@@ -95,8 +99,9 @@ import { parsePushPayload, type PushPayload } from '../../src/web/push/payload';
  *    together when a session starts or ends here, and when a page rendered
  *    for another account arrives. Every drop starts a new generation, and an
  *    answer to a request started in an older one is never stored.
- *  - Versioned scripts and styles are kept per build (ASSETS_CACHE), so a
- *    page an older build stored meets its own build's; garment images
+ *  - A `?v=` script or style is answered from the precache of the build it
+ *    names (PRECACHE), so a page an older build stored meets its own
+ *    build's; garment images
  *    are CacheFirst so recently viewed items render offline. Outfit selfies
  *    are never the worker's to cache (the browser's HTTP cache holds them).
  *  - WARM_PAGES (from pwa.js on every signed-in load): first the pages an
@@ -146,8 +151,8 @@ navigationPreload.enable();
 // check (login CSRF, cross-site sign-out). Left alone, the browser sends it
 // as it is and the server judges its real Origin. Stopping the event here
 // keeps every route, the precache's included, from ever seeing one: this
-// listener must stay above precacheAndRoute and the first registerRoute,
-// which add Workbox's own fetch listener.
+// listener must stay above the first registerRoute, which adds Workbox's
+// own fetch listener.
 //
 // The one navigation post it answers is the manifest's share target (#22d,
 // src/web/shell/manifest.ts), and on the device: receiveShare
@@ -192,115 +197,73 @@ const IMAGES_CACHE = 'images-v2';
  */
 const SESSION_CACHES = [PAGES_CACHE, IMAGES_CACHE, SHARE_STASH_CACHE];
 
-// Each build's own static files, under the exact `?v=<build>` URL its pages
-// ask for (#656, src/asset-cache.ts, src/web/shell/updates.md). A page stored
-// by an older build is still served offline after a deploy, until the
-// activation refresh replaces it (refreshOlderBuildPages), and its <head> must
-// meet its own build's scripts: its importmap names that build's modules, and
-// the precache holds only this build's bytes (Workbox deletes the previous
-// revisions on activate). So each worker's install keeps its build's whole set
-// (storeOwnBuild), and this cache keeps only what the server said was the
-// build the URL names (answersItsBuild): the precache's answer is served when
-// no exact copy exists, never kept under the URL. Builds are kept whole, the
-// newest two (keptBuilds); no per-file expiry, or a page would get half its
-// build. An older page whose build is not complete here is not served
-// (servedCopies).
-const ASSETS_CACHE = 'assets-v2';
+// One precache per static build (#656, src/static-build.ts, src/web/shell/updates.md), named
+// by the content id of its manifest: the id src/build-info.ts makes every page's `?v=`, so a page
+// names the precache holding exactly its bytes. The manifest is the build's whole versioned set
+// (scripts/generate-sw.ts), and the install fills the cache whole or fails, so an older build's
+// page offline meets its own build's scripts: its importmap names that build's modules, and
+// Tailwind classes only it used are in its bundle.css. The activate step keeps this build's and
+// the one it replaces (dropOtherPrecaches), never Workbox's per-entry cleanup, which assumes one
+// precache. The one read of the injection point (workbox-build refuses a second).
+const PRECACHE_MANIFEST = self.__WB_MANIFEST;
+const STATIC_BUILD = staticBuildId(PRECACHE_MANIFEST);
+const PRECACHE = precacheName(STATIC_BUILD);
+const precache = new PrecacheController({ cacheName: PRECACHE });
+precache.addToCacheList(PRECACHE_MANIFEST);
 
-const buildAssets = new BuildAssets(
-  () => self.caches.open(ASSETS_CACHE),
-  self.location.origin,
-  (message) => console.info(`[sw] ${message}`),
-);
-
-class BuildAsset extends Strategy {
-  protected _handle(
-    request: Request,
-    handler: StrategyHandler,
-  ): Promise<Response> {
-    return answerVersionedAsset(new URL(request.url), {
-      stored: () => handler.cacheMatch(request),
-      precached: (unversioned) => matchPrecache(unversioned),
-      fetchAndStore: () => handler.fetchAndCachePut(request),
-      behind: (work) => void handler.waitUntil(work),
-    });
+/**
+ * Workbox's install (every entry fetched past the HTTP cache, a failed one
+ * failing the install), then a check that the cache holds every entry: a
+ * cleanup of another worker's activation can delete this cache mid-install,
+ * and a put after it lands in an emptied one. Only then INSTALLED_KEY, which
+ * an older page of this build needs to be served (servedCopies). A throw
+ * fails the install; the browser keeps the active worker and tries again.
+ */
+async function installPrecache(event: ExtendableEvent): Promise<void> {
+  const startedAt = Date.now();
+  const { updatedURLs } = await precache.install(event);
+  const cache = await self.caches.open(PRECACHE);
+  const missing: string[] = [];
+  for (const [url, key] of precache.getURLsToCacheKeys()) {
+    if (!(await cache.match(key))) missing.push(url);
   }
+  if (missing.length > 0) {
+    console.warn(
+      `[sw] build ${STATIC_BUILD}: precache lost ${missing.length} file(s) during the install, e.g. ${missing[0]}`,
+    );
+    throw new Error(`precache ${PRECACHE} incomplete`);
+  }
+  await cache.put(INSTALLED_KEY, new Response(String(Date.now())));
+  console.info(
+    `[sw] build ${STATIC_BUILD}: ${updatedURLs.length} of ${precache.getURLsToCacheKeys().size} static file(s) fetched in ${((Date.now() - startedAt) / 1000).toFixed(1)} s`,
+  );
 }
 
-const assetStore: WorkboxPlugin = {
-  cacheWillUpdate: async ({ request, response }) =>
-    isStorableAsset(new URL(request.url), self.location.origin, response)
-      ? response
-      : null,
-  cacheDidUpdate: async ({ request }) => {
-    const build = assetBuildOf(new URL(request.url), self.location.origin);
-    if (build !== undefined) await buildAssets.keep(build);
-  },
-};
+self.addEventListener('install', (event) => {
+  event.waitUntil(installPrecache(event));
+});
 
-// Above precacheAndRoute: the first route that matches answers, and the
-// precache's would answer every one of these with this build's bytes.
+// Every first-party `?v=` URL, from the precache of the build it names and
+// only that one (answerVersionedAsset); without it, the network, stored
+// nowhere. Above the precache's route, which would answer with this build's
+// bytes whatever `v` named.
 registerRoute(
   ({ url, request }) =>
     request.method === 'GET' &&
     assetBuildOf(url, self.location.origin) !== undefined,
-  new BuildAsset({ cacheName: ASSETS_CACHE, plugins: [assetStore] }),
+  ({ url, request }) =>
+    answerVersionedAsset(url, self.location.origin, self.caches, () =>
+      fetch(request),
+    ),
 );
 
-// The one read of the injection point (workbox-build refuses a second):
-// the precache's entries, and the paths storeOwnBuild keeps per build.
-const PRECACHE_MANIFEST = self.__WB_MANIFEST;
-
-/**
- * At install, every file a page of this build can name with `?v=` (the
- * precache's scripts and styles, the /modules/ libraries no page may have
- * loaded yet), kept under its exact URL: the pages the warm stored as HTML
- * never fetched their subresources, so after the next deploy their build's
- * files are here whatever they import. A file the server answers as another
- * build (a deploy mid-install) or not at all is not kept and the build stays
- * incomplete, whose older pages are then deleted on read as before #656
- * (servedCopies). Never fails the install: the precache is the app shell.
- * `reload`: past the HTTP cache, which may hold another build's bytes under
- * a `?v=` URL the server answered after a deploy.
- */
-async function storeOwnBuild(): Promise<void> {
-  const startedAt = Date.now();
-  const paths = buildFilePaths(
-    PRECACHE_MANIFEST.map((entry) =>
-      typeof entry === 'string' ? entry : entry.url,
-    ),
-    self.location.origin,
-  );
-  try {
-    const { build, stored, missing } = await buildAssets.storeBuildSet(
-      paths,
-      (url) => fetch(url, { cache: 'reload' }),
-    );
-    const took = `${((Date.now() - startedAt) / 1000).toFixed(1)} s`;
-    if (missing.length === 0) {
-      console.info(
-        `[sw] build ${build}: ${stored} static file(s) kept in ${took}`,
-      );
-    } else {
-      console.warn(
-        `[sw] build ${build ?? '(unnamed)'} incomplete: ${stored} of ${paths.length} static file(s) kept in ${took}, missing ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', ...' : ''}`,
-      );
-    }
-  } catch (error) {
-    console.warn("[sw] could not keep this build's static files", error);
-  }
-}
-
-self.addEventListener('install', (event) => {
-  event.waitUntil(storeOwnBuild());
-});
-
-// Unversioned public/ files (the fonts bundle.css names by content hash)
-// are this build's: the precache, keyed by content hash, answers them, with
-// a stray `?v` ignored.
-precacheAndRoute(PRECACHE_MANIFEST, {
-  ignoreURLParametersMatching: [/^utm_/, /^fbclid$/, /^v$/],
-});
+// Unversioned public/ files (the fonts bundle.css names by content hash) are
+// this build's: its precache answers them.
+registerRoute(
+  new PrecacheRoute(precache, {
+    ignoreURLParametersMatching: [/^utm_/, /^fbclid$/],
+  }),
+);
 
 // Bookkeeping kept inside the pages cache, so dropping the cache drops it
 // too. Off-origin keys: no page request can ever match one.
@@ -546,15 +509,15 @@ const pageStore: WorkboxPlugin = {
 // rendered for an account that no longer (or not yet) owns it, and this is
 // what keeps it from ever being served. A copy an older build stored is
 // served (#656: until 2026-11-13 every one was deleted here, and a deploy
-// left the phone the offline page) while its build's static files are all
-// kept (ASSETS_CACHE, the build its X-Asset-Version names): offline it is
+// left the phone the offline page) while the precache of the static build
+// its X-Asset-Version names is installed here (isInstalled): offline it is
 // NetworkFirst's answer, with its age, and its <head> meets its own build's
 // scripts. It is never opened stale-first (StaleTabRoot), and the activation
-// refresh replaces it (refreshOlderBuildPages). One whose build is not
-// complete there (its install missed a file, evicted, or a copy from before
-// pages named their build) would meet this build's bytes: it is deleted, as
-// before #656, and the offline page answers (the catch handler, not through
-// here). `request` is the cache key here (cacheKeyWillBeUsed has run).
+// refresh replaces it (refreshOlderBuildPages). One whose precache is gone
+// (dropped by a later activation, or a copy from before pages named their
+// build: the first deploy carrying this) would meet no scripts offline: it
+// is deleted, as before #656, and the offline page answers (the catch
+// handler, not through here). `request` is the cache key here (cacheKeyWillBeUsed has run).
 const servedCopies: WorkboxPlugin = {
   cachedResponseWillBeUsed: async ({ cacheName, request, cachedResponse }) => {
     if (!cachedResponse) return null;
@@ -562,13 +525,14 @@ const servedCopies: WorkboxPlugin = {
     if (!(await isOwned(cachedResponse, path))) return null;
     if (
       isFromAnOlderBuild(cachedResponse, await activatedAt()) &&
-      !(await buildAssets.isComplete(
+      !(await isInstalled(
+        self.caches,
         cachedResponse.headers.get(ASSET_VERSION_HEADER),
       ))
     ) {
       await (await self.caches.open(cacheName)).delete(request);
       console.info(
-        `[sw] ${path}: older-build copy deleted, its build's static files are not all kept`,
+        `[sw] ${path}: older-build copy deleted, its build's precache is gone`,
       );
       return null;
     }
@@ -895,8 +859,9 @@ registerRoute(
 // (its runtime and ~42 MB of model and WASM, filled by workers before
 // 2026-09-26, when the server took over background removal), pages-v1
 // (unstamped, unowned pages; see PAGES_CACHE), images-v1 (kept across
-// sessions; see IMAGES_CACHE) and assets-v1 (kept whatever build answered;
-// see ASSETS_CACHE).
+// sessions; see IMAGES_CACHE), assets-v1 (scripts kept whatever build
+// answered) and Workbox's default precache (one for every build, before
+// 2026-11-13; see PRECACHE).
 const RETIRED_CACHES = [
   'bg-removal-models',
   'bg-removal-models-v2',
@@ -904,6 +869,7 @@ const RETIRED_CACHES = [
   'pages-v1',
   'images-v1',
   'assets-v1',
+  cacheNames.precache,
 ];
 
 self.addEventListener('activate', (event) => {
@@ -920,6 +886,15 @@ self.addEventListener('activate', (event) => {
       );
       const count = deleted.filter(Boolean).length;
       if (count > 0) console.info(`[sw] dropped ${count} retired cache(s)`);
+      // Before this build records its own activation, so the build it
+      // replaces is the latest other one to have activated.
+      const { kept, dropped } = await dropOtherPrecaches(self.caches, PRECACHE);
+      await (
+        await self.caches.open(PRECACHE)
+      ).put(ACTIVATED_KEY, new Response(String(Date.now())));
+      console.info(
+        `[sw] build ${STATIC_BUILD} active: keeping precache(s) ${kept.join(', ')}, ${dropped.length} dropped`,
+      );
     })(),
   );
 });

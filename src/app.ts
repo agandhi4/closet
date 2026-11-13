@@ -167,7 +167,9 @@ export async function createApp(
   boot.info(`NODE_ENV: ${config.NODE_ENV}, APP_ENV: ${config.APP_ENV}`);
   boot.info(`DATA_PATH: ${config.DATA_PATH}`);
   boot.info(`Trusted proxies: ${trustProxy.join(', ')}`);
-  const build = loadBuildInfo(config.APP_VERSION);
+  const build = loadBuildInfo(config.APP_VERSION, {
+    trustStaticId: config.NODE_ENV === 'production',
+  });
   boot.info(`Release ${build.release}, static cache key ${build.assetVersion}`);
 
   boot.info(
@@ -404,7 +406,6 @@ export async function createApp(
     app,
     config,
     logger.child({ logger: 'StaticAssets' }),
-    build.assetVersion,
   );
 
   const web = logger.child({ logger: 'Web' });

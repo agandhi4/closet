@@ -4,7 +4,7 @@
    pointing at them, to public/vendor/fonts/fonts.css, which main.css
    imports into bundle.css. The hash is the cache key: /vendor/ is served
    immutable for a year and the service worker precaches the files (the
-   woff2 glob in workbox-config.js), so a font update is a new URL.
+   woff2 glob in scripts/generate-sw.ts), so a font update is a new URL.
 
    Latin subset and the weight axis only (redesign plan, section 4: about
    30 to 50 KB a font): Inter 47 KB, Fraunces 36 KB. Fraunces's optical-size

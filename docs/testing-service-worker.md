@@ -41,9 +41,11 @@ the heartbeat says offline, and the activation refresh
 `X-Closet-Warm` (held, or one key cut, so the refresh stops where the spec
 says), the due keys come from `cache.keys()` against the `activated-at`
 record, and the offline open's age is read from `#freshness` with the page's
-clock fast-forwarded (`page.clock`), never a sleep. Both builds render the
-same `?v=`, so the per-build static cache is proved by its unit spec
-(`src/asset-cache.spec.ts`, a stand-in cache and server), not here.
+clock fast-forwarded (`page.clock`), never a sleep. Both builds have the
+same static set (the proxy appends to `sw.js` only), so one precache serves
+both and the page cached under A opening offline proves its `?v=` meets an
+installed precache; which precache a `?v=` reads and which an activation
+keeps is proved by `src/static-build.spec.ts` (a stand-in CacheStorage).
 
 Two bugs it found in `public/js/pwa.js` (fixed with it): the other window's
 Reload posted `SKIP_WAITING` to no waiting worker and did nothing, forever,

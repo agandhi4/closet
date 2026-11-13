@@ -2,10 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  ASSET_VERSION_HEADER,
-  CLIENT_MODULE_PATHS,
-} from '../../src/asset-cache';
+import { ASSET_VERSION_HEADER } from '../../src/static-build';
 import { PUBLIC_DIR } from '../../src/static-assets';
 import { REPLAY_TIMEOUT_MS } from '../../src/offline-writes';
 import { createGarment, jpegPhoto, uploadPhoto } from './garments';
@@ -48,18 +45,12 @@ describe('delivery (PWA_ENABLED=true)', () => {
       );
     });
 
-    it('serves public/ files immutable for a year, naming their build', async () => {
-      // Whatever ?v= asks for: the worker keeps a file under its URL only
-      // when this names the same build (src/asset-cache.ts, #656).
-      const res = await t.inject({
-        method: 'GET',
-        url: '/js/connectivity.js?v=older',
-      });
+    it('serves public/ files immutable for a year', async () => {
+      const res = await t.inject({ method: 'GET', url: '/js/connectivity.js' });
       expect(res.statusCode).toBe(200);
       expect(res.headers['cache-control']).toBe(
         'public, max-age=31536000, immutable',
       );
-      expect(res.headers[ASSET_VERSION_HEADER.toLowerCase()]).toBe(RELEASE);
     });
 
     it('keeps the service worker revalidating', async () => {
@@ -292,19 +283,6 @@ describe('delivery (PWA_ENABLED=true)', () => {
       expect(imports.styling).toMatch(/^\/js\/styling\.js\?v=/);
     });
 
-    // The worker's install keeps each build's /modules/ by CLIENT_MODULE_PATHS
-    // (#656): a library the pages name outside it would meet the next build's
-    // bytes on an older page.
-    it('names only the /modules/ files the worker keeps per build', () => {
-      const named = [...html.matchAll(/"(\/modules\/[^"?]+)\?v=/g)].map(
-        (m) => m[1],
-      );
-      expect(named.length).toBeGreaterThanOrEqual(4);
-      for (const path of named) {
-        expect(Object.values(CLIENT_MODULE_PATHS)).toContain(path);
-      }
-    });
-
     // Issue #48: Firefox fetches it as the site icon on every cold load,
     // and iOS shows it at 180 px, so it is never the 1000 px icon.png.
     it('names the 192 px icon as the apple-touch-icon', () => {
@@ -450,7 +428,7 @@ describe('delivery (PWA_ENABLED=true)', () => {
     });
 
     // The worker serves an older build's stored page only while that
-    // build's static files are all kept (src/asset-cache.ts, #656).
+    // build's precache is installed (src/static-build.ts, #656).
     it('names the build its ?v= URLs name on every page', async () => {
       const page = await t.inject({ method: 'GET', url: '/outfits' });
       expect(page.headers[ASSET_VERSION_HEADER.toLowerCase()]).toBe(RELEASE);
