@@ -10,6 +10,7 @@ import {
   toOutfitGarment,
 } from '../outfits/outfit-resource';
 import { IsoDateSchema, RowId } from '../schemas';
+import { SelfiePhoto, toSelfiePhoto } from '../selfies/selfie-resource';
 import type { CalendarEntry } from './calendar-view';
 import { MAX_CALENDAR_DAYS, type ScheduleOutcome } from './queries';
 import type { Replaced, ReplacementChoice } from './replace';
@@ -37,6 +38,7 @@ export const CalendarEntryResource = Type.Object(
     selfieId: Type.Optional(
       Type.Integer({ description: 'The outfit selfie taken of it' }),
     ),
+    selfiePhoto: Type.Optional(SelfiePhoto),
     outfit: Type.Object(
       {
         id: Type.Integer(),
@@ -63,7 +65,10 @@ export function toCalendarEntryResource(
     occasion: entry.occasion,
     worn: entry.worn,
     plannedBy: entry.plannedBy,
-    ...(entry.selfie && { selfieId: entry.selfie.id }),
+    ...(entry.selfie && {
+      selfieId: entry.selfie.id,
+      selfiePhoto: toSelfiePhoto(entry.selfie.photo),
+    }),
     outfit: {
       id: entry.outfit.id,
       ...withoutNulls({ name: entry.outfit.name }),

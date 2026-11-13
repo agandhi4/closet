@@ -103,6 +103,7 @@ export const OPERATIONS = [
   'sendTemperatureFeedback',
   'setCalendarEntrySelfie',
   'deleteSelfie',
+  'getSelfiePhoto',
   // #193d: saved looks (Inspiration), their pieces, the match view's read
   // and its two writes, and the photo's bytes to the owner's device.
   'listLooks',

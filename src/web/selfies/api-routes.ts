@@ -3,8 +3,15 @@ import { Type } from '@sinclair/typebox';
 import { todayIn } from '../../calendar-date';
 import { apiResponses } from '../api/contract';
 import type { ApiOptions } from '../api/plugin';
+import {
+  PhotoBytes,
+  PrivatePhotoParams,
+  PrivatePhotoQuery,
+} from '../api/private-photo-bytes';
+import { servePrivatePhoto } from '../files/private-photo';
 import { IsoDateSchema, RowId } from '../schemas';
 import { actorOf } from '../sharing/access';
+import { isOwnSelfie } from './queries';
 import { attachSelfie, removeSelfie } from './writes';
 
 const IdParams = Type.Object({ id: RowId });
@@ -50,7 +57,8 @@ const SelfieTaken = Type.Object(
  * takes the Actor and refuses itself). The owner's alone, like the
  * calendar (AGENTS.md): there is no `?ownerId=`, and another's entry or
  * selfie is the 404 of an unknown id, refused before the upload is read.
- * The bytes are never public: no route here signs a URL of them.
+ * The bytes are never public and never signed: GET /selfie-photos/{fileName}
+ * serves them to the owner's token (the entry's `selfiePhoto` names it).
  */
 export const selfieApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
   app,
@@ -109,6 +117,38 @@ export const selfieApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       await removeSelfie(deps, actorOf(request), request.params.id, ' (API)');
       return reply.status(204).send(null);
     },
+  );
+
+  // The page's selfie routes read the cookie, which this surface never
+  // does, so the API has its twin: the owner's only, a grantee as a stranger.
+  app.get(
+    '/selfie-photos/:fileName',
+    {
+      config: { apiPhotoBytes: true },
+      schema: {
+        operationId: 'getSelfiePhoto',
+        tags: ['selfies'],
+        summary: "An outfit selfie's photo",
+        description:
+          "The URL an entry's `selfiePhoto` names: only yours, whatever is shared with you. Anything else (another's photo, a selfie already removed or replaced, a name that is none) is a 404 like a missing photo.",
+        params: PrivatePhotoParams,
+        querystring: PrivatePhotoQuery,
+        response: apiResponses({ 200: PhotoBytes }),
+      },
+    },
+    async (request, reply) =>
+      servePrivatePhoto(
+        { photos, logger },
+        reply,
+        {
+          fileName: request.params.fileName,
+          variant: request.query.variant ?? 'original',
+          ownerId: actorOf(request).userId,
+          kind: 'Selfie',
+          isOwn: (name, owner) => isOwnSelfie(db, name, owner),
+        },
+        'selfie',
+      ),
   );
 
   done();
