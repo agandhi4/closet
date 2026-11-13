@@ -51,6 +51,17 @@ export const OPERATIONS = [
   'updateOutfit',
   'deleteOutfit',
   'reactToOutfit',
+  // #193b: the calendar, Today's Wear this, the week plan and its template.
+  'listCalendarEntries',
+  'createCalendarEntry',
+  'replaceCalendarEntryOutfit',
+  'setCalendarEntryWorn',
+  'deleteCalendarEntry',
+  'wearOutfit',
+  'planWeek',
+  'undoWeekPlan',
+  'getWeekTemplate',
+  'saveWeekTemplate',
 ] as const;
 export type OperationId = (typeof OPERATIONS)[number];
 
@@ -71,16 +82,29 @@ type EndpointIssue =
   | '#195';
 
 /**
+ * A write's API twin: one operation, or each of the few a write that takes
+ * two shapes splits into (POST /calendar plans an outfit, or with `replace`
+ * changes an entry's; schedule_outfit likewise), any of which its matrix
+ * route's `api` may reach.
+ */
+export type Twin = OperationId | readonly [OperationId, ...OperationId[]];
+
+/** A twin's operations, one or several. */
+export function twinOperations(twin: Twin): readonly OperationId[] {
+  return typeof twin === 'string' ? [twin] : twin;
+}
+
+/**
  * How a write relates to the API, exactly one of:
- *  - `api`: the twin's operationId; its matrix cases replay on the twin
- *    (the matrix route's `api`) and must answer the same outcome;
+ *  - `api`: the twin's operationId (or ids, Twin); its matrix cases replay
+ *    on the twin (the matrix route's `api`) and must answer the same outcome;
  *  - `webOnly`: why a native client never gets it (plan section 6, owner
  *    decision 9: step-up credentials, sharing admin, exports, the browser's
  *    own plumbing);
  *  - `pending`: the endpoint issue that adds its twin.
  */
 export type Parity =
-  | { readonly api: OperationId }
+  | { readonly api: Twin }
   | { readonly webOnly: string }
   | { readonly pending: EndpointIssue };
 
@@ -90,7 +114,7 @@ export type Parity =
  * not required: MCP and API parity is not retrofitted (#191).
  */
 export type ToolParity =
-  | { readonly api: OperationId }
+  | { readonly api: Twin }
   | { readonly agentOnly: string }
   | { readonly pending: EndpointIssue };
 
@@ -184,7 +208,7 @@ export const PAGE_WRITES: Readonly<
   'POST /wardrobe/:id/washed': { api: 'washGarment' },
   'POST /wardrobe/:id/away': { api: 'setGarmentAway' },
   'POST /laundry': { api: 'washGarments' },
-  'POST /today/wear': { pending: '#193' },
+  'POST /today/wear': { api: 'wearOutfit' },
 
   // Outfits, styling and ideas.
   'POST /outfits': { api: 'createOutfit' },
@@ -216,14 +240,16 @@ export const PAGE_WRITES: Readonly<
   'POST /inspiration/:id/recreate/outfit': { pending: '#193' },
 
   // The calendar, the week plan and selfies.
-  'POST /calendar': { pending: '#193' },
-  'POST /calendar/:id/delete': { pending: '#193' },
-  'POST /calendar/:id/worn': { pending: '#193' },
+  'POST /calendar': {
+    api: ['createCalendarEntry', 'replaceCalendarEntryOutfit'],
+  },
+  'POST /calendar/:id/delete': { api: 'deleteCalendarEntry' },
+  'POST /calendar/:id/worn': { api: 'setCalendarEntryWorn' },
   'POST /calendar/:id/selfie': { pending: '#193' },
   'POST /selfies/:id/delete': { pending: '#193' },
-  'POST /calendar/plan-week': { pending: '#193' },
-  'POST /calendar/plan-week/:id/undo': { pending: '#193' },
-  'POST /auth/profile/week': { pending: '#193' },
+  'POST /calendar/plan-week': { api: 'planWeek' },
+  'POST /calendar/plan-week/:id/undo': { api: 'undoWeekPlan' },
+  'POST /auth/profile/week': { api: 'saveWeekTemplate' },
 
   // Trips and packing.
   'POST /trips': { pending: '#194' },
@@ -300,11 +326,13 @@ export const MCP_WRITES: Readonly<Record<string, ToolParity>> = {
   add_garment_copy: { api: 'addGarmentCopies' },
   add_garment_from_link: { api: 'importGarmentFromLink' },
   create_outfit: { api: 'createOutfit' },
-  schedule_outfit: { pending: '#193' },
+  schedule_outfit: {
+    api: ['createCalendarEntry', 'replaceCalendarEntryOutfit'],
+  },
   pick_outfit: { pending: '#193' },
-  mark_worn: { pending: '#193' },
+  mark_worn: { api: ['setCalendarEntryWorn', 'wearGarment'] },
   mark_washed: { api: 'washGarments' },
-  plan_week: { pending: '#193' },
+  plan_week: { api: 'planWeek' },
   add_inspiration: { pending: '#193' },
   set_inspiration_pieces: { pending: '#193' },
   set_capsule_membership: { pending: '#194' },

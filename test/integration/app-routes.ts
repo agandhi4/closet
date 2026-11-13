@@ -97,6 +97,7 @@ export const ADDRESS: Fixture = {
   capsuleId: 104,
   capsuleName: 'Capsule',
   outfitId: 105,
+  spareOutfitId: 143,
   museOutfitId: 141,
   museDeclinedId: 142,
   outfitName: 'Look',

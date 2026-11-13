@@ -358,5 +358,13 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/calendar-entries/${f.entryId}/worn${q}`,
+        payload: { worn: true },
+      }),
+    },
   },
 ];

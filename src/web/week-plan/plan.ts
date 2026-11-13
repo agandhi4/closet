@@ -15,7 +15,7 @@ import {
 import type { TemplateSlot } from '../../wardrobe/week';
 import type { DayForecast } from '../../weather/forecast';
 import { ownerTransaction } from '../auth/queries';
-import { addDays, type IsoDate } from '../../calendar-date';
+import { addDays, hourIn, type IsoDate, todayIn } from '../../calendar-date';
 import { entryOf } from '../calendar/queries';
 import { pickIdea } from '../outfits/pick';
 import { NotFound } from '../refusals';
@@ -51,7 +51,8 @@ import { findWeekTemplate } from './template';
  * "Plan my week" (#16; plan section 12): the week planner
  * (src/wardrobe/week-planner.ts, pure) fed from the database and the
  * forecast, and its writes. Called by POST /calendar/plan-week (routes.tsx),
- * the MCP tool plan_week and the seed; the daily re-plan (replan.ts) shares
+ * the MCP tool plan_week and POST /api/v1/week-plans (all three through
+ * planMyWeekNow) and the seed; the daily re-plan (replan.ts) shares
  * writeAutoPick and the window's reads.
  *
  * A plan is one transaction under lockOwner: the template, the week's
@@ -139,6 +140,35 @@ export interface PlanWeekInput {
   /** The days to fill: planDays(today); the seed plans the week after its anchor. */
   days: readonly IsoDate[];
   forecast: WeekForecast;
+}
+
+/** What planMyWeekNow planned, from which day, with which forecast. */
+export interface PlannedNow {
+  today: IsoDate;
+  forecast: WeekForecast;
+  result: WeekPlanResult;
+}
+
+/**
+ * "Plan my week" as a person asks it, now: the forecast read fresh (outside
+ * the lock), then planMyWeek over today and the six days after it, in the
+ * household's zone. The calendar's button, plan_week and the API's
+ * POST /week-plans each call it and say what it did their own way.
+ */
+export async function planMyWeekNow(
+  deps: { db: Db; weather: WeatherService | undefined; timeZone: string },
+  ownerId: number,
+  now: Date,
+): Promise<PlannedNow> {
+  const today = todayIn(deps.timeZone, now);
+  const forecast = await weekForecast(deps, ownerId, now, { fresh: true });
+  const result = await planMyWeek(deps.db, ownerId, {
+    today,
+    hour: hourIn(deps.timeZone, now),
+    days: planDays(today),
+    forecast,
+  });
+  return { today, forecast, result };
 }
 
 /** Fills the week's empty template slots, once (see the module comment). */

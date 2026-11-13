@@ -31,7 +31,8 @@ import { DECLINE_NOTE_MAX, SlotCategory } from './schemas';
  * a client reads the rest from GET /garments/{id}.
  */
 
-const OutfitGarmentResource = Type.Object(
+/** Also a calendar entry's garments (calendar/entry-resource.ts). */
+export const OutfitGarmentResource = Type.Object(
   {
     id: Type.Integer(),
     name: Type.Optional(Type.String()),
@@ -41,7 +42,7 @@ const OutfitGarmentResource = Type.Object(
     status: literals(GARMENT_STATUSES),
     /** Signed, relative, immutable: from the cutout when it shows. */
     thumbUrl: Type.Optional(Type.String()),
-    /** Only on GET /outfits/{id}: where the piece is when not in the closet. */
+    /** On GET /outfits/{id} and calendar entries: where the piece is when not in the closet. */
     away: Type.Optional(literals(AWAY_REASONS)),
   },
   {
@@ -116,7 +117,7 @@ export const Outfit = Type.Object(
 );
 type Outfit = Static<typeof Outfit>;
 
-function toOutfitGarment(garment: OutfitGarment) {
+export function toOutfitGarment(garment: OutfitGarment) {
   return withoutNulls({
     id: garment.id,
     name: garment.name,

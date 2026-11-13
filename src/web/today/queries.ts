@@ -73,6 +73,9 @@ export async function eveningDays(
   return new Map(rows.map(({ ownerId, ...evening }) => [ownerId, evening]));
 }
 
+/** The most garments an idea holds (the gallery's pick allows the same): Wear this, on the page and the API. */
+export const MAX_WORN_GARMENTS = 8;
+
 export interface WoreIdea {
   outfit: PickResult;
   entryId: number;
@@ -81,7 +84,8 @@ export interface WoreIdea {
 
 /**
  * "Wear this" on one of Today's ideas: the idea becomes an outfit (pickIdea,
- * which reuses an outfit of exactly these garments), planned today for
+ * which reuses an outfit of exactly these garments), planned on `day` (the
+ * page's today; the API's tap names its own, judged by its window) for
  * `occasion` and marked worn (wearOutfitOn), in one owner transaction: a
  * failure in either leaves neither. The lock is taken once, here, so the
  * writers below join this transaction rather than each opening a savepoint
@@ -98,11 +102,13 @@ export function wearIdea(
   input: {
     garmentIds: readonly number[];
     occasion: Occasion;
+    /** The day worn: today or before (the caller judges it). */
+    day: IsoDate;
     today: IsoDate;
     at: Date;
   },
 ): Promise<WoreIdea | 'not-found'> {
-  const { today } = input;
+  const { day, today } = input;
   return ownerTransaction(db, ownerId, 'wearIdea', async (tx) => {
     const outfit = await pickIdea(tx, ownerId, {
       garmentIds: input.garmentIds,
@@ -111,13 +117,13 @@ export function wearIdea(
     const worn = await wearOutfitOn(tx, {
       ownerId,
       outfitId: outfit.id,
-      day: today,
+      day,
       occasion: input.occasion,
       at: input.at,
       today,
     });
-    // Today is never after today.
-    if (worn === 'future') throw new Error('Today is after today');
+    // The callers never pass a day after today.
+    if (worn === 'future') throw new Error(`Wear this on ${day}, after today`);
     return { outfit, entryId: worn.entryId, worn: worn.worn };
   });
 }

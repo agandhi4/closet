@@ -1,6 +1,5 @@
 import * as z from 'zod';
-import { hourIn, todayIn } from '../../../calendar-date';
-import { planDays, planMyWeek, weekForecast } from '../../week-plan/plan';
+import { planMyWeekNow } from '../../week-plan/plan';
 import { defineTool } from '../tool';
 
 /**
@@ -20,17 +19,11 @@ export const weekPlanTools = [
     // Filled slots are skipped: a retry plans nothing more.
     idempotent: true,
     async run(_args, ctx) {
-      const now = new Date();
-      const today = todayIn(ctx.timeZone, now);
-      const forecast = await weekForecast(ctx, ctx.userId, now, {
-        fresh: true,
-      });
-      const result = await planMyWeek(ctx.db, ctx.userId, {
-        today,
-        hour: hourIn(ctx.timeZone, now),
-        days: planDays(today),
-        forecast,
-      });
+      const { today, forecast, result } = await planMyWeekNow(
+        ctx,
+        ctx.userId,
+        new Date(),
+      );
       const planNote =
         result.weekPlanId === null ? '' : ` (plan ${result.weekPlanId})`;
       ctx.webLogger.info(

@@ -366,6 +366,13 @@ export const ROUTES: Route[] = [
       viewer: 'hidden',
       stranger: 'hidden',
     },
+    api: {
+      ok: 200,
+      request: (_, q) => ({
+        method: 'GET',
+        url: `/api/v1/calendar-entries${q}`,
+      }),
+    },
   },
   {
     // The month of collages (R6): the entry is planned today, in this month,
@@ -426,6 +433,51 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 201,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/calendar-entries${q}`,
+        payload: {
+          day: '2030-10-09',
+          outfitId: f.outfitId,
+          occasion: 'evening',
+        },
+      }),
+    },
+  },
+  {
+    // Change (#69): the entry takes another outfit. Only its owner reaches
+    // the entry; the spare outfit is the owner's too.
+    name: 'POST /calendar (replace)',
+    kind: 'write',
+    ok: 302,
+    secret: calendarEntry,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/calendar${q}`,
+      payload: {
+        date: f.today,
+        outfitId: String(f.spareOutfitId),
+        occasion: 'all-day',
+        replace: String(f.entryId),
+      },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/calendar-entries/${f.entryId}/outfit${q}`,
+        payload: { outfitId: f.spareOutfitId },
+      }),
+    },
   },
   {
     name: 'POST /calendar/:id/delete',
@@ -444,6 +496,13 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 204,
+      request: (f, q) => ({
+        method: 'DELETE',
+        url: `/api/v1/calendar-entries/${f.entryId}${q}`,
+      }),
+    },
   },
   {
     // The weekly auto-plan's Undo: the batch is its owner's alone.
@@ -461,6 +520,13 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'DELETE',
+        url: `/api/v1/week-plans/${f.weekPlanId}${q}`,
+      }),
     },
   },
   {

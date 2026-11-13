@@ -65,7 +65,8 @@ export type ReplacementChoice =
 
 export interface EntryTarget {
   entryId: number;
-  day: IsoDate;
+  /** The entry's day, checked when given (the pages and MCP; the API names the entry alone). */
+  day?: IsoDate;
   /** The entry's occasion, checked when given (the pages always give it). */
   occasion?: Occasion;
 }
@@ -74,7 +75,8 @@ export interface EntryTarget {
 export interface Replaced {
   outcome: 'replaced' | 'unchanged';
   entryId: number;
-  /** The entry's occasion, which a replace keeps. */
+  /** The entry's day and occasion, which a replace keeps. */
+  day: IsoDate;
   occasion: Occasion;
   outfitId: number;
   previousOutfitId: number;
@@ -143,6 +145,7 @@ export function replaceEntryOutfit(
     const result = {
       adopted: entry.plannedBy === 'auto',
       entryId: entry.id,
+      day: entry.day,
       occasion: entry.occasion,
       outfitId: chosen.id,
       previousOutfitId: entry.outfitId,
@@ -155,7 +158,7 @@ export function replaceEntryOutfit(
     }
     // Only an outfit that already existed can be on the day: a created one
     // is new. Nothing was written yet, so refusing needs no rollback.
-    const onDay = await entryOf(tx, ownerId, target.day, chosen.id);
+    const onDay = await entryOf(tx, ownerId, entry.day, chosen.id);
     if (onDay) {
       throw new HttpError(
         409,
@@ -200,10 +203,10 @@ async function chosenOutfit(
   return picked === 'not-found' ? undefined : picked;
 }
 
-/** The entry a log line names: `Calendar entry 12 (2026-11-14 work)`. */
+/** The entry a log line names: `Calendar entry 12 (2026-11-14 work)`, or bare without a day. */
 function entryLabel(target: EntryTarget): string {
-  const occasion = target.occasion ? ` ${target.occasion}` : '';
-  return `Calendar entry ${target.entryId} (${target.day}${occasion})`;
+  const named = [target.day, target.occasion].filter(Boolean).join(' ');
+  return `Calendar entry ${target.entryId}${named ? ` (${named})` : ''}`;
 }
 
 /** What a replace changed, for its log line. */
@@ -227,7 +230,7 @@ export function replaceMessage(
   outcome: Replaced,
   via = '',
 ): string {
-  const entry = entryLabel(target);
+  const entry = entryLabel({ ...target, day: outcome.day });
   if (outcome.outcome === 'unchanged') {
     return outcome.adopted
       ? `${entry} already holds outfit ${outcome.outfitId}; taken over from the week planner by user ${ownerId}${via}`

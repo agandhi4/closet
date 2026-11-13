@@ -1,0 +1,113 @@
+import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
+import { CloneType, Type } from '@sinclair/typebox';
+import { todayIn } from '../../calendar-date';
+import { REPLAY_WINDOW_DAYS } from '../../offline-writes';
+import { OCCASIONS } from '../../wardrobe/occasions';
+import { apiResponses } from '../api/contract';
+import type { ApiOptions } from '../api/plugin';
+import { literals } from '../api/resource';
+import { dayOutsideWindow } from '../offline-writes';
+import { garmentsGoneError } from '../outfits/gone-garments';
+import { IsoDateSchema, RowId } from '../schemas';
+import { actorOf } from '../sharing/access';
+import { MAX_WORN_GARMENTS, wearIdea } from './queries';
+
+const OutfitWearInput = Type.Object(
+  {
+    garmentIds: Type.Array(RowId, {
+      minItems: 1,
+      maxItems: MAX_WORN_GARMENTS,
+      description:
+        "Your closet's garments, as an idea holds them: the outfit of exactly these is reused, else saved. One not in your closet is a 404 (a 409 naming those archived or not bought yet), nothing written",
+    }),
+    occasion: literals(OCCASIONS),
+    day: CloneType(IsoDateSchema, {
+      description: `The household day it was worn (GET /me's \`today\`), at most ${REPLAY_WINDOW_DAYS} days back; another is a 409`,
+    }),
+  },
+  {
+    title: 'OutfitWear',
+    description:
+      'Today\'s "Wear this": the garments worn together that day for an occasion',
+  },
+);
+
+const OutfitWorn = Type.Object(
+  {
+    outfitId: Type.Integer(),
+    /** The garments were an outfit of yours already. */
+    alreadySaved: Type.Boolean(),
+    /** Its calendar entry that day, marked worn. */
+    entryId: Type.Integer(),
+    /** False when it was worn that day already: a retry. */
+    changed: Type.Boolean(),
+    wears: Type.Integer({
+      minimum: 0,
+      description: 'Garment wears logged by this request',
+    }),
+  },
+  {
+    title: 'OutfitWorn',
+    description:
+      'The outfit and its entry on the day, worn: the calendar is the one history of what was worn when',
+  },
+);
+
+/**
+ * Today's write on /api/v1 (#193b; plan section 6): "Wear this", the page's
+ * wearIdea in one owner transaction (pickIdea, then wearOutfitOn). Today's
+ * read is GET /today (#195). The token's user's own closet, like the page:
+ * there is no `?ownerId=`. The day is sent, as every API wear's is (plan
+ * section 2), and judged by the queued taps' window.
+ */
+export const todayApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
+  app,
+  { db, config, logger },
+  done,
+) => {
+  app.post(
+    '/outfit-wears',
+    {
+      schema: {
+        operationId: 'wearOutfit',
+        tags: ['calendar'],
+        summary: 'Wore these garments together that day',
+        description:
+          'Saves them as an outfit (or finds the one they are), plans it that day for the occasion and marks it worn, in one transaction. Once: a retry finds the outfit and its entry worn (`changed: false`). The outfit already on that day keeps its entry and its occasion.',
+        body: OutfitWearInput,
+        response: apiResponses({ 200: OutfitWorn }),
+      },
+    },
+    async (request) => {
+      const ownerId = actorOf(request).userId;
+      const { garmentIds, occasion, day } = request.body;
+      const now = new Date();
+      const today = todayIn(config.timeZone, now);
+      const refusal = dayOutsideWindow(day, today);
+      if (refusal) throw refusal;
+      const outcome = await wearIdea(db, ownerId, {
+        garmentIds,
+        occasion,
+        day,
+        today,
+        at: now,
+      });
+      if (outcome === 'not-found') {
+        throw await garmentsGoneError(db, ownerId, garmentIds, 'closet');
+      }
+      const { outfit, entryId, worn } = outcome;
+      logger.info(
+        `Idea worn by user ${ownerId} on ${day} (${occasion}) (API): ${outfit.alreadySaved ? 'existing ' : ''}outfit ${outfit.id} of garments ${garmentIds.join(', ')}, entry ${entryId} ${worn.changed ? `marked worn (${worn.wears} wears logged)` : 'already worn'}`,
+      );
+      return {
+        outfitId: outfit.id,
+        alreadySaved: outfit.alreadySaved,
+        entryId,
+        changed: worn.changed,
+        wears: worn.wears,
+      };
+    },
+  );
+
+  done();
+};

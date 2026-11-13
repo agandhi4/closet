@@ -2,7 +2,7 @@ import * as z from 'zod';
 import { selectScalars } from '../../../db/select-scalars';
 import { compareOccasions } from '../../../wardrobe/occasions';
 import { addDays, daysBetween, todayIn } from '../../../calendar-date';
-import { entriesSql } from '../../calendar/queries';
+import { entriesSql, MAX_CALENDAR_DAYS } from '../../calendar/queries';
 import { HttpError } from '../../errors';
 import {
   readWeatherWithForecast,
@@ -15,9 +15,6 @@ import { actorOf, defineTool, wardrobeFor } from '../tool';
 import { isoDate, ownerIdInput, rowId } from './common';
 import { reachesForecast, weatherOfDays } from './weather';
 import { garmentNotFound } from '../../wardrobe/garment-access';
-
-/** get_calendar's widest range: two months, a planning conversation's horizon. */
-const MAX_CALENDAR_DAYS = 62;
 
 /**
  * The calendar and the wears are the caller's own records (src/web/wears):
