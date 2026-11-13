@@ -267,7 +267,9 @@ describe('weather', () => {
         ),
       ]);
       expect(t.logs.messages('info', 'OutboundFetch')).toEqual([
-        expect.stringMatching(/^Fetched json from 127\.0\.0\.2: \d+ bytes/),
+        expect.stringMatching(
+          /^Fetched json from 127\.0\.0\.2 over http\/1\.1: \d+ bytes/,
+        ),
       ]);
       const text = t.logs.text();
       expect(text).not.toContain('latitude=');

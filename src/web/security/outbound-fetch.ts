@@ -2,14 +2,19 @@ import { lookup as dnsLookup } from 'node:dns/promises';
 import {
   type IncomingHttpHeaders,
   type IncomingMessage,
+  type OutgoingHttpHeaders,
   request as httpRequest,
 } from 'node:http';
+import type {
+  ClientHttp2Session,
+  IncomingHttpHeaders as Http2Headers,
+  IncomingHttpStatusHeader,
+} from 'node:http2';
 import { isIP, type Socket } from 'node:net';
-import type { Readable, Transform } from 'node:stream';
-import { pipeline } from 'node:stream';
+import { pipeline, type Readable, Transform } from 'node:stream';
 import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import type { Logger } from '../../logger';
-import { dial, type TrustedCertificates } from './outbound-dial';
+import { dial, type Protocol, type TrustedCertificates } from './outbound-dial';
 import { isPublicAddress } from './public-address';
 
 /**
@@ -29,7 +34,9 @@ import { isPublicAddress } from './public-address';
  *   itself (`dial`, outbound-dial.ts, the one place a connection opens):
  *   nothing resolves the name again, so DNS rebinding cannot swap the
  *   address between the check and the connect. TLS still verifies the
- *   certificate against the name, which is the SNI, and Host is the name;
+ *   certificate against the name, which is the SNI, and Host (h2's
+ *   `:authority`) is the name. ALPN picks HTTP/2 or HTTP/1.1 on that one
+ *   socket (#496b); either way one request per connection, never pooled;
  * - follows at most MAX_REDIRECTS redirects, each checked like the first;
  * - is bounded as a whole by one timeout (DNS, connects, redirects, body);
  * - reads the body only for a content type the caller accepts, and stops
@@ -44,8 +51,8 @@ import { isPublicAddress } from './public-address';
  *   (`authorization`) only to a request that names its `hosts`, which then
  *   follows no redirect, so the credential reaches those hosts and nothing
  *   else;
- * - logs one line naming the host(s), never the path or query (a product
- *   link can carry a tracking or session token).
+ * - logs one line naming the host(s) and the last hop's protocol, never the
+ *   path or query (a product link can carry a tracking or session token).
  *
  * Failures are `OutboundFetchError`s whose `reason` says which rule refused.
  * The per-user rate limit is the caller's (the route's), not this module's.
@@ -268,9 +275,10 @@ interface PinnedTarget {
 /**
  * One response, whatever the protocol spoke it: all the refusal rules and
  * the body readers see (`refuseStatus`, `readResponse`, `decoded`), so each
- * rule has one copy. `headers` are lower case.
+ * rule has one copy. `headers` are lower case, h2's pseudo-headers dropped.
  */
 interface Answer {
+  protocol: Protocol;
   status: number;
   headers: IncomingHttpHeaders;
   body: Readable;
@@ -312,23 +320,29 @@ export function createOutboundFetcher(
     return { url, host, port, address };
   }
 
-  /** One request to the target's checked address, on a socket of its own. */
+  /**
+   * One request to the target's checked address, on a connection of its
+   * own: a redirect's next hop is a new dial, never this session.
+   */
   async function exchange(
     target: PinnedTarget,
     request: FetchRequest,
     signal: AbortSignal,
   ): Promise<Answer> {
-    const socket = await dial(
+    const connection = await dial(
       {
         host: target.host,
         address: target.address.address,
         port: target.port,
         secure: target.url.protocol === 'https:',
+        origin: target.url.origin,
       },
       signal,
       tls,
     );
-    return sendHttp1(socket, target.url, request, signal);
+    return connection.protocol === 'h2'
+      ? sendHttp2(connection.session, target.url, request, signal)
+      : sendHttp1(connection.socket, target.url, request, signal);
   }
 
   async function resolveName(
@@ -358,12 +372,13 @@ export function createOutboundFetcher(
     start: URL,
     request: FetchRequest,
     signal: AbortSignal,
-    hosts: string[],
+    trail: Trail,
   ): Promise<FetchedResource> {
     let url = start;
     for (let redirects = 0; ; redirects++) {
       const target = await pin(url, request, signal);
       const answer = await exchange(target, request, signal);
+      trail.protocol = answer.protocol;
       const { status } = answer;
       const location = answer.headers.location;
       if (REDIRECT_STATUSES.has(status) && location) {
@@ -382,7 +397,7 @@ export function createOutboundFetcher(
           );
         }
         url = parseUrl(location, url);
-        hosts.push(url.hostname);
+        trail.hosts.push(url.hostname);
         continue;
       }
       return {
@@ -404,19 +419,19 @@ export function createOutboundFetcher(
       }
       const started = performance.now();
       const timeout = AbortSignal.timeout(timeoutMs);
-      const hosts: string[] = [];
+      const trail: Trail = { hosts: [] };
       try {
         const url = parseUrl(rawUrl);
-        hosts.push(url.hostname);
-        const fetched = await fetchFollowing(url, request, timeout, hosts);
+        trail.hosts.push(url.hostname);
+        const fetched = await fetchFollowing(url, request, timeout, trail);
         logger.info(
-          `Fetched ${fetched.kind} from ${hostChain(hosts)}: ${fetched.body.length} bytes${fetched.truncated ? ' (cut at the cap)' : ''} in ${elapsed(started)} ms`,
+          `Fetched ${fetched.kind} from ${trailText(trail)}: ${fetched.body.length} bytes${fetched.truncated ? ' (cut at the cap)' : ''} in ${elapsed(started)} ms`,
         );
         return fetched;
       } catch (error) {
         const refusal = asRefusal(error, timeout);
         logger.warn(
-          `Outbound fetch refused (${refusal.reason}): ${hostChain(hosts) || 'no host'}${refusal.status === undefined ? '' : ` answered ${refusal.status}`} after ${elapsed(started)} ms${networkCode(error)}`,
+          `Outbound fetch refused (${refusal.reason}): ${trailText(trail) || 'no host'}${refusal.status === undefined ? '' : ` answered ${refusal.status}`} after ${elapsed(started)} ms${networkCode(error)}`,
         );
         throw refusal;
       }
@@ -449,35 +464,25 @@ function parseUrl(value: string, base?: URL): URL {
 function sendHttp1(
   socket: Socket,
   url: URL,
-  { accept, authorization, json }: FetchRequest,
+  request: FetchRequest,
   signal: AbortSignal,
 ): Promise<Answer> {
-  const body = json === undefined ? undefined : JSON.stringify(json);
+  const body = jsonBody(request);
   return new Promise((resolve, reject) => {
-    const request = httpRequest({
+    const outgoing = httpRequest({
       method: body === undefined ? 'GET' : 'POST',
       path: `${url.pathname}${url.search}`,
-      headers: {
-        host: url.host,
-        'user-agent': USER_AGENT,
-        accept: accept.map((kind) => ACCEPT_HEADERS[kind]).join(','),
-        'accept-encoding': 'gzip, deflate, br',
-        'accept-language': 'en',
-        ...(authorization !== undefined && { authorization }),
-        ...(body !== undefined && {
-          'content-type': 'application/json',
-          'content-length': Buffer.byteLength(body),
-        }),
-      },
+      headers: { host: url.host, ...requestHeaders(request, body) },
       createConnection: () => socket,
       signal,
     });
     // `on`, not `once`: a second error (a reset after an abort) with no
     // listener would crash the process. A 1xx never reaches 'response'
     // (Node emits it as 'information'), so it is ignored.
-    request.on('error', reject);
-    request.once('response', (response: IncomingMessage) => {
+    outgoing.on('error', reject);
+    outgoing.once('response', (response: IncomingMessage) => {
       resolve({
+        protocol: 'http/1.1',
         status: response.statusCode ?? 0,
         headers: response.headers,
         body: response,
@@ -487,8 +492,148 @@ function sendHttp1(
         },
       });
     });
-    request.end(body);
+    outgoing.end(body);
   });
+}
+
+/**
+ * The request over HTTP/2 on `session`, which `dial` built on the socket it
+ * connected: one stream, then the session is destroyed (readResponse, or
+ * the redirect), never reused. `:authority` is the checked URL's host, like
+ * HTTP/1.1's Host. A 1xx is a `headers` event and trailers a `trailers`
+ * one, neither listened to, so both are ignored as over HTTP/1.1.
+ */
+function sendHttp2(
+  session: ClientHttp2Session,
+  url: URL,
+  request: FetchRequest,
+  signal: AbortSignal,
+): Promise<Answer> {
+  const body = jsonBody(request);
+  // Destroy, not close (which waits for the stream): the stream and the
+  // socket end at once, so a server stops sending (a redirect's body, a cap
+  // hit, a compression bomb).
+  const destroy = () => session.destroy();
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      destroy();
+      reject(signal.reason as Error);
+      return;
+    }
+    signal.addEventListener('abort', destroy, { once: true });
+    session.once('close', () => signal.removeEventListener('abort', destroy));
+    session.on('error', reject);
+    const stream = session.request(
+      {
+        ':method': body === undefined ? 'GET' : 'POST',
+        ':scheme': 'https',
+        ':authority': url.host,
+        ':path': `${url.pathname}${url.search}`,
+        ...requestHeaders(request, body),
+      },
+      { endStream: body === undefined },
+    );
+    // `on`, not `once`, as over HTTP/1.1. A stream reset before its
+    // response with NO_ERROR, or dropped by a GOAWAY, closes with no error.
+    stream.on('error', reject);
+    stream.once('close', () =>
+      reject(new IncompleteAnswer('H2_STREAM_CLOSED')),
+    );
+    stream.once('response', (headers) => {
+      resolve({
+        protocol: 'h2',
+        status: headers[':status'] ?? 0,
+        headers: withoutPseudoHeaders(headers),
+        body: wholeBody(stream, headers, session),
+        destroy,
+      });
+    });
+    if (body !== undefined) stream.end(body);
+  });
+}
+
+function jsonBody({ json }: FetchRequest): string | undefined {
+  return json === undefined ? undefined : JSON.stringify(json);
+}
+
+/** Every request's headers but Host / `:authority`, lower case for h2. */
+function requestHeaders(
+  { accept, authorization }: FetchRequest,
+  body: string | undefined,
+): OutgoingHttpHeaders {
+  return {
+    'user-agent': USER_AGENT,
+    accept: accept.map((kind) => ACCEPT_HEADERS[kind]).join(','),
+    'accept-encoding': 'gzip, deflate, br',
+    'accept-language': 'en',
+    ...(authorization !== undefined && { authorization }),
+    ...(body !== undefined && {
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(body),
+    }),
+  };
+}
+
+function withoutPseudoHeaders(headers: Http2Headers): IncomingHttpHeaders {
+  return Object.fromEntries(
+    Object.entries(headers).filter(([name]) => !name.startsWith(':')),
+  );
+}
+
+/**
+ * An h2 answer that did not arrive whole: refused as `network`, its code
+ * logged. A plain error, not a refusal, so a timeout that destroyed the
+ * session still reads as `timeout` (asRefusal).
+ */
+class IncompleteAnswer extends Error {
+  constructor(
+    readonly code:
+      | 'H2_STREAM_CLOSED'
+      | 'H2_BODY_CUT_SHORT'
+      | 'H2_LENGTH_MISMATCH',
+  ) {
+    super('The site did not send its whole answer');
+    this.name = 'IncompleteAnswer';
+  }
+}
+
+/**
+ * The h2 stream's bytes, refused unless they arrived whole. Node ends a
+ * client stream quietly, as if complete, when its session dies mid-body
+ * (the socket closed, a GOAWAY then the close), so a stream that ends with
+ * its session destroyed was cut. nghttp2 resets a stream whose DATA passes
+ * its content-length or, at END_STREAM, falls short of it; a reset with
+ * NO_ERROR before END_STREAM ends it quietly too, so the bytes received
+ * (as sent, before decoding) are held to a declared length here. Without
+ * one, that reset still reads as the end: where the answer stops is then
+ * the server's own choice, like an early END_STREAM (docs/decisions.md
+ * 2026-11-13, #496b).
+ */
+function wholeBody(
+  stream: Readable,
+  headers: IncomingHttpStatusHeader & Http2Headers,
+  session: ClientHttp2Session,
+): Readable {
+  const length = headers['content-length'];
+  const declared = length === undefined ? undefined : Number(length);
+  let received = 0;
+  const counted = new Transform({
+    transform(chunk: Buffer, _encoding, done) {
+      received += chunk.length;
+      done(null, chunk);
+    },
+    flush(done) {
+      if (session.destroyed) {
+        done(new IncompleteAnswer('H2_BODY_CUT_SHORT'));
+      } else if (declared !== undefined && received !== declared) {
+        done(new IncompleteAnswer('H2_LENGTH_MISMATCH'));
+      } else {
+        done();
+      }
+    },
+  });
+  // Errors on either side destroy both; the reader sees the first.
+  return pipeline(stream, counted, () => undefined);
 }
 
 async function readResponse(
@@ -683,9 +828,21 @@ function networkCode(error: unknown): string {
     : ` (${code})`;
 }
 
-/** `shop.example -> cdn.example`: each host once per run of redirects to it. */
-function hostChain(hosts: readonly string[]): string {
-  return hosts.filter((host, i) => host && host !== hosts[i - 1]).join(' -> ');
+/** What one fetch's log line names: its hosts and the last hop's protocol. */
+interface Trail {
+  hosts: string[];
+  protocol?: Protocol;
+}
+
+/**
+ * `shop.example -> cdn.example over h2`: each host once per run of
+ * redirects to it, then the protocol of the last answer, once one came.
+ */
+function trailText({ hosts, protocol }: Trail): string {
+  const chain = hosts
+    .filter((host, i) => host && host !== hosts[i - 1])
+    .join(' -> ');
+  return protocol && chain ? `${chain} over ${protocol}` : chain;
 }
 
 function elapsed(started: number): number {
