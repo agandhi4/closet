@@ -10,9 +10,8 @@ import {
 } from '../files/pending-photos';
 import type { WebOptions } from '../plugin';
 import { renderFragment } from '../render';
-import { garmentGuard, requireGarment } from './garment-access';
+import { garmentGuard, type GarmentRequest } from './garment-access';
 import { GarmentPhotoView } from './garment-page';
-import type { GarmentPhoto } from './queries';
 import { batchEnd } from './draft-redirects';
 import { nextDraft } from './draft-queue';
 import { draftNotFound } from './render-form';
@@ -34,17 +33,6 @@ import {
 import { DiscardDraftBody, RotateBody } from './garment-schemas';
 import { GarmentParams, OwnerQuery } from '../schemas';
 
-/** The garment's photo for an action on it: a 400 for a garment without one. */
-async function requireGarmentPhoto(
-  db: WebOptions['db'],
-  id: number,
-  ownerId: number,
-): Promise<GarmentPhoto> {
-  const garment = await requireGarment(db, id, ownerId);
-  if (!garment.photo) throw new HttpError(400, 'Garment has no photo');
-  return garment.photo;
-}
-
 /**
  * A garment's photo: the add sheet's upload and a draft's Discard, the
  * photo sheet's replace and rotate, the mask editor's save, and the
@@ -64,6 +52,16 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     logger,
     cutouts: options.cutouts,
   };
+
+  /** The garment's photo for a change to it (owner or MANAGE): a 400 for a garment without one. */
+  async function photoToChange(request: GarmentRequest) {
+    const { access, viewOwner, garment } = await authorize.garment(
+      request,
+      'manage',
+    );
+    if (!garment.photo) throw new HttpError(400, 'Garment has no photo');
+    return { access, viewOwner, photo: garment.photo };
+  }
 
   // The add sheet's camera and library (#97): the photo, stored as the
   // requester's pending photo (stagePhotoUploads: the upload path every
@@ -141,11 +139,9 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/cutout',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorize(request, 'view');
-      const garment = await requireGarment(
-        db,
-        request.params.id,
-        access.ownerId,
+      const { access, viewOwner, garment } = await authorize.garment(
+        request,
+        'view',
       );
       return renderFragment(
         reply,
@@ -166,9 +162,8 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/cutout/retry',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorize(request, 'manage');
+      const { viewOwner, photo } = await photoToChange(request);
       const { id } = request.params;
-      const photo = await requireGarmentPhoto(db, id, access.ownerId);
       const outcome = await recordCutoutEvent(db, photo.fileName, {
         type: 'retry',
       });
@@ -195,9 +190,8 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/photo',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorize(request, 'manage');
+      const { access, viewOwner } = await authorize.garment(request, 'manage');
       const { id } = request.params;
-      await requireGarment(db, id, access.ownerId);
       await replacePhoto(
         deps,
         id,
@@ -227,9 +221,8 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const { access, viewOwner } = await authorize(request, 'manage');
+      const { access, viewOwner, photo } = await photoToChange(request);
       const { id } = request.params;
-      const photo = await requireGarmentPhoto(db, id, access.ownerId);
       await rotateGarmentPhoto(
         deps,
         id,
@@ -253,9 +246,8 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/nobg',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access } = await authorize(request, 'manage');
+      const { photo } = await photoToChange(request);
       const { id } = request.params;
-      const photo = await requireGarmentPhoto(db, id, access.ownerId);
       const part = await request.file();
       if (!part) throw new HttpError(400, 'No file uploaded');
       const edited = await options.photos.saveEditedCutout(

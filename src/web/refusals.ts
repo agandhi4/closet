@@ -19,6 +19,7 @@ const NOT_FOUND_MESSAGE = {
   calendarEntry: 'refusal.notFound.calendarEntry',
   capsule: 'refusal.notFound.capsule',
   garment: 'refusal.notFound.garment',
+  garmentPhoto: 'refusal.notFound.garmentPhoto',
   outfit: 'refusal.notFound.outfit',
   outfitRule: 'refusal.notFound.outfitRule',
   trip: 'refusal.notFound.trip',
@@ -37,9 +38,24 @@ export class NotFound extends HttpError {
   }
 }
 
+/**
+ * Why a refusal the actor can see the reason for is one, where "Forbidden"
+ * alone would be misread (an agent retrying a filter it may never use).
+ */
+const FORBIDDEN_REASON = {
+  ownWearsOnly: 'refusal.forbidden.ownWearsOnly',
+} as const satisfies Record<string, StringKey>;
+
+export type ForbiddenReason = keyof typeof FORBIDDEN_REASON;
+
 export class Forbidden extends HttpError {
-  constructor(options: { logDetail?: string } = {}) {
-    super(403, t('refusal.FORBIDDEN'), options);
+  constructor(options: { logDetail?: string; reason?: ForbiddenReason } = {}) {
+    const { reason, ...rest } = options;
+    super(
+      403,
+      t(reason ? FORBIDDEN_REASON[reason] : 'refusal.FORBIDDEN'),
+      rest,
+    );
     this.name = 'Forbidden';
   }
 }

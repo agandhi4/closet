@@ -16,11 +16,7 @@ import { renderFragment, renderPage, wantsFragment } from '../render';
 import type { WardrobeAccess } from '../sharing/access';
 import { viewContext } from '../view-context';
 import { normalizeCategory, normalizeSize } from './garment';
-import {
-  garmentGuard,
-  garmentNotFound,
-  requireGarment,
-} from './garment-access';
+import { garmentGuard, garmentNotFound } from './garment-access';
 import {
   bulkSetProperty,
   type GridFilters,
@@ -362,10 +358,12 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       schema: { params: GarmentParams, querystring: OwnerQuery, body: TagBody },
     },
     async (request, reply) => {
-      const { access, viewOwner } = await authorize(request, 'manage');
+      const { access, viewOwner, garment } = await authorize.garment(
+        request,
+        'manage',
+      );
       const { id } = request.params;
       const { next, ...tags } = request.body;
-      const garment = await requireGarment(db, id, access.ownerId);
       // Only what differs from the stored garment: the card posts its
       // checked chips every time, Next included.
       const changes = readTags(tags, garment);

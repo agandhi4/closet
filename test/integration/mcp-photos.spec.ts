@@ -185,7 +185,7 @@ describe('MCP garment photos and tagging', () => {
           await callTool(t, token, 'get_garment_photo', { id: tee }),
         ).toEqual({ isError: true, value: { error: 'Garment not found' } });
         expect(t.logs.messages('warn', 'Web')).toContainEqual(
-          `Refused a selfie as garment ${tee}'s photo to user ${t.owner.id} (MCP)`,
+          `Refused a selfie as garment ${tee}'s photo in wardrobe ${t.owner.id}`,
         );
       } finally {
         await t.db

@@ -21,8 +21,9 @@ import type { WeatherService } from '../weather/service';
  * and write functions the pages use and returns plain data; registerTools
  * turns each into an SDK tool that answers JSON text and logs the call.
  * A tool that answers a picture returns an ImageAnswer instead
- * (get_garment_photo). Refusals are thrown as HttpError, as in a route,
- * and follow the same policy (src/web/sharing/access.ts): a wardrobe,
+ * (get_garment_photo). Refusals are the domain functions' NotFound and
+ * Forbidden (src/web/refusals.ts), as in a route, under the same policy
+ * (src/web/sharing/access.ts): a wardrobe,
  * garment, capsule, outfit or entry the caller cannot see is "not found"
  * like an unknown id; one they can see but may not change is "not allowed".
  */
@@ -94,10 +95,10 @@ export async function wardrobeFor(
 ) {
   const { access } = await authorizeWardrobe(
     ctx.db,
-    ctx.userId,
+    actorOf(ctx),
     ownerId,
     need,
-    'Wardrobe not found',
+    'wardrobe',
   );
   return access;
 }

@@ -492,7 +492,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   { db, config, logger, weather },
   done,
 ) => {
-  const authorize = wardrobeGuard(db, 'Wardrobe not found');
+  const authorize = wardrobeGuard(db, 'wardrobe');
 
   /**
    * The wardrobe a request addresses (its own, or one shared with the
