@@ -304,6 +304,53 @@ describe('the api surface', () => {
   );
 });
 
+describe('a closed querystring (#577)', () => {
+  let token: string;
+
+  beforeAll(async () => {
+    await newAccount('closed-query@example.com');
+    ({ token } = await signedIn('closed-query@example.com'));
+  });
+
+  /** A path's `:param`s filled with a value its schema accepts. */
+  function fill(url: string): string {
+    return url.replace(/:(\w+)/g, (_, name: string) =>
+      name === 'fileName' ? 'a.webp' : '1',
+    );
+  }
+
+  it('refuses an undeclared parameter on every GET route with a 400 naming it', async () => {
+    const gets = routes.filter(
+      (route) => route.method === 'GET' && route.config?.surface === 'api',
+    );
+    expect(gets.length).toBeGreaterThan(15);
+    for (const route of gets) {
+      const res = await t.api(token, {
+        method: 'GET',
+        url: `${fill(route.url)}?bogus=1`,
+      });
+      const problem = expectProblem(res, 400, 'validation');
+      expect(problem.errors, route.url).toEqual([
+        { path: 'querystring/bogus', message: expect.any(String) },
+      ]);
+    }
+  });
+
+  it('keeps a declared filter working and leaves page routes lenient', async () => {
+    const res = await t.api(token, {
+      method: 'GET',
+      url: '/api/v1/garments?category=top&limit=5',
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const page = await t.inject({
+      method: 'GET',
+      url: '/wardrobe?bogus=1',
+      headers: { cookie: t.owner.cookie },
+    });
+    expect(page.statusCode).toBe(200);
+  });
+});
+
 describe('CSRF and CORS', () => {
   it('lets a bearer request without Origin through and refuses a foreign one with a problem', async () => {
     const email = 'origin@example.com';

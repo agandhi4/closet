@@ -766,3 +766,9 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 **Why:** replacing a selfie keeps its id but stores another photo, so an id-addressed URL served as immutable would hand a caching client the old bytes.
 **Decision:** `GET /api/v1/selfie-photos/{fileName}?variant=thumb&v=` (`servePrivatePhoto`, `apiPhotoBytes`), owner-only; a stranger, a grantee and a replaced or removed selfie get the same problem 404. A calendar entry carries `selfiePhoto { version, originalUrl, thumbUrl }` beside `selfieId`, so a client never builds the URL. The look and selfie byte routes share their schemas in `src/web/api/private-photo-bytes.ts`.
 **Consequence:** a new private image over the API is addressed by its stored file name, read from the resource, never by its row id.
+
+## 2026-11-13 — The API's querystring is closed (#577)
+
+**Why:** a misspelled filter (`?categroy=`) was ignored and answered the unfiltered list; Fastify's ajv also runs `removeAdditional: true`, so `additionalProperties: false` alone would have stripped the key, not refused it.
+**Decision:** one place, `validator.ts`: `jsonApiValidator` closes every `/api/v1` querystring schema and compiles it with `removeAdditional: false`; `declareQuerystring` (an apiPlugin onRoute hook) gives a route with none an empty one. A stray parameter is a 400 `validation` with `errors[].path` `querystring/<name>` (`validationFailures` reads ajv's `additionalProperty`). Pages stay lenient. No route needed a new declaration.
+**Consequence:** a route added later is strict without work; a parameter it accepts (`ownerId`, `v`) must be declared in its schema.
