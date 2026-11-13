@@ -1,6 +1,8 @@
 import type { FastifyReply } from 'fastify';
+import type { IsoDate } from '../../calendar-date';
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
+import type { Occasion } from '../../wardrobe/occasions';
 import {
   type EntryTarget,
   replaceEntryOutfit,
@@ -9,10 +11,12 @@ import {
 import { HttpError } from '../errors';
 import { garmentsGoneError } from '../outfits/gone-garments';
 import {
+  type DayDestination,
   destinationTarget,
   type OutfitDestination,
   parseDestination,
 } from '../outfits/destination';
+import type { TripOutfitAdded } from '../trips/queries';
 import { pickIdeaForTrip } from '../trips/trip-actions';
 import { tripUrl } from '../trips/urls';
 import { pickIdea, type PickResult } from '../outfits/pick';
@@ -37,7 +41,12 @@ import { alreadySavedParam } from './urls';
  * answers with its page, the rows kept. When they already were an outfit
  * it is reused, and the redirect says so (ALREADY_SAVED_FLAG). `name`
  * names a new outfit; without it pickIdea names it for its garments.
+ * pickGarments is every branch but `replace` without the redirect: the
+ * API's pick (POST /outfit-picks) calls it.
  */
+
+/** The most garments a card holds: a template, a layer and a locked piece or two. */
+export const MAX_PICKED = 8;
 
 export interface PickDeps {
   db: Db;
@@ -65,16 +74,7 @@ export function pickTo(
     const target = { entryId, day, occasion };
     return pickInPlace(deps, reply, actor, target, garmentIds, options);
   }
-  return destination.kind === 'trip'
-    ? pickToTrip(deps, reply, actor, destination, garmentIds, options)
-    : pickToDayOrSave(
-        deps,
-        reply,
-        actor.userId,
-        destination,
-        garmentIds,
-        options,
-      );
+  return pickAndRedirect(deps, reply, actor, destination, garmentIds, options);
 }
 
 /**
@@ -121,68 +121,110 @@ async function pickInPlace(
   );
 }
 
-async function pickToDayOrSave(
+/**
+ * Where pickGarments puts a new outfit: nowhere but the outfits, a day, or
+ * a trip. Replacing an entry's outfit is the entry's own write
+ * (replaceEntryOutfit: pickTo's `replace`, PUT /calendar-entries/{id}/outfit).
+ */
+export type PickDestination =
+  | Extract<OutfitDestination, { kind: 'none' | 'trip' }>
+  | Omit<DayDestination, 'replace'>;
+
+/** What a pick made of the garments, and where it went. */
+export type Picked =
+  | {
+      kind: 'saved';
+      outfit: PickResult;
+      plan: { day: IsoDate; occasion: Occasion } | undefined;
+    }
+  | {
+      kind: 'trip';
+      outfit: PickResult;
+      tripId: number;
+      added: TripOutfitAdded;
+    };
+
+/**
+ * The garments become an outfit (or are found one already) where the
+ * destination says, refused whole and logged: pickIdea for a day or none,
+ * pickIdeaForTrip for a trip. pickTo's (the gallery's pick, Styling's
+ * Save) and the API's POST /outfit-picks (#193c), so the surfaces never
+ * differ in what a pick does; `via` marks the API's log lines.
+ */
+export async function pickGarments(
   { db, logger }: PickDeps,
-  reply: FastifyReply,
-  ownerId: number,
-  destination: Extract<OutfitDestination, { kind: 'day' | 'none' }>,
-  garmentIds: number[],
-  options: { source: PickSource; name?: string },
-): Promise<FastifyReply> {
+  actor: Actor,
+  destination: PickDestination,
+  garmentIds: readonly number[],
+  options: { source: PickSource; name?: string; via?: string },
+): Promise<Picked> {
+  const via = options.via ?? '';
+  const who = `${PICKED[options.source]} by user ${actor.userId}`;
+  if (destination.kind === 'trip') {
+    const { tripId, day, occasion } = destination;
+    const { outfit, added } = await pickIdeaForTrip(db, actor, {
+      tripId,
+      day,
+      occasion,
+      garmentIds,
+      name: options.name,
+    });
+    logger.info(
+      `${who} for trip ${tripId}${via}: ${outfit.alreadySaved ? 'existing ' : ''}outfit ${outfit.id} of garments ${garmentIds.join(', ')}, ${added === 'added' ? 'added' : 'already on the trip'} (${day ?? 'any day'}${occasion ? `, ${occasion}` : ''})`,
+    );
+    return { kind: 'trip', outfit, tripId, added };
+  }
   const plan =
     destination.kind === 'day'
       ? { day: destination.day, occasion: destination.occasion }
       : undefined;
-  const picked = await pickIdea(db, ownerId, {
+  const outfit = await pickIdea(db, actor.userId, {
     garmentIds,
     plan,
     name: options.name,
   });
-  if (picked === 'not-found') {
-    throw await garmentsGoneError(db, ownerId, garmentIds, 'closet');
+  if (outfit === 'not-found') {
+    throw await garmentsGoneError(db, actor.userId, garmentIds, 'closet');
   }
-  logger.info(pickMessage(options.source, ownerId, garmentIds, picked, plan));
+  logger.info(pickMessage(`${who}${via}`, garmentIds, outfit, plan));
+  return { kind: 'saved', outfit, plan };
+}
+
+async function pickAndRedirect(
+  deps: PickDeps,
+  reply: FastifyReply,
+  actor: Actor,
+  destination: PickDestination,
+  garmentIds: number[],
+  options: { source: PickSource; name?: string },
+): Promise<FastifyReply> {
+  const picked = await pickGarments(
+    deps,
+    actor,
+    destination,
+    garmentIds,
+    options,
+  );
+  if (picked.kind === 'trip') {
+    return reply.redirect(tripUrl(picked.tripId, '?picked=1'), 303);
+  }
   // A pick of an outfit that exists (a double tap, a retried post) is a
   // success too; the page it lands on says so.
-  const flag = alreadySavedParam(picked);
+  const flag = alreadySavedParam(picked.outfit);
   return reply.redirect(
-    plan
-      ? `/calendar?week=${plan.day}${flag && `&${flag}`}`
-      : `/outfits/${picked.id}${flag && `?${flag}`}`,
+    picked.plan
+      ? `/calendar?week=${picked.plan.day}${flag && `&${flag}`}`
+      : `/outfits/${picked.outfit.id}${flag && `?${flag}`}`,
     303,
   );
 }
 
-async function pickToTrip(
-  { db, logger }: PickDeps,
-  reply: FastifyReply,
-  actor: Actor,
-  destination: Extract<OutfitDestination, { kind: 'trip' }>,
-  garmentIds: number[],
-  options: { source: PickSource; name?: string },
-): Promise<FastifyReply> {
-  const { tripId, day, occasion } = destination;
-  const outcome = await pickIdeaForTrip(db, actor, {
-    tripId,
-    day,
-    occasion,
-    garmentIds,
-    name: options.name,
-  });
-  logger.info(
-    `${PICKED[options.source]} by user ${actor.userId} for trip ${tripId}: ${outcome.outfit.alreadySaved ? 'existing ' : ''}outfit ${outcome.outfit.id} of garments ${garmentIds.join(', ')}, ${outcome.added === 'added' ? 'added' : 'already on the trip'} (${day ?? 'any day'}${occasion ? `, ${occasion}` : ''})`,
-  );
-  return reply.redirect(tripUrl(tripId, '?picked=1'), 303);
-}
-
 function pickMessage(
-  source: PickSource,
-  ownerId: number,
+  who: string,
   garmentIds: readonly number[],
   picked: PickResult,
   plan: { day: string; occasion: string } | undefined,
 ): string {
-  const who = `${PICKED[source]} by user ${ownerId}`;
   const garments = garmentIds.join(', ');
   if (!picked.alreadySaved) {
     const where = plan ? `, planned ${plan.day} (${plan.occasion})` : ', saved';

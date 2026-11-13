@@ -96,8 +96,13 @@ describe.each(others)('as %s of the owner’s wardrobe', (_, actor) => {
 });
 
 describe('as the owner', () => {
-  it('attachSelfie stores the photo and answers the entry’s day', async () => {
-    await expect(attachSelfie(deps, owner, upload)).resolves.toBe(DAY);
+  it('attachSelfie stores the photo and answers the selfie and the entry’s day', async () => {
+    await expect(attachSelfie(deps, owner, upload)).resolves.toEqual({
+      selfieId: SELFIE,
+      day: DAY,
+      replaced: false,
+      worn: { worn: true, changed: true, wears: 1, day: DAY },
+    });
     expect(storeUploadParts).toHaveBeenCalledWith(parts, OWNER);
   });
 

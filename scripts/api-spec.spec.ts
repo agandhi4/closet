@@ -97,6 +97,7 @@ describe('the OpenAPI spec', () => {
       )
       .map(([name]) => name);
     expect(multipart.sort()).toEqual([
+      'PUT /api/v1/calendar-entries/{id}/selfie',
       'PUT /api/v1/garments/{id}/photo',
       'PUT /api/v1/garments/{id}/photo/cutout',
     ]);
