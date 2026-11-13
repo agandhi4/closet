@@ -1018,6 +1018,7 @@ document.addEventListener(
     if (!(form instanceof HTMLFormElement) || !account) return;
     const action = form.getAttribute('action') ?? '';
     if (!LEAVES_ACCOUNT.has(action)) return;
+    // released/deciding: the per-form hold sets declared above the queueable-form hold (~line 742); released = resubmit let through once, deciding = a decision is pending.
     if (released.delete(form)) return;
     // Held while the store is read: what is queued is known only there.
     event.preventDefault();
