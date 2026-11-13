@@ -13,9 +13,8 @@ import {
   type OutfitDestination,
   parseDestination,
 } from '../outfits/destination';
-import { pickForTrip } from '../trips/queries';
+import { pickIdeaForTrip } from '../trips/trip-actions';
 import { tripUrl } from '../trips/urls';
-import { tripNotFound } from '../trips/validation';
 import { pickIdea, type PickResult } from '../outfits/pick';
 import type { Actor } from '../sharing/access';
 import { alreadySavedParam } from './urls';
@@ -31,7 +30,7 @@ import { alreadySavedParam } from './urls';
  * - `day`: saved and planned on it (pickIdea); to the week.
  * - `none`: saved (pickIdea); to the outfit.
  * - `trip` (#10): saved and added to the trip, for its day and occasion
- *   when given (pickForTrip); to the trip.
+ *   when given (pickIdeaForTrip, which refuses itself); to the trip.
  * Garments that are not all the owner's, in the closet, refuse the pick
  * with nothing written: OutfitGarmentsGone, naming them (#219; a 409 for
  * an archived one, a 404 for one that is not theirs), which Styling's Save
@@ -66,10 +65,16 @@ export function pickTo(
     const target = { entryId, day, occasion };
     return pickInPlace(deps, reply, actor, target, garmentIds, options);
   }
-  const ownerId = actor.userId;
   return destination.kind === 'trip'
-    ? pickToTrip(deps, reply, ownerId, destination, garmentIds, options)
-    : pickToDayOrSave(deps, reply, ownerId, destination, garmentIds, options);
+    ? pickToTrip(deps, reply, actor, destination, garmentIds, options)
+    : pickToDayOrSave(
+        deps,
+        reply,
+        actor.userId,
+        destination,
+        garmentIds,
+        options,
+      );
 }
 
 /**
@@ -151,28 +156,21 @@ async function pickToDayOrSave(
 async function pickToTrip(
   { db, logger }: PickDeps,
   reply: FastifyReply,
-  ownerId: number,
+  actor: Actor,
   destination: Extract<OutfitDestination, { kind: 'trip' }>,
   garmentIds: number[],
   options: { source: PickSource; name?: string },
 ): Promise<FastifyReply> {
   const { tripId, day, occasion } = destination;
-  const outcome = await pickForTrip(db, ownerId, {
+  const outcome = await pickIdeaForTrip(db, actor, {
     tripId,
     day,
     occasion,
     garmentIds,
     name: options.name,
   });
-  if (outcome === 'no-trip') throw tripNotFound();
-  if (outcome === 'not-a-trip-day') {
-    throw new HttpError(400, 'body/for must name a day of the trip');
-  }
-  if (outcome === 'not-found') {
-    throw await garmentsGoneError(db, ownerId, garmentIds, 'closet');
-  }
   logger.info(
-    `${PICKED[options.source]} by user ${ownerId} for trip ${tripId}: ${outcome.outfit.alreadySaved ? 'existing ' : ''}outfit ${outcome.outfit.id} of garments ${garmentIds.join(', ')}, ${outcome.added === 'added' ? 'added' : 'already on the trip'} (${day ?? 'any day'}${occasion ? `, ${occasion}` : ''})`,
+    `${PICKED[options.source]} by user ${actor.userId} for trip ${tripId}: ${outcome.outfit.alreadySaved ? 'existing ' : ''}outfit ${outcome.outfit.id} of garments ${garmentIds.join(', ')}, ${outcome.added === 'added' ? 'added' : 'already on the trip'} (${day ?? 'any day'}${occasion ? `, ${occasion}` : ''})`,
   );
   return reply.redirect(tripUrl(tripId, '?picked=1'), 303);
 }

@@ -5,16 +5,14 @@ import { todayIn } from '../../../calendar-date';
 import { HttpError } from '../../errors';
 import { OUTFIT_NAME_MAX } from '../../outfits/queries';
 import { type TripForecast, tripForecast } from '../../trips/forecast';
-import { tripModel, type TripOutfitView } from '../../trips/model';
+import type { TripOutfitView } from '../../trips/model';
+import { listTrips, type TripSlot } from '../../trips/queries';
 import {
-  addTripOutfit,
-  findTrip,
-  listTrips,
-  pickForTrip,
-  type TripSlot,
-} from '../../trips/queries';
-import { tripNotFound } from '../../trips/validation';
-import { defineTool, type ToolContext } from '../tool';
+  pickIdeaForTrip,
+  planTripOutfit,
+  requireTripModel,
+} from '../../trips/trip-actions';
+import { actorOf, defineTool, type ToolContext } from '../tool';
 import { isoDate, occasionInput, rowId } from './common';
 import { dayWeather, typicalDayWeather } from './weather';
 
@@ -58,9 +56,9 @@ function weatherOut(forecast: TripForecast | null) {
 }
 
 /**
- * plan_trip_outfit's write: a saved outfit (addTripOutfit), or an idea's
- * garments made one (pickForTrip), on the trip; refusals thrown as a route
- * answers them.
+ * plan_trip_outfit's write: a saved outfit (planTripOutfit), or an idea's
+ * garments made one (pickIdeaForTrip), on the trip; each refuses itself,
+ * as the add page and the gallery's pick do.
  */
 async function planOnTrip(
   ctx: ToolContext,
@@ -72,57 +70,29 @@ async function planOnTrip(
   } & TripSlot,
 ): Promise<{ outfitId: number; created: boolean; added: boolean }> {
   const { tripId, day, occasion } = input;
-  const outcome =
-    input.garmentIds === undefined
-      ? await addTripOutfit(ctx.db, {
-          tripId,
-          ownerId: ctx.userId,
-          outfitId: input.outfitId!,
-          day,
-          occasion,
-        })
-      : await pickForTrip(ctx.db, ctx.userId, {
-          tripId,
-          garmentIds: input.garmentIds,
-          name: input.name,
-          day,
-          occasion,
-        });
-  if (outcome === 'added' || outcome === 'already') {
-    return {
-      outfitId: input.outfitId!,
-      created: false,
-      added: outcome === 'added',
-    };
+  const actor = actorOf(ctx);
+  if (input.garmentIds === undefined) {
+    const outfitId = input.outfitId!;
+    const added = await planTripOutfit(ctx.db, actor, {
+      tripId,
+      outfitId,
+      day,
+      occasion,
+    });
+    return { outfitId, created: false, added: added === 'added' };
   }
-  if (typeof outcome === 'string') throw await refusal(ctx, tripId, outcome);
+  const picked = await pickIdeaForTrip(ctx.db, actor, {
+    tripId,
+    garmentIds: input.garmentIds,
+    name: input.name,
+    day,
+    occasion,
+  });
   return {
-    outfitId: outcome.outfit.id,
-    created: !outcome.outfit.alreadySaved,
-    added: outcome.added === 'added',
+    outfitId: picked.outfit.id,
+    created: !picked.outfit.alreadySaved,
+    added: picked.added === 'added',
   };
-}
-
-async function refusal(
-  ctx: ToolContext,
-  tripId: number,
-  outcome: 'no-trip' | 'not-a-trip-day' | 'no-outfit' | 'not-found',
-): Promise<HttpError> {
-  switch (outcome) {
-    case 'no-trip':
-      return tripNotFound();
-    case 'not-a-trip-day': {
-      const trip = await findTrip(ctx.db, tripId, ctx.userId);
-      return new HttpError(
-        400,
-        `The date must be a day of the trip, ${trip?.startsOn} to ${trip?.endsOn}`,
-      );
-    }
-    case 'no-outfit':
-      return new HttpError(404, 'Outfit not found');
-    case 'not-found':
-      return new HttpError(404, 'A garment is not in your closet');
-  }
 }
 
 export const tripTools = [
@@ -161,8 +131,7 @@ export const tripTools = [
     writes: false,
     async run({ tripId }, ctx) {
       const today = todayIn(ctx.timeZone, new Date());
-      const model = await tripModel(ctx.db, ctx.userId, tripId, today);
-      if (!model) throw tripNotFound();
+      const model = await requireTripModel(ctx.db, actorOf(ctx), tripId, today);
       const { trip, packing } = model;
       const forecast = ctx.weather
         ? await tripForecast(

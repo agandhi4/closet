@@ -3,8 +3,8 @@ import { DEFAULT_OCCASION, type Occasion } from '../../wardrobe/occasions';
 import type { Location } from '../../weather/location';
 import type { IsoDate } from '../../calendar-date';
 import type { OutfitDestination } from '../outfits/destination';
-import { findTrip, ideasDayOf, type TripRow } from '../trips/queries';
-import { tripNotFound } from '../trips/validation';
+import { ideasDayOf, type TripRow } from '../trips/queries';
+import { requireTrip } from '../trips/trip-actions';
 
 /** Where suggestions are aimed: what a `?for=` resolves to for ideasFor. */
 export interface IdeasAim {
@@ -46,8 +46,9 @@ export async function aimIdeas(
       weatherAt: {},
     };
   }
-  const trip = await findTrip(db, parsed.tripId, ownerId);
-  if (!trip) throw tripNotFound();
+  // Trips are private, so the requester alone is the Actor: a share read
+  // ahead would never widen what requireTrip reaches.
+  const trip = await requireTrip(db, { userId: ownerId }, parsed.tripId);
   const day = ideasDayOf(trip, parsed.day, today);
   return {
     destination:
