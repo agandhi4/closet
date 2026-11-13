@@ -11,12 +11,15 @@ import {
   type QueueableKind,
   queueableKindOf,
   queuedTarget,
+  queuedWritesGoneAtClaim,
   REPLAY_WINDOW_DAYS,
   replayVerdict,
   retryDelayMs,
   routesThroughOutbox,
   sharedUntilRejected,
+  showsQueuedWrite,
   type StoredRecord,
+  syncedWritePaths,
   takesDay,
 } from './offline-writes';
 
@@ -232,6 +235,82 @@ describe('replayVerdict', () => {
     [429, null, { verdict: 'retry' }],
   ] as const)('reads %i (%s)', (status, outcome, verdict) => {
     expect(replayVerdict(status, outcome)).toEqual(verdict);
+  });
+});
+
+describe('after a sync, the worker’s refetch', () => {
+  it('acts only on the allowlist’s paths, each once', () => {
+    expect(
+      syncedWritePaths([
+        '/wardrobe/41/wear',
+        '/wardrobe/41/wear',
+        '/trips/7/items/packed',
+        '/wardrobe/41',
+        'https://elsewhere.test/wardrobe/41/wear',
+        '/wardrobe/41/wear?x=1',
+        41,
+        null,
+      ]),
+    ).toEqual(['/wardrobe/41/wear', '/trips/7/items/packed']);
+    expect(syncedWritePaths('/wardrobe/41/wear')).toEqual([]);
+    expect(syncedWritePaths(undefined)).toEqual([]);
+  });
+
+  it.each([
+    [
+      '/wardrobe/41/wear',
+      ['/wardrobe/41', '/laundry'],
+      ['/wardrobe/4', '/wardrobe/410', '/wardrobe', '/'],
+    ],
+    [
+      '/wardrobe/41/washed',
+      ['/wardrobe/41', '/laundry'],
+      ['/wardrobe/41/edit', '/calendar'],
+    ],
+    [
+      '/calendar/88/worn',
+      ['/', '/calendar', '/laundry', '/trips/7'],
+      ['/calendar/month', '/trips', '/trips/7/edit', '/wardrobe/88'],
+    ],
+    ['/trips/7/packed', ['/trips/7'], ['/trips/70', '/trips', '/', '/laundry']],
+    ['/trips/7/items/packed', ['/trips/7'], ['/trips/8']],
+    ['/wardrobe/41', [], ['/wardrobe/41', '/laundry']],
+  ])(
+    'refetches for %s exactly the pages that draw it',
+    (write, shown, notShown) => {
+      for (const page of shown)
+        expect(showsQueuedWrite(write, page), page).toBe(true);
+      for (const page of notShown)
+        expect(showsQueuedWrite(write, page), page).toBe(false);
+    },
+  );
+});
+
+describe('queuedWritesGoneAtClaim', () => {
+  it('deletes every other account’s records when the cache gets a new owner, keeping the claimant’s', () => {
+    for (const owner of ['7', undefined]) {
+      const gone = queuedWritesGoneAtClaim(owner, '41');
+      expect(gone, String(owner)).toBeDefined();
+      expect(gone?.('7')).toBe(true);
+      expect(gone?.('412')).toBe(true);
+      expect(gone?.(undefined)).toBe(true);
+      expect(gone?.('41')).toBe(false);
+    }
+  });
+
+  it('deletes none for the same owner or a signed-out page', () => {
+    expect(queuedWritesGoneAtClaim('41', '41')).toBeUndefined();
+    expect(queuedWritesGoneAtClaim('41', '')).toBeUndefined();
+    expect(queuedWritesGoneAtClaim(undefined, '')).toBeUndefined();
+  });
+
+  it('keeps a record only in the header’s own spelling of the account', () => {
+    // The owner and a record's account must agree in format: a number, or a
+    // padded or prefixed id, is another account to the claim and goes.
+    const gone = queuedWritesGoneAtClaim('7', '41');
+    for (const spelling of [41, ' 41', '041', 'user:41']) {
+      expect(gone?.(spelling), String(spelling)).toBe(true);
+    }
   });
 });
 

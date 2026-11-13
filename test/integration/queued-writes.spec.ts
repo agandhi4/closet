@@ -14,6 +14,7 @@ import {
   queueableKindOf,
   queuedTarget,
 } from '../../src/offline-writes';
+import { PAGE_ACCOUNT_HEADER } from '../../src/web/page-cache';
 import { createGarment } from './garments';
 import {
   createTestApp,
@@ -487,11 +488,18 @@ describe('queued writes', () => {
     });
 
     it('names the account and the zone, and loads the outbox, on signed-in pages only', async () => {
-      const signedIn = await page('/wardrobe');
+      const answer = await t.inject({ method: 'GET', url: '/wardrobe' });
+      const signedIn = unescapeHtml(answer.body);
       expect(signedIn).toMatch(
         new RegExp(
           `<div id="app-status"[^>]* data-account="${t.owner.id}" data-time-zone="${t.timeZone}"`,
         ),
+      );
+      // The worker's claim keeps the records whose account equals the page's
+      // X-Page-Account (queuedWritesGoneAtClaim), and a record's account is
+      // this attribute: one spelling, or a sign-in deletes the user's own.
+      expect(answer.headers[PAGE_ACCOUNT_HEADER.toLowerCase()]).toBe(
+        /data-account="([^"]+)"/.exec(signedIn)?.[1],
       );
       expect(signedIn).toContain(
         'data-text-outbox-waiting-many="{count} changes waiting to sync"',

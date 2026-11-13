@@ -11,9 +11,11 @@
  *
  * A cached page asks the worker to revalidate itself as soon as this script
  * runs (checkDocument), and again whenever the device comes back online
- * while showing one (connectivity:change), and any page once the outbox has
- * saved queued writes (outbox:synced): the same REVALIDATE_PAGE request
- * every time. When the server's page differs it is swapped in at once if
+ * while showing one (connectivity:change): the same REVALIDATE_PAGE request
+ * every time. Once the outbox has saved queued writes, the worker renews
+ * the cached pages that show them and says which (PAGES_RENEWED), so any
+ * page on screen among them, live or cached, takes the server's copy the
+ * same way. When the server's page differs it is swapped in at once if
  * the page is untouched (no tap, key or wheel yet, scrolled to the top, no
  * dialog open); otherwise a toast offers it ("Newer version of this page",
  * Refresh), so content never moves under a thumb or a half-typed form. When
@@ -30,6 +32,9 @@ const CACHED_AT_HEADER = 'X-SW-Cached-At';
 // module), for a full navigation a document's own script cannot read any
 // other way (#240).
 const CACHED_AT_TIMING_NAME = 'cache';
+// The worker's list of the copies a sync renewed (src/offline-writes.ts's
+// PAGES_RENEWED, duplicated for the same reason).
+const PAGES_RENEWED = 'PAGES_RENEWED';
 // Online, a revalidation lands within a few hundred ms: the age waits this
 // long so a copy about to be replaced does not flash it.
 const REVALIDATION_GRACE_MS = 1_000;
@@ -207,8 +212,9 @@ function checkDocument() {
     fromCache: true,
     quietUntil: Date.now() + REVALIDATION_GRACE_MS,
   });
-  ask({ type: 'REVALIDATE_PAGE', url: display.url, fragment: false }, (answer) =>
-    onRevalidated(id, answer),
+  ask(
+    { type: 'REVALIDATE_PAGE', url: display.url, fragment: false },
+    (answer) => onRevalidated(id, answer),
   );
 }
 
@@ -284,9 +290,23 @@ export function watchFreshness() {
     if (event.detail.state === 'online' && display.fromCache) revalidate();
   });
   // Queued writes saved (outbox.js, #178): what is on screen shows them only
-  // as the outbox drew them, so any copy asks, live or cached; the counts
-  // and lines come with the server's.
-  document.addEventListener('outbox:synced', revalidate);
+  // as the outbox drew them, live or cached; the counts and lines come with
+  // the server's copy. The worker has already stored it (refetchSyncedPages
+  // in src-sw.ts), so asking REVALIDATE_PAGE now would find nothing new: the
+  // copy comes with the message, and is taken as a revalidation's would be.
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data?.type !== PAGES_RENEWED) return;
+    const fragment = display.fragment !== null;
+    const renewed = event.data.pages.find(
+      (page) => page.url === display.url && page.fragment === fragment,
+    );
+    if (!renewed) return;
+    onRevalidated(display.id, {
+      outcome: 'updated',
+      html: renewed.html,
+      fetchedAt: renewed.fetchedAt,
+    });
+  });
 
   setInterval(render, TICK_MS);
   document.addEventListener('visibilitychange', render);

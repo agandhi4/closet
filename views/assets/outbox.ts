@@ -52,6 +52,7 @@ import {
   enqueue,
   isChecklist,
   OUTBOX_MAX_PENDING,
+  OUTBOX_SYNCED,
   type OutboxStore,
   type QueueableKind,
   queueableKindOf,
@@ -65,6 +66,12 @@ import {
   sharedUntilRejected,
   takesDay,
 } from '../../src/offline-writes';
+import {
+  inTransaction,
+  openOutboxChannel,
+  openOutboxDatabase,
+  type OutboxChange,
+} from './outbox-store';
 
 type Fields = Record<string, string | string[]>;
 
@@ -100,17 +107,15 @@ declare global {
   }
 }
 
-/** What one drain did: its saves and failures, and when to retry, if it must. */
+/** What one drain did: its saves, and when to retry, if it must. */
 interface DrainResult {
   saved: number;
-  failed: number;
+  /** The saved records' paths: OUTBOX_SYNCED's. */
+  savedPaths: string[];
   retryInMs?: number;
 }
 
-const DB_NAME = 'closet-outbox';
-const STORE = 'writes';
 const DRAIN_LOCK = 'closet-outbox-drain';
-const CHANNEL = 'closet-outbox';
 const LOGOUT_PATH = '/auth/logout';
 // Sign-out waits this long for the queue to drain, then asks about the rest.
 const SIGN_OUT_DRAIN_MS = 5_000;
@@ -175,50 +180,21 @@ function offline(): boolean {
 
 // ---- The store --------------------------------------------------------------
 
-const openDatabase = sharedUntilRejected(
-  () =>
-    new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, 1);
-      request.onupgradeneeded = () => {
-        const store = request.result.createObjectStore(STORE, {
-          keyPath: 'id',
-        });
-        store.createIndex('key', 'key');
-        store.createIndex('account', 'account');
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error ?? new Error('open failed'));
-    }),
-);
+const openDatabase = sharedUntilRejected(openOutboxDatabase);
 
 /** One transaction over the store, settled when it commits. */
 async function transact(
   mode: IDBTransactionMode,
   work: (store: IDBObjectStore) => void,
 ): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(STORE, mode);
-    work(transaction.objectStore(STORE));
-    transaction.oncomplete = () => resolve();
-    transaction.onabort = transaction.onerror = () =>
-      reject(transaction.error ?? new Error('transaction failed'));
-  });
+  await inTransaction(await openDatabase(), mode, work);
 }
 
 /**
- * The other tabs of this origin; absent where BroadcastChannel is (iOS
- * before 15.4), where they catch up at their next visibilitychange.
+ * The other tabs of this origin, and the worker, which posts here when it
+ * deletes records at a session boundary.
  */
-const channel =
-  typeof BroadcastChannel === 'function'
-    ? new BroadcastChannel(CHANNEL)
-    : undefined;
-
-interface ChangeMessage {
-  /** A put: a tab that can reach the server should drain it. */
-  drain: boolean;
-}
+const channel = openOutboxChannel();
 
 /**
  * A committed write: re-rendered here, announced to the other tabs. Every
@@ -230,7 +206,7 @@ async function write(
   { drain = false } = {},
 ): Promise<void> {
   await transact('readwrite', work);
-  channel?.postMessage({ drain } satisfies ChangeMessage);
+  channel?.postMessage({ drain } satisfies OutboxChange);
   void refresh();
 }
 
@@ -846,7 +822,7 @@ async function replayAll(
   reason: string,
 ): Promise<DrainResult> {
   const queued = (await store.records(account)).filter(isPending);
-  const result: DrainResult = { saved: 0, failed: 0 };
+  const result: DrainResult = { saved: 0, savedPaths: [] };
   if (queued.length === 0) return result;
   console.info(`[outbox] sync (${reason}): ${queued.length} pending`);
   const quiet = setTimeout(() => {
@@ -875,7 +851,10 @@ async function replayAll(
         // A replaced one's save is not the user's last word: its successor
         // replays next and is the one counted.
         const current = await settle(record);
-        if (current) result.saved += 1;
+        if (current) {
+          result.saved += 1;
+          result.savedPaths.push(record.path);
+        }
         console.info(
           `[outbox] ${key} saved (${answer.changed ? 'changed' : 'unchanged'})${current ? '' : ', superseded meanwhile'}`,
         );
@@ -886,7 +865,6 @@ async function replayAll(
           reason: answer.reason,
         };
         if (await settle(record, failure)) {
-          result.failed += 1;
           console.warn(`[outbox] ${key} not saved: ${answer.reason}`);
         } else {
           console.info(`[outbox] ${key} not saved, superseded meanwhile`);
@@ -939,7 +917,7 @@ const drain = singleFlight(async (reason: string) => {
       : await replay();
   } catch (error) {
     console.warn(`[outbox] sync (${reason}) failed`, error);
-    result = { saved: 0, failed: 0 };
+    result = { saved: 0, savedPaths: [] };
   }
   if (result.retryInMs !== undefined) {
     retryTimer = setTimeout(() => void schedule('retry'), result.retryInMs);
@@ -952,14 +930,24 @@ const drain = singleFlight(async (reason: string) => {
       ttlMs: SAVED_TOAST_MS,
     });
   }
-  if (result.saved + result.failed > 0) {
-    // freshness.js asks the worker for the page again (swapped in only if
-    // untouched): counts and lines are the server's, a failure's too.
-    document.dispatchEvent(
-      new CustomEvent('outbox:synced', { detail: result }),
-    );
-  }
+  if (result.saved > 0) refetchSyncedPages(result.savedPaths);
 });
+
+/**
+ * The worker refetches its cached copies of the pages that show what was
+ * saved (src-sw.ts, OUTBOX_SYNCED), so one reopened offline later shows it,
+ * and tells every open tab which changed (PAGES_RENEWED), this one
+ * included: freshness.js swaps in the server's copy of a page on screen
+ * among them, so its counts and lines are the server's. A failure needs
+ * neither: its region is put back here (showServerState). Without a
+ * controlling worker there is nothing cached and nobody to tell.
+ */
+function refetchSyncedPages(paths: string[]): void {
+  navigator.serviceWorker?.controller?.postMessage({
+    type: OUTBOX_SYNCED,
+    paths,
+  });
+}
 
 /**
  * The one way a drain starts, whatever woke it: an enqueue, reconnecting,
@@ -978,7 +966,7 @@ function schedule(reason: string): Promise<void> {
  * SIGN_OUT_DRAIN_MS so a slow link never strands the tap; what is left,
  * failed, unreachable or still in flight, is named in a confirm and
  * discarded (owner decision 2, 2026-11-13). The worker's logout boundary
- * (178c) deletes the store too.
+ * deletes the store too (src-sw.ts, sessionBoundaryHandler).
  */
 async function signOut(form: HTMLFormElement, account: string): Promise<void> {
   if ((await recordsOf(account)).length > 0) {
@@ -1050,7 +1038,7 @@ document.addEventListener('click', (event) => {
 
 // Another tab wrote: what is shown is re-read; a put is drained here too
 // when this tab can reach the server (the lock keeps it to one drainer).
-channel?.addEventListener('message', (event: MessageEvent<ChangeMessage>) => {
+channel?.addEventListener('message', (event: MessageEvent<OutboxChange>) => {
   void refresh();
   if (event.data.drain) void schedule('another tab');
 });
