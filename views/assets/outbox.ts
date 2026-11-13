@@ -19,9 +19,9 @@
  *   post: a capture-phase `submit`, before submit-once.js, resubmitted)
  *   while the store says whether it goes through the outbox
  *   (`routesThroughOutbox`: offline, or one of its keys pending in any tab);
- *   an htmx queueable request that never reached the server
- *   (`htmx:sendError`: it may have landed, the replay is idempotent) is
- *   queued too. One record per key: a new intent replaces the old one in
+ *   an htmx queueable request that never reached the server or got no
+ *   answer in time (`htmx:sendError`, `htmx:timeout`: it may have landed,
+ *   the replay is idempotent) is queued too. One record per key: a new intent replaces the old one in
  *   the same transaction (Wore today then Undo replays only the Undo).
  * - **What shows** is the server's markup: a region with a pending record
  *   shows the state its `<template data-outbox-state>` holds when the shown
@@ -727,17 +727,21 @@ document.addEventListener('htmx:confirm', (event) => {
 });
 
 // Sent but never reached the server, though connectivity.js had not seen
-// the drop yet: queued, in case it never landed, and drained by the
-// scheduler, which no connectivity:change may ever wake (the probe after
-// the error can still say online).
-document.addEventListener('htmx:sendError', (event) => {
+// the drop yet, or sent with no answer before htmx's timeout (HTMX_CONFIG,
+// REPLAY_TIMEOUT_MS; request-failures.js leaves these to us): queued, in
+// case it never landed, and drained by the scheduler, which no
+// connectivity:change may ever wake (the probe after the error can still
+// say online).
+function queueUnanswered(event: Event): void {
   const detail = (event as CustomEvent<HtmxRequestEvent>).detail;
   const form = queueFormOf(detail.elt);
   if (!form) return;
   const trigger = detail.requestConfig?.triggeringEvent?.target ?? null;
   const writes = drafts(form, trigger);
   void serially(() => queue(writes, trigger));
-});
+}
+document.addEventListener('htmx:sendError', queueUnanswered);
+document.addEventListener('htmx:timeout', queueUnanswered);
 
 /** Native posts let through after their decision: the resubmit is not held again. */
 const released = new WeakSet<HTMLFormElement>();

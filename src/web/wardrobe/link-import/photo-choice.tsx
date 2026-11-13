@@ -58,8 +58,8 @@ export function LinkImportSection(props: {
 /**
  * The photo that is saved with the garment, as its hidden `linkPhoto` and
  * a preview. Also the whole answer of POST /wardrobe/new/from-link/photo,
- * which replaces it (a refusal answers it too, with the message: htmx
- * would not swap a 4xx).
+ * which replaces it (a refusal is the error handler's toast, #642, and
+ * leaves it as it was).
  */
 export function LinkPhotoSlot(props: { photo?: string; errors?: string[] }) {
   const { photo } = props;

@@ -64,7 +64,7 @@ describe('web layer', () => {
       expect(res.statusCode).toBe(404);
       expectFullPage(res);
       expect(pageTitle(res.body)).toBe('Error 404');
-      expect(res.body).toContain('<p>Cannot GET /no-such-page?x=1</p>');
+      expect(res.body).toContain('<p>There is no page at this address</p>');
       // The avatar: the account's initial, opening Profile.
       expect(res.body).toContain('<a href="/auth/profile" id="avatar"');
     });

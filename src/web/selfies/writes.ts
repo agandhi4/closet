@@ -5,6 +5,7 @@ import type { IsoDate } from '../../calendar-date';
 import { calendarEntryNotFound } from '../calendar/entry-actions';
 import { ownEntryDay } from '../calendar/queries';
 import { HttpError } from '../errors';
+import { t } from '../i18n';
 import { unkeyedPhoto } from '../files/image-variant';
 import type { Photos } from '../files/photos';
 import type { NewPhotoRow } from '../files/queries';
@@ -72,7 +73,7 @@ export async function attachSelfie(
   if (day === undefined) throw calendarEntryNotFound();
   if (day > today) throw notYetWorn();
   const photo = await photos.storeUploadParts(input.parts, ownerId);
-  if (!photo) throw new HttpError(400, 'No file uploaded');
+  if (!photo) throw new HttpError(400, t('refusal.request.noFile'));
   const outcome = await commitSelfie({ db, photos, logger }, photo, () =>
     setEntrySelfie(db, { entryId, ownerId, photo, at: new Date(), today }),
   );

@@ -148,6 +148,8 @@
   "OFFLINE_BANNER": "You are offline, showing saved data",
   "RECONNECTING": "Reconnecting…",
   "BACK_ONLINE": "Back online",
+  "REQUEST_TIMED_OUT": "No answer from the server. It may still have saved: check before trying again.",
+  "REQUEST_FAILED": "That did not go through. Try again in a moment.",
   "UPDATE_AVAILABLE": "Update available",
   "RELOAD": "Reload",
   "UPDATED_AGO": "Updated {ago}",
@@ -274,6 +276,7 @@
   },
   "refusal": {
     "FORBIDDEN": "Forbidden",
+    "INTERNAL": "Something went wrong on our side. Try again in a moment.",
     "forbidden": {
       "ownWearsOnly": "needsWash reads your own wears only"
     },
@@ -298,9 +301,28 @@
       "weekPlan": "Plan not found",
       "wishlistItem": "Not on your wishlist",
       "inspiration": "Look not found",
-      "inspirationPiece": "Piece not found"
+      "inspirationPiece": "Piece not found",
+      "page": "There is no page at this address"
+    },
+    "status": {
+      "archive": "Only a garment in the closet can be archived",
+      "restore": "Only an archived garment can be restored"
+    },
+    "replay": {
+      "tooOld": "Too long ago to save: add it from the calendar",
+      "future": "That day has not come yet",
+      "account": "Saved while signed in as someone else"
+    },
+    "garment": {
+      "notOwnedYet": "On the wishlist: not bought yet",
+      "alreadyAdded": "Already added from your orders",
+      "photoChanged": "The photo changed meanwhile; try again",
+      "noPhoto": "Garment has no photo",
+      "notThisCategory": "Not a type of this category"
     },
     "request": {
+      "noFile": "No file uploaded",
+      "invalid": "That could not be saved as sent. Reload the page and try again.",
       "tooLarge": "The request is too large",
       "unsupportedType": "This kind of request body is not accepted here",
       "unreadable": "The request could not be read"
@@ -712,7 +734,6 @@
     "TIMEOUT": "The site took too long to answer.",
     "NETWORK": "The site couldn't be reached.",
     "UNREADABLE_IMAGE": "That photo couldn't be read.",
-    "RATE_LIMITED": "Too many photos fetched in the last minute. Try again in a minute.",
     "FOUND_DETAILS": "Filled in from the page. Check everything before saving.",
     "NOTHING_FOUND": "Nothing could be read from that page. The link is kept below; fill in the rest, or add from a link to the photo instead.",
     "NO_PHOTO": "No photo could be fetched from the page. Add one after saving.",
