@@ -23,6 +23,9 @@ The tiers and their commands are in the root `AGENTS.md` (Commands, Test tiers).
                        log-capture.ts (LogCapture, captureLogs: the app's log lines as records),
                        weather-stub.ts (Open-Meteo's stand-in on 127.0.0.2: the seed's weather,
                        forecast and archive),
+                       h2-wire.ts (a hostile HTTP/2 server writing frames by hand: header floods,
+                       cut bodies, lying lengths; outbound-fetch.spec.ts), tls-certificate.ts (a throwaway
+                       self-signed certificate the fetcher trusts only through its `tls` option),
                        jmap-stub.ts (Fastmail's JMAP stand-in on 127.0.0.2 as `jmap.test`: session, inbox
                        query, Email/get; createTestApp's `orderMail`, required with ORDER_MAIL_JMAP_TOKEN;
                        test-server.ts starts it when the token is set),

@@ -4,6 +4,13 @@ import {
   type RequestListener,
   type Server,
 } from 'node:http';
+import {
+  createSecureServer,
+  type Http2SecureServer,
+  type Http2ServerRequest,
+  type Http2ServerResponse,
+  type Http2Session,
+} from 'node:http2';
 import { createServer as createHttpsServer } from 'node:https';
 import {
   type AddressInfo,
@@ -13,8 +20,13 @@ import {
 import {
   createServer as createTlsServer,
   type Server as TlsServer,
+  TLSSocket,
 } from 'node:tls';
-import { gzipSync } from 'node:zlib';
+import {
+  brotliCompressSync,
+  constants as zlibConstants,
+  gzipSync,
+} from 'node:zlib';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { isPublicAddress } from '../../src/web/security/public-address';
 import {
@@ -26,6 +38,20 @@ import {
   PUBLIC_DESTINATIONS,
   type ResolvedAddress,
 } from '../../src/web/security/outbound-fetch';
+import {
+  END_HEADERS,
+  END_STREAM,
+  field,
+  FRAME,
+  frame,
+  type H2Exchange,
+  INTERNAL_ERROR,
+  listenHostileH2,
+  NO_ERROR,
+  REFUSED_STREAM,
+  responseHeaders,
+  STATUS_200,
+} from '../support/h2-wire';
 import { captureLogs } from '../support/log-capture';
 import {
   selfSignedCertificate,
@@ -122,6 +148,87 @@ async function started(
     close: () =>
       new Promise((resolve) => {
         server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  };
+}
+
+type H2Handler = (req: Http2ServerRequest, res: Http2ServerResponse) => void;
+
+interface H2Hit {
+  path: string;
+  method: string;
+  httpVersion: string;
+  headers: IncomingHttpHeaders;
+  servername: string | false | null;
+}
+
+interface H2TestServer {
+  port: number;
+  hits: H2Hit[];
+  /** TLS connections accepted, whatever the protocol. */
+  readonly connections: number;
+  /** h2 sessions begun, and how many are still open. */
+  readonly sessions: number;
+  readonly openSessions: number;
+  close(): Promise<void>;
+}
+
+/** An h2 server (HTTP/1.1 to a client offering only that) presenting `certificate`. */
+async function listenH2(
+  certificate: TestCertificate,
+  handler: H2Handler,
+  host: string,
+): Promise<H2TestServer> {
+  const hits: H2Hit[] = [];
+  const open = new Set<Http2Session>();
+  const sockets = new Set<Socket>();
+  let connections = 0;
+  let sessions = 0;
+  const server: Http2SecureServer = createSecureServer(
+    { ...certificate, allowHTTP1: true },
+    (req, res) => {
+      // h2's compat socket proxies the session's TLS socket.
+      const { socket } = req;
+      hits.push({
+        path: req.url,
+        method: req.method,
+        httpVersion: req.httpVersion,
+        headers: req.headers,
+        servername: socket instanceof TLSSocket ? socket.servername : null,
+      });
+      handler(req, res);
+    },
+  );
+  server.on('secureConnection', (socket: Socket) => {
+    connections++;
+    sockets.add(socket);
+    socket.once('close', () => sockets.delete(socket));
+  });
+  server.on('session', (session: Http2Session) => {
+    sessions++;
+    open.add(session);
+    session.once('close', () => open.delete(session));
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, host, resolve);
+  });
+  return {
+    port: (server.address() as AddressInfo).port,
+    hits,
+    get connections() {
+      return connections;
+    },
+    get sessions() {
+      return sessions;
+    },
+    get openSessions() {
+      return open.size;
+    },
+    close: () =>
+      new Promise((resolve) => {
+        for (const socket of sockets) socket.destroy();
         server.close(() => resolve());
       }),
   };
@@ -815,7 +922,7 @@ describe('outbound fetch (SSRF guard)', () => {
         expect(logs.messages('warn')).toEqual([
           expect.stringMatching(
             new RegExp(
-              `^Outbound fetch refused \\(blocked-by-site\\): shop\\.test answered ${status} after \\d+ ms$`,
+              `^Outbound fetch refused \\(blocked-by-site\\): shop\\.test over http/1\\.1 answered ${status} after \\d+ ms$`,
             ),
           ),
         ]);
@@ -877,7 +984,7 @@ describe('outbound fetch (SSRF guard)', () => {
       return server;
     };
 
-    it('verifies TLS against the name, which is SNI and Host, resolving it once per hop', async () => {
+    it('verifies TLS against the name, which is SNI and :authority over h2, resolving it once per hop', async () => {
       const sites = await startLinkSites();
       try {
         sites.serve('/start', {
@@ -914,8 +1021,14 @@ describe('outbound fetch (SSRF guard)', () => {
             path: '/start',
             host: `www.shop.test:${port}`,
             servername: 'www.shop.test',
+            alpn: 'h2',
           },
-          { path: '/tee', host: `shop.test:${port}`, servername: 'shop.test' },
+          {
+            path: '/tee',
+            host: `shop.test:${port}`,
+            servername: 'shop.test',
+            alpn: 'h2',
+          },
         ]);
         expect(dns.calls).toEqual(['www.shop.test', 'shop.test']);
       } finally {
@@ -1044,6 +1157,597 @@ describe('outbound fetch (SSRF guard)', () => {
       });
 
       expect(page.body.toString()).toBe('<title>Tee</title>');
+    });
+  });
+
+  // #496b: ALPN picks h2 on the dialed socket, and every rule above holds
+  // on its stream (docs/plans/2026-11-13-http2-outbound.md, section 5).
+  describe('HTTP/2', () => {
+    const certificate = selfSignedCertificate([
+      'shop.test',
+      'www.shop.test',
+      'other.test',
+      'intranet.test',
+    ]);
+    const h2Servers: { close(): Promise<void> }[] = [];
+    afterEach(async () => {
+      await Promise.all(h2Servers.splice(0).map((server) => server.close()));
+    });
+
+    /** An h2 server (HTTP/1.1 to a client offering only that) on `host`. */
+    const serveH2 = async (handler: H2Handler, host = PUBLIC_IP) => {
+      const server = await listenH2(certificate, handler, host);
+      h2Servers.push(server);
+      return server;
+    };
+    const serveHostile = async (answer: (exchange: H2Exchange) => void) => {
+      const server = await listenHostileH2(PUBLIC_IP, certificate, answer);
+      h2Servers.push(server);
+      return server;
+    };
+    const fetcherFor = (
+      timeoutMs?: number,
+      table: Record<string, string> = { 'shop.test': PUBLIC_IP },
+    ) => {
+      const { logger, logs } = captureLogs();
+      const fetcher = createOutboundFetcher({
+        logger,
+        resolve: scriptedResolver(table).resolve,
+        destinations: TEST_INTERNET,
+        tls: { ca: [certificate.cert] },
+        timeoutMs,
+      });
+      return { fetcher, logs };
+    };
+    const h2Html =
+      (body: string, status = 200): H2Handler =>
+      (_req, res) => {
+        res.writeHead(status, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(body);
+      };
+
+    it('loads over h2 from a shop that 429s HTTP/1.1 (#347): a page, an image, gzip and br, early hints and trailers ignored', async () => {
+      const png = Buffer.from('89504e470d0a1a0a', 'hex');
+      const shop = await serveH2((req, res) => {
+        if (req.httpVersion !== '2.0') {
+          res.writeHead(429, { 'retry-after': '60' });
+          res.end();
+          return;
+        }
+        const reply = () => {
+          if (req.url === '/a.png') {
+            res.writeHead(200, { 'content-type': 'image/png' });
+            res.end(png);
+            return;
+          }
+          const encoding = req.url === '/br' ? 'br' : 'gzip';
+          res.writeHead(200, {
+            'content-type': 'text/html',
+            'content-encoding': encoding,
+          });
+          res.addTrailers({ 'x-checksum': 'ignored' });
+          res.end(
+            encoding === 'br'
+              ? brotliCompressSync('<title>Br</title>')
+              : gzipSync('<title>Zipped</title>'),
+          );
+        };
+        res.writeEarlyHints({ link: '</style.css>; rel=preload' });
+        reply();
+      });
+      const { fetcher, logs } = fetcherFor();
+      const base = `https://shop.test:${shop.port}`;
+
+      const zipped = await fetcher.fetch(`${base}/gz?token=x`, {
+        accept: ['html'],
+      });
+      const br = await fetcher.fetch(`${base}/br`, { accept: ['html'] });
+      const image = await fetcher.fetch(`${base}/a.png`, { accept: ['image'] });
+
+      expect(zipped.body.toString()).toBe('<title>Zipped</title>');
+      expect(br.body.toString()).toBe('<title>Br</title>');
+      expect(image.body.equals(png)).toBe(true);
+      expect(shop.hits.map((hit) => hit.httpVersion)).toEqual([
+        '2.0',
+        '2.0',
+        '2.0',
+      ]);
+      for (const { headers, servername } of shop.hits) {
+        expect(headers[':authority']).toBe(`shop.test:${shop.port}`);
+        expect(servername).toBe('shop.test');
+        expect(headers['user-agent']).toBe(
+          'Mozilla/5.0 (compatible; Closet/1.0; +link import)',
+        );
+        expect(headers.cookie).toBeUndefined();
+      }
+      expect(shop.sessions).toBe(3);
+      expect(logs.messages('info')).toEqual([
+        expect.stringMatching(
+          /^Fetched html from shop\.test over h2: 21 bytes/,
+        ),
+        expect.stringMatching(
+          /^Fetched html from shop\.test over h2: 17 bytes/,
+        ),
+        expect.stringMatching(
+          /^Fetched image from shop\.test over h2: 8 bytes/,
+        ),
+      ]);
+    });
+
+    it("sends a fixed API's credential and JSON body over h2", async () => {
+      const api = await serveH2((req, res) => {
+        let body = '';
+        req.on('data', (chunk: Buffer) => (body += chunk.toString()));
+        req.on('end', () => {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ echo: JSON.parse(body) as unknown }));
+        });
+      });
+      const { fetcher } = fetcherFor(undefined, { 'other.test': PUBLIC_IP });
+
+      const answer = await fetcher.fetch(
+        `https://other.test:${api.port}/jmap`,
+        {
+          accept: ['json'],
+          hosts: ['other.test'],
+          authorization: 'Bearer t0ken',
+          json: { using: ['core'] },
+        },
+      );
+
+      expect(JSON.parse(answer.body.toString())).toEqual({
+        echo: { using: ['core'] },
+      });
+      expect(api.hits[0]).toMatchObject({
+        httpVersion: '2.0',
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer t0ken',
+          'content-type': 'application/json',
+        },
+      });
+    });
+
+    it('falls back to HTTP/1.1 on the same socket when ALPN does not pick h2', async () => {
+      const sites = await startLinkSites({ protocol: 'http/1.1' });
+      h2Servers.push(sites);
+      sites.serve('/tee', {
+        type: 'text/html; charset=utf-8',
+        body: '<title>Tee</title>',
+      });
+      const { logger, logs } = captureLogs();
+      const fetcher = createOutboundFetcher({ logger, ...sites.outboundFetch });
+
+      const page = await fetcher.fetch(sites.secureUrl('/tee'), {
+        accept: ['html'],
+      });
+
+      expect(page.body.toString()).toBe('<title>Tee</title>');
+      expect(sites.requests).toEqual([
+        {
+          path: '/tee',
+          host: new URL(sites.secureUrl('/')).host,
+          servername: 'shop.test',
+          alpn: 'http/1.1',
+        },
+      ]);
+      expect(logs.messages('info')).toEqual([
+        expect.stringMatching(/^Fetched html from shop\.test over http\/1\.1:/),
+      ]);
+    });
+
+    it.each([
+      [
+        'to a private address',
+        () => `https://${PRIVATE_IP}`,
+        undefined,
+        'blocked-address',
+      ],
+      [
+        'to a name resolving to one',
+        () => 'https://intranet.test',
+        undefined,
+        'blocked-address',
+      ],
+      [
+        'outside its hosts',
+        () => 'https://other.test',
+        ['shop.test'],
+        'host-not-allowed',
+      ],
+    ] as const)(
+      'refuses a redirect over h2 %s, connecting to it never',
+      async (_label, target, hosts, reason) => {
+        // The target is a real h2 server, so a connection would be seen.
+        const elsewhere = await serveH2(
+          h2Html('<title>Router</title>'),
+          PRIVATE_IP,
+        );
+        const shop = await serveH2((_req, res) => {
+          res.writeHead(302, { location: `${target()}:${elsewhere.port}/` });
+          res.end();
+        });
+        const { fetcher } = fetcherFor(undefined, {
+          'shop.test': PUBLIC_IP,
+          'intranet.test': PRIVATE_IP,
+          'other.test': PRIVATE_IP,
+        });
+
+        await expectRefused(
+          fetcher.fetch(`https://shop.test:${shop.port}/`, {
+            accept: ['html'],
+            hosts,
+          }),
+          reason,
+        );
+        expect(shop.hits).toHaveLength(1);
+        expect(elsewhere.connections).toBe(0);
+      },
+    );
+
+    it('opens a new session for every hop and refuses the fourth redirect', async () => {
+      const shop = await serveH2((req, res) => {
+        const hop = Number(req.url?.slice(1));
+        res.writeHead(302, { location: `/${hop + 1}` });
+        res.end();
+      });
+      const { fetcher } = fetcherFor();
+
+      await expectRefused(
+        fetcher.fetch(`https://shop.test:${shop.port}/0`, { accept: ['html'] }),
+        'too-many-redirects',
+      );
+      expect(shop.hits.map((hit) => hit.path)).toEqual([
+        '/0',
+        '/1',
+        '/2',
+        '/3',
+      ]);
+      expect(shop.sessions).toBe(4);
+      await expect.poll(() => shop.openSessions).toBe(0);
+    });
+
+    it.each([
+      ['a 403', 403, {}],
+      ['a 429', 429, { 'retry-after': '60' }],
+      ["AWS WAF's challenge, a 202", 202, { 'x-amzn-waf-action': 'challenge' }],
+      ["Cloudflare's challenge", 503, { 'cf-mitigated': 'challenge' }],
+    ] as const)(
+      'tells a site that blocks automated fetches over h2: %s',
+      async (_label, status, headers) => {
+        const shop = await serveH2((_req, res) => {
+          res.writeHead(status, { 'content-type': 'text/html', ...headers });
+          res.end('<title>Just a moment...</title>');
+        });
+        const { fetcher, logs } = fetcherFor();
+
+        const error = await expectRefused(
+          fetcher.fetch(`https://shop.test:${shop.port}/`, {
+            accept: ['html'],
+          }),
+          'blocked-by-site',
+        );
+        expect(error.status).toBe(status);
+        expect(logs.messages('warn')).toEqual([
+          expect.stringMatching(
+            new RegExp(
+              `^Outbound fetch refused \\(blocked-by-site\\): shop\\.test over h2 answered ${status} after \\d+ ms$`,
+            ),
+          ),
+        ]);
+      },
+    );
+
+    it('holds the decoded caps on an h2 stream and destroys the session at the cap', async () => {
+      // 20 KB of brotli that is 100 MB of zeros, and an endless image.
+      const bomb = brotliCompressSync(Buffer.alloc(100 * 1024 * 1024), {
+        params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 1 },
+      });
+      const chunk = Buffer.alloc(64 * 1024);
+      const shop = await serveH2((req, res) => {
+        if (req.url === '/bomb') {
+          res.writeHead(200, {
+            'content-type': 'image/jpeg',
+            'content-encoding': 'br',
+          });
+          res.end(bomb);
+          return;
+        }
+        res.writeHead(200, {
+          'content-type': req.url === '/page' ? 'text/html' : 'image/jpeg',
+        });
+        const pump = () => {
+          while (!res.destroyed && res.write(chunk));
+          if (!res.destroyed) res.once('drain', pump);
+        };
+        pump();
+      });
+      const { fetcher } = fetcherFor();
+      const base = `https://shop.test:${shop.port}`;
+
+      expect(bomb.length).toBeLessThan(20 * 1024);
+      await expectRefused(
+        fetcher.fetch(`${base}/bomb`, { accept: ['image'] }),
+        'too-large',
+      );
+      await expectRefused(
+        fetcher.fetch(`${base}/endless`, { accept: ['image'] }),
+        'too-large',
+      );
+      const page = await fetcher.fetch(`${base}/page`, { accept: ['html'] });
+
+      expect(page).toMatchObject({ kind: 'html', truncated: true });
+      expect(page.body.length).toBe(BYTE_LIMITS.html);
+      await expect.poll(() => shop.openSessions).toBe(0);
+    });
+
+    it('gives up on an h2 stream that never answers, and closes its session', async () => {
+      const shop = await serveH2(() => {
+        // Never responds.
+      });
+      const { fetcher } = fetcherFor(300);
+
+      const started = Date.now();
+      await expectRefused(
+        fetcher.fetch(`https://shop.test:${shop.port}/`, { accept: ['html'] }),
+        'timeout',
+      );
+      expect(Date.now() - started).toBeLessThan(2000);
+      expect(shop.sessions).toBe(1);
+      await expect.poll(() => shop.openSessions).toBe(0);
+    });
+
+    it('refuses a refused stream at once, and closes the connection then, not at the timeout', async () => {
+      const shop = await serveHostile(({ streamId, send }) => {
+        const reason = Buffer.alloc(4);
+        reason.writeUInt32BE(REFUSED_STREAM);
+        send(frame(FRAME.RST_STREAM, 0, streamId, reason));
+      });
+      const { fetcher } = fetcherFor(5_000);
+
+      const started = Date.now();
+      await expectRefused(
+        fetcher.fetch(`https://shop.test:${shop.port}/`, { accept: ['html'] }),
+        'network',
+      );
+      expect(Date.now() - started).toBeLessThan(1_000);
+      // The session is the client's to destroy: the server keeps its end.
+      await expect.poll(() => shop.open, { timeout: 1_000 }).toBe(0);
+    });
+
+    // A header list past 16 KB or 100 pairs is reset by Node (ENHANCE_YOUR_CALM),
+    // and nghttp2 caps the CONTINUATION frames of one block (CVE-2024-27983).
+    it.each([
+      [
+        'a 1 MB header block',
+        ({ streamId, send }: H2Exchange) => {
+          const block = Buffer.concat(
+            Array.from({ length: 8 * 1024 }, (_, i) =>
+              field(`x-${i}`, 'v'.repeat(120)),
+            ),
+          );
+          const frames = [
+            frame(
+              FRAME.HEADERS,
+              0,
+              streamId,
+              Buffer.concat([STATUS_200, block.subarray(0, 16_000)]),
+            ),
+          ];
+          for (let at = 16_000; at < block.length; at += 16_000) {
+            const last = at + 16_000 >= block.length;
+            frames.push(
+              frame(
+                FRAME.CONTINUATION,
+                last ? END_HEADERS : 0,
+                streamId,
+                block.subarray(at, at + 16_000),
+              ),
+            );
+          }
+          send(...frames);
+        },
+      ],
+      [
+        'endless CONTINUATION frames',
+        ({ streamId, send }: H2Exchange) => {
+          send(frame(FRAME.HEADERS, 0, streamId, STATUS_200));
+          let i = 0;
+          const more = () => {
+            if (
+              send(
+                frame(FRAME.CONTINUATION, 0, streamId, field(`x-${i++}`, 'v')),
+              )
+            )
+              setImmediate(more);
+          };
+          more();
+        },
+      ],
+    ])(
+      'refuses %s at once, and closes the connection',
+      async (_label, answer) => {
+        const shop = await serveHostile(answer);
+        const { fetcher } = fetcherFor(5_000);
+
+        const started = Date.now();
+        await expectRefused(
+          fetcher.fetch(`https://shop.test:${shop.port}/`, {
+            accept: ['html'],
+          }),
+          'network',
+        );
+        expect(Date.now() - started).toBeLessThan(2_000);
+        await expect.poll(() => shop.open).toBe(0);
+      },
+    );
+
+    // The cuts Node reports as an error, and the ones it ends quietly, as
+    // if complete: those are the fetcher's own checks (wholeBody).
+    it.each([
+      ['RST_STREAM', 'reset', {}, 'ERR_HTTP2_STREAM_ERROR'],
+      [
+        'RST_STREAM(NO_ERROR) short of its content-length',
+        'reset-no-error',
+        { 'content-length': '1024' },
+        'H2_LENGTH_MISMATCH',
+      ],
+      ['a GOAWAY, then the close', 'goaway', {}, 'H2_BODY_CUT_SHORT'],
+      ['the connection closing', 'close', {}, 'H2_BODY_CUT_SHORT'],
+      [
+        'the connection closing short of its content-length',
+        'close',
+        { 'content-length': '1024' },
+        'H2_LENGTH_MISMATCH',
+      ],
+    ] as const)(
+      'refuses a body cut by %s, never a short page',
+      async (_label, cut, headers, code) => {
+        const shop = await serveHostile(({ streamId, send, socket }) => {
+          send(
+            responseHeaders(streamId, {
+              'content-type': 'text/html',
+              ...headers,
+            }),
+            frame(FRAME.DATA, 0, streamId, Buffer.from('<title>Te')),
+          );
+          setTimeout(() => {
+            if (cut === 'reset' || cut === 'reset-no-error') {
+              const reason = Buffer.alloc(4);
+              reason.writeUInt32BE(cut === 'reset' ? INTERNAL_ERROR : NO_ERROR);
+              send(frame(FRAME.RST_STREAM, 0, streamId, reason));
+              return;
+            }
+            if (cut === 'goaway') {
+              // Graceful: the last stream it will answer is this one.
+              const goaway = Buffer.alloc(8);
+              goaway.writeUInt32BE(streamId);
+              send(frame(FRAME.GOAWAY, 0, 0, goaway));
+            }
+            socket.end();
+          }, 20);
+        });
+        const { fetcher, logs } = fetcherFor(5_000);
+
+        await expectRefused(
+          fetcher.fetch(`https://shop.test:${shop.port}/`, {
+            accept: ['html'],
+          }),
+          'network',
+        );
+        expect(logs.messages('warn')).toEqual([
+          expect.stringMatching(
+            new RegExp(
+              `^Outbound fetch refused \\(network\\): shop\\.test over h2 after \\d+ ms \\(${code}\\)$`,
+            ),
+          ),
+        ]);
+      },
+    );
+
+    // END_STREAM, then the server hangs up in the same write: whole, by its
+    // length or by the stream's clean close (wholeBody). Within the 64 KB
+    // window the reader's buffers hold the body, so this cannot set the
+    // reader far behind the session's death; docs/decisions.md 2026-11-13.
+    it.each([
+      ['a GOAWAY and the close', 'goaway', false],
+      ['a GOAWAY and the close, with its content-length', 'goaway', true],
+      ['the close', 'close', false],
+      ['the close, with its content-length', 'close', true],
+    ] as const)(
+      'accepts a whole h2 body followed at once by %s',
+      async (_label, hangUp, withLength) => {
+        // Past one 16 KB frame, inside the window the server does not track.
+        const page = Buffer.from(
+          `<title>Tee</title>${'<p>cotton</p>'.repeat(4_000)}`,
+        );
+        const shop = await serveHostile(({ streamId, send, socket }) => {
+          const frames = [
+            responseHeaders(streamId, {
+              'content-type': 'text/html',
+              ...(withLength && { 'content-length': String(page.length) }),
+            }),
+          ];
+          for (let at = 0; at < page.length; at += 16_000) {
+            const last = at + 16_000 >= page.length;
+            frames.push(
+              frame(
+                FRAME.DATA,
+                last ? END_STREAM : 0,
+                streamId,
+                page.subarray(at, at + 16_000),
+              ),
+            );
+          }
+          if (hangUp === 'goaway') {
+            const goaway = Buffer.alloc(8);
+            goaway.writeUInt32BE(streamId);
+            frames.push(frame(FRAME.GOAWAY, 0, 0, goaway));
+          }
+          send(...frames);
+          socket.end();
+        });
+        const { fetcher } = fetcherFor(5_000);
+
+        const fetched = await fetcher.fetch(`https://shop.test:${shop.port}/`, {
+          accept: ['html'],
+        });
+        expect(fetched.body.equals(page)).toBe(true);
+        expect(fetched.truncated).toBe(false);
+      },
+    );
+
+    it.each([
+      ['declares 1 KB and sends 2 KB', '1024', 2048],
+      ['declares 3 MB and sends 1 KB', String(3 * 1024 * 1024), 1024],
+    ])(
+      'refuses an h2 body whose content-length lies: %s',
+      async (_label, declared, sent) => {
+        const shop = await serveHostile(({ streamId, send }) => {
+          send(
+            responseHeaders(streamId, {
+              'content-type': 'image/jpeg',
+              'content-length': declared,
+            }),
+            frame(FRAME.DATA, END_STREAM, streamId, Buffer.alloc(sent)),
+          );
+        });
+        const { fetcher, logs } = fetcherFor(5_000);
+
+        await expectRefused(
+          fetcher.fetch(`https://shop.test:${shop.port}/`, {
+            accept: ['image'],
+          }),
+          'network',
+        );
+        // nghttp2's own check (PROTOCOL_ERROR, on the stream or the
+        // session as it lands), not a short image.
+        expect(logs.messages('warn')).toEqual([
+          expect.stringMatching(/ \(ERR_HTTP2_(STREAM_)?ERROR\)$/),
+        ]);
+      },
+    );
+
+    it('bounds a flood of SETTINGS and PING frames by the timeout', async () => {
+      const shop = await serveHostile(({ send }) => {
+        const ping = frame(FRAME.PING, 0, 0, Buffer.alloc(8));
+        const settings = frame(FRAME.SETTINGS, 0, 0);
+        const more = () => {
+          if (
+            send(...Array.from({ length: 64 }, () => [ping, settings]).flat())
+          )
+            setImmediate(more);
+        };
+        more();
+      });
+      const { fetcher } = fetcherFor(500);
+
+      const started = Date.now();
+      await refusal(
+        fetcher.fetch(`https://shop.test:${shop.port}/`, { accept: ['html'] }),
+      );
+      expect(Date.now() - started).toBeLessThan(2_000);
+      await expect.poll(() => shop.open).toBe(0);
     });
   });
 });
