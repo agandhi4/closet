@@ -277,7 +277,7 @@ export const suggestionTools = [
   defineTool({
     name: 'suggest_garment',
     title: 'Suggest a product for a need',
-    description: `WRITES: fetches a product page, as add_garment_from_link does, and adds it to the owner's wishlist as one of your options for a need (create_option_group), with your note and rank, shown on its card. Always on the wishlist: buying is the owner's. Refused before the fetch: a need not open (decided) or holding ${MAX_OPTIONS_PER_GROUP} open options, and a product you suggested before (the same link, tracking parameters aside), above all one the owner set aside. Give price (the listed one) and size (get_sizes has the owner's size per brand) when you know them better than the page. Rate limited with the link imports, 10 a minute.`,
+    description: `WRITES: fetches a product page, as add_garment_from_link does, and adds it to the owner's wishlist as one of your options for a need (create_option_group), with your note and rank, shown on its card. Always on the wishlist: buying is the owner's. Refused before the fetch: a need not open (decided) or holding ${MAX_OPTIONS_PER_GROUP} open options, and a product you suggested before (the same link, tracking parameters aside), above all one the owner set aside. Give price (the listed one) and size (get_sizes has the owner's size per brand) when you know them better than the page. Rate limited with the link imports, 10 a minute. A shop that refuses automated fetches answers \`blocked-by-site\`: suggest the product from another retailer.`,
     input: z.object({
       url: z.url({ protocol: /^https?$/ }).max(2048),
       groupId: rowId().describe('The need, from create_option_group.'),

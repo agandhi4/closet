@@ -639,7 +639,7 @@ describe('outbound fetch (SSRF guard)', () => {
         timeoutMs,
       });
 
-    it('stops reading a page past 2 MB while it streams', async () => {
+    it('cuts a page at 2 MB while it streams, reading no further (#347)', async () => {
       // An endless body: a fetcher that read it whole before checking would
       // never return.
       let written = 0;
@@ -657,12 +657,11 @@ describe('outbound fetch (SSRF guard)', () => {
         pump();
       });
 
-      await expectRefused(
-        fetcherFor().fetch(`http://shop.test:${shop.port}/`, {
-          accept: ['html'],
-        }),
-        'too-large',
-      );
+      const page = await fetcherFor().fetch(`http://shop.test:${shop.port}/`, {
+        accept: ['html'],
+      });
+      expect(page).toMatchObject({ kind: 'html', truncated: true });
+      expect(page.body.length).toBe(BYTE_LIMITS.html);
       await expect.poll(() => closed).toBe(true);
       expect(BYTE_LIMITS.html).toBe(2 * 1024 * 1024);
       expect(written).toBeLessThan(BYTE_LIMITS.html + 4 * 1024 * 1024);
@@ -686,19 +685,19 @@ describe('outbound fetch (SSRF guard)', () => {
     });
 
     it('counts the decoded bytes of a compressed body', async () => {
-      const bomb = gzipSync(Buffer.alloc(BYTE_LIMITS.html + 1024));
+      const bomb = gzipSync(Buffer.alloc(BYTE_LIMITS.image + 1024));
       const shop = await serve(PUBLIC_IP, (_req, res) => {
         res.writeHead(200, {
-          'content-type': 'text/html',
+          'content-type': 'image/jpeg',
           'content-encoding': 'gzip',
         });
         res.end(bomb);
       });
 
-      expect(bomb.length).toBeLessThan(BYTE_LIMITS.html);
+      expect(bomb.length).toBeLessThan(BYTE_LIMITS.image);
       await expectRefused(
         fetcherFor().fetch(`http://shop.test:${shop.port}/`, {
-          accept: ['html'],
+          accept: ['image'],
         }),
         'too-large',
       );
@@ -725,8 +724,8 @@ describe('outbound fetch (SSRF guard)', () => {
 
     it('refuses an error status', async () => {
       const shop = await serve(PUBLIC_IP, (_req, res) => {
-        res.writeHead(403, { 'content-type': 'text/html' });
-        res.end('blocked');
+        res.writeHead(404, { 'content-type': 'text/html' });
+        res.end('gone');
       });
 
       const error = await expectRefused(
@@ -735,8 +734,47 @@ describe('outbound fetch (SSRF guard)', () => {
         }),
         'http-status',
       );
-      expect(error.status).toBe(403);
+      expect(error.status).toBe(404);
     });
+
+    // #347's shops, as they answered: Cloudflare's challenge (campmor),
+    // Shopify's storefront limit (darntough, blauerboardshop), AWS WAF's
+    // challenge in a 2xx (sunandski).
+    it.each([
+      ['a 403', 403, {}],
+      ['a 429', 429, { 'retry-after': '60' }],
+      ["AWS WAF's challenge, a 202", 202, { 'x-amzn-waf-action': 'challenge' }],
+      ["Cloudflare's challenge", 503, { 'cf-mitigated': 'challenge' }],
+    ] as const)(
+      'tells a site that blocks automated fetches: %s',
+      async (_label, status, headers) => {
+        const shop = await serve(PUBLIC_IP, (_req, res) => {
+          res.writeHead(status, { 'content-type': 'text/html', ...headers });
+          res.end('<title>Just a moment...</title>');
+        });
+        const { logger, logs } = captureLogs();
+        const fetcher = createOutboundFetcher({
+          logger,
+          resolve: scriptedResolver({ 'shop.test': PUBLIC_IP }).resolve,
+          destinations: TEST_INTERNET,
+        });
+
+        const error = await expectRefused(
+          fetcher.fetch(`http://shop.test:${shop.port}/`, {
+            accept: ['html', 'image'],
+          }),
+          'blocked-by-site',
+        );
+        expect(error.status).toBe(status);
+        expect(logs.messages('warn')).toEqual([
+          expect.stringMatching(
+            new RegExp(
+              `^Outbound fetch refused \\(blocked-by-site\\): shop\\.test answered ${status} after \\d+ ms$`,
+            ),
+          ),
+        ]);
+      },
+    );
 
     it('gives up on a server that never answers', async () => {
       const shop = await serve(PUBLIC_IP, () => {
