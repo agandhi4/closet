@@ -165,9 +165,11 @@ test.describe('the image cache belongs to one session', () => {
       // Read from a page of its own: the signing-out one is mid-navigation.
       const probe = await context.newPage();
       await probe.goto('/health/live');
+      let held = false;
       let leftAtPost: Error | undefined;
       await context.route('**/auth/logout', async (route) => {
         if (route.request().method() === 'POST') {
+          held = true;
           leftAtPost = await expect
             .poll(
               async () => ({
@@ -191,6 +193,7 @@ test.describe('the image cache belongs to one session', () => {
       await switchAccount(page, second);
       await context.unroute('**/auth/logout');
       await probe.close();
+      expect(held, 'the sign-out post reached the route').toBe(true);
       expect(leftAtPost).toBeUndefined();
     });
     await expect.poll(() => cachedAnywhere(page, photos)).toEqual([]);
