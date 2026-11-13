@@ -387,10 +387,12 @@ describe('the owner lock', () => {
           }),
       );
       expect(replace).toMatchObject({ outcome: 'replaced', outfitId: chosen });
-      // The occasion the outfit kept, read under the lock after the replace.
+      // The occasion the outfit kept and its entry (the one replaced), read
+      // under the lock after the replace.
       expect(schedule).toEqual({
         outcome: 'already-scheduled',
         adopted: false,
+        entryId,
         occasion: 'work',
       });
       expect(await entriesOn(day)).toEqual([
@@ -524,6 +526,7 @@ describe('the owner lock', () => {
       expect(schedule).toEqual({
         outcome: 'already-scheduled',
         adopted: true,
+        entryId,
         occasion: 'all-day',
       });
       expect(replan).toEqual({ kind: 'skipped' });

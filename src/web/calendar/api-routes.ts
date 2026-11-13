@@ -1,0 +1,222 @@
+import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
+import { Type } from '@sinclair/typebox';
+import { addDays, daysBetween, todayIn } from '../../calendar-date';
+import { compareOccasions, DEFAULT_OCCASION } from '../../wardrobe/occasions';
+import { apiResponses } from '../api/contract';
+import type { ApiOptions } from '../api/plugin';
+import { HttpError } from '../errors';
+import { t } from '../i18n';
+import { dayAheadRefusal } from '../offline-writes';
+import { RowId } from '../schemas';
+import { actorOf } from '../sharing/access';
+import { markEntryWorn, planOutfit, removeEntry } from './entry-actions';
+import {
+  CalendarEntryList,
+  CalendarEntryQuery,
+  CalendarEntryScheduled,
+  EntryOutfitChanged,
+  EntryOutfitInput,
+  EntryWorn,
+  EntryWornInput,
+  NewCalendarEntry,
+  toCalendarEntryResource,
+  toEntryOutfitChanged,
+} from './entry-resource';
+import { findEntries, MAX_CALENDAR_DAYS } from './queries';
+import { replaceEntryOutfit, replaceMessage } from './replace';
+
+const EntryParams = Type.Object({ id: RowId });
+
+const ENTRY_PATH = '/calendar-entries/:id';
+
+/**
+ * The calendar on /api/v1 (#193b; plan section 6), registered by apiPlugin,
+ * each calling what its page twin calls (operations.ts names the twin):
+ * entry-actions.ts and replaceEntryOutfit, which take the owner lock
+ * themselves. Entries are private (AGENTS.md): only the token's user's own
+ * are reached, there is no `?ownerId=`, and another's entry is the 404 of
+ * an unknown id. Days are the household's (GET /me's `today`).
+ */
+export const calendarApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
+  app,
+  { db, config, logger, photos },
+  done,
+) => {
+  app.get(
+    '/calendar-entries',
+    {
+      schema: {
+        operationId: 'listCalendarEntries',
+        tags: ['calendar'],
+        summary: 'Your calendar over a range of days',
+        description: `Each entry's outfit with its garments (each piece away marked), whether it was worn, its selfie and who planned it. Without dates: this week from today. At most ${MAX_CALENDAR_DAYS} days, else a 400.`,
+        querystring: CalendarEntryQuery,
+        response: apiResponses({ 200: CalendarEntryList }),
+      },
+    },
+    async (request) => {
+      const from = request.query.from ?? todayIn(config.timeZone, new Date());
+      const to = request.query.to ?? addDays(from, 6);
+      const days = daysBetween(from, to) + 1;
+      if (days < 1 || days > MAX_CALENDAR_DAYS) {
+        throw new HttpError(
+          400,
+          t('api.CALENDAR_RANGE', { max: MAX_CALENDAR_DAYS }),
+        );
+      }
+      const entries = await findEntries(db, actorOf(request).userId, from, to);
+      return {
+        from,
+        to,
+        // By day (as read), then occasion, as the calendar page stacks them.
+        data: entries
+          .sort(
+            (a, b) =>
+              a.day.localeCompare(b.day) ||
+              compareOccasions(a.occasion, b.occasion),
+          )
+          .map(toCalendarEntryResource),
+      };
+    },
+  );
+
+  app.post(
+    '/calendar-entries',
+    {
+      schema: {
+        operationId: 'createCalendarEntry',
+        tags: ['calendar'],
+        summary: 'Plans one of your outfits on a day',
+        description:
+          'A new entry is 201. The outfit already on that day is that entry, 200 `already-scheduled` with the occasion it kept, so a retry plans nothing twice; planning what Plan my week planned makes it yours (`adopted`). An outfit not yours is a 404.',
+        body: NewCalendarEntry,
+        response: apiResponses({
+          200: CalendarEntryScheduled,
+          201: CalendarEntryScheduled,
+        }),
+      },
+    },
+    async (request, reply) => {
+      const actor = actorOf(request);
+      const { outfitId, day, clientId } = request.body;
+      const occasion = request.body.occasion ?? DEFAULT_OCCASION;
+      const scheduled = await planOutfit(db, actor, {
+        outfitId,
+        day,
+        occasion,
+      });
+      const adopted =
+        scheduled.outcome === 'already-scheduled' && scheduled.adopted;
+      const client = clientId ? `, client id ${clientId.slice(0, 8)}` : '';
+      const taken = adopted
+        ? "; the week planner's entry is the user's now"
+        : '';
+      logger.info(
+        scheduled.outcome === 'scheduled'
+          ? `Outfit ${outfitId} scheduled on ${day} (${occasion}) by user ${actor.userId} (API): entry ${scheduled.entryId}${client}`
+          : `Outfit ${outfitId} already scheduled on ${day} (${scheduled.occasion}) for user ${actor.userId} (API): entry ${scheduled.entryId}${taken}${client}`,
+      );
+      const answer = {
+        id: scheduled.entryId,
+        outcome: scheduled.outcome,
+        occasion: scheduled.occasion,
+        ...(adopted && { adopted }),
+      };
+      return reply
+        .status(scheduled.outcome === 'scheduled' ? 201 : 200)
+        .send(answer);
+    },
+  );
+
+  app.put(
+    `${ENTRY_PATH}/outfit`,
+    {
+      schema: {
+        operationId: 'replaceCalendarEntryOutfit',
+        tags: ['calendar'],
+        summary: "Changes an entry's outfit, keeping its day and occasion",
+        description:
+          "Change on the calendar and Today. The entry becomes yours (out of the re-plan's reach); an outfit Plan my week made for it goes once nothing holds it; its selfie stays on the day as a look. A worn entry is a 409 (it is the record of that day: plan another outfit instead), and so is an outfit already on the day. Set-state: the outfit it holds already is `unchanged`.",
+        params: EntryParams,
+        body: EntryOutfitInput,
+        response: apiResponses({ 200: EntryOutfitChanged }),
+      },
+    },
+    async (request) => {
+      const actor = actorOf(request);
+      const target = { entryId: request.params.id };
+      const replaced = await replaceEntryOutfit(db, actor, target, {
+        outfitId: request.body.outfitId,
+      });
+      logger.info(replaceMessage(actor.userId, target, replaced, ' (API)'));
+      return toEntryOutfitChanged(replaced);
+    },
+  );
+
+  app.put(
+    `${ENTRY_PATH}/worn`,
+    {
+      schema: {
+        operationId: 'setCalendarEntryWorn',
+        tags: ['calendar'],
+        summary: 'Marks an entry worn, or not',
+        description:
+          "Wore it: each of its outfit's garments worn on the entry's day, the entry yours (out of the re-plan's reach). A day still to come is a 409. Set-state: a repeat is `changed: false`.",
+        params: EntryParams,
+        body: EntryWornInput,
+        response: apiResponses({ 200: EntryWorn }),
+      },
+    },
+    async (request) => {
+      const actor = actorOf(request);
+      const { id } = request.params;
+      const { worn } = request.body;
+      const now = new Date();
+      const outcome = await markEntryWorn(db, actor, {
+        entryId: id,
+        worn,
+        at: now,
+        today: todayIn(config.timeZone, now),
+      });
+      if (outcome === 'future') {
+        throw dayAheadRefusal(
+          `Calendar entry ${id} not marked worn for user ${actor.userId}: its day is ahead`,
+        );
+      }
+      const state = worn ? 'worn' : 'not worn';
+      const wears = `${outcome.wears} wears ${worn ? 'logged' : 'removed'}`;
+      logger.info(
+        outcome.changed
+          ? `Calendar entry ${id} marked ${state} by user ${actor.userId} (API): ${wears}`
+          : `Calendar entry ${id} already ${state} for user ${actor.userId} (API)`,
+      );
+      return outcome;
+    },
+  );
+
+  app.delete(
+    ENTRY_PATH,
+    {
+      schema: {
+        operationId: 'deleteCalendarEntry',
+        tags: ['calendar'],
+        summary: 'Takes an entry off the calendar',
+        description:
+          'Its wears and its selfie go with it (the outfit stays). An entry already gone is a 404, which a retry may read as done.',
+        params: EntryParams,
+        response: apiResponses({ 204: Type.Null({ description: 'Deleted' }) }),
+      },
+    },
+    async (request, reply) => {
+      // removeEntry logs the delete.
+      await removeEntry(
+        { db, photos, logger },
+        actorOf(request),
+        request.params.id,
+      );
+      return reply.status(204).send(null);
+    },
+  );
+
+  done();
+};

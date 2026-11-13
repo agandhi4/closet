@@ -145,6 +145,8 @@ export interface Fixture {
   capsuleName: string;
   outfitId: number;
   outfitName: string;
+  /** An empty outfit of the owner's, on no day: what the entry's Change picks. */
+  spareOutfitId: number;
   /** One of Muse's outfits (#335) waiting on the owner, and one set aside. */
   museOutfitId: number;
   museDeclinedId: number;
@@ -650,6 +652,16 @@ export function describeMatrix(
         /^\/outfits\/(\d+)$/.exec(outfit.headers.location as string)?.[1],
       );
       expect(outfitId).toBeGreaterThan(0);
+      const spare = await t.inject({
+        method: 'POST',
+        url: '/outfits',
+        payload: { name: `Spare ${tag}` },
+        headers: { cookie },
+      });
+      const spareOutfitId = Number(
+        /^\/outfits\/(\d+)$/.exec(spare.headers.location as string)?.[1],
+      );
+      expect(spareOutfitId).toBeGreaterThan(0);
       // Muse's outfits (#335): the garment with the wishlist item, then
       // marked as proposed, as the agent's tool will (phase 3).
       const museOutfit = async (
@@ -844,6 +856,7 @@ export function describeMatrix(
         capsuleName,
         outfitId,
         outfitName,
+        spareOutfitId,
         museOutfitId,
         museDeclinedId,
         entryId: entry.id,

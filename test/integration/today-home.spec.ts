@@ -483,6 +483,7 @@ describe('Today', () => {
       const input = {
         garmentIds: racing,
         occasion: 'all-day' as const,
+        day: t.today(),
         today: t.today(),
         at: new Date(),
       };

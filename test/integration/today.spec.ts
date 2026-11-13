@@ -319,6 +319,53 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
       expect(res.json<{ today: IsoDate }>().today).toBe(today);
     });
 
+    it("the API's calendar (#193b): this week from today, today's entry worn and tomorrow's refused, Wear this today, the week planned from today", async () => {
+      const { token } = await deviceToken(t);
+      const api = (
+        method: 'GET' | 'POST' | 'PUT',
+        url: string,
+        payload?: object,
+      ) => t.api(token, { method, url: `/api/v1${url}`, payload });
+      const { outfitId } = await newOutfit(`API ${at}`);
+      const entry = await plan(outfitId, today);
+      const ahead = await plan(outfitId, tomorrow);
+
+      expect((await api('GET', '/calendar-entries')).json()).toMatchObject({
+        from: today,
+        to: addDays(today, 6),
+      });
+      expect(
+        (await api('PUT', `/calendar-entries/${entry}/worn`, { worn: true }))
+          .statusCode,
+      ).toBe(200);
+      expect(
+        (await api('PUT', `/calendar-entries/${ahead}/worn`, { worn: true }))
+          .statusCode,
+      ).toBe(409);
+
+      const top = await createGarment(t, { name: `API wear ${at}`, cookie });
+      const wear = (day: IsoDate) =>
+        api('POST', '/outfit-wears', {
+          garmentIds: [top],
+          occasion: 'evening',
+          day,
+        });
+      expect((await wear(tomorrow)).statusCode).toBe(409);
+      expect((await wear(today)).statusCode).toBe(200);
+      expect(await wearDays(top)).toEqual([{ day: today }]);
+
+      // As someone with no week template: the owner's slots stay for the
+      // "Plan my week" row of a later instant (one app per zone).
+      const email = `api-week-${at.replace(/\W/g, '')}@example.com`;
+      await t.register(email);
+      const planner = (await deviceToken(t, { email })).token;
+      const planned = await t.api(planner, {
+        method: 'POST',
+        url: '/api/v1/week-plans',
+      });
+      expect(planned.json<{ from: IsoDate }>().from).toBe(today);
+    });
+
     it('MCP: get_calendar starts today; mark_worn and mark_washed record today', async () => {
       const token = await createAccessToken(t, {
         cookie,

@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm';
 import type { InjectOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { outfit } from '../../src/db/schema';
+import { addDays } from '../../src/calendar-date';
+import { outfit, outfitCalendar, weekPlan } from '../../src/db/schema';
 import { deviceToken, SIGN_IN_URL, signInDevice } from './api';
 import { failCutout } from './cutouts';
 import { jpeg, type LinkSites, startLinkSites } from './link-sites';
@@ -43,6 +44,17 @@ afterAll(async () => {
   await t?.cleanup();
   await sites?.close();
 });
+
+/**
+ * The owner's device for the page-twin comparisons, signed in once: each
+ * sign-in counts against SIGN_IN_ACCOUNT_LIMIT (5 a minute per email), and
+ * this file signs the owner in for several of its own counts.
+ */
+let twinDevice: Promise<string> | undefined;
+function twinToken(): Promise<string> {
+  twinDevice ??= deviceToken(t).then(({ token }) => token);
+  return twinDevice;
+}
 
 async function statementsOf(work: () => Promise<{ statusCode: number }>) {
   let status = 0;
@@ -475,7 +487,7 @@ describe('API statements per route', () => {
     let token: string;
 
     beforeAll(async () => {
-      token = (await deviceToken(t)).token;
+      token = await twinToken();
     });
 
     /** One run's garments: one bare, one in an outfit (`outfitId`), which is Muse's proposal for `proposal`. */
@@ -687,6 +699,216 @@ describe('API statements per route', () => {
         expect(apiRun.statements).toBe(pageRun.statements + extra);
       },
     );
+  });
+
+  describe('the calendar and the week plan: what their page twins cost (#193b)', () => {
+    let token: string;
+
+    beforeAll(async () => {
+      token = await twinToken();
+    });
+
+    /** One run's rows: an outfit planned today, an empty spare, two loose garments and an empty plan. */
+    interface Setup {
+      outfitId: number;
+      spareId: number;
+      entryId: number;
+      top: number;
+      bottom: number;
+      weekPlanId: number;
+      today: string;
+    }
+
+    const outfitOf = async (payload: Record<string, string>) => {
+      const made = await t.inject({ method: 'POST', url: '/outfits', payload });
+      return Number(
+        /^\/outfits\/(\d+)$/.exec(made.headers.location as string)![1],
+      );
+    };
+
+    const setup = async (): Promise<Setup> => {
+      const today = t.today();
+      const held = await createGarment(t, {
+        name: 'Planned',
+        category: 'tops',
+      });
+      const outfitId = await outfitOf({
+        category: 'shirt',
+        garmentId: String(held),
+      });
+      const spareId = await outfitOf({ name: 'Spare' });
+      await t.inject({
+        method: 'POST',
+        url: '/calendar',
+        payload: { date: today, outfitId: String(outfitId) },
+      });
+      const [entry] = await t.db
+        .select({ id: outfitCalendar.id })
+        .from(outfitCalendar)
+        .where(eq(outfitCalendar.outfitId, outfitId));
+      const [batch] = await asFixture(t.db, (tx) =>
+        tx
+          .insert(weekPlan)
+          .values({ ownerId: t.owner.id })
+          .returning({ id: weekPlan.id }),
+      );
+      return {
+        outfitId,
+        spareId,
+        entryId: entry.id,
+        top: await createGarment(t, { name: 'Loose', category: 'tops' }),
+        bottom: await createGarment(t, { name: 'Loose', category: 'bottoms' }),
+        weekPlanId: batch.id,
+        today,
+      };
+    };
+
+    /**
+     * Each route's page twin and its API request, each on a setup of its
+     * own: the same domain function, so the same statements. Plan my week
+     * runs without a template (the owner here has none): the template read
+     * under the lock, as both twins pay it.
+     */
+    const CASES: {
+      name: string;
+      ok: [page: number, api: number];
+      page: (s: Setup) => InjectOptions;
+      api: (s: Setup) => InjectOptions;
+    }[] = [
+      {
+        name: 'GET /calendar-entries (GET /calendar)',
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: '/calendar' }),
+        api: () => ({ method: 'GET', url: '/api/v1/calendar-entries' }),
+      },
+      {
+        name: 'POST /calendar-entries (POST /calendar)',
+        ok: [302, 201],
+        page: (s) => ({
+          method: 'POST',
+          url: '/calendar',
+          payload: { date: addDays(s.today, 2), outfitId: String(s.outfitId) },
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: '/api/v1/calendar-entries',
+          payload: { day: addDays(s.today, 2), outfitId: s.outfitId },
+        }),
+      },
+      {
+        name: 'PUT /calendar-entries/{id}/outfit (POST /calendar, replace)',
+        ok: [302, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: '/calendar',
+          payload: {
+            date: s.today,
+            outfitId: String(s.spareId),
+            replace: String(s.entryId),
+          },
+        }),
+        api: (s) => ({
+          method: 'PUT',
+          url: `/api/v1/calendar-entries/${s.entryId}/outfit`,
+          payload: { outfitId: s.spareId },
+        }),
+      },
+      {
+        name: 'PUT /calendar-entries/{id}/worn (POST /calendar/:id/worn)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/calendar/${s.entryId}/worn`,
+          payload: { worn: '1' },
+        }),
+        api: (s) => ({
+          method: 'PUT',
+          url: `/api/v1/calendar-entries/${s.entryId}/worn`,
+          payload: { worn: true },
+        }),
+      },
+      {
+        name: 'DELETE /calendar-entries/{id} (POST /calendar/:id/delete)',
+        ok: [303, 204],
+        page: (s) => ({ method: 'POST', url: `/calendar/${s.entryId}/delete` }),
+        api: (s) => ({
+          method: 'DELETE',
+          url: `/api/v1/calendar-entries/${s.entryId}`,
+        }),
+      },
+      {
+        name: 'POST /outfit-wears (POST /today/wear)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: '/today/wear',
+          payload: {
+            garmentId: [String(s.top), String(s.bottom)],
+            occasion: 'all-day',
+          },
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: '/api/v1/outfit-wears',
+          payload: {
+            garmentIds: [s.top, s.bottom],
+            occasion: 'all-day',
+            day: s.today,
+          },
+        }),
+      },
+      {
+        name: 'POST /week-plans (POST /calendar/plan-week)',
+        ok: [303, 200],
+        page: () => ({ method: 'POST', url: '/calendar/plan-week' }),
+        api: () => ({ method: 'POST', url: '/api/v1/week-plans' }),
+      },
+      {
+        name: 'DELETE /week-plans/{id} (POST /calendar/plan-week/:id/undo)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/calendar/plan-week/${s.weekPlanId}/undo`,
+        }),
+        api: (s) => ({
+          method: 'DELETE',
+          url: `/api/v1/week-plans/${s.weekPlanId}`,
+        }),
+      },
+      {
+        name: 'PUT /week-template (POST /auth/profile/week)',
+        ok: [303, 200],
+        page: () => ({
+          method: 'POST',
+          url: '/auth/profile/week',
+          payload: { 'day-1': 'work', 'around-1': 'evening' },
+        }),
+        api: () => ({
+          method: 'PUT',
+          url: '/api/v1/week-template',
+          payload: { days: [{ weekday: 1, day: 'work', around: ['evening'] }] },
+        }),
+      },
+    ];
+
+    it.each(CASES)('$name', async ({ ok, page, api }) => {
+      const [onPage, onApi] = [await setup(), await setup()];
+      const pageRun = await statementsOf(() => t.inject(page(onPage)));
+      // A second call of the minute: no last-use write.
+      await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      const apiRun = await statementsOf(() => t.api(token, api(onApi)));
+      expect([pageRun.status, apiRun.status]).toEqual(ok);
+      expect(apiRun.statements).toBe(pageRun.statements);
+    });
+
+    it('GET /week-template: the token and the template', async () => {
+      await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      const run = await statementsOf(() =>
+        t.api(token, { method: 'GET', url: '/api/v1/week-template' }),
+      );
+      expect(run.status).toBe(200);
+      expect(run.statements).toBe(2);
+    });
   });
 
   it('POST /garments/link-imports: the token, the pending photo kept, the claim; no read back', async () => {

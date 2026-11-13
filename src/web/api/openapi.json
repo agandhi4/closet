@@ -9070,6 +9070,1801 @@
           }
         }
       }
+    },
+    "/api/v1/calendar-entries": {
+      "get": {
+        "operationId": "listCalendarEntries",
+        "summary": "Your calendar over a range of days",
+        "tags": [
+          "calendar"
+        ],
+        "description": "Each entry's outfit with its garments (each piece away marked), whether it was worn, its selfie and who planned it. Without dates: this week from today. At most 62 days, else a 400.",
+        "parameters": [
+          {
+            "schema": {
+              "format": "date",
+              "type": "string"
+            },
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "description": "The first day; today unless given"
+          },
+          {
+            "schema": {
+              "format": "date",
+              "type": "string"
+            },
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "description": "The last day (inclusive), at most 62 days in all; six days after `from` unless given"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Your entries from one day to another, by day, then occasion as the calendar stacks them. A range, not pages: ask for the next days",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "CalendarEntryList",
+                  "description": "Your entries from one day to another, by day, then occasion as the calendar stacks them. A range, not pages: ask for the next days",
+                  "type": "object",
+                  "required": [
+                    "from",
+                    "to",
+                    "data"
+                  ],
+                  "properties": {
+                    "from": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "to": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "title": "CalendarEntry",
+                        "description": "An outfit planned on a day for an occasion (a part of the day). A day holds several, one per outfit",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "day",
+                          "occasion",
+                          "worn",
+                          "plannedBy",
+                          "outfit"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "day": {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          "occasion": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "all-day"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "workout"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "work"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "daytime"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "evening"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "night-out"
+                                ]
+                              }
+                            ]
+                          },
+                          "worn": {
+                            "type": "boolean"
+                          },
+                          "plannedBy": {
+                            "description": "`auto`: Plan my week's pick, which its daily re-plan may swap until you change, wear or plan it yourself; `user`: yours",
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "user"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "auto"
+                                ]
+                              }
+                            ]
+                          },
+                          "selfieId": {
+                            "description": "The outfit selfie taken of it",
+                            "type": "integer"
+                          },
+                          "outfit": {
+                            "title": "CalendarEntryOutfit",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "garments"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "garments": {
+                                "type": "array",
+                                "items": {
+                                  "title": "OutfitGarment",
+                                  "description": "A garment the outfit holds, as its collage shows it, in the order it was built (an empty row is left out): GET /garments/{id} has the rest",
+                                  "type": "object",
+                                  "required": [
+                                    "id",
+                                    "category",
+                                    "role",
+                                    "status"
+                                  ],
+                                  "properties": {
+                                    "id": {
+                                      "type": "integer"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "category": {
+                                      "type": "string"
+                                    },
+                                    "role": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "top"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "bottom"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "one-piece"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "layer"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "footwear"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "accessory"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "bag"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "none"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "status": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "wishlist"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "closet"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "archived"
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    "thumbUrl": {
+                                      "type": "string"
+                                    },
+                                    "away": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "lent"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "repair"
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createCalendarEntry",
+        "summary": "Plans one of your outfits on a day",
+        "tags": [
+          "calendar"
+        ],
+        "description": "A new entry is 201. The outfit already on that day is that entry, 200 `already-scheduled` with the occasion it kept, so a retry plans nothing twice; planning what Plan my week planned makes it yours (`adopted`). An outfit not yours is a 404.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "NewCalendarEntry",
+                "description": "Plans an outfit on a day. Once a day per outfit: planning it again is that entry, its occasion kept",
+                "type": "object",
+                "required": [
+                  "outfitId",
+                  "day"
+                ],
+                "properties": {
+                  "outfitId": {
+                    "description": "One of your outfits; one with pieces still to buy (its `toBuy`) is a 409",
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "type": "integer"
+                  },
+                  "day": {
+                    "format": "date",
+                    "type": "string"
+                  },
+                  "occasion": {
+                    "description": "All day unless given",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "all-day"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "workout"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "work"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "daytime"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "evening"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "night-out"
+                        ]
+                      }
+                    ]
+                  },
+                  "clientId": {
+                    "format": "uuid",
+                    "description": "Your id for this entry, for retrying it offline: accepted, not yet stored (an outfit is on a day once anyway)",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "description": "Plans an outfit on a day. Once a day per outfit: planning it again is that entry, its occasion kept"
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "CalendarEntryScheduled",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "outcome",
+                    "occasion"
+                  ],
+                  "properties": {
+                    "id": {
+                      "description": "The entry",
+                      "type": "integer"
+                    },
+                    "outcome": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "scheduled"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "already-scheduled"
+                          ]
+                        }
+                      ]
+                    },
+                    "occasion": {
+                      "description": "The one asked, or the one it kept when already planned",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "all-day"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "workout"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "work"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "daytime"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "evening"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "night-out"
+                          ]
+                        }
+                      ]
+                    },
+                    "adopted": {
+                      "description": "Already planned by Plan my week: it is yours now, out of the re-plan's reach",
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "CalendarEntryScheduled",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "outcome",
+                    "occasion"
+                  ],
+                  "properties": {
+                    "id": {
+                      "description": "The entry",
+                      "type": "integer"
+                    },
+                    "outcome": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "scheduled"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "already-scheduled"
+                          ]
+                        }
+                      ]
+                    },
+                    "occasion": {
+                      "description": "The one asked, or the one it kept when already planned",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "all-day"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "workout"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "work"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "daytime"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "evening"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "night-out"
+                          ]
+                        }
+                      ]
+                    },
+                    "adopted": {
+                      "description": "Already planned by Plan my week: it is yours now, out of the re-plan's reach",
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/calendar-entries/{id}/outfit": {
+      "put": {
+        "operationId": "replaceCalendarEntryOutfit",
+        "summary": "Changes an entry's outfit, keeping its day and occasion",
+        "tags": [
+          "calendar"
+        ],
+        "description": "Change on the calendar and Today. The entry becomes yours (out of the re-plan's reach); an outfit Plan my week made for it goes once nothing holds it; its selfie stays on the day as a look. A worn entry is a 409 (it is the record of that day: plan another outfit instead), and so is an outfit already on the day. Set-state: the outfit it holds already is `unchanged`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "CalendarEntryOutfitInput",
+                "type": "object",
+                "required": [
+                  "outfitId"
+                ],
+                "properties": {
+                  "outfitId": {
+                    "description": "One of your outfits, not on that day already (a 409) and with no piece to buy",
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "CalendarEntryOutfitChanged",
+                  "type": "object",
+                  "required": [
+                    "outcome",
+                    "day",
+                    "occasion",
+                    "outfitId",
+                    "previousOutfitId",
+                    "selfieKeptAsLook",
+                    "plannerOutfitRemoved"
+                  ],
+                  "properties": {
+                    "outcome": {
+                      "description": "`unchanged`: it held that outfit already (a retry)",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "replaced"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "unchanged"
+                          ]
+                        }
+                      ]
+                    },
+                    "day": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "occasion": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "all-day"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "workout"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "work"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "daytime"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "evening"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "night-out"
+                          ]
+                        }
+                      ]
+                    },
+                    "outfitId": {
+                      "type": "integer"
+                    },
+                    "previousOutfitId": {
+                      "type": "integer"
+                    },
+                    "selfieKeptAsLook": {
+                      "description": "Its selfie stays on the day as a look: it shows the old outfit",
+                      "type": "boolean"
+                    },
+                    "plannerOutfitRemoved": {
+                      "description": "The outfit Plan my week had made for it, held by nothing else, is gone",
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/calendar-entries/{id}/worn": {
+      "put": {
+        "operationId": "setCalendarEntryWorn",
+        "summary": "Marks an entry worn, or not",
+        "tags": [
+          "calendar"
+        ],
+        "description": "Wore it: each of its outfit's garments worn on the entry's day, the entry yours (out of the re-plan's reach). A day still to come is a 409. Set-state: a repeat is `changed: false`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "CalendarEntryWornInput",
+                "description": "Worn (each of its garments worn that day) or not (those wears gone)",
+                "type": "object",
+                "required": [
+                  "worn"
+                ],
+                "properties": {
+                  "worn": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          },
+          "description": "Worn (each of its garments worn that day) or not (those wears gone)"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "CalendarEntryWorn",
+                  "type": "object",
+                  "required": [
+                    "day",
+                    "worn",
+                    "changed",
+                    "wears"
+                  ],
+                  "properties": {
+                    "day": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "worn": {
+                      "type": "boolean"
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    },
+                    "wears": {
+                      "minimum": 0,
+                      "description": "Garment wears logged or removed by this change",
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/calendar-entries/{id}": {
+      "delete": {
+        "operationId": "deleteCalendarEntry",
+        "summary": "Takes an entry off the calendar",
+        "tags": [
+          "calendar"
+        ],
+        "description": "Its wears and its selfie go with it (the outfit stays). An entry already gone is a 404, which a retry may read as done.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/outfit-wears": {
+      "post": {
+        "operationId": "wearOutfit",
+        "summary": "Wore these garments together that day",
+        "tags": [
+          "calendar"
+        ],
+        "description": "Saves them as an outfit (or finds the one they are), plans it that day for the occasion and marks it worn, in one transaction. Once: a retry finds the outfit and its entry worn (`changed: false`). The outfit already on that day keeps its entry and its occasion.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "OutfitWear",
+                "description": "Today's \"Wear this\": the garments worn together that day for an occasion",
+                "type": "object",
+                "required": [
+                  "garmentIds",
+                  "occasion",
+                  "day"
+                ],
+                "properties": {
+                  "garmentIds": {
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "description": "Your closet's garments, as an idea holds them: the outfit of exactly these is reused, else saved. One not in your closet is a 404 (a 409 naming those archived or not bought yet), nothing written",
+                    "type": "array",
+                    "items": {
+                      "minimum": 1,
+                      "maximum": 2147483647,
+                      "type": "integer"
+                    }
+                  },
+                  "occasion": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "all-day"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "workout"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "work"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "daytime"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "evening"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "night-out"
+                        ]
+                      }
+                    ]
+                  },
+                  "day": {
+                    "description": "The household day it was worn (GET /me's `today`), at most 7 days back; another is a 409",
+                    "format": "date",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "description": "Today's \"Wear this\": the garments worn together that day for an occasion"
+        },
+        "responses": {
+          "200": {
+            "description": "The outfit and its entry on the day, worn: the calendar is the one history of what was worn when",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "OutfitWorn",
+                  "description": "The outfit and its entry on the day, worn: the calendar is the one history of what was worn when",
+                  "type": "object",
+                  "required": [
+                    "outfitId",
+                    "alreadySaved",
+                    "entryId",
+                    "changed",
+                    "wears"
+                  ],
+                  "properties": {
+                    "outfitId": {
+                      "type": "integer"
+                    },
+                    "alreadySaved": {
+                      "type": "boolean"
+                    },
+                    "entryId": {
+                      "type": "integer"
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    },
+                    "wears": {
+                      "minimum": 0,
+                      "description": "Garment wears logged by this request",
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/week-plans": {
+      "post": {
+        "operationId": "planWeek",
+        "summary": "Plan my week",
+        "tags": [
+          "week-plan"
+        ],
+        "description": "Fills your week template's empty slots from today to six days on, each dressed for its forecast and occasion, wash limits counted across the week, no outfit twice. Safe to retry: filled slots are left, so a repeat plans nothing (no `weekPlanId`).",
+        "responses": {
+          "200": {
+            "description": "What Plan my week planned: entries marked `auto`, which the daily re-plan may swap until you change, wear or plan them yourself",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "WeekPlanned",
+                  "description": "What Plan my week planned: entries marked `auto`, which the daily re-plan may swap until you change, wear or plan them yourself",
+                  "type": "object",
+                  "required": [
+                    "from",
+                    "templateSet",
+                    "planned",
+                    "unfilled",
+                    "weatherDays"
+                  ],
+                  "properties": {
+                    "from": {
+                      "description": "Today: the plan covers it and the six days after",
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "templateSet": {
+                      "description": "False: you have no week template (PUT /week-template), so nothing was planned",
+                      "type": "boolean"
+                    },
+                    "weekPlanId": {
+                      "description": "This plan, for its undo (DELETE /week-plans/{id}); absent when nothing new was planned",
+                      "type": "integer"
+                    },
+                    "planned": {
+                      "type": "array",
+                      "items": {
+                        "title": "WeekPlannedEntry",
+                        "type": "object",
+                        "required": [
+                          "entryId",
+                          "day",
+                          "occasion",
+                          "outfit",
+                          "alreadySaved",
+                          "garments",
+                          "problems"
+                        ],
+                        "properties": {
+                          "entryId": {
+                            "type": "integer"
+                          },
+                          "day": {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          "occasion": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "all-day"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "workout"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "work"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "daytime"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "evening"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "night-out"
+                                ]
+                              }
+                            ]
+                          },
+                          "outfit": {
+                            "title": "WeekPlannedOutfit",
+                            "type": "object",
+                            "required": [
+                              "id"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "alreadySaved": {
+                            "description": "An outfit of yours it planned (it saved none)",
+                            "type": "boolean"
+                          },
+                          "garments": {
+                            "type": "array",
+                            "items": {
+                              "title": "WeekPlannedGarment",
+                              "type": "object",
+                              "required": [
+                                "id",
+                                "category"
+                              ],
+                              "properties": {
+                                "id": {
+                                  "type": "integer"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "category": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "problems": {
+                            "description": "A near miss taken for want of better: the weather's (`too-cold`, `needs-layer`, ...) or the occasion's (`too-casual`, `too-dressy`), or `breaks-rule`",
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "unfilled": {
+                      "description": "Empty slots nothing clean could dress",
+                      "type": "array",
+                      "items": {
+                        "title": "WeekSlot",
+                        "type": "object",
+                        "required": [
+                          "day",
+                          "occasion"
+                        ],
+                        "properties": {
+                          "day": {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          "occasion": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "all-day"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "workout"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "work"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "daytime"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "evening"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "night-out"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "weatherDays": {
+                      "minimum": 0,
+                      "description": "The days a forecast dressed (0 with the weather off)",
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/week-plans/{id}": {
+      "delete": {
+        "operationId": "undoWeekPlan",
+        "summary": "Undoes a Plan my week",
+        "tags": [
+          "week-plan"
+        ],
+        "description": "Its entries still the planner's go, with the outfits it made for them that nothing else holds; entries you changed, wore or planned yourself since stay. The plan goes once it has none left: then it is a 404, which a retry may read as done.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "WeekPlanUndone",
+                  "type": "object",
+                  "required": [
+                    "entriesRemoved",
+                    "outfitsRemoved"
+                  ],
+                  "properties": {
+                    "entriesRemoved": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "outfitsRemoved": {
+                      "minimum": 0,
+                      "description": "Outfits the plan had made for them, held by nothing else",
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/week-template": {
+      "get": {
+        "operationId": "getWeekTemplate",
+        "summary": "Your week template",
+        "tags": [
+          "week-plan"
+        ],
+        "responses": {
+          "200": {
+            "description": "Your week, Sunday first: the slots Plan my week fills. Empty on every day until you set it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "WeekTemplate",
+                  "description": "Your week, Sunday first: the slots Plan my week fills. Empty on every day until you set it",
+                  "type": "object",
+                  "required": [
+                    "days"
+                  ],
+                  "properties": {
+                    "days": {
+                      "minItems": 7,
+                      "maxItems": 7,
+                      "type": "array",
+                      "items": {
+                        "title": "WeekTemplateDay",
+                        "type": "object",
+                        "required": [
+                          "weekday",
+                          "around"
+                        ],
+                        "properties": {
+                          "weekday": {
+                            "description": "0 is Sunday … 6 Saturday",
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "enum": [
+                                  0
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  1
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  2
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  3
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  4
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  5
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  6
+                                ]
+                              }
+                            ]
+                          },
+                          "day": {
+                            "description": "The day's outfit: at most one of all day, work, daytime; absent, none",
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "all-day"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "work"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "daytime"
+                                ]
+                              }
+                            ]
+                          },
+                          "around": {
+                            "description": "The occasions around it (a workout, an evening, a night out)",
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "workout"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "evening"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "night-out"
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "saveWeekTemplate",
+        "summary": "Saves your week template, whole",
+        "tags": [
+          "week-plan"
+        ],
+        "description": "Every weekday replaced at once: what Plan my week plans from next. Answers the template as saved.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "WeekTemplateInput",
+                "description": "Your whole week, replaced: what the Profile's \"Your week\" saves",
+                "type": "object",
+                "required": [
+                  "days"
+                ],
+                "properties": {
+                  "days": {
+                    "maxItems": 7,
+                    "description": "Each weekday at most once (else a 400); one not sent is empty",
+                    "type": "array",
+                    "items": {
+                      "title": "WeekTemplateDayInput",
+                      "type": "object",
+                      "required": [
+                        "weekday"
+                      ],
+                      "properties": {
+                        "weekday": {
+                          "description": "0 is Sunday … 6 Saturday",
+                          "anyOf": [
+                            {
+                              "type": "number",
+                              "enum": [
+                                0
+                              ]
+                            },
+                            {
+                              "type": "number",
+                              "enum": [
+                                1
+                              ]
+                            },
+                            {
+                              "type": "number",
+                              "enum": [
+                                2
+                              ]
+                            },
+                            {
+                              "type": "number",
+                              "enum": [
+                                3
+                              ]
+                            },
+                            {
+                              "type": "number",
+                              "enum": [
+                                4
+                              ]
+                            },
+                            {
+                              "type": "number",
+                              "enum": [
+                                5
+                              ]
+                            },
+                            {
+                              "type": "number",
+                              "enum": [
+                                6
+                              ]
+                            }
+                          ]
+                        },
+                        "day": {
+                          "description": "The day's outfit: all day, work or daytime; null or absent, none",
+                          "anyOf": [
+                            {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "all-day"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "work"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "daytime"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "around": {
+                          "maxItems": 3,
+                          "description": "The occasions around it; absent, none",
+                          "type": "array",
+                          "items": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "workout"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "evening"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "night-out"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "description": "Your whole week, replaced: what the Profile's \"Your week\" saves"
+        },
+        "responses": {
+          "200": {
+            "description": "Your week, Sunday first: the slots Plan my week fills. Empty on every day until you set it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "WeekTemplate",
+                  "description": "Your week, Sunday first: the slots Plan my week fills. Empty on every day until you set it",
+                  "type": "object",
+                  "required": [
+                    "days"
+                  ],
+                  "properties": {
+                    "days": {
+                      "minItems": 7,
+                      "maxItems": 7,
+                      "type": "array",
+                      "items": {
+                        "title": "WeekTemplateDay",
+                        "type": "object",
+                        "required": [
+                          "weekday",
+                          "around"
+                        ],
+                        "properties": {
+                          "weekday": {
+                            "description": "0 is Sunday … 6 Saturday",
+                            "anyOf": [
+                              {
+                                "type": "number",
+                                "enum": [
+                                  0
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  1
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  2
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  3
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  4
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  5
+                                ]
+                              },
+                              {
+                                "type": "number",
+                                "enum": [
+                                  6
+                                ]
+                              }
+                            ]
+                          },
+                          "day": {
+                            "description": "The day's outfit: at most one of all day, work, daytime; absent, none",
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "all-day"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "work"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "daytime"
+                                ]
+                              }
+                            ]
+                          },
+                          "around": {
+                            "description": "The occasions around it (a workout, an evening, a night out)",
+                            "type": "array",
+                            "items": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "workout"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "evening"
+                                  ]
+                                },
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "night-out"
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "security": [

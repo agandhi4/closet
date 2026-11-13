@@ -308,7 +308,9 @@
     "TOKEN_IN_QUERY": "Send the token in the Authorization header, never in the URL",
     "OUTFIT_NEEDS_GARMENT": "An outfit needs at least one garment: send a row with a garmentId",
     "BAD_CURSOR": "This cursor is not one a list answered: start from the first page",
-    "REPLACES_ON_WISHLIST_ONLY": "Only a wishlist item replaces a garment: send destination wishlist"
+    "REPLACES_ON_WISHLIST_ONLY": "Only a wishlist item replaces a garment: send destination wishlist",
+    "CALENDAR_RANGE": "Ask for 1 to {max} days, from before to",
+    "WEEKDAY_TWICE": "Each weekday once: send a weekday's occasions in one entry"
   },
   "agentAccess": {
     "TITLE": "Agent Access",

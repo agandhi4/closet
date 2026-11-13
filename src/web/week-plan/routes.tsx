@@ -1,11 +1,10 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
 import { sessionUserId } from '../auth/require-session';
-import { hourIn, todayIn } from '../../calendar-date';
 import type { WebOptions } from '../plugin';
 import { RowId } from '../schemas';
 import { actorOf } from '../sharing/access';
-import { planDays, planMyWeek, undoWeekPlan, weekForecast } from './plan';
+import { planMyWeekNow, undoWeekPlan } from './plan';
 import {
   readWeekTemplateForm,
   saveWeekTemplate,
@@ -37,18 +36,12 @@ export const weekPlanRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 ) => {
   app.post('/calendar/plan-week', async (request, reply) => {
     const ownerId = sessionUserId(request);
-    const now = new Date();
-    const today = todayIn(config.timeZone, now);
     const started = performance.now();
-    const forecast = await weekForecast({ db, weather }, ownerId, now, {
-      fresh: true,
-    });
-    const result = await planMyWeek(db, ownerId, {
-      today,
-      hour: hourIn(config.timeZone, now),
-      days: planDays(today),
-      forecast,
-    });
+    const { today, forecast, result } = await planMyWeekNow(
+      { db, weather, timeZone: config.timeZone },
+      ownerId,
+      new Date(),
+    );
     const ms = Math.round(performance.now() - started);
     if (!result.templateSet) {
       logger.info(
