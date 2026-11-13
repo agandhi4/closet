@@ -24,6 +24,7 @@ import {
   WARMTHS,
 } from '../../wardrobe/properties';
 import { ENTRY_STATUSES, type EntryStatus } from '../../wardrobe/status';
+import { refusedBody } from '../api/refused-body';
 import { literals, Nullable } from '../api/resource';
 import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
@@ -319,33 +320,6 @@ export function refusedGarmentBody(
   errors: FieldErrors<GarmentField>,
 ): HttpError {
   return refusedBody(errors, POINTER_OF_FIELD);
-}
-
-/**
- * A form reader's refusal as the API's 400: `errors` names each field as
- * a schema validation does (`body/<pointer>`, where the JSON body holds
- * it), with the message the form shows under it; `detail` joins them.
- */
-function refusedBody<Field extends string>(
-  errors: FieldErrors<Field>,
-  pointerOf: Record<Field, string>,
-): HttpError {
-  const validation = (
-    Object.entries(errors) as [Field, string[] | undefined][]
-  ).flatMap(([field, messages = []]) =>
-    messages.map((message) => ({
-      path: `body${pointerOf[field]}`,
-      message,
-    })),
-  );
-  return new HttpError(
-    400,
-    validation.map(({ message }) => message).join(' '),
-    {
-      validation,
-      logDetail: `refused fields: ${Object.keys(errors).join(', ')}`,
-    },
-  );
 }
 
 /**

@@ -7,6 +7,8 @@ export const ROUTES: Route[] = [
   // ignored, another user's trip, trip outfit or extra a 404 with nothing
   // written. The fixture's trip is on today, with the outfit on today,
   // the garment packed and an extra; a second trip holds an extra to copy.
+  // Every case replays on its /api/v1 twin (#194a, `api`) but the
+  // destination's, which waits for the API's place search (#195).
   {
     name: 'GET /trips',
     kind: 'read',
@@ -20,6 +22,10 @@ export const ROUTES: Route[] = [
       manager: 'hidden',
       viewer: 'hidden',
       stranger: 'hidden',
+    },
+    api: {
+      ok: 200,
+      request: (_, q) => ({ method: 'GET', url: `/api/v1/trips${q}` }),
     },
   },
   {
@@ -35,6 +41,13 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'GET',
+        url: `/api/v1/trips/${f.tripId}${q}`,
+      }),
     },
   },
   {
@@ -112,6 +125,18 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/trips/${f.tripId}${q}`,
+        payload: {
+          name: `Renamed ${f.tripName}`,
+          startsOn: f.today,
+          endsOn: addDays(f.today, 1),
+        },
+      }),
+    },
   },
   {
     name: 'DELETE /trips/:id',
@@ -128,6 +153,13 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 204,
+      request: (f, q) => ({
+        method: 'DELETE',
+        url: `/api/v1/trips/${f.tripId}${q}`,
+      }),
     },
   },
   {
@@ -147,6 +179,14 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 201,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/trips/${f.tripId}/outfits${q}`,
+        payload: { outfitId: f.outfitId, occasion: 'evening' },
+      }),
+    },
   },
   {
     name: 'POST /trips/:id/outfits/:tripOutfitId/delete',
@@ -164,6 +204,13 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'DELETE',
+        url: `/api/v1/trips/${f.tripId}/outfits/${f.tripOutfitId}${q}`,
+      }),
+    },
   },
   {
     name: 'POST /trips/:id/outfits/:tripOutfitId/wear',
@@ -180,6 +227,13 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/trips/${f.tripId}/outfits/${f.tripOutfitId}/wears${q}`,
+      }),
     },
   },
   {
@@ -199,6 +253,15 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    // One garment's tick, set-state: the fixture's is packed.
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/trips/${f.tripId}/packing/${f.garmentId}${q}`,
+        payload: { packed: false },
+      }),
+    },
   },
   {
     name: 'POST /trips/:id/items',
@@ -216,6 +279,14 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 201,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/trips/${f.tripId}/items${q}`,
+        payload: { label: 'Adapter' },
+      }),
     },
   },
   {
@@ -235,6 +306,14 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PATCH',
+        url: `/api/v1/trips/${f.tripId}/items/${f.tripItemId}${q}`,
+        payload: { packed: true },
+      }),
+    },
   },
   {
     name: 'POST /trips/:id/items/:itemId/delete',
@@ -251,6 +330,13 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 204,
+      request: (f, q) => ({
+        method: 'DELETE',
+        url: `/api/v1/trips/${f.tripId}/items/${f.tripItemId}${q}`,
+      }),
     },
   },
   {
@@ -269,6 +355,14 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/trips/${f.tripId}/items/copies${q}`,
+        payload: { fromTripId: f.otherTripId },
+      }),
     },
   },
   // The destination's weather (WEATHER_ENABLED only): where someone

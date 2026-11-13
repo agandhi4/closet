@@ -97,6 +97,25 @@ export function readIdCursor(cursor: string): number {
   return id;
 }
 
+/**
+ * A position cursor, for a list whose order is not a keyset of its rows
+ * (the trips: upcoming first, by a phase that moves with the day, #194a):
+ * the count already answered. A row added or removed between pages shifts
+ * the next one by it, which a short list re-read in full tolerates.
+ */
+const OFFSET_CURSOR = /^at:([1-9]\d{0,5})$/;
+
+export function offsetCursor(offset: number): string {
+  return Buffer.from(`at:${offset}`).toString('base64url');
+}
+
+/** The offset an offsetCursor names; any other string is a 400 `validation`. */
+export function readOffsetCursor(cursor: string): number {
+  const match = OFFSET_CURSOR.exec(Buffer.from(cursor, 'base64url').toString());
+  if (!match) throw new HttpError(400, t('api.BAD_CURSOR'));
+  return Number(match[1]);
+}
+
 /** A mapped resource with its null fields left out, as the API sends them. */
 export type WithoutNulls<T> = {
   [K in keyof T as null extends T[K] ? never : K]: T[K];

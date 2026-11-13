@@ -2,7 +2,13 @@ import { eq } from 'drizzle-orm';
 import type { InjectOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { addDays } from '../../src/calendar-date';
-import { outfit, outfitCalendar, weekPlan } from '../../src/db/schema';
+import {
+  outfit,
+  outfitCalendar,
+  tripItem,
+  tripOutfit,
+  weekPlan,
+} from '../../src/db/schema';
 import { deviceToken, SIGN_IN_URL, signInDevice } from './api';
 import { failCutout } from './cutouts';
 import { jpeg, type LinkSites, startLinkSites } from './link-sites';
@@ -908,6 +914,266 @@ describe('API statements per route', () => {
       );
       expect(run.status).toBe(200);
       expect(run.statements).toBe(2);
+    });
+  });
+
+  describe('trips and packing: what their page twins cost (#194a)', () => {
+    let token: string;
+
+    beforeAll(async () => {
+      token = await twinToken();
+    });
+
+    /**
+     * One run's trip, on today and tomorrow: an outfit on it for today, its
+     * garment packed, one extra; another trip with an extra to copy, and a
+     * saved outfit not on the trip.
+     */
+    interface TripSetup {
+      tripId: number;
+      otherTripId: number;
+      tripOutfitId: number;
+      itemId: number;
+      garmentId: number;
+      spareOutfitId: number;
+      today: string;
+    }
+
+    const newTrip = async (name: string, today: string) => {
+      const made = await t.inject({
+        method: 'POST',
+        url: '/trips',
+        payload: { name, startsOn: today, endsOn: addDays(today, 1) },
+      });
+      return Number(
+        /^\/trips\/(\d+)\?/.exec(made.headers.location as string)![1],
+      );
+    };
+
+    const newOutfit = async (garmentId: number) => {
+      const made = await t.inject({
+        method: 'POST',
+        url: '/outfits',
+        payload: { category: 'shirt', garmentId: String(garmentId) },
+      });
+      return Number(
+        /^\/outfits\/(\d+)$/.exec(made.headers.location as string)![1],
+      );
+    };
+
+    const tripSetup = async (): Promise<TripSetup> => {
+      const today = t.today();
+      const garmentId = await createGarment(t, {
+        name: 'Packed',
+        category: 'shirt',
+      });
+      const outfitId = await newOutfit(garmentId);
+      const spareOutfitId = await newOutfit(
+        await createGarment(t, { name: 'Spare', category: 'shirt' }),
+      );
+      const tripId = await newTrip('Counted trip', today);
+      const otherTripId = await newTrip('Other trip', today);
+      for (const [url, payload] of [
+        [
+          `/trips/${tripId}/outfits`,
+          { outfitId: String(outfitId), day: today },
+        ],
+        [`/trips/${tripId}/packed`, { packed: String(garmentId) }],
+        [`/trips/${tripId}/items`, { label: 'Charger' }],
+        [`/trips/${otherTripId}/items`, { label: 'Passport' }],
+      ] as const) {
+        expect(
+          (await t.inject({ method: 'POST', url, payload })).statusCode,
+        ).toBe(303);
+      }
+      const [{ id: tripOutfitId }] = await t.db
+        .select({ id: tripOutfit.id })
+        .from(tripOutfit)
+        .where(eq(tripOutfit.tripId, tripId));
+      const [{ id: itemId }] = await t.db
+        .select({ id: tripItem.id })
+        .from(tripItem)
+        .where(eq(tripItem.tripId, tripId));
+      return {
+        tripId,
+        otherTripId,
+        tripOutfitId,
+        itemId,
+        garmentId,
+        spareOutfitId,
+        today,
+      };
+    };
+
+    /** Each route's page twin and its API request, each on a setup of its own: the same writer, the same statements. */
+    const CASES: {
+      name: string;
+      ok: [page: number, api: number];
+      page: (s: TripSetup) => InjectOptions;
+      api: (s: TripSetup) => InjectOptions;
+    }[] = [
+      {
+        name: 'GET /trips (GET /trips)',
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: '/trips' }),
+        api: () => ({ method: 'GET', url: '/api/v1/trips' }),
+      },
+      {
+        name: 'GET /trips/{id} (GET /trips/:id)',
+        ok: [200, 200],
+        page: (s) => ({ method: 'GET', url: `/trips/${s.tripId}` }),
+        api: (s) => ({ method: 'GET', url: `/api/v1/trips/${s.tripId}` }),
+      },
+      {
+        name: 'POST /trips (POST /trips)',
+        ok: [303, 201],
+        page: (s) => ({
+          method: 'POST',
+          url: '/trips',
+          payload: { name: 'New', startsOn: s.today, endsOn: s.today },
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: '/api/v1/trips',
+          payload: { name: 'New', startsOn: s.today, endsOn: s.today },
+        }),
+      },
+      {
+        name: 'PUT /trips/{id} (POST /trips/:id)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/trips/${s.tripId}`,
+          payload: { name: 'Renamed', startsOn: s.today, endsOn: s.today },
+        }),
+        api: (s) => ({
+          method: 'PUT',
+          url: `/api/v1/trips/${s.tripId}`,
+          payload: { name: 'Renamed', startsOn: s.today, endsOn: s.today },
+        }),
+      },
+      {
+        name: 'DELETE /trips/{id} (DELETE /trips/:id)',
+        ok: [200, 204],
+        page: (s) => ({ method: 'DELETE', url: `/trips/${s.tripId}` }),
+        api: (s) => ({ method: 'DELETE', url: `/api/v1/trips/${s.tripId}` }),
+      },
+      {
+        name: 'POST /trips/{id}/outfits (POST /trips/:id/outfits)',
+        ok: [303, 201],
+        page: (s) => ({
+          method: 'POST',
+          url: `/trips/${s.tripId}/outfits`,
+          payload: { outfitId: String(s.spareOutfitId), day: s.today },
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: `/api/v1/trips/${s.tripId}/outfits`,
+          payload: { outfitId: s.spareOutfitId, day: s.today },
+        }),
+      },
+      {
+        name: 'DELETE /trips/{id}/outfits/{tripOutfitId} (POST …/delete)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/trips/${s.tripId}/outfits/${s.tripOutfitId}/delete`,
+        }),
+        api: (s) => ({
+          method: 'DELETE',
+          url: `/api/v1/trips/${s.tripId}/outfits/${s.tripOutfitId}`,
+        }),
+      },
+      {
+        name: 'POST /trips/{id}/outfits/{tripOutfitId}/wears (POST …/wear)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/trips/${s.tripId}/outfits/${s.tripOutfitId}/wear`,
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: `/api/v1/trips/${s.tripId}/outfits/${s.tripOutfitId}/wears`,
+        }),
+      },
+      {
+        name: 'PUT /trips/{id}/packing/{garmentId} (POST /trips/:id/packed)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/trips/${s.tripId}/packed`,
+          payload: { shown: String(s.garmentId) },
+        }),
+        api: (s) => ({
+          method: 'PUT',
+          url: `/api/v1/trips/${s.tripId}/packing/${s.garmentId}`,
+          payload: { packed: false },
+        }),
+      },
+      {
+        name: 'POST /trips/{id}/items (POST /trips/:id/items)',
+        ok: [303, 201],
+        page: (s) => ({
+          method: 'POST',
+          url: `/trips/${s.tripId}/items`,
+          payload: { label: 'Adapter' },
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: `/api/v1/trips/${s.tripId}/items`,
+          payload: { label: 'Adapter' },
+        }),
+      },
+      {
+        name: 'PATCH /trips/{id}/items/{itemId} (POST /trips/:id/items/packed)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/trips/${s.tripId}/items/packed`,
+          payload: { packed: String(s.itemId), shown: String(s.itemId) },
+        }),
+        api: (s) => ({
+          method: 'PATCH',
+          url: `/api/v1/trips/${s.tripId}/items/${s.itemId}`,
+          payload: { packed: true },
+        }),
+      },
+      {
+        name: 'DELETE /trips/{id}/items/{itemId} (POST …/items/:itemId/delete)',
+        ok: [303, 204],
+        page: (s) => ({
+          method: 'POST',
+          url: `/trips/${s.tripId}/items/${s.itemId}/delete`,
+        }),
+        api: (s) => ({
+          method: 'DELETE',
+          url: `/api/v1/trips/${s.tripId}/items/${s.itemId}`,
+        }),
+      },
+      {
+        name: 'POST /trips/{id}/items/copies (POST /trips/:id/items/copy)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/trips/${s.tripId}/items/copy`,
+          payload: { from: String(s.otherTripId) },
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: `/api/v1/trips/${s.tripId}/items/copies`,
+          payload: { fromTripId: s.otherTripId },
+        }),
+      },
+    ];
+
+    it.each(CASES)('$name', async ({ ok, page, api }) => {
+      const [onPage, onApi] = [await tripSetup(), await tripSetup()];
+      const pageRun = await statementsOf(() => t.inject(page(onPage)));
+      // A second call of the minute: no last-use write.
+      await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      const apiRun = await statementsOf(() => t.api(token, api(onApi)));
+      expect([pageRun.status, apiRun.status]).toEqual(ok);
+      expect(apiRun.statements).toBe(pageRun.statements);
     });
   });
 
