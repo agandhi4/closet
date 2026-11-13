@@ -598,7 +598,8 @@ function templatesFor(
   return templates;
 }
 
-export function rotationWeight(garment: IdeaGarment): number {
+/** How strongly a garment is drawn: rested ones most. Also recreate.ts' last tie-break. */
+export function rotationWeight(garment: Pick<IdeaGarment, 'idleDays'>): number {
   const idle = Math.min(garment.idleDays ?? ROTATION_CAP, ROTATION_CAP);
   return 1 + idle / ROTATION_STEP;
 }

@@ -31,9 +31,9 @@ import {
   GarmentLook,
   ridesAlong,
   type RowContext,
-  roleLabel,
   StylingRowView,
 } from './styling-row';
+import { roleLabel } from '../wardrobe/labels';
 import {
   STYLING_FIT_PATH,
   STYLING_PATH,

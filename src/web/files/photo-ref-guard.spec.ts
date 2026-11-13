@@ -60,14 +60,16 @@ describe('who may sign a photo URL', () => {
 
   // A photo built by hand in SQL can be typed as the helpers' shape while
   // missing a field (a variant key left out signs `k=undefined`, which the
-  // route answers through the row); outside a selfie's own queries, a
-  // photo's JSON is photoRefJson, photoWithCutoutJson or plinthPhotoJson.
+  // route answers through the row); outside a private photo's own queries
+  // (a selfie's, a saved look's: never signed), a photo's JSON is
+  // photoRefJson, photoWithCutoutJson or plinthPhotoJson.
   it('builds a photo JSON only through the helpers', () => {
     const found = sources(SRC)
       .filter((path) => /'fileName',\s*\$\{file\.fileName\}/.test(read(path)))
       .map(name);
     expect(found).toEqual([
       'src/web/files/queries.ts',
+      'src/web/inspiration/queries.ts',
       'src/web/selfies/queries.ts',
     ]);
   });

@@ -1,10 +1,10 @@
 import { garmentMarks } from '../../wardrobe/marks';
 import type { GarmentRole } from '../../wardrobe/properties';
-import { imageUrl } from '../files/image-url';
-import { t, type StringKey } from '../i18n';
+import { t } from '../i18n';
 import { GarmentMark } from '../layout/garment-mark';
-import { HangerIcon } from '../layout/parts';
+import { GarmentPicture } from '../layout/parts';
 import { categoryLabel } from '../wardrobe/garment';
+import { roleLabel } from '../wardrobe/labels';
 import { SnapStrip, snapItem, type SnapSize } from '../strip/snap-strip';
 import { garmentUrl } from '../wardrobe/urls';
 import type { RowGarment, StylingRow } from './rows';
@@ -28,21 +28,6 @@ import { STYLING_GARMENTS_PATH, type StylingState, stylingUrl } from './urls';
  * neighbours fade, until the lock is lifted and the strip swipes again from
  * the same item. The neighbours are also `inert` (#146, see `itemState`).
  */
-
-const ROLE_LABELS: Record<GarmentRole, StringKey> = {
-  layer: 'styling.role.layer',
-  'one-piece': 'styling.role.one-piece',
-  top: 'styling.role.top',
-  bottom: 'styling.role.bottom',
-  footwear: 'styling.role.footwear',
-  accessory: 'styling.role.accessory',
-  bag: 'styling.role.bag',
-  none: 'styling.role.none',
-};
-
-export function roleLabel(role: GarmentRole): string {
-  return t(ROLE_LABELS[role]);
-}
 
 /** Accessories, bags and the rest ride along: smaller items, so the outfit leads. */
 const SMALL: readonly GarmentRole[] = ['accessory', 'bag', 'none'];
@@ -283,20 +268,7 @@ export function GarmentLook(props: {
   garment: RowGarment;
   loading: 'eager' | 'lazy';
 }) {
-  const { photo } = props.garment;
-  return photo ? (
-    <img
-      src={imageUrl(photo, 'thumb')}
-      alt=""
-      class="max-h-full max-w-full object-contain"
-      width="200"
-      height="200"
-      loading={props.loading}
-      decoding="async"
-    />
-  ) : (
-    <HangerIcon class="size-10 text-faint" strokeWidth="1" />
-  );
+  return <GarmentPicture photo={props.garment.photo} loading={props.loading} />;
 }
 
 /**

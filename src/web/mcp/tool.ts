@@ -155,7 +155,7 @@ function toolResult(value: unknown): CallToolResult {
  * (context Mcp): the tool, the user, the token's row id, the outcome and
  * the time; never the arguments (a link can carry a token of its own),
  * never the caller's token and never an answer (an image's bytes
- * included). A refusal (a 4xx HttpError, as a route would answer) is a tool error with its message; anything else is logged with
+ * included). A refusal (a 4xx HttpError, as a route would answer) is a tool error with its message, which the call's line carries too (one line per call, at info; a chosen 5xx, the line at warn); anything else is logged with
  * its stack, sent to the error tracker (through the metrics) and answered
  * without detail.
  */
@@ -184,6 +184,8 @@ export function registerTools(
         const started = performance.now();
         let outcome: Outcome = 'ok';
         let failure: unknown;
+        let refusal: string | undefined;
+        let level: 'info' | 'warn' = 'info';
         try {
           return toolResult(await tool.run(args, ctx));
         } catch (error) {
@@ -197,17 +199,15 @@ export function registerTools(
               `MCP ${tool.name} failed for user ${ctx.userId}`,
             );
           } else {
+            if (status >= 500) level = 'warn';
             outcome = `${status >= 500 ? 'failed' : 'refused'} ${status}${logDetail ? ` (${logDetail})` : ''}`;
-            // The page error handler's line, from MCP (the log line carries the request_id).
-            log.logger.warn(
-              `MCP ${tool.name} -> ${status}: ${message}${logDetail ? ` (${logDetail})` : ''} (user ${ctx.userId})`,
-            );
+            refusal = message;
           }
           return textResult({ error: message }, true);
         } finally {
           const elapsedMs = performance.now() - started;
-          log.logger.info(
-            `MCP ${tool.name} by user ${ctx.userId} (token ${ctx.tokenId}): ${outcome} ${elapsedMs.toFixed(1)}ms`,
+          log.logger[level](
+            `MCP ${tool.name} by user ${ctx.userId} (token ${ctx.tokenId}): ${outcome}${refusal ? `: ${refusal}` : ''} ${elapsedMs.toFixed(1)}ms`,
           );
           log.metrics.observeMcpCall(
             tool.name,

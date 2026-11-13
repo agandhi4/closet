@@ -2,11 +2,16 @@ import { eq } from 'drizzle-orm';
 import { readdir, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { file, inspiration, pendingPhoto } from '../../src/db/schema';
+import {
+  file,
+  inspiration,
+  inspirationPiece,
+  pendingPhoto,
+} from '../../src/db/schema';
 import { reconcileStorage } from '../../src/maintenance/reconcile';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { t as text } from '../../src/web/i18n';
-import { jpegPhoto, photoRow } from './garments';
+import { createGarment, jpegPhoto, photoRow } from './garments';
 import {
   createTestApp,
   extractImgSrcs,
@@ -29,11 +34,13 @@ import { silentLogger } from './logger';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Saved looks (#22, slice 22a): adding one from a photo or a pasted link,
- * its page's title and note, its photo added, replaced and deleted with
- * it, and the photo's references (private like a selfie's; never an orphan
- * to reconciliation). Who may reach them is the authorization matrix's
- * (authorization-outfits.routes.ts).
+ * Saved looks (#22, slices 22a and 22b): adding one from a photo or a
+ * pasted link, its page's title and note, its photo added, replaced and
+ * deleted with it, the photo's references (private like a selfie's; never
+ * an orphan to reconciliation), its pieces tagged, and "Recreate this
+ * look" over the closet. Who may reach them is the authorization matrix's
+ * (authorization-outfits.routes.ts); the matching's rules are
+ * src/wardrobe/recreate.spec.ts'.
  */
 describe('inspiration', () => {
   let t: TestApp;
@@ -304,6 +311,243 @@ describe('inspiration', () => {
     expect(await photoRow(t, fileName)).toBeDefined();
     expect(await stored()).toContain(fileName);
     expect((await lookRow(id)).photoId).not.toBeNull();
+  });
+
+  const pieces = async (id: number) =>
+    t.db
+      .select({
+        position: inspirationPiece.position,
+        role: inspirationPiece.role,
+        type: inspirationPiece.type,
+        colors: inspirationPiece.colors,
+        pattern: inspirationPiece.pattern,
+      })
+      .from(inspirationPiece)
+      .where(eq(inspirationPiece.inspirationId, id))
+      .orderBy(inspirationPiece.position);
+
+  const piece = (
+    kind: string,
+    color = '',
+    accent = '',
+    pattern = '',
+  ): Record<string, string> => ({ kind, color, accent, pattern });
+
+  /** A hint's own post: its hidden kind (the select's options are <option>s). */
+  const hintFor = (kind: string) => `type="hidden" name="kind" value="${kind}"`;
+
+  it('tags a look: the hints from its title, the add form, a change saved, a removal; a bad value is a 400', async () => {
+    const id = lookIdOf(
+      (await pasteLink(sites.url('/lookbook'))).headers.location,
+    );
+    const page = async () =>
+      unescapeHtml(
+        (await t.inject({ method: 'GET', url: `/inspiration/${id}` })).body,
+      );
+    // "Navy blazer, white tee": one hint per garment, its own colour.
+    const first = await page();
+    expect(first).toContain(hintFor('layer/blazer'));
+    expect(first).toContain(hintFor('top/t-shirt'));
+    // Nothing to recreate before a piece.
+    expect(first).not.toContain(`/inspiration/${id}/recreate`);
+
+    const add = (payload: Record<string, string>) =>
+      t.inject({ method: 'POST', url: `/inspiration/${id}/pieces`, payload });
+    const added = await add(piece('layer/blazer', 'blue'));
+    expect(added.statusCode).toBe(303);
+    expect(added.headers.location).toBe(`/inspiration/${id}#look-pieces`);
+    // An accent alone is the main colour; one colour twice is once.
+    expect((await add(piece('bottom', '', 'black', 'solid'))).statusCode).toBe(
+      303,
+    );
+    expect((await add(piece('footwear', 'white', 'white'))).statusCode).toBe(
+      303,
+    );
+    expect(await pieces(id)).toEqual([
+      {
+        position: 0,
+        role: 'layer',
+        type: 'blazer',
+        colors: ['blue'],
+        pattern: null,
+      },
+      {
+        position: 1,
+        role: 'bottom',
+        type: null,
+        colors: ['black'],
+        pattern: 'solid',
+      },
+      {
+        position: 2,
+        role: 'footwear',
+        type: null,
+        colors: ['white'],
+        pattern: null,
+      },
+    ]);
+    const tagged = await page();
+    expect(tagged).not.toContain(hintFor('layer/blazer'));
+    expect(tagged).toContain(hintFor('top/t-shirt'));
+    expect(tagged).toContain(`href="/inspiration/${id}/recreate"`);
+    expect(t.logs.messages('info')).toContainEqual(
+      expect.stringMatching(
+        new RegExp(
+          `^Inspiration ${id} piece 0 \\(layer/blazer\\) added by user \\d+$`,
+        ),
+      ),
+    );
+
+    // The piece's autosave: answered with the status line.
+    const saved = await t.inject({
+      method: 'POST',
+      url: `/inspiration/${id}/pieces/0`,
+      payload: piece('layer/coat', 'beige', 'blue', 'check'),
+      headers: { 'hx-request': 'true' },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.body).toContain(text('SAVED'));
+    expect((await pieces(id))[0]).toEqual({
+      position: 0,
+      role: 'layer',
+      type: 'coat',
+      colors: ['beige', 'blue'],
+      pattern: 'check',
+    });
+
+    // Stored data: a type of another role, an unknown colour, a missing kind.
+    for (const payload of [
+      piece('layer/jeans'),
+      piece('top', 'navy'),
+      { color: 'blue' },
+    ]) {
+      const res = await add(payload);
+      expect(res.statusCode, JSON.stringify(payload)).toBe(400);
+    }
+    const unknown = await t.inject({
+      method: 'POST',
+      url: `/inspiration/${id}/pieces/9`,
+      payload: piece('top'),
+    });
+    expect(unknown.statusCode).toBe(404);
+
+    const removed = await t.inject({
+      method: 'POST',
+      url: `/inspiration/${id}/pieces/1/delete`,
+    });
+    expect(removed.statusCode).toBe(303);
+    expect((await pieces(id)).map((p) => p.position)).toEqual([0, 2]);
+    // The next one goes last, whatever was removed.
+    await add(piece('accessory/belt'));
+    expect((await pieces(id)).map((p) => p.position)).toEqual([0, 2, 3]);
+  });
+
+  it('holds a look to INSPIRATION_MAX_PIECES pieces', async () => {
+    const { id } = await addLook(t, photo);
+    await t.db.insert(inspirationPiece).values(
+      Array.from({ length: 12 }, (_, position) => ({
+        inspirationId: id,
+        position,
+        role: 'accessory' as const,
+        colors: [],
+      })),
+    );
+    const res = await t.inject({
+      method: 'POST',
+      url: `/inspiration/${id}/pieces`,
+      payload: piece('top'),
+    });
+    expect(res.statusCode).toBe(400);
+    expect(
+      await t.db.$count(
+        inspirationPiece,
+        eq(inspirationPiece.inspirationId, id),
+      ),
+    ).toBe(12);
+    const body = unescapeHtml(
+      (await t.inject({ method: 'GET', url: `/inspiration/${id}` })).body,
+    );
+    expect(body).toContain(text('inspiration.PIECES_FULL', { max: 12 }));
+  });
+
+  it('recreates a look from the owner’s closet in one statement: the closest first, the alternates, the missing', async () => {
+    const cookie = await t.register('recreator@example.com');
+    const wear = async (
+      name: string,
+      category: string,
+      type: string,
+      color: string,
+    ) => {
+      const res = await t.inject({
+        method: 'POST',
+        url: '/wardrobe',
+        payload: { name, category, props: '1', type, color: [color] },
+        headers: { cookie },
+      });
+      expect(res.statusCode).toBe(302);
+      return Number(
+        /^\/wardrobe\/(\d+)\?/.exec(String(res.headers.location))![1],
+      );
+    };
+    const othersTee = await createGarment(t, {
+      name: 'Their tee',
+      category: 'tops',
+    });
+    const navyBlazer = await wear('Navy blazer', 'outerwear', 'blazer', 'blue');
+    const blackJacket = await wear(
+      'Black jacket',
+      'outerwear',
+      'jacket',
+      'black',
+    );
+    const whiteTee = await wear('White tee', 'tops', 't-shirt', 'white');
+    const greyTee = await wear('Grey tee', 'tops', 't-shirt', 'grey');
+    const { id } = await addLook(t, photo, cookie);
+    for (const payload of [
+      piece('layer/blazer', 'blue'),
+      piece('top/t-shirt', 'white'),
+      piece('footwear/sneakers', 'white'),
+    ]) {
+      const res = await t.inject({
+        method: 'POST',
+        url: `/inspiration/${id}/pieces`,
+        payload,
+        headers: { cookie },
+      });
+      expect(res.statusCode).toBe(303);
+    }
+
+    let res!: Awaited<ReturnType<typeof t.inject>>;
+    const { statements } = await recordQueries(async () => {
+      res = await t.inject({
+        method: 'GET',
+        url: `/inspiration/${id}/recreate`,
+        headers: { cookie },
+      });
+    });
+    expect(res.statusCode).toBe(200);
+    // The session's, then the look, the closet and its rules in one.
+    expect(statements).toBe(2);
+    const body = unescapeHtml(res.body);
+    const matchesOf = (position: number) => {
+      const section = body
+        .split(`data-recreate-piece="${position}"`)[1]
+        ?.split('data-recreate-piece=')[0];
+      return [...(section ?? '').matchAll(/data-match="(\d+)"/g)].map((m) =>
+        Number(m[1]),
+      );
+    };
+    // The blazer, then the black jacket (black is close to navy).
+    expect(matchesOf(0)).toEqual([navyBlazer, blackJacket]);
+    expect(matchesOf(1)).toEqual([whiteTee, greyTee]);
+    expect(matchesOf(2)).toEqual([]);
+    expect(body).toMatch(/data-recreate-piece="2"[^>]*data-missing=""/);
+    expect(body).toContain(text('inspiration.MISSING'));
+    expect(body).toContain(
+      text('inspiration.IN_CLOSET', { matched: 2, of: 3 }),
+    );
+    // The owner's closet only: another user's white tee never shows.
+    expect(body).not.toContain(`data-match="${othersTee}"`);
   });
 
   it('deleting the account removes a look, its file row and every variant, leaving nothing to reconcile', async () => {

@@ -290,7 +290,8 @@
       "wardrobe": "Wardrobe not found",
       "weekPlan": "Plan not found",
       "wishlistItem": "Not on your wishlist",
-      "inspiration": "Look not found"
+      "inspiration": "Look not found",
+      "inspirationPiece": "Piece not found"
     },
     "request": {
       "tooLarge": "The request is too large",
@@ -486,6 +487,24 @@
       "down": "Down",
       "knit": "Knit",
       "synthetic": "Synthetic",
+      "other": "Other"
+    },
+    "color": {
+      "red": "Red",
+      "pink": "Pink",
+      "orange": "Orange",
+      "yellow": "Yellow",
+      "green": "Green",
+      "blue": "Blue",
+      "purple": "Purple",
+      "black": "Black",
+      "white": "White",
+      "grey": "Grey",
+      "beige": "Beige",
+      "brown": "Brown",
+      "gold": "Gold",
+      "silver": "Silver",
+      "pattern": "Multicolor",
       "other": "Other"
     },
     "pattern": {
@@ -1570,6 +1589,34 @@
     "UNREAD_HINT": "Add one from your phone: a screenshot of the look works.",
     "DELETE": "Delete look",
     "DELETE_CONFIRM": "Delete this look and its photo?",
-    "OFFLINE": "Saving a look needs a connection."
+    "OFFLINE": "Saving a look needs a connection.",
+    "PIECES": "Pieces",
+    "PIECES_HINT": "What you see in the look. Recreate it from your closet once you have tagged a piece.",
+    "PIECE_KIND": "What it is",
+    "ANY_KIND": "{role}, any type",
+    "PIECE_ACCENT": "Second color",
+    "PIECE_NONE": "None",
+    "PIECE_NAME": "{kind} · {colors}",
+    "ADD_PIECE": "Add a piece",
+    "ADD_PIECE_SUBMIT": "Add piece",
+    "REMOVE_PIECE": "Remove piece",
+    "PIECES_FULL": "A look holds up to {max} pieces.",
+    "HINTS": "The page names these. Tap one to add it:",
+    "ADD_HINT_PIECE": "+ {piece}",
+    "RECREATE": "Recreate this look",
+    "RECREATE_TITLE": "Recreate {title}",
+    "RECREATE_EMPTY": "Tag the pieces you see in this look first: then your closet's closest garments show here.",
+    "TAG_PIECES": "Tag the pieces",
+    "IN_CLOSET": "{matched} of {of} pieces in your closet",
+    "UNFIXED": "Your closest {pieces} don't go together (your colors or outfit rules keep them apart), and nothing close enough does.",
+    "MISSING": "Nothing in your closet is close to this.",
+    "REPICKED": "The closest one clashed with the rest of the look, so this one goes better.",
+    "MATCHES_LABEL": "Closest to {piece}",
+    "NOT_AVAILABLE": "not available today",
+    "AGREES_TYPE": "Same type",
+    "AGREES_COLOR": "Same color",
+    "AGREES_CLOSE_COLOR": "Close color",
+    "AGREES_PATTERN": "Same pattern",
+    "AGREES_ROLE": "Same kind of piece"
   }
 }

@@ -17,6 +17,7 @@ import {
   unescapeHtml,
   userIdOf,
 } from './harness';
+import { deviceToken } from './api';
 import { createAccessToken, callTool, mintToken, tool } from './mcp';
 import { mirrorPhoto, postSelfie } from './selfies';
 
@@ -309,6 +310,13 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
       expect(page.statusCode).toBe(200);
       expect(page.body).toContain(`data-year="${today.slice(0, 4)}"`);
       expect(page.body).toContain(`data-to="${today}"`);
+    });
+
+    it('GET /api/v1/me (#530) answers the household day', async () => {
+      const { token } = await deviceToken(t);
+      const res = await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json<{ today: IsoDate }>().today).toBe(today);
     });
 
     it('MCP: get_calendar starts today; mark_worn and mark_washed record today', async () => {

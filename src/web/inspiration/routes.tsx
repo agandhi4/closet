@@ -1,6 +1,8 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { todayIn } from '../../calendar-date';
+import { recreateLook } from '../../wardrobe/recreate';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
 import { INSPIRATION_PHOTO_ROOT } from '../files/image-url';
@@ -21,18 +23,25 @@ import {
 } from '../wardrobe/link-import/import';
 import { InspirationListPage } from './list-page';
 import { NewInspirationPage } from './new-page';
+import { PieceBody, pieceKindValue, readPiece } from './piece-input';
 import {
+  addInspirationPiece,
+  deleteInspirationPiece,
   findInspiration,
   INSPIRATION_NOTE_MAX,
   INSPIRATION_TITLE_MAX,
   isOwnInspirationPhoto,
   listInspirations,
+  recreateInputs,
+  updateInspirationPiece,
   updateInspirationText,
 } from './queries';
+import { RecreatePage } from './recreate-page';
 import { InspirationPage } from './show-page';
 import {
   INSPIRATION_LINK_PATH,
   INSPIRATION_PATH,
+  inspirationPiecesUrl,
   inspirationUrl,
   NEW_INSPIRATION_PATH,
 } from './urls';
@@ -48,6 +57,11 @@ import {
 const LOOK_ROUTE = `${INSPIRATION_PATH}/:id`;
 
 const LookParams = Type.Object({ id: RowId });
+/** A piece's place in its look (inspiration_piece.position, a smallint). */
+const PieceParams = Type.Object({
+  id: RowId,
+  position: Type.Integer({ minimum: 0, maximum: 32_767 }),
+});
 // `?unread=` is URL state (a redirect's one-shot note): anything unknown
 // shows no note, never a 400.
 const LookQuery = Type.Object({
@@ -69,8 +83,9 @@ const FileParams = Type.Object({ fileName: Type.String() });
 /**
  * Saved looks (#22; docs/plans/2026-11-13-inspiration-library.md), the
  * Outfits page's Inspiration tab: the list, adding one from a photo or a
- * pasted link, a look's page with its title and note, its photo and
- * Delete, and the photos themselves. The signed-in owner's own, like the
+ * pasted link, a look's page with its title and note, its photo, its
+ * pieces and Delete, "Recreate this look" (#22b), and the photos
+ * themselves. The signed-in owner's own, like the
  * style profile: `sessionUserId` alone, no `?ownerId=`; another user's look
  * or photo is a 404 like an unknown id (the writers' NotFound), whatever
  * wardrobe is shared. Every write is a native post (PostForm), answered
@@ -79,7 +94,7 @@ const FileParams = Type.Object({ fileName: Type.String() });
  */
 export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
-  { db, photos, logger, fetcher },
+  { db, photos, logger, fetcher, config },
   done,
 ) => {
   const deps = { db, photos, logger, fetcher };
@@ -230,6 +245,87 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       await removeInspiration(deps, request.params.id, sessionUserId(request));
       return reply.redirect(INSPIRATION_PATH, 303);
+    },
+  );
+
+  // A look's pieces (#22b): a new one is a native post (the add form or a
+  // hint from the title), answered with the look's pieces; a stored one is
+  // an AutosaveForm, answered with its status line (a plain post: the page).
+  app.post(
+    `${LOOK_ROUTE}/pieces`,
+    { schema: { params: LookParams, body: PieceBody } },
+    async (request, reply) => {
+      const { id } = request.params;
+      const userId = sessionUserId(request);
+      const piece = readPiece(request.body);
+      const position = await addInspirationPiece(db, id, userId, piece);
+      logger.info(
+        `Inspiration ${id} piece ${position} (${pieceKindValue(piece)}) added by user ${userId}`,
+      );
+      return reply.redirect(inspirationPiecesUrl(id), 303);
+    },
+  );
+
+  app.post(
+    `${LOOK_ROUTE}/pieces/:position`,
+    { schema: { params: PieceParams, body: PieceBody } },
+    async (request, reply) => {
+      const { id, position } = request.params;
+      const userId = sessionUserId(request);
+      const piece = readPiece(request.body);
+      await updateInspirationPiece(db, id, position, userId, piece);
+      logger.info(
+        `Inspiration ${id} piece ${position} (${pieceKindValue(piece)}) saved by user ${userId}`,
+      );
+      if (!request.headers['hx-request']) {
+        return reply.redirect(inspirationPiecesUrl(id), 303);
+      }
+      return renderFragment(reply, <AutosaveSaved />);
+    },
+  );
+
+  app.post(
+    `${LOOK_ROUTE}/pieces/:position/delete`,
+    { schema: { params: PieceParams } },
+    async (request, reply) => {
+      const { id, position } = request.params;
+      const userId = sessionUserId(request);
+      await deleteInspirationPiece(db, id, position, userId);
+      logger.info(
+        `Inspiration ${id} piece ${position} removed by user ${userId}`,
+      );
+      return reply.redirect(inspirationPiecesUrl(id), 303);
+    },
+  );
+
+  // "Recreate this look": one statement for the look, the closet and its
+  // rules (recreateInputs), then the pure matching.
+  app.get(
+    `${LOOK_ROUTE}/recreate`,
+    { schema: { params: LookParams } },
+    async (request, reply) => {
+      const userId = sessionUserId(request);
+      const today = todayIn(config.timeZone, new Date());
+      const { look, closet, avoid, rules } = await recreateInputs(
+        db,
+        request.params.id,
+        userId,
+        today,
+      );
+      const recreation = recreateLook({
+        pieces: look.pieces,
+        closet,
+        avoid,
+        rules,
+      });
+      return renderPage(
+        reply,
+        <RecreatePage
+          ctx={viewContext(reply)}
+          look={look}
+          recreation={recreation}
+        />,
+      );
     },
   );
 

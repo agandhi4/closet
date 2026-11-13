@@ -672,6 +672,19 @@ export function describeMatrix(
         headers: { cookie, 'hx-request': 'true' },
       });
       expect(named.statusCode).toBe(200);
+      // One piece read in it (#22b), at position 0.
+      const tagged = await t.inject({
+        method: 'POST',
+        url: `/inspiration/${look.id}/pieces`,
+        payload: {
+          kind: 'top/t-shirt',
+          color: 'white',
+          accent: '',
+          pattern: '',
+        },
+        headers: { cookie },
+      });
+      expect(tagged.statusCode).toBe(303);
 
       await saveStyleProfile(t.db, t.owner.id, {
         ...EMPTY_STYLE_PROFILE,
