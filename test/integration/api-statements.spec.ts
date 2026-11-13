@@ -2501,6 +2501,35 @@ describe('API statements per route', () => {
         method: 'PUT',
         url: `/api/v1/garments/${ids[0]}/wears/${t.today()}`,
       });
+      // One of each owner's resource the API writes without a photo.
+      const outfit = await t.api(token, {
+        method: 'POST',
+        url: '/api/v1/outfits',
+        payload: { slots: [{ category: 'shirt', garmentId: ids[1] }] },
+      });
+      const writes: ['POST' | 'PUT', string, object][] = [
+        [
+          'POST',
+          '/calendar-entries',
+          { outfitId: outfit.json<{ id: number }>().id, day: t.today() },
+        ],
+        [
+          'POST',
+          '/trips',
+          { name: 'Counted', startsOn: t.today(), endsOn: t.today() },
+        ],
+        ['POST', '/sizes/brands', { brand: 'Counted', size: 'xl' }],
+        ['PUT', '/sizes/measurements', { waist: 80 }],
+        ['PUT', '/style-profile', { styles: ['classic'], palette: ['black'] }],
+      ];
+      for (const [method, url, payload] of writes) {
+        const res = await t.api(token, {
+          method,
+          url: `/api/v1${url}`,
+          payload,
+        });
+        expect(res.statusCode, res.body).toBeLessThan(300);
+      }
     });
 
     it('a page of garments: the token, BEGIN, the wardrobes, the keyset read, the garments, COMMIT; as many at 4 as at 2', async () => {
@@ -2510,8 +2539,10 @@ describe('API statements per route', () => {
     });
 
     it('a page of every resource: one statement each; an empty page none', async () => {
+      // Garments, wears, capsules, outfits, entries, trips, brand notes,
+      // measurements and the style profile: 9 reads after the keyset's.
       const all = await page('limit=100');
-      expect(all).toMatchObject({ status: 200, statements: 8 });
+      expect(all).toMatchObject({ status: 200, statements: 14 });
       const { cursor } = (
         await t.api(token, { method: 'GET', url: '/api/v1/changes' })
       ).json<{ cursor: string }>();

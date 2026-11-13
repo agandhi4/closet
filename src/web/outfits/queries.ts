@@ -163,12 +163,7 @@ function toolOutfitsSql(where: SQL, limit?: number): SQL<ToolOutfit[]> {
       'notes', ${outfit.notes},
       'shareableId', ${outfit.shareableId},
       'garments', ${outfitGarmentsSql()},
-      'proposal', case when ${outfit.proposedAt} is null then null else json_build_object(
-        'note', ${outfit.proposalNote},
-        'reaction', ${outfit.reaction},
-        'ownerNote', ${outfit.ownerNote},
-        'dismissedReason', ${outfit.dismissedReason}
-      ) end
+      'proposal', ${proposalSql({ agent: false })}
     ) order by ${outfit.id} desc), '[]')
     from ${rows}
   )`;
@@ -369,17 +364,70 @@ export function outfitDetailSql(
       'notes', ${outfit.notes},
       'shareableId', ${outfit.shareableId},
       'garments', ${outfitGarmentsSql({ away: true })},
-      'proposal', case when ${outfit.proposedAt} is null then null else json_build_object(
-        'note', ${outfit.proposalNote},
-        'reaction', ${outfit.reaction},
-        'ownerNote', ${outfit.ownerNote},
-        'dismissedReason', ${outfit.dismissedReason},
-        'agent', (select ${personalAccessToken.name} from ${personalAccessToken} where ${eq(personalAccessToken.id, outfit.proposedByTokenId)})
-      ) end
+      'proposal', ${proposalSql({ agent: true })}
     )
     from ${outfit}
     where ${and(eq(outfit.id, id), eq(outfit.ownerId, ownerId))}
   )`;
+}
+
+/**
+ * The outfit row's proposal as JSON, null for the owner's own: the outfit
+ * page's (with the agent's name, while its token exists), the MCP tools'
+ * and the changes feed's (outfitsByIds) without it.
+ */
+function proposalSql({ agent }: { agent: boolean }): SQL {
+  const agentName = agent
+    ? sql`, 'agent', (select ${personalAccessToken.name} from ${personalAccessToken} where ${eq(personalAccessToken.id, outfit.proposedByTokenId)})`
+    : sql``;
+  return sql`case when ${outfit.proposedAt} is null then null else json_build_object(
+    'note', ${outfit.proposalNote},
+    'reaction', ${outfit.reaction},
+    'ownerNote', ${outfit.ownerNote},
+    'dismissedReason', ${outfit.dismissedReason}${agentName}
+  ) end`;
+}
+
+/** An outfit as the changes feed carries it (outfitsByIds, outfit-resource.ts). */
+export interface SyncedOutfitRow {
+  id: number;
+  name: string | null;
+  notes: string | null;
+  /** Every row top to toe, an empty one with a null garment. */
+  slots: SlotInput[];
+  proposal: Omit<OutfitProposal, 'agent'> | null;
+}
+
+/**
+ * The outfits with these ids, their slots and their proposals, in one
+ * statement whatever their owners (the changes feed's page,
+ * src/web/sync/feed.ts, which read the ids from the owner's own wardrobe
+ * in the same snapshot: outfits are owner-only). A slot write touches its
+ * outfit (outfit_slot is its sync child), so the feed resends the outfit
+ * with its rows; a garment's edit does not, so nothing here reads one.
+ */
+export function outfitsByIds(
+  db: Queryable,
+  ids: readonly number[],
+): Promise<SyncedOutfitRow[]> {
+  return db
+    .select({
+      id: outfit.id,
+      name: outfit.name,
+      notes: outfit.notes,
+      slots: sql<SlotInput[]>`(
+        select coalesce(json_agg(json_build_object(
+          'category', ${outfitSlot.category},
+          'garmentId', ${outfitSlot.garmentId}
+        ) order by ${outfitSlot.position}), '[]')
+        from ${outfitSlot} where ${outfitSlot.outfitId} = ${outfit.id}
+      )`,
+      proposal: sql<
+        SyncedOutfitRow['proposal']
+      >`${proposalSql({ agent: false })}`,
+    })
+    .from(outfit)
+    .where(inArray(outfit.id, [...ids]));
 }
 
 /** The detail page's outfit, or undefined when it is not the owner's. */

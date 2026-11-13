@@ -1,4 +1,4 @@
-import { and, type AnyColumn, eq, type SQL, sql } from 'drizzle-orm';
+import { and, type AnyColumn, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import {
   file,
@@ -368,14 +368,47 @@ export async function entryOf(
   return row;
 }
 
-/** An entry replaceEntryOutfit is about to change, locked. */
-export interface EntryToReplace {
+/** An entry's own columns: what replaceEntryOutfit locks and the changes feed carries. */
+export interface EntryRow {
   id: number;
   day: IsoDate;
   occasion: Occasion;
   outfitId: number;
   worn: boolean;
   plannedBy: PlannedBy;
+}
+
+/** EntryRow's columns, `worn` as its stamp (readEntryRow). */
+const ENTRY_COLUMNS = {
+  id: outfitCalendar.id,
+  day: outfitCalendar.day,
+  occasion: outfitCalendar.occasion,
+  outfitId: outfitCalendar.outfitId,
+  wornAt: outfitCalendar.wornAt,
+  plannedBy: outfitCalendar.plannedBy,
+};
+
+function readEntryRow({
+  wornAt,
+  ...entry
+}: Omit<EntryRow, 'worn'> & { wornAt: Date | null }): EntryRow {
+  return { ...entry, worn: wornAt !== null };
+}
+
+/**
+ * The entries with these ids, in one statement whatever their owners (the
+ * changes feed's page, src/web/sync/feed.ts, which read the ids from the
+ * owner's own wardrobe in the same snapshot: entries are owner-only).
+ */
+export async function entriesByIds(
+  db: Queryable,
+  ids: readonly number[],
+): Promise<EntryRow[]> {
+  const rows = await db
+    .select(ENTRY_COLUMNS)
+    .from(outfitCalendar)
+    .where(inArray(outfitCalendar.id, [...ids]));
+  return rows.map(readEntryRow);
 }
 
 /**
@@ -390,16 +423,9 @@ export async function lockEntryToReplace(
   tx: Queryable,
   ownerId: number,
   target: { entryId: number; day?: IsoDate; occasion?: Occasion },
-): Promise<EntryToReplace | undefined> {
+): Promise<EntryRow | undefined> {
   const [row] = await tx
-    .select({
-      id: outfitCalendar.id,
-      day: outfitCalendar.day,
-      occasion: outfitCalendar.occasion,
-      outfitId: outfitCalendar.outfitId,
-      wornAt: outfitCalendar.wornAt,
-      plannedBy: outfitCalendar.plannedBy,
-    })
+    .select(ENTRY_COLUMNS)
     .from(outfitCalendar)
     .where(
       and(
@@ -414,9 +440,7 @@ export async function lockEntryToReplace(
       ),
     )
     .for('update');
-  if (!row) return undefined;
-  const { wornAt, ...entry } = row;
-  return { ...entry, worn: wornAt !== null };
+  return row && readEntryRow(row);
 }
 
 /**

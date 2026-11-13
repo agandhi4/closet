@@ -1,4 +1,4 @@
-import { and, asc, eq, type SQL, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
 import { lockedOwnerId, ownerLockCte, ownerLocked } from '../../db/owner-lock';
 import { isUniqueViolation } from '../../db/errors';
@@ -73,6 +73,31 @@ export async function findMeasurements(
   return { unit, lengths };
 }
 
+/**
+ * The measurements of these users (body_measurements is one row per user,
+ * keyed by it), in one statement: the changes feed's page
+ * (src/web/sync/feed.ts), which read the ids from the owner's own wardrobe
+ * in the same snapshot (measurements are owner-only).
+ */
+export async function measurementsByUserIds(
+  db: Queryable,
+  userIds: readonly number[],
+): Promise<(BodyMeasurements & { userId: number })[]> {
+  const rows = await db
+    .select({
+      userId: bodyMeasurements.userId,
+      unit: bodyMeasurements.unit,
+      ...COLUMNS,
+    })
+    .from(bodyMeasurements)
+    .where(inArray(bodyMeasurements.userId, [...userIds]));
+  return rows.map(({ userId, unit, ...lengths }) => ({
+    userId,
+    unit,
+    lengths,
+  }));
+}
+
 function lengthColumns(lengths: Measurements) {
   return Object.fromEntries(
     Object.entries(KEYS).map(([m, key]) => [key, lengths[m as Measurement]]),
@@ -136,6 +161,21 @@ export function brandSizesOf(
     .from(brandSize)
     .where(eq(brandSize.userId, userId))
     .orderBy(asc(brandSize.brandKey));
+}
+
+/**
+ * The brand notes with these ids, in one statement whatever their owners
+ * (the changes feed's page, src/web/sync/feed.ts, which read the ids from
+ * the owner's own wardrobe in the same snapshot: sizes are owner-only).
+ */
+export function brandSizesByIds(
+  db: Queryable,
+  ids: readonly number[],
+): Promise<BrandSize[]> {
+  return db
+    .select(BRAND_SIZE)
+    .from(brandSize)
+    .where(inArray(brandSize.id, [...ids]));
 }
 
 /**
