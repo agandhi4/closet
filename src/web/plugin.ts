@@ -6,7 +6,11 @@ import { authRoutes } from './auth/routes';
 import { tokenRoutes } from './auth/token-routes';
 import { sizesRoutes } from './sizes/routes';
 import { mcpRoutes } from './mcp/routes';
-import { LINK_IMPORT_LIMIT, SIGN_IN_LIMIT } from './security/rate-limit';
+import {
+  createWeatherLimits,
+  LINK_IMPORT_LIMIT,
+  SIGN_IN_LIMIT,
+} from './security/rate-limit';
 import type { SessionTokens } from './auth/tokens';
 import { calendarRoutes } from './calendar/routes';
 import { capsuleRoutes } from './capsules/routes';
@@ -164,12 +168,14 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   // sign-in doors' SIGN_IN_LIMIT (src/web/auth/sign-in.ts), the link
   // imports' LINK_IMPORT_LIMIT (the page's import and photo choice, the
   // API's import), and the inspiration paste's own LINK_IMPORT_LIMIT (the
-  // page's, the API's look link import).
+  // page's, the API's look link import), and the weather's search and
+  // location writes (WeatherLimits: the page's and the API's).
   const shared = {
     ...options,
     signInLimit: app.createRateLimit(SIGN_IN_LIMIT),
     linkImportLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
     inspirationLinkLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
+    weatherLimits: createWeatherLimits(app),
   };
 
   await app.register(healthRoutes, options);
@@ -189,7 +195,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(exportRoutes, options);
   await app.register(lookalikeRoutes, options);
   await app.register(calendarRoutes, options);
-  await app.register(tripRoutes, options);
+  await app.register(tripRoutes, shared);
   await app.register(selfieRoutes, options);
   await app.register(weekPlanRoutes, options);
   await app.register(outfitRoutes, options);
@@ -211,7 +217,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   });
   // WEATHER_ENABLED=false: no /weather route, so nothing stores a location.
   const { weather } = options;
-  if (weather) await app.register(weatherRoutes, { ...options, weather });
+  if (weather) await app.register(weatherRoutes, { ...shared, weather });
   // The bearer surfaces (src/web/surface.ts): the session gate above passes
   // them, each authenticates its own kind of token.
   await app.register(mcpRoutes, options);

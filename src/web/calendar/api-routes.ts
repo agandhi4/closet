@@ -69,7 +69,7 @@ export const calendarApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       if (days < 1 || days > MAX_CALENDAR_DAYS) {
         throw new HttpError(
           400,
-          t('api.CALENDAR_RANGE', { max: MAX_CALENDAR_DAYS }),
+          t('api.DAY_RANGE', { max: MAX_CALENDAR_DAYS }),
         );
       }
       const entries = await findEntries(db, actorOf(request).userId, from, to);

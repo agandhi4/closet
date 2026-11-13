@@ -49,7 +49,7 @@ import { type MuseRound, museRoundSql } from '../wishlist/rounds';
  */
 
 /** Ideas a suggestions row shows at once. */
-const TODAY_IDEAS = 3;
+export const TODAY_IDEAS = 3;
 
 /** Refresh stops at this page and starts over. */
 export const MAX_TODAY_PAGE = 20;

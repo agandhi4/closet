@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import type { InjectOptions } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { addDays } from '../../src/calendar-date';
 import {
   file,
@@ -17,6 +17,11 @@ import { GARMENT_COLORS } from '../../src/wardrobe/properties';
 import { addOutfitRule } from '../../src/web/style/queries';
 import { NO_MATCHER } from '../../src/web/style/validation';
 import { markSuggestion } from '../../src/web/wishlist/decisions';
+import {
+  STUB_WEATHER_NOW,
+  startWeatherStub,
+  type WeatherStub,
+} from '../support/weather-stub';
 import { deviceToken, SIGN_IN_URL, signInDevice } from './api';
 import { failCutout } from './cutouts';
 import { jpeg, type LinkSites, startLinkSites } from './link-sites';
@@ -2093,6 +2098,188 @@ describe('API statements per route', () => {
         t.api(token, { method: 'GET', url: '/api/v1/shared-wardrobes' }),
       );
       expect(run).toMatchObject({ status: 200, statements: 2 });
+    });
+  });
+
+  describe('Today and the weather: what their page twins cost (#195a)', () => {
+    // An app of its own with the weather on (the file's runs without), so
+    // its owner is a user of its own too: the shared twin device's
+    // API_LIMIT is spent by the sections above. Date is pinned to the
+    // stub's day before it boots (the weather, and its branches, the
+    // date's).
+    let w: TestApp;
+    let stub: WeatherStub;
+    let token: string;
+    let tripId: number;
+
+    beforeAll(async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: STUB_WEATHER_NOW });
+      stub = await startWeatherStub();
+      w = await createTestApp(
+        { WEATHER_ENABLED: 'true' },
+        { weather: stub.options },
+      );
+      token = (await deviceToken(w)).token;
+      for (const [name, category] of [
+        ['Counted tee', 'tops'],
+        ['Counted jeans', 'bottoms'],
+        ['Counted trainers', 'footwear'],
+      ] as const) {
+        await createGarment(w, { name, category });
+      }
+      const today = w.today();
+      const made = await w.inject({
+        method: 'POST',
+        url: '/trips',
+        payload: { name: 'Counted trip', startsOn: today, endsOn: today },
+      });
+      tripId = Number(
+        /^\/trips\/(\d+)\?/.exec(made.headers.location as string)![1],
+      );
+      // A home and the trip's destination with their forecasts kept: a
+      // first ask's fetch is the cache's statements, no route's.
+      await w.inject({
+        method: 'POST',
+        url: '/weather/home',
+        payload: { name: 'Brooklyn', ...BROOKLYN },
+      });
+      await w.inject({
+        method: 'POST',
+        url: `/trips/${tripId}/destination`,
+        payload: { name: 'Brooklyn', ...BROOKLYN },
+      });
+      await w.inject({ method: 'GET', url: '/weather/summary' });
+      await w.inject({ method: 'GET', url: `/trips/${tripId}/weather` });
+      await w.weather!.settled();
+    });
+
+    afterAll(async () => {
+      await w?.cleanup();
+      await stub?.close();
+      vi.useRealTimers();
+    });
+
+    const BROOKLYN = { latitude: '40.65', longitude: '-73.95' };
+    const place = { name: 'Brooklyn', latitude: 40.65, longitude: -73.95 };
+
+    /** Each route's page twin (a plain post: its 303 reads nothing back) and its API request. */
+    const CASES: {
+      name: string;
+      ok: [page: number, api: number];
+      page: () => InjectOptions;
+      api: () => InjectOptions;
+    }[] = [
+      {
+        name: 'GET /today (GET /)',
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: '/' }),
+        api: () => ({ method: 'GET', url: '/api/v1/today' }),
+      },
+      {
+        name: 'GET /weather (GET /weather/summary)',
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: '/weather/summary' }),
+        api: () => ({ method: 'GET', url: '/api/v1/weather' }),
+      },
+      {
+        name: 'GET /weather/places (GET /weather/places)',
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: '/weather/places?q=Brooklyn' }),
+        api: () => ({
+          method: 'GET',
+          url: '/api/v1/weather/places?q=Brooklyn',
+        }),
+      },
+      {
+        name: 'PUT /weather/home (POST /weather/home)',
+        ok: [303, 200],
+        page: () => ({
+          method: 'POST',
+          url: '/weather/home',
+          payload: { name: 'Brooklyn', ...BROOKLYN },
+        }),
+        api: () => ({
+          method: 'PUT',
+          url: '/api/v1/weather/home',
+          payload: place,
+        }),
+      },
+      {
+        name: 'PUT /weather/here (POST /weather/here)',
+        ok: [303, 200],
+        page: () => ({
+          method: 'POST',
+          url: '/weather/here',
+          payload: BROOKLYN,
+        }),
+        api: () => ({
+          method: 'PUT',
+          url: '/api/v1/weather/here',
+          payload: { latitude: 40.65, longitude: -73.95 },
+        }),
+      },
+      {
+        name: 'DELETE /weather/here (POST /weather/here/clear)',
+        ok: [303, 204],
+        page: () => ({ method: 'POST', url: '/weather/here/clear' }),
+        api: () => ({ method: 'DELETE', url: '/api/v1/weather/here' }),
+      },
+      {
+        name: 'PUT /weather/unit (POST /weather/unit)',
+        ok: [303, 200],
+        page: () => ({
+          method: 'POST',
+          url: '/weather/unit',
+          payload: { unit: 'celsius' },
+        }),
+        api: () => ({
+          method: 'PUT',
+          url: '/api/v1/weather/unit',
+          payload: { unit: 'celsius' },
+        }),
+      },
+      {
+        name: 'DELETE /weather/offset (POST /weather/offset/reset)',
+        ok: [303, 204],
+        page: () => ({ method: 'POST', url: '/weather/offset/reset' }),
+        api: () => ({ method: 'DELETE', url: '/api/v1/weather/offset' }),
+      },
+      {
+        name: 'GET /trips/{id}/weather (GET /trips/:id/weather)',
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: `/trips/${tripId}/weather` }),
+        api: () => ({ method: 'GET', url: `/api/v1/trips/${tripId}/weather` }),
+      },
+      {
+        name: 'PUT /trips/{id}/destination (POST /trips/:id/destination)',
+        ok: [303, 200],
+        page: () => ({
+          method: 'POST',
+          url: `/trips/${tripId}/destination`,
+          payload: { name: 'Brooklyn', ...BROOKLYN },
+        }),
+        api: () => ({
+          method: 'PUT',
+          url: `/api/v1/trips/${tripId}/destination`,
+          payload: place,
+        }),
+      },
+      // Last: the home goes, and with it the forecast the reads above count.
+      {
+        name: 'DELETE /weather/home (POST /weather/home/clear)',
+        ok: [303, 204],
+        page: () => ({ method: 'POST', url: '/weather/home/clear' }),
+        api: () => ({ method: 'DELETE', url: '/api/v1/weather/home' }),
+      },
+    ];
+
+    it.each(CASES)('$name', async ({ ok, page, api }) => {
+      const pageRun = await statementsOf(() => w.inject(page()));
+      // A second call of the minute: no last-use write.
+      await w.api(token, { method: 'GET', url: '/api/v1/me' });
+      const apiRun = await statementsOf(() => w.api(token, api()));
+      expect([pageRun.status, apiRun.status]).toEqual(ok);
+      expect(apiRun.statements).toBe(pageRun.statements);
     });
   });
 

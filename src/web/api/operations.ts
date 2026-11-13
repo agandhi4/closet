@@ -121,6 +121,19 @@ export const OPERATIONS = [
   'saveLookAsOutfit',
   'findLookPiece',
   'getLookPhoto',
+  // #195a: Today's read, and the weather: the forecast where you are and a
+  // trip's, the settings, the place search and a trip's destination.
+  'getToday',
+  'getWeather',
+  'searchPlaces',
+  'setWeatherHome',
+  'clearWeatherHome',
+  'setWeatherHere',
+  'clearWeatherHere',
+  'setTemperatureUnit',
+  'resetTemperatureOffset',
+  'getTripWeather',
+  'setTripDestination',
   // #195c: the style profile and its outfit rules, and the wardrobes shared
   // with you (sharing admin stays web-only: SHARING_ADMIN).
   'getStyleProfile',
@@ -140,7 +153,7 @@ export function isOperationId(id: string): id is OperationId {
  * 6). An issue leaves this list when its last pending route does.
  */
 type EndpointIssue =
-  /** Today, insights, sizes, weather (a trip's destination too). */
+  /** Insights, sizes. */
   '#195';
 
 /**
@@ -330,12 +343,11 @@ export const PAGE_WRITES: Readonly<
   'POST /calendar/plan-week/:id/undo': { api: 'undoWeekPlan' },
   'POST /auth/profile/week': { api: 'saveWeekTemplate' },
 
-  // Trips and packing. The destination waits for the API's place search
-  // (#195's weather): a client has nothing to pick a located place from.
+  // Trips and packing; the destination is located from GET /weather/places.
   'POST /trips': { api: 'createTrip' },
   'POST /trips/:id': { api: 'updateTrip' },
   'DELETE /trips/:id': { api: 'deleteTrip' },
-  'POST /trips/:id/destination': { pending: '#195' },
+  'POST /trips/:id/destination': { api: 'setTripDestination' },
   'POST /trips/:id/outfits': { api: 'addTripOutfit' },
   'POST /trips/:id/outfits/:tripOutfitId/delete': {
     api: 'removeTripOutfit',
@@ -375,13 +387,13 @@ export const PAGE_WRITES: Readonly<
   'POST /auth/profile/style': { api: 'saveStyleProfile' },
   'POST /auth/profile/style/rules': { api: 'addOutfitRule' },
   'POST /auth/profile/style/rules/:id/delete': { api: 'deleteOutfitRule' },
-  'POST /weather/home': { pending: '#195' },
-  'POST /weather/home/clear': { pending: '#195' },
-  'POST /weather/here': { pending: '#195' },
-  'POST /weather/here/clear': { pending: '#195' },
-  'POST /weather/unit': { pending: '#195' },
+  'POST /weather/home': { api: 'setWeatherHome' },
+  'POST /weather/home/clear': { api: 'clearWeatherHome' },
+  'POST /weather/here': { api: 'setWeatherHere' },
+  'POST /weather/here/clear': { api: 'clearWeatherHere' },
+  'POST /weather/unit': { api: 'setTemperatureUnit' },
   'POST /weather/feedback': { api: 'sendTemperatureFeedback' },
-  'POST /weather/offset/reset': { pending: '#195' },
+  'POST /weather/offset/reset': { api: 'resetTemperatureOffset' },
 
   // Sharing admin.
   'POST /wardrobe-share/create-invite-link': SHARING_ADMIN,

@@ -11,6 +11,14 @@ import {
   toOutfitGarment,
 } from '../outfits/outfit-resource';
 import { IsoDateSchema, RowId } from '../schemas';
+import { TEMPERATURE_UNITS } from '../../weather/temperature';
+import {
+  DayWeather,
+  toDayWeather,
+  toTypicalDayWeather,
+  TypicalDayWeather,
+} from '../weather/weather-resource';
+import type { TripForecast } from './forecast';
 import type { TripModel, TripOutfitView } from './model';
 import type { TripRow, TripSummary } from './queries';
 import {
@@ -480,3 +488,81 @@ export const TripItemsCopied = Type.Object(
   },
   { title: 'TripItemsCopied' },
 );
+
+const TripLaterDays = Type.Object(
+  {
+    from: CloneType(IsoDateSchema, {
+      description: 'The first trip day past the forecast',
+    }),
+    forecastArrives: CloneType(IsoDateSchema, {
+      description: "The day that day's forecast arrives: ask again then",
+    }),
+  },
+  { title: 'TripLaterDays' },
+);
+
+/** GET /trips/{id}/weather: tripForecast, as the trip page's fragment and get_trip read it. */
+export const TripWeather = Type.Object(
+  {
+    status: CloneType(literals(['forecast', 'no-location', 'over'] as const), {
+      description:
+        '`no-location`: the destination is not located (PUT /trips/{id}/destination); `over`: the trip has ended. Neither fetches anything',
+    }),
+    unit: Type.Optional(
+      CloneType(literals(TEMPERATURE_UNITS), {
+        description: 'How you read temperatures: display only',
+      }),
+    ),
+    temperatureOffset: Type.Optional(
+      Type.Number({ description: "°C, in each day's `outfit` already" }),
+    ),
+    fetchedAt: Type.Optional(
+      Type.String({
+        format: 'date-time',
+        description:
+          'When the forecast was fetched; absent when no day is within it',
+      }),
+    ),
+    forecastUnavailable: Type.Optional(
+      Type.Boolean({
+        description:
+          'Some trip days are within the forecast, but there is none for the place right now (`days` is empty)',
+      }),
+    ),
+    days: Type.Array(DayWeather, {
+      description:
+        "The trip's days from today the forecast reaches, each with what it asks of an all-day outfit",
+    }),
+    later: Type.Optional(TripLaterDays),
+    typicalDays: Type.Array(TypicalDayWeather, {
+      description:
+        "The days past the forecast, with the place's typical weather (never a forecast)",
+    }),
+  },
+  {
+    title: 'TripWeather',
+    description:
+      "The destination's weather for the trip's days: the forecast for those within its 16 days of today, the typical weather past them",
+  },
+);
+type TripWeather = Static<typeof TripWeather>;
+
+export function toTripWeather(forecast: TripForecast): TripWeather {
+  if (forecast.kind !== 'forecast') {
+    return { status: forecast.kind, days: [], typicalDays: [] };
+  }
+  return {
+    status: forecast.kind,
+    unit: forecast.unit,
+    temperatureOffset: forecast.offset,
+    ...(forecast.fetchedAt && { fetchedAt: forecast.fetchedAt.toISOString() }),
+    forecastUnavailable: forecast.unavailable,
+    days: forecast.days.map((day) =>
+      toDayWeather(day.forecast, 'all-day', forecast.offset),
+    ),
+    ...(forecast.later && {
+      later: { from: forecast.later.day, forecastArrives: forecast.later.from },
+    }),
+    typicalDays: forecast.typical.map(toTypicalDayWeather),
+  };
+}

@@ -9,10 +9,7 @@ import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { renderFragment } from '../render';
 import { IsoDateSchema } from '../schemas';
-import {
-  WEATHER_LOCATION_LIMIT,
-  WEATHER_SEARCH_LIMIT,
-} from '../security/rate-limit';
+import { enforceLimit, type WeatherLimits } from '../security/rate-limit';
 import { FEELINGS, TEMPERATURE_UNITS } from '../../weather/temperature';
 import {
   clearHere,
@@ -40,11 +37,8 @@ import {
   WEATHER_SETTINGS_ID,
   WeatherLocation,
 } from './settings';
-import { dayChips } from './summary';
+import { dayChips, MAX_SUMMARY_DAYS } from './summary';
 import { UserWeatherLine, WeatherCellDay, WeatherDay } from './views';
-
-/** The widest range of day chips one summary answers: a calendar month and a half. */
-const MAX_SUMMARY_DAYS = 42;
 
 const SummaryQuery = Type.Object({
   from: Type.Optional(IsoDateSchema),
@@ -74,7 +68,7 @@ function summaryDays(from: IsoDate | undefined, to: IsoDate | undefined) {
   return Array.from({ length: span }, (_, i) => addDays(from, i));
 }
 
-export interface WeatherRouteOptions extends WebOptions {
+export interface WeatherRouteOptions extends WebOptions, WeatherLimits {
   weather: WeatherService;
 }
 
@@ -101,7 +95,7 @@ export interface WeatherRouteOptions extends WebOptions {
  */
 export const weatherRoutes: FastifyPluginCallbackTypebox<
   WeatherRouteOptions
-> = (app, { db, config, logger, weather }, done) => {
+> = (app, { db, config, logger, weather, weatherLimits }, done) => {
   /**
    * To htmx, the part of the settings section a write changed (`part`, from
    * the user's settings); to a plain post, the profile. Never the whole
@@ -175,23 +169,31 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
     '/weather/places',
     {
       schema: { querystring: PlaceQuery },
-      config: { rateLimit: WEATHER_SEARCH_LIMIT, secretPath: true },
+      config: { secretPath: true },
     },
-    async (request, reply) =>
-      renderFragment(
+    async (request, reply) => {
+      await enforceLimit(weatherLimits.search, request, {
+        logger,
+        who: `user ${sessionUserId(request)}`,
+      });
+      return renderFragment(
         reply,
         <HomePlaceResults answer={await placeAnswer(weather, request.query)} />,
-      ),
+      );
+    },
   );
 
   app.post(
     '/weather/home',
     {
       schema: { body: PlaceBody },
-      config: { rateLimit: WEATHER_LOCATION_LIMIT },
     },
     async (request, reply) => {
       const userId = sessionUserId(request);
+      await enforceLimit(weatherLimits.home, request, {
+        logger,
+        who: `user ${userId}`,
+      });
       await setHome(db, userId, pickedPlace(request.body));
       logger.info(`Weather home set by user ${userId}`);
       return answer(request, reply, locationPart);
@@ -211,10 +213,13 @@ export const weatherRoutes: FastifyPluginCallbackTypebox<
       schema: {
         body: LocationBody,
       },
-      config: { rateLimit: WEATHER_LOCATION_LIMIT },
     },
     async (request, reply) => {
       const userId = sessionUserId(request);
+      await enforceLimit(weatherLimits.here, request, {
+        logger,
+        who: `user ${userId}`,
+      });
       await setHere(db, userId, postedLocation(request.body), new Date());
       logger.info(`Weather location (this phone's) set by user ${userId}`);
       return answer(request, reply, locationPart);
