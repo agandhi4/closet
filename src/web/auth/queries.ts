@@ -278,7 +278,8 @@ export async function deleteUserAndFileRows(
   return db.transaction(async (tx) => {
     // The owner locks first (src/db/owner-lock.ts): the user's, and those
     // of the garments showing a photo they uploaded as a MANAGE grantee,
-    // whose photo_id the delete empties.
+    // whose photo_id the delete empties. Every one of them, in id order:
+    // ownerLocked counts the CTE's rows, so none is left unread.
     const lock = ownersLockCte(
       tx,
       sql`select ${id}::int union select g.owner_id from ${garment} g join ${file} f on f.id = g.photo_id where f.created_by_id = ${id}`,

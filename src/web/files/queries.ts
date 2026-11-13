@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm';
+import { eq, type SQL, sql } from 'drizzle-orm';
 import { CUTOUT_QUEUED_NOTIFY } from '../../cutout/queries';
 import {
   type CutoutStatus,
@@ -6,6 +6,7 @@ import {
   showsCutout,
 } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
+import { ownerLockCte } from '../../db/owner-lock';
 import { file, garment } from '../../db/schema';
 import { currentRequest } from '../../request-context';
 import { unkeyedPhoto } from './image-variant';
@@ -179,9 +180,32 @@ export async function lockPhotoName(
   tx: Queryable,
   fileName: string,
 ): Promise<void> {
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtext(${`closet:photo:${fileName}`}))`,
-  );
+  await tx.execute(sql`select ${photoNameLock(fileName)}`);
+}
+
+function photoNameLock(fileName: string): SQL<void> {
+  return sql<void>`pg_advisory_xact_lock(hashtext(${`closet:photo:${fileName}`}))`;
+}
+
+/**
+ * lockPhotoName for a save into `ownerId`'s wardrobe, behind the owner's
+ * lock in the same statement (src/db/owner-lock.ts): the owner, then the
+ * name, before the save claims the pending row. Account deletion locks the
+ * owner before it deletes their pending rows, so a save holding the row
+ * and waiting on the owner would deadlock with it. False when the owner is
+ * gone (locked nothing).
+ */
+export async function lockOwnerAndPhotoName(
+  tx: Queryable,
+  ownerId: number,
+  fileName: string,
+): Promise<boolean> {
+  const lock = ownerLockCte(tx, ownerId);
+  const locked = await tx
+    .with(lock)
+    .select({ name: photoNameLock(fileName) })
+    .from(lock);
+  return locked.length > 0;
 }
 
 export async function photoRowExists(

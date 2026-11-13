@@ -1,4 +1,4 @@
-import { eq, exists, type SQL, sql } from 'drizzle-orm';
+import { count, eq, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from './client';
 import { user } from './schema';
 
@@ -96,27 +96,32 @@ export function ownersLockCte(db: Queryable, ownerIds: SQL) {
 
 /**
  * `owner_lock as (...)`, the same CTE for a statement written in SQL
- * (`with ${ownerLockSql(db, id)}, ...`); its writes ask
- * `exists (select 1 from owner_lock)` (OWNER_LOCKED).
+ * (`with ${ownerLockSql(db, id)}, ...`); its writes ask OWNER_LOCKED.
  */
 export function ownerLockSql(db: Queryable, ownerId: number): SQL {
   return sql`${sql.identifier(OWNER_LOCK_CTE)} as (${ownerLockSelect(db, eq(user.id, ownerId)).getSQL()})`;
 }
 
 /** ownerLocked in SQL, for a statement that names the CTE ownerLockSql wrote. */
-export const OWNER_LOCKED = sql`exists (select 1 from ${sql.identifier(OWNER_LOCK_CTE)})`;
+export const OWNER_LOCKED = sql`(select count(*) from ${sql.identifier(OWNER_LOCK_CTE)}) > 0`;
 
 export type OwnerLockCte = ReturnType<typeof ownerLockCte>;
 
 /**
- * `exists (select 1 from owner_lock)`: uncorrelated, so Postgres runs it
- * once as an InitPlan before the statement scans anything, which is what
- * puts the owner lock ahead of the rows the statement locks or writes. A
- * missing owner (an account deleted meanwhile) makes the statement change
- * nothing, which every caller already answers as not found.
+ * `(select count(*) from owner_lock) > 0`: uncorrelated, so Postgres runs
+ * it once as an InitPlan before the statement scans anything, which is
+ * what puts the owner lock ahead of the rows the statement locks or
+ * writes. A missing owner (an account deleted meanwhile) makes the
+ * statement change nothing, which every caller already answers as not
+ * found.
+ *
+ * **A count, never `exists`**: `exists` stops reading the CTE at its
+ * first row, so of an ownersLockCte's several owners only the lowest id
+ * would be locked and marked (account deletion's, PR #537). The count
+ * reads every row, so every owner is locked, in id order, before the scan.
  */
 export function ownerLocked(db: Queryable, lock: OwnerLockCte) {
-  return exists(db.select({ one: sql`1` }).from(lock));
+  return sql<boolean>`(${db.select({ owners: count() }).from(lock)}) > 0`;
 }
 
 /**

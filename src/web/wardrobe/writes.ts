@@ -21,6 +21,7 @@ import {
 import type { Photos, QuarterTurn } from '../files/photos';
 import {
   insertPhotoRow,
+  lockOwnerAndPhotoName,
   lockPhotoName,
   type NewPhotoRow,
 } from '../files/queries';
@@ -332,7 +333,10 @@ export async function createGarmentWithPendingPhoto(
   const claimed =
     photo &&
     (await db.transaction(async (tx): Promise<ClaimedGarment | undefined> => {
-      await lockPhotoName(tx, fileName);
+      // The owner first (lockOwnerAndPhotoName says why), then the take.
+      if (!(await lockOwnerAndPhotoName(tx, ownerId, fileName))) {
+        return undefined;
+      }
       const taken = await takePendingPhoto(tx, fileName, { userId, ownerId });
       if (!taken) return undefined;
       const photoId = await insertPhotoRow(tx, {
