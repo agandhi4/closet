@@ -742,3 +742,9 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 **Why:** the publisher's check at 471f4b8 failed clock-db-30d/365d: `selfSignedCertificate` dated its window from `Date.now()`, which the shift moves while OpenSSL checks the real clock ("not yet valid"); and `inspiration.spec.ts`'s reconciliation found an orphan another test left: a 413'd upload's photo, stored after the response (the parser reports the `fileSize` cut once the stream ends, after a JPEG decoded), with a real-clock mtime the shifted cutoff called old.
 **Decision:** the fixture's validity is a constant (2000-01-01 to RFC 5280's 99991231235959Z), never from `Date`; `Photos.storeUploadParts` awaits a started pipeline when the body is refused and deletes its bytes before rethrowing. Nothing went into `clock_shift.conf`: both causes could move.
 **Consequence:** every multipart route (garment photos, looks, selfies) stops leaking refused uploads to reconciliation; a fixture a real-clock validator reads is never dated from the JS clock.
+
+## 2026-11-13 — A trip outfit is worn today by its own copy, not its outfit (#573)
+
+**Why:** `tripModel.wornToday` was keyed by outfit id, so an outfit on several trip days (or also on "Any day") showed every copy "Worn" once today's was worn, on the page and as the API's `wornTodayEntryId`. A calendar entry is per (owner, day, outfit) and carries no trip outfit, so the copy is derived.
+**Decision:** `readTrip` keys the map by the trip outfit's id, and only for a copy `wearableToday` (today's or "Any day"); the page and `toTripOutfit` look up `outfit.id`.
+**Consequence:** a copy of another day is never worn. An "Any day" copy of an outfit also on today still shares today's entry (one entry per outfit per day), so both show worn.

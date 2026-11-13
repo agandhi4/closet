@@ -228,7 +228,7 @@ function toTripOutfit(
       name: view.name,
       day: view.day,
       occasion: view.occasion,
-      wornTodayEntryId: wornToday.get(view.outfitId) ?? null,
+      wornTodayEntryId: wornToday.get(view.id) ?? null,
     }),
     garments: view.garments.map(toOutfitGarment),
   };
