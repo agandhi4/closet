@@ -38,7 +38,8 @@ The tiers and their commands are in the root `AGENTS.md` (Commands, Test tiers).
                        webkit-limits.ts (why a spec skips in the Safari projects),
                        static-assets-setup.ts (globalSetup: public/modules/ and the precompressed
                        variants, as the build lays them out),
-                       schema-drift.ts (drizzle-kit pushSchema), legacy-migrations.ts + legacy-migrations/
+                       schema-drift.ts (drizzle-kit pushSchema), prototype-hygiene.ts (built-in prototypes
+                       kept free of enumerable keys in shared workers, #620), legacy-migrations.ts + legacy-migrations/
                        (the frozen MikroORM tree; migration-runner.spec.ts builds a MikroORM-era database)
   integration/         Vitest in-process specs + harness.ts (createTestApp: t.inject, t.db, t.logs, t.today; multipart,
                        HTML helpers); authorization-matrix.ts (describeMatrix: the authorization matrix, which
