@@ -107,12 +107,11 @@ declare global {
   }
 }
 
-/** What one drain did: its saves and failures, and when to retry, if it must. */
+/** What one drain did: its saves, and when to retry, if it must. */
 interface DrainResult {
   saved: number;
   /** The saved records' paths: OUTBOX_SYNCED's. */
   savedPaths: string[];
-  failed: number;
   retryInMs?: number;
 }
 
@@ -823,7 +822,7 @@ async function replayAll(
   reason: string,
 ): Promise<DrainResult> {
   const queued = (await store.records(account)).filter(isPending);
-  const result: DrainResult = { saved: 0, savedPaths: [], failed: 0 };
+  const result: DrainResult = { saved: 0, savedPaths: [] };
   if (queued.length === 0) return result;
   console.info(`[outbox] sync (${reason}): ${queued.length} pending`);
   const quiet = setTimeout(() => {
@@ -866,7 +865,6 @@ async function replayAll(
           reason: answer.reason,
         };
         if (await settle(record, failure)) {
-          result.failed += 1;
           console.warn(`[outbox] ${key} not saved: ${answer.reason}`);
         } else {
           console.info(`[outbox] ${key} not saved, superseded meanwhile`);
@@ -919,7 +917,7 @@ const drain = singleFlight(async (reason: string) => {
       : await replay();
   } catch (error) {
     console.warn(`[outbox] sync (${reason}) failed`, error);
-    result = { saved: 0, savedPaths: [], failed: 0 };
+    result = { saved: 0, savedPaths: [] };
   }
   if (result.retryInMs !== undefined) {
     retryTimer = setTimeout(() => void schedule('retry'), result.retryInMs);
@@ -933,21 +931,16 @@ const drain = singleFlight(async (reason: string) => {
     });
   }
   if (result.saved > 0) refetchSyncedPages(result.savedPaths);
-  if (result.saved + result.failed > 0) {
-    // freshness.js asks the worker for the page again (swapped in only if
-    // untouched): counts and lines are the server's, a failure's too.
-    document.dispatchEvent(
-      new CustomEvent('outbox:synced', { detail: result }),
-    );
-  }
 });
 
 /**
  * The worker refetches its cached copies of the pages that show what was
- * saved (src-sw.ts, OUTBOX_SYNCED), so one reopened offline later shows it.
- * Posted before `outbox:synced`: the worker leaves this page's own copy to
- * freshness.js's REVALIDATE_PAGE, which must compare it with the server's
- * to swap the page in. Without a controlling worker there is nothing cached.
+ * saved (src-sw.ts, OUTBOX_SYNCED), so one reopened offline later shows it,
+ * and tells every open tab which changed (PAGES_RENEWED), this one
+ * included: freshness.js swaps in the server's copy of a page on screen
+ * among them, so its counts and lines are the server's. A failure needs
+ * neither: its region is put back here (showServerState). Without a
+ * controlling worker there is nothing cached and nobody to tell.
  */
 function refetchSyncedPages(paths: string[]): void {
   navigator.serviceWorker?.controller?.postMessage({

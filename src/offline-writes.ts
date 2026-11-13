@@ -302,6 +302,36 @@ export const REPLAY_TIMEOUT_MS = 15_000;
 export const OUTBOX_SYNCED = 'OUTBOX_SYNCED';
 
 /**
+ * The worker's answer to every tab it controls once that refetch is done:
+ * `{ type, pages: [{ url, fragment, html, fetchedAt }] }`, each cached page
+ * (or `|hx` fragment) whose server copy differs from the one it replaced. A
+ * tab showing one swaps it in as a revalidation's (public/js/freshness.js,
+ * which spells this string itself: it cannot import a TS module).
+ */
+export const PAGES_RENEWED = 'PAGES_RENEWED';
+
+/**
+ * Which queued writes go when a page claims the worker's page cache
+ * (src-sw.ts, claimPageCache): `owner` is the cache's account before the
+ * claim (undefined: none), `account` the claiming page's X-Page-Account
+ * ('' signed out). Undefined when none go: the same owner, or a signed-out
+ * page (signing back in as the same account replays them). Otherwise the
+ * test a record's `account` field fails to stay: every other account's go,
+ * as the page's own rule does (outbox.ts). Compared as they are stored:
+ * X-Page-Account and `#app-status`'s `data-account` (what a record carries)
+ * are both `String(user.id)`, and a record in any other spelling of the
+ * same account would be deleted (test/integration/queued-writes.spec.ts
+ * holds the two equal).
+ */
+export function queuedWritesGoneAtClaim(
+  owner: string | undefined,
+  account: string,
+): ((recordAccount: unknown) => boolean) | undefined {
+  if (account === '' || owner === account) return undefined;
+  return (recordAccount) => recordAccount !== account;
+}
+
+/**
  * An OUTBOX_SYNCED message's paths as the worker may act on them: only a
  * path the replay allowlist takes, each once. Anything else is dropped, so
  * a message can never make the worker fetch a page of its choosing.

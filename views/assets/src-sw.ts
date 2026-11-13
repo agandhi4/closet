@@ -47,6 +47,8 @@ import {
 import { WARM_REQUEST_HEADER } from '../../src/warm-request';
 import {
   OUTBOX_SYNCED,
+  PAGES_RENEWED,
+  queuedWritesGoneAtClaim,
   showsQueuedWrite,
   syncedWritePaths,
 } from '../../src/offline-writes';
@@ -282,12 +284,12 @@ function claimPageCache(
     if (owner === account) return true;
     // A new owner, whether the cache held another account's pages or none
     // (a sign-in drops it first): every other account's queued writes go
-    // unsent, as the page's own rule does (outbox.ts, claimForAccount). Not
-    // for a signed-out page: signing back in as the same account replays
-    // them. Not awaited under the lock: the page's rule is the other half.
-    if (account !== '') {
+    // unsent (queuedWritesGoneAtClaim). Not awaited under the lock: the
+    // page's own rule (outbox.ts) is the other half.
+    const gone = queuedWritesGoneAtClaim(owner, account);
+    if (gone) {
       event.waitUntil(
-        deleteQueuedWrites('a page for another account arrived', account),
+        deleteQueuedWrites('a page for another account arrived', gone),
       );
     }
     if (owner !== undefined) {
@@ -662,7 +664,7 @@ const sessionBoundaryHandler = async ({
   // answer above: a needless drop of the caches costs a refetch, of the
   // queue the user's taps.
   if (change === 'session ended') {
-    await deleteQueuedWrites(`${url.pathname}: the session ended`);
+    await deleteQueuedWrites(`${url.pathname}: the session ended`, () => true);
   }
   return answerFor(request, response);
 };
@@ -692,13 +694,13 @@ async function dropPushSubscription(): Promise<void> {
 const outboxChannel = openOutboxChannel();
 
 /**
- * Deletes the queued writes: every one, or every other account's than
- * `keep`. Never throws: a store that cannot be opened (private mode) holds
- * nothing to delete, and a session boundary must not fail on it.
+ * Deletes the queued writes whose `account` field `goes` accepts. Never
+ * throws: a store that cannot be opened (private mode) holds nothing to
+ * delete, and a session boundary must not fail on it.
  */
 async function deleteQueuedWrites(
   reason: string,
-  keep?: string,
+  goes: (recordAccount: unknown) => boolean,
 ): Promise<void> {
   try {
     const db = await openOutboxDatabase();
@@ -710,7 +712,7 @@ async function deleteQueuedWrites(
           const row = cursor.result;
           if (!row) return;
           const { account } = row.value as { account?: unknown };
-          if (keep === undefined || account !== keep) {
+          if (goes(account)) {
             row.delete();
             deleted += 1;
           }
@@ -939,33 +941,35 @@ async function revalidateForPage(
  * OUTBOX_SYNCED (#178, src/web/shell/outbox.md): the page's outbox saved
  * queued writes. Every cached page that shows one (showsQueuedWrite: the
  * garment's page, the laundry, a trip's, Today and the calendar's weeks for
- * an entry), page or `|hx` fragment, is fetched again through the page
- * plugins (owner-checked, stamped, refused across a drop), so a page
- * reopened offline later shows what was saved, not the copy from before the
- * tap. Only cached ones: this adds no page. Not the sender's own page:
- * freshness.js's REVALIDATE_PAGE compares that copy with the server's to
- * swap it in, and would find it already new. One at a time, stopping at the
- * first unreachable answer or a drop; a 404 deletes the copy, as a warm's
- * does. Marked as the worker's (WARM_REQUEST_HEADER): no person waits on it.
+ * an entry), page or `|hx` fragment, the sender's own included, is fetched
+ * again through the page plugins (owner-checked, stamped, refused across a
+ * drop), so a page reopened offline later shows what was saved, not the
+ * copy from before the tap. Only cached ones: this adds no page. One at a
+ * time, stopping at the first unreachable answer or a drop; a 404 deletes
+ * the copy, as a warm's does. Marked as the worker's (WARM_REQUEST_HEADER):
+ * no person waits on it.
+ *
+ * Renewing a copy makes a later REVALIDATE_PAGE of it find nothing new, so
+ * the worker itself tells every tab it controls which copies changed
+ * (PAGES_RENEWED, with the server's markup): a tab showing one swaps it in
+ * as a revalidation's (freshness.js). Nothing is told after a drop: those
+ * copies are gone, and a session change reloads its pages.
  */
 async function refetchSyncedPages(
   event: ExtendableMessageEvent,
   writes: string[],
 ): Promise<void> {
   const run = generation;
-  const source = event.source;
-  const sendersPage =
-    source && 'url' in source ? withoutHash(source.url) : undefined;
   const cache = await self.caches.open(PAGES_CACHE);
   const due = (await cache.keys()).filter((key) => {
     const url = new URL(pageUrlOfCacheKey(key.url));
     return (
       url.origin === self.location.origin &&
-      url.href !== sendersPage &&
       writes.some((write) => showsQueuedWrite(write, url.pathname))
     );
   });
-  let refetched = 0;
+  const renewed: RenewedPage[] = [];
+  let unchanged = 0;
   let removed = 0;
   let failed = 0;
   let stop: string | undefined;
@@ -975,12 +979,15 @@ async function refetchSyncedPages(
       break;
     }
     const href = pageUrlOfCacheKey(key.url);
+    const fragment = href !== key.url;
     const headers: Record<string, string> = { [WARM_REQUEST_HEADER]: '1' };
     // As htmx asked, so the answer lands under the same `|hx` key.
-    if (href !== key.url) headers['HX-Request'] = 'true';
+    if (fragment) headers['HX-Request'] = 'true';
     const request = new Request(href, { headers });
     runOf.set(request, run);
     try {
+      // Read before the fetch: the refetch's store replaces it.
+      const before = await (await cache.match(key))?.text();
       const [response, done] = pageWarmer.handleAll({ event, request });
       const answer = await response;
       await done;
@@ -989,8 +996,11 @@ async function refetchSyncedPages(
         await endFetchedSession(event, run, `${href} (refetch)`);
         break;
       }
-      if (answer.ok) refetched += 1;
-      else if (answer.status === 404) {
+      if (answer.ok) {
+        const html = await answer.text();
+        if (html === before) unchanged += 1;
+        else renewed.push({ url: href, fragment, html, fetchedAt: Date.now() });
+      } else if (answer.status === 404) {
         removed += await deleteCachedPages(run, (url) => url.href === href);
       } else failed += 1;
     } catch {
@@ -998,17 +1008,36 @@ async function refetchSyncedPages(
       break;
     }
   }
+  const told =
+    renewed.length > 0 && generation === run
+      ? await tellRenewedPages(renewed)
+      : 0;
   const summary =
-    `${writes.length} synced write(s): ${refetched} of ${due.length} cached ` +
-    `page(s) refetched, ${removed} removed, ${failed} failed`;
+    `${writes.length} synced write(s): ${due.length} cached page(s), ` +
+    `${renewed.length} renewed (${told} tab(s) told), ${unchanged} unchanged, ` +
+    `${removed} removed, ${failed} failed`;
   if (stop) console.info(`[sw] ${summary}, stopped: ${stop}`);
   else console.info(`[sw] ${summary}`);
 }
 
-function withoutHash(href: string): string {
-  const url = new URL(href);
-  url.hash = '';
-  return url.href;
+/** A copy the refetch renewed, as PAGES_RENEWED carries it. */
+interface RenewedPage {
+  url: string;
+  /** The `|hx` copy: what a URL-pushing fragment's display asks for. */
+  fragment: boolean;
+  html: string;
+  /** When the server's answer arrived (epoch ms). */
+  fetchedAt: number;
+}
+
+/**
+ * Every tab this worker controls gets the whole list; each finds what it
+ * shows (freshness.js). Returns how many were told.
+ */
+async function tellRenewedPages(pages: RenewedPage[]): Promise<number> {
+  const tabs = await self.clients.matchAll({ type: 'window' });
+  for (const tab of tabs) tab.postMessage({ type: PAGES_RENEWED, pages });
+  return tabs.length;
 }
 
 /**

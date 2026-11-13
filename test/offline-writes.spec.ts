@@ -506,25 +506,29 @@ test('offline: PostForms are guarded, and queued writes wait, save and stay orde
       const appErrors = pageErrors(app);
       await signIn(app, 'outbox-worker');
       const chinos = await createGarment(app, 'Synced chinos');
+      const shirt = await createGarment(app, 'Synced shirt');
       const garmentPage = `/wardrobe/${chinos}`;
+      const shirtPage = `/wardrobe/${shirt}`;
       const wore = app.getByRole('button', { name: 'Wore today', exact: true });
       const undo = app.getByRole('button', { name: 'Undo “Wore today”' });
+      // Every open tab hears it, so none drains behind the switch's back.
       const goOnline = async (online: boolean) => {
         await network(online ? 'online' : 'offline');
-        await app.evaluate(
-          (event) => window.dispatchEvent(new Event(event)),
-          online ? 'online' : 'offline',
-        );
-        await expect(app.locator('#connectivity-banner')).toBeVisible({
-          visible: !online,
-        });
+        for (const tab of context.pages()) {
+          await tab.evaluate(
+            (event) => window.dispatchEvent(new Event(event)),
+            online ? 'online' : 'offline',
+          );
+          await expect(tab.locator('#connectivity-banner')).toBeVisible({
+            visible: !online,
+          });
+        }
       };
       await waitForServiceWorker(app);
       await cachePage(app, '/auth/profile');
       await cachePage(app, garmentPage);
 
-      // Worn offline, then the app left for a page the sync does not touch
-      // (whose own copy freshness.js revalidates instead).
+      // Worn offline, then the app left for a page the sync does not touch.
       await goOnline(false);
       await wore.click();
       await expect(undo).toBeVisible();
@@ -544,6 +548,43 @@ test('offline: PostForms are guarded, and queued writes wait, save and stay orde
       // the server's markup, with nothing waiting.
       await goOnline(false);
       await app.goto(garmentPage);
+      await expect(undo).toBeVisible();
+      await expect(app.locator('[data-outbox="pending"]')).toHaveCount(0);
+
+      // Worn offline and kept on screen through the sync, with a second tab
+      // on the same page: the worker renews the copy the sender shows too,
+      // and the untouched tab swaps the server's in (its worn line is only
+      // ever the server's; the outbox draws the button alone).
+      await goOnline(true);
+      const other = await context.newPage();
+      const otherErrors = pageErrors(other);
+      await cachePage(other, shirtPage);
+      await expect(other.getByText('Not worn yet')).toBeVisible();
+      // The sender's load stores the copy last: the one the sync must renew.
+      const otherCopy = await cachedAtOf(other, shirtPage);
+      await app.goto(shirtPage);
+      await expect
+        .poll(() => cachedAtOf(app, shirtPage))
+        .toBeGreaterThan(otherCopy);
+      const shirtCachedBefore = await cachedAtOf(app, shirtPage);
+      await goOnline(false);
+      await wore.click();
+      await expect(undo).toBeVisible();
+      await goOnline(true);
+      await expect(app.locator('[data-outbox="pending"]')).toHaveCount(0);
+      await expect
+        .poll(() => cachedAtOf(app, shirtPage))
+        .toBeGreaterThan(shirtCachedBefore);
+      await expect(other.getByText('Worn once')).toBeVisible();
+      await expect(
+        other.getByRole('button', { name: 'Undo “Wore today”' }),
+      ).toBeVisible();
+      await other.close();
+      expect(otherErrors).toEqual([]);
+      // The sender's renewed copy, reopened offline: worn, by the server.
+      await goOnline(false);
+      await app.goto(shirtPage);
+      await expect(app.getByText('Worn once')).toBeVisible();
       await expect(undo).toBeVisible();
       await expect(app.locator('[data-outbox="pending"]')).toHaveCount(0);
 
