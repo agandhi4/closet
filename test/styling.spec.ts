@@ -197,6 +197,14 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.wheel(box.width / 3, 0);
   await expect(chosen(tops)).toHaveValue(String(g.oldTee));
+  // The preview follows without a request (styling.js, #468; shown from
+  // lg, kept in step at every width): the top row's slot holds its look.
+  const topSlot = page.locator('#styling-preview [data-preview-slot="0"]');
+  await expect(topSlot).toHaveAttribute(
+    'data-preview-garment',
+    String(g.oldTee),
+  );
+  await expect(topSlot.locator('svg, img')).toHaveCount(1);
 
   // A tap on the neighbour peeking at the left ("No garment") centres it;
   // a tap on the jeans brings them back.

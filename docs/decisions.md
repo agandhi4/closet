@@ -404,3 +404,8 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Why:** the root AGENTS.md sat 5 bytes under docs-check's 30,720-byte cap, so the next standing rules (outfit rules' area row, the offline queued-writes exception) had no room.
 **Decision:** each command in the root's Commands block keeps a one-line comment; flags, timings, what a tier needs and the gate's make targets and git hooks live in README's Development section (Scripts, "The gate's jobs and the git hooks"). The Workflow PR bullets are one; squash-only and fix-forward moved into `docs/workflow.md`.
 **Consequence:** about 2.6 KB of headroom. A new command's detail goes to README, not the root's comment.
+
+## 2026-11-13 — Styling at lg: the rows beside a preview, one markup (#468a)
+**Why:** on a desktop the composer was a phone column stretched wide with a bar under it, and nothing showed the outfit as a whole (the plan's §2, owner-approved).
+**Decision:** from `lg` the rows sit beside a sticky aside (the preview, then Shuffle and Save); below lg every new wrapper is `contents` and the preview `hidden`, so the 390 px page is the same boxes (pixel-identical against main) and `/styling` the same bytes for any device. The preview is a slot per row, drawn by the server and re-sent out of band with every rows answer; between them styling.js copies each choice in on snap-strip.js's new `snap-strip:chosen`, so it works offline and costs no request. Slots are found by row index, not role (two rows may share one).
+**Consequence:** any answer that replaces `#styling-rows` must go through `renderRows` (it carries the preview). The weather fit line (468b) hangs off the same aside.

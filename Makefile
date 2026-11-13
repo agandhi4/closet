@@ -54,7 +54,7 @@ help:
 	@echo "make ci-unit          — the Vitest unit projects; no database. Budget $(UNIT_BUDGET_SECONDS) s, floor $(UNIT_FLOOR) tests"
 	@echo "make ci-db            — every Vitest project with v8 coverage (the ratchet's cov input), on a throwaway Postgres 18. Budget $(DB_BUDGET_SECONDS) s, floor $(DB_FLOOR)"
 	@echo "make ci-e2e           — build, then Playwright chromium against a throwaway Postgres 18 (PWA on, PORT random). Budget $(E2E_BUDGET_SECONDS) s, floor $(E2E_FLOOR)"
-	@echo "make screenshots      — the 390 px persona screenshots (test/screenshots.spec.ts) into screenshots/, same server as ci-e2e"
+	@echo "make screenshots      — the 390 px (and 1440 px) persona screenshots (test/screenshots.spec.ts) into screenshots/, same server as ci-e2e"
 	@echo "make ci-image         — docker build of the production image (CI_IMAGE=$(CI_IMAGE), CI_BUILD_VERSION=$(CI_BUILD_VERSION))"
 	@echo "make ci-smoke         — boot CI_IMAGE on a throwaway Postgres 18 (scripts/smoke-image.sh); /health/ready must report CI_BUILD_VERSION"
 	@echo "make ci-metrics       — the metrics ratchet: scripts/ci/metrics.conf's collectors against docs/metrics/ratchet.json (the plan's last job)"
@@ -153,7 +153,7 @@ endef
 ci-e2e:
 	$(call e2e_server,$(TIER) e2e --budget $(E2E_BUDGET_SECONDS) --floor playwright=$(E2E_FLOOR) -- npx playwright test --project=chromium --reporter=list,ci-e2e)
 
-# Not a gate: 390 px screenshots of the seed personas into screenshots/ (ci.yml's e2e job uploads
+# Not a gate: 390 px (and a 1440 px block of) screenshots of the seed personas into screenshots/ (ci.yml's e2e job uploads
 # them). test/screenshots.spec.ts runs only with SEED_SCREENSHOTS, which playwright.config.ts
 # otherwise ignores the file under.
 screenshots:

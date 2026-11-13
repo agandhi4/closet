@@ -79,6 +79,27 @@ function reachableOf(html: string, role: string): (number | null)[] {
     });
 }
 
+/**
+ * The preview (#468): its opening tag, then each slot's chosen garment in
+ * row order (by `data-preview-slot`, as styling.js finds them), "No
+ * garment" as null. Only the preview's slots carry `data-preview-slot`.
+ */
+function previewOf(html: string): { tag: string; slots: (number | null)[] } {
+  const start = html.indexOf('<div id="styling-preview"');
+  expect(start, 'the preview').toBeGreaterThan(-1);
+  const preview = html.slice(start);
+  const tag = preview.slice(0, preview.indexOf('>') + 1);
+  const slots = [
+    ...preview.matchAll(
+      /data-preview-slot="(\d+)" data-preview-garment="(\d*)"/g,
+    ),
+  ]
+    .map((m) => [Number(m[1]), m[2] ? Number(m[2]) : null] as const)
+    .sort(([a], [b]) => a - b);
+  expect(slots.map(([index]) => index)).toEqual(slots.map((_, i) => i));
+  return { tag, slots: slots.map(([, id]) => id) };
+}
+
 /** The rows' fields as Shuffle and "Add row" send them (a GET query). */
 function rowsQuery(rows: Row[], extra: Record<string, string> = {}): string {
   const query = new URLSearchParams(extra);
@@ -289,6 +310,36 @@ describe('Styling', () => {
         expect(res.body).toMatch(
           /<a class="dock-active" aria-current="page" href="\/styling">/,
         );
+      });
+
+      // The desktop composer (#468): one markup, the aside a phone no-op.
+      it('sets the preview and the actions beside the rows: a slot per row, its chosen garment', async () => {
+        const res = await get('/styling');
+        const rows = rowsOf(res.body);
+        const preview = previewOf(res.body);
+        expect(preview.tag).toContain('aria-hidden="true"');
+        expect(preview.tag).toContain('hidden lg:flex');
+        expect(preview.tag).not.toContain('hx-swap-oob');
+        expect(preview.slots).toEqual(rows.map(([, id]) => id));
+        // The aside follows the form and "Add row" (Tab reaches Shuffle and
+        // Save last) and holds the preview, then Shuffle and Save, inside
+        // <main>; the sheet stays outside it.
+        const html = unescapeHtml(res.body);
+        const at = html.indexOf('<div id="styling-preview"');
+        const aside = html.slice(at, html.indexOf('</main>'));
+        expect(html.indexOf('id="styling-form"')).toBeLessThan(at);
+        expect(html.match(/data-styling-shuffle/g)).toHaveLength(1);
+        expect(aside).toContain('data-styling-shuffle');
+        expect(aside).toContain("getElementById('styling-save').showModal()");
+        expect(aside).not.toContain('<dialog');
+      });
+
+      it('opens the preview on the idea ?with= chooses', async () => {
+        const styled = (await get(`/styling?with=${bottoms[0]}`)).body;
+        expect(previewOf(styled).slots).toEqual(
+          rowsOf(styled).map(([, id]) => id),
+        );
+        expect(previewOf(styled).slots).toContain(bottoms[0]);
       });
 
       // Nothing steps before public/js/snap-strip.js runs, which enables
@@ -503,6 +554,30 @@ describe('Styling', () => {
           ['accessory', null, false],
         ]);
         expect(rows.at(-1)).toEqual(['none', null, false]);
+      });
+
+      // The preview's slots are the rows': each answer that replaces the
+      // rows sends it again out of band (StylingPreview).
+      it('Shuffle, "Add row" and the picks switch send the preview with the rows', async () => {
+        const answers = [
+          await shuffle(fresh(), { seed: '7' }),
+          await t.inject({
+            method: 'GET',
+            url: `/styling/row?${rowsQuery(fresh(), { add: 'accessory' })}`,
+            headers: HX_FRAGMENT,
+          }),
+          await t.inject({
+            method: 'GET',
+            url: `/styling/row?${rowsQuery(fresh(), { picks: '1' })}`,
+            headers: HX_FRAGMENT,
+          }),
+        ];
+        for (const res of answers) {
+          expect(res.statusCode).toBe(200);
+          const preview = previewOf(res.body);
+          expect(preview.tag).toContain('hx-swap-oob="true"');
+          expect(preview.slots).toEqual(rowsOf(res.body).map(([, id]) => id));
+        }
       });
     });
 
@@ -730,6 +805,16 @@ describe('Styling', () => {
           ['none', null, false],
         ]);
         expect(stripOf(res.body, 'layer')[0]).toBe(archivedCoat);
+        // The preview opens on the outfit, the archived coat with it.
+        expect(previewOf(res.body).slots).toEqual([
+          archivedCoat,
+          null,
+          tops[0],
+          bottoms[1],
+          null,
+          belt,
+          null,
+        ]);
         expect(hasText(res.body, 'Changing Autumn')).toBe(true);
         expect(res.body).toContain(`name="outfit" value="${outfitId}"`);
         expect(res.body).toMatch(/name="name"[^>]*value="Autumn"/);

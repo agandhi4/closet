@@ -26,8 +26,11 @@
  *   focus to that neighbour at once.
  * - A page with rules of its own listens on the document, nothing else:
  *   `snap-strip:choose` (cancelable, on the strip, detail.item) before an
- *   item is chosen, cancelled to keep the choice as it is; `snap-strip:watch`
- *   (on the strip) after it has been (re)scanned. Styling's locks use both.
+ *   item is chosen, cancelled to keep the choice as it is;
+ *   `snap-strip:chosen` (not cancelable, on the strip, detail.item) once it
+ *   is, `data-selected` moved; `snap-strip:watch` (on the strip) after it
+ *   has been (re)scanned. Styling's locks use the first and last, its
+ *   preview the second.
  *
  * Evaluated once per document: the listeners below sit on the document and
  * serve every page's strips.
@@ -97,6 +100,11 @@ function choose(strip, item) {
     }
   }
   syncSteps(strip);
+  // Also when the item was already chosen (the first watch centres it):
+  // a listener mirroring the choice must be idempotent.
+  strip.dispatchEvent(
+    new CustomEvent('snap-strip:chosen', { bubbles: true, detail: { item } }),
+  );
 }
 
 /** Scrolls `item` to the middle of its strip. */
@@ -215,7 +223,8 @@ document.addEventListener('keydown', (event) => {
   const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
   if (!step || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)
     return;
-  if (event.target.closest('input, textarea, select, [contenteditable]')) return;
+  if (event.target.closest('input, textarea, select, [contenteditable]'))
+    return;
   const strip = event.target.closest('[data-snap-strip]');
   if (!strip) return;
   event.preventDefault();

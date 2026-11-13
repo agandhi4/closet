@@ -504,6 +504,11 @@
     "direction": "higher",
     "source": "tier-db"
   },
+  "tests.e2e.playwright": {
+    "bound": 11,
+    "direction": "higher",
+    "source": "tier-e2e"
+  },
   "tests.unit.vitest": {
     "bound": 1544,
     "direction": "higher",
