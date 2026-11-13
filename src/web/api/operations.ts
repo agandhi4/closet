@@ -89,10 +89,6 @@ const WEB_PUSH = {
 const BROWSER_TELEMETRY = {
   webOnly: "the browser's own telemetry: web vitals and client errors",
 } as const;
-const SHARE_TARGET = {
-  webOnly:
-    "the installed web app's share target: a native client shares into its own extension, which posts the upload's twin",
-} as const;
 const FORM_FRAGMENT = {
   webOnly: "redraws part of a page's form and writes nothing",
 } as const;
@@ -172,7 +168,6 @@ export const PAGE_WRITES: Readonly<
   // Saved looks (#22): outfits' inspiration, so outfits' endpoint issue.
   'POST /inspiration': { pending: '#193' },
   'POST /inspiration/link': { pending: '#193' },
-  'POST /inspiration/share': SHARE_TARGET,
   'POST /inspiration/:id': { pending: '#193' },
   'POST /inspiration/:id/delete': { pending: '#193' },
   'POST /inspiration/:id/photo': { pending: '#193' },

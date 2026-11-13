@@ -1,4 +1,4 @@
-import type { Multipart, MultipartFile } from '@fastify/multipart';
+import type { MultipartFile } from '@fastify/multipart';
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
 import { HttpError } from '../errors';
@@ -13,7 +13,6 @@ import {
   type LinkImportRefusal,
   REFUSALS,
 } from '../wardrobe/link-import/import';
-import { SHARED_TEXT_FIELDS, type SharedTextField } from './share-target';
 import {
   deleteInspiration,
   findInspiration,
@@ -53,77 +52,19 @@ export type UnreadReason = LinkImportRefusal | 'no-photo';
  * the look keeps its whole picture (no cutout is queued). Answers its id.
  */
 export async function addUploadedInspiration(
-  deps: InspirationDeps,
+  { db, photos, logger }: InspirationDeps,
   ownerId: number,
   parts: AsyncIterable<MultipartFile>,
 ): Promise<number> {
-  const photo = await deps.photos.storeUploadParts(parts, ownerId);
+  const photo = await photos.storeUploadParts(parts, ownerId);
   if (!photo) throw new HttpError(400, 'No file uploaded');
-  return savePhotoLook(deps, ownerId, photo, 'an upload');
-}
-
-/** A new look of the photo this request stored (the commit contract: commitPhoto). */
-async function savePhotoLook(
-  { db, photos, logger }: InspirationDeps,
-  ownerId: number,
-  photo: NewPhotoRow,
-  from: 'an upload' | 'a share',
-): Promise<number> {
   const id = await commitPhoto({ photos, logger }, photo, () =>
     saveInspiration(db, ownerId, photo, { title: null, sourceUrl: null }),
   );
   logger.info(
-    `Inspiration ${id} saved by user ${ownerId} from ${from}: ${photo.fileName}`,
+    `Inspiration ${id} saved by user ${ownerId} from an upload: ${photo.fileName}`,
   );
   return id;
-}
-
-/** A share's text fields, as posted (absent when not). */
-export type SharedText = Partial<Record<SharedTextField, string>>;
-
-/** What a share into the app was: a photo, now a saved look, or text alone (a link, usually). */
-export type Shared = { look: number } | { text: SharedText };
-
-/**
- * POST /inspiration/share, the manifest's share target (#22d): a shared
- * photo (the first; a share of several keeps one) becomes a new look of
- * the owner's, as an upload does, its text ignored; without a photo the
- * text fields are answered for the link import, which saves nothing.
- */
-export async function addSharedInspiration(
-  deps: InspirationDeps,
-  ownerId: number,
-  parts: AsyncIterable<Multipart>,
-): Promise<Shared> {
-  const text: SharedText = {};
-  const photo = await deps.photos.storeUploadParts(
-    filesOf(parts, text),
-    ownerId,
-  );
-  if (!photo) return { text };
-  return { look: await savePhotoLook(deps, ownerId, photo, 'a share') };
-}
-
-/**
- * A share's file parts, for storeUploadParts, which drains them; its text
- * fields are kept in `text` on the way (any order: a field after the photo
- * is read once the photo's bytes are). Anything else is dropped.
- */
-async function* filesOf(
-  parts: AsyncIterable<Multipart>,
-  text: SharedText,
-): AsyncGenerator<MultipartFile> {
-  for await (const part of parts) {
-    if (part.type === 'file') {
-      yield part;
-    } else if (isSharedTextField(part.fieldname)) {
-      if (typeof part.value === 'string') text[part.fieldname] = part.value;
-    }
-  }
-}
-
-function isSharedTextField(name: string): name is SharedTextField {
-  return (SHARED_TEXT_FIELDS as readonly string[]).includes(name);
 }
 
 /**

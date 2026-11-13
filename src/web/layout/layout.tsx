@@ -29,8 +29,9 @@ const HTMX_CONFIG = { disableInheritance: true, historyCacheSize: 3 };
 // Bare specifiers for every ES module the pages import, so the versioned URL
 // lives here once. Page-specific modules (the snap strip's snap-strip, which
 // Styling's styling imports, the garment page's mask-editor and photo-input,
-// select mode's select-count, the recap's recap-export) are only fetched by
-// the page that imports them.
+// select mode's select-count, the recap's recap-export, the share
+// confirmation's share-confirm) are only fetched by the page that imports
+// them.
 function importMap(version: string) {
   const v = `?v=${version}`;
   return {
@@ -51,6 +52,7 @@ function importMap(version: string) {
       'single-flight': `/js/single-flight.js${v}`,
       'select-count': `/js/select-count.js${v}`,
       'recap-export': `/js/recap-export.js${v}`,
+      'share-confirm': `/js/share-confirm.js${v}`,
     },
   };
 }

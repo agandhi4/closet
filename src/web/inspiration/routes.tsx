@@ -17,14 +17,11 @@ import { RowId } from '../schemas';
 import { LINK_IMPORT_LIMIT, tooManyAttempts } from '../security/rate-limit';
 import { viewContext } from '../view-context';
 import {
-  LINK_INPUT_MAX,
-  linkIn,
   LinkImportError,
   type LinkImportRefusal,
   REFUSALS,
-  SHARED_TEXT_MAX,
 } from '../wardrobe/link-import/import';
-import { LINK_IMPORT_PATH, wardrobeUrl } from '../wardrobe/urls';
+import { LINK_INPUT_MAX, linkIn } from '../wardrobe/link-import/link-text';
 import { InspirationListPage } from './list-page';
 import { NewInspirationPage } from './new-page';
 import { PieceBody, pieceKindValue, readPiece } from './piece-input';
@@ -44,7 +41,8 @@ import {
 import { RecreatePage } from './recreate-page';
 import { type PostedChoice, saveRecreation } from './recreate-writes';
 import { recreateOwnLook } from './recreation';
-import { INSPIRATION_SHARE_PATH, SHARED_TEXT_FIELDS } from './share-target';
+import { ShareConfirmPage } from './share-confirm-page';
+import { SHARE_CONFIRM_PATH, SHARE_PHOTO_MAX_BYTES } from './share-target';
 import { InspirationPage } from './show-page';
 import {
   INSPIRATION_LINK_PATH,
@@ -56,11 +54,9 @@ import {
 } from './urls';
 import {
   addLinkedInspiration,
-  addSharedInspiration,
   addUploadedInspiration,
   attachInspirationPhoto,
   removeInspiration,
-  type SharedText,
   unreadReasonOf,
 } from './writes';
 
@@ -164,54 +160,28 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     ),
   );
 
-  // The camera or library button of the add page: a native multipart post.
+  // The camera or library button of the add page, and the share
+  // confirmation's Save: a native multipart post. One file, the photo (a
+  // second is a 413), and none past the share's cap (a 413 too): the add
+  // page's photo is prepared on the phone first, a shared one as it came.
   app.post(INSPIRATION_PATH, async (request, reply) => {
     const id = await addUploadedInspiration(
       deps,
       sessionUserId(request),
-      // One file: the photo (a second is a 413).
-      request.files({ limits: { files: 1 } }),
+      request.files({
+        limits: { files: 1, fileSize: SHARE_PHOTO_MAX_BYTES },
+      }),
     );
     return reply.redirect(inspirationUrl(id), 303);
   });
 
-  // The manifest's share target (#22d), relayed by the service worker
-  // with the session's cookie and the worker's own Origin: the browser's
-  // own post is browser-initiated, with no Origin the same-origin hook
-  // can trust. A photo is a new look, its page next; a share without one
-  // (a link) is the link import's page, which fetches nothing until Fetch,
-  // as the GET target did. At most one field per name.
-  app.post(INSPIRATION_SHARE_PATH, async (request, reply) => {
-    const userId = sessionUserId(request);
-    const shared = await addSharedInspiration(
-      deps,
-      userId,
-      request.parts({
-        limits: {
-          fields: SHARED_TEXT_FIELDS.length,
-          fieldSize: SHARED_TEXT_MAX,
-        },
-      }),
-    );
-    if ('look' in shared)
-      return reply.redirect(inspirationUrl(shared.look), 303);
-    const sharedText = sharedTextOf(shared.text);
-    const link = linkIn(sharedText);
-    logger.info(
-      `Share by user ${userId} without a photo: ${link ? 'its link' : 'text without a link'} to the link import`,
-    );
-    // Its link, or (none found) its text cut to the link field, so the page
-    // says it holds no link: never the whole text, which a redirect's URL
-    // could not carry.
-    return reply.redirect(
-      wardrobeUrl(
-        undefined,
-        link ? { url: link } : { text: sharedText.slice(0, LINK_INPUT_MAX) },
-        LINK_IMPORT_PATH,
-      ),
-      303,
-    );
-  });
+  // Where the service worker sends a shared photo (share-target.ts): the
+  // photo is on the device (the URL's fragment names it), so the page holds
+  // nothing of it and the server keeps no state; its module shows it and
+  // its Save is the post above, genuinely same-origin.
+  app.get(SHARE_CONFIRM_PATH, async (_request, reply) =>
+    renderPage(reply, <ShareConfirmPage ctx={viewContext(reply)} />),
+  );
 
   // A pasted link: fetched here (importLink), then the look's page. A link
   // the server will not fetch is the add page again with the reason; past
@@ -479,9 +449,4 @@ function postedChoices(body: Static<typeof ChoicesBody>): PostedChoice[] {
     const garment = body.garment[index];
     return { position, garmentId: garment === '' ? null : garment };
   });
-}
-
-/** A share's text as the link page's GET scans it for the link: `url`, then `text`. */
-function sharedTextOf({ url = '', text = '' }: SharedText): string {
-  return `${url} ${text}`.trim();
 }

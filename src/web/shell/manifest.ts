@@ -11,11 +11,12 @@ import { LINK_IMPORT_PATH } from '../wardrobe/urls';
  * Android's share sheet (iOS has no share targets). A manifest has one
  * `share_target`, so one target takes both links and photos: a POST
  * (multipart, the only way a file is shared) that the service worker
- * relays (views/assets/src-sw.ts: the browser's own post names no Origin
- * the same-origin check accepts) to POST /inspiration/share, where a photo
- * becomes a saved look and a link opens the link import, fetching nothing
- * until Fetch. Without the worker (PWA_ENABLED off) nothing could relay
- * it, so the target stays the link import's GET, links only.
+ * answers on the device and never sends on (receiveShare,
+ * src/web/inspiration/share-target.ts): a photo waits for the confirmation
+ * page's Save, a link opens the link import, fetching nothing until Fetch.
+ * The server has no route for it. Without the worker (PWA_ENABLED off)
+ * nothing could answer it, so the target stays the link import's GET,
+ * links only.
  */
 function shareTarget(pwaEnabled: boolean): Record<string, unknown> {
   const params = Object.fromEntries(

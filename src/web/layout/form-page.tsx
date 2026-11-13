@@ -9,9 +9,9 @@ import { CancelLink } from './parts';
 
 /**
  * The frame of an add or edit page that is one native post (#411): the
- * garment, capsule and trip forms and "Bought it". The app bar marks it a
- * `formPage`, the fields post through one `PostForm`, and Cancel (back past
- * the form) sits beside the submit.
+ * garment, capsule and trip forms, "Bought it" and the share confirmation.
+ * The app bar marks it a `formPage`, the fields post through one
+ * `PostForm`, and Cancel (back past the form) sits beside the submit.
  *
  * Disabled offline: the form like every PostForm, and the edit page's
  * Delete, an `hx-delete` outside it, by its own `data-needs-network`. A copy
@@ -26,7 +26,14 @@ export function FormPage(props: {
   /** The page's fixed parent: the back arrow's and Cancel's href. */
   back: string;
   action: string;
+  /** Posts a file (PostForm's `multipart`): the share confirmation. */
+  multipart?: boolean;
   submitLabel: string;
+  /**
+   * The submit starts disabled, for the page's script to enable once there
+   * is something to post (the share confirmation's photo, read on the device).
+   */
+  submitDisabled?: boolean;
   /** Above the form: an intro line, the garment form's draft queue. */
   intro?: Child;
   /** The edit page's Delete (an `hx-delete`, confirmed first). */
@@ -41,11 +48,19 @@ export function FormPage(props: {
       <AppBar ctx={ctx} title={title} back={back} formPage />
       <PageMain class="p-4 pt-20 pb-24">
         {props.intro}
-        <PostForm action={props.action} class="flex flex-col gap-4">
+        <PostForm
+          action={props.action}
+          multipart={props.multipart}
+          class="flex flex-col gap-4"
+        >
           {props.children}
           <div class="flex gap-2 mt-2">
             <CancelLink href={back} class="flex-1" />
-            <button type="submit" class="btn btn-primary flex-1">
+            <button
+              type="submit"
+              class="btn btn-primary flex-1"
+              disabled={props.submitDisabled}
+            >
               {props.submitLabel}
             </button>
           </div>

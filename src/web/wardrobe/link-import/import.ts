@@ -56,20 +56,6 @@ export const CHOICE_CONCURRENCY = 2;
  */
 export const CHOICE_PIXEL_BUDGET = MAX_INPUT_PIXELS;
 
-/**
- * The link field's cap (and the posted link's). Longer than the fetcher's
- * own URL cap, so a pasted line with words around the link still reaches
- * linkIn, and an over-long link is the fetcher's refusal with its message.
- */
-export const LINK_INPUT_MAX = 4096;
-
-/**
- * A share sheet's text field: it can be a whole paragraph around the link,
- * and is only scanned for the link (linkIn, linear), never stored. The
- * share target's fields (the link page's query, POST /inspiration/share).
- */
-export const SHARED_TEXT_MAX = 16_384;
-
 export type LinkImportRefusal =
   | OutboundFetchRefusal
   /** The text holds no http(s) link. */
@@ -151,20 +137,6 @@ export type LinkImport =
       /** Every candidate that could be read, when there are two or more. */
       choices: PhotoChoice[];
     };
-
-// Up to the first whitespace; the characters a sentence puts right after a
-// link are not part of it.
-const LINK = /https?:\/\/\S+/i;
-const TRAILING_PUNCTUATION = /[.,;:!?)\]}'"»”’]+$/;
-
-/**
- * The first http(s) link in `text`: what a person pasted, or what a share
- * sheet sent (Android puts the link in `text`, often after the page's
- * title). Undefined when there is none.
- */
-export function linkIn(text: string): string | undefined {
-  return LINK.exec(text)?.[0].replace(TRAILING_PUNCTUATION, '');
-}
 
 /**
  * What `url` gives the garment form, the pending photo stored for `userId`

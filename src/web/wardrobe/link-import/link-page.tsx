@@ -13,7 +13,7 @@ import {
   wardrobeUrl,
   WISHLIST_PATH,
 } from '../urls';
-import { LINK_INPUT_MAX } from './import';
+import { LINK_INPUT_MAX } from './link-text';
 
 export interface LinkPageModel {
   /** The link in the field: shared into the app, or as last typed. */

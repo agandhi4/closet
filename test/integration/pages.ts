@@ -231,6 +231,7 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     app('/outfits/ideas'),
     app('/inspiration'),
     form('/inspiration/new'),
+    form('/inspiration/share/confirm'),
     app(`/inspiration/${f.inspirationId}`),
     app(`/inspiration/${f.inspirationId}?unread=blocked-by-site`),
     app(`/inspiration/${f.inspirationId}/recreate`),

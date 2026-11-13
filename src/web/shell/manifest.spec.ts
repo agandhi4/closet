@@ -4,11 +4,11 @@ import { webManifest } from './manifest';
 const config = { appName: 'Closet', iconName: 'icon.png' };
 
 // Android's share sheet (#22d): one share_target, so one takes links and
-// photos. The worker relays its POST (src-sw.ts) to POST /inspiration/share,
-// which saves a photo as a look and sends a link to the link import
-// (inspiration.spec.ts); with no worker to relay it, links alone, by GET.
+// photos. The worker answers its POST on the device (receiveShare,
+// share-target.spec.ts): a photo to the confirmation page, a link to the
+// link import; with no worker to answer it, links alone, by GET.
 describe('the manifest share target', () => {
-  it('takes photos and links by a multipart POST the worker relays, with the PWA on', () => {
+  it('takes photos and links by a multipart POST the worker answers, with the PWA on', () => {
     expect(webManifest({ ...config, pwaEnabled: true }).share_target).toEqual({
       action: '/inspiration/share',
       method: 'POST',

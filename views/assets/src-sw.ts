@@ -45,8 +45,11 @@ import {
   type WarmList,
 } from '../../src/web/shell/offline-warm';
 import { WARM_REQUEST_HEADER } from '../../src/warm-request';
-import { LOGIN_PATH } from '../../src/web/auth/login-path';
-import { INSPIRATION_SHARE_PATH } from '../../src/web/inspiration/share-target';
+import {
+  INSPIRATION_SHARE_PATH,
+  receiveShare,
+  SHARE_STASH_CACHE,
+} from '../../src/web/inspiration/share-target';
 import {
   OUTBOX_SYNCED,
   PAGES_RENEWED,
@@ -133,8 +136,10 @@ const IMAGES_CACHE = 'images-v2';
  * cache added here is dropped on every session change; one that holds an
  * account's pages or photos and is missing here outlives the session. Each
  * strategy writing into one refuses an answer from an older generation.
+ * The share stash (a photo shared into the app, awaiting its confirmation)
+ * is no strategy's, but is the signed-in person's: it goes too.
  */
-const SESSION_CACHES = [PAGES_CACHE, IMAGES_CACHE];
+const SESSION_CACHES = [PAGES_CACHE, IMAGES_CACHE, SHARE_STASH_CACHE];
 
 // Static URLs carry `?v=<build>` (src/web/layout/layout.tsx); the precache is already keyed
 // by content hash, so the query must not stop a precached file matching.
@@ -737,35 +742,25 @@ async function deleteQueuedWrites(
 registerRoute(isSessionBoundary, sessionBoundaryHandler, 'POST');
 
 // The manifest's share target (#22d, src/web/shell/manifest.ts): Android
-// opens the app with a POST navigation the browser itself starts, whose
-// Origin is not one the server's same-origin check accepts. The worker
-// posts the same body itself (its own origin, the session's cookie) and
-// answers the navigation with where the server's 303 landed, a look's page
-// or the link import's (answerFor, as for an auth post). Without a session
-// the server answers this fetch a bodiless 401, which would be a blank
-// page: the worker sends it to sign in instead, dropping the session's
-// caches as a page sent to the login page does. No answer at all is the
-// catch handler's offline page; the share is not kept (a photo is not a
-// queued write, docs/plans/2026-11-12-offline-queued-writes.md).
+// opens the app with a POST navigation, answered here and never sent on
+// (receiveShare, src/web/inspiration/share-target.ts). A cross-site page
+// can submit the same navigation and nothing here tells them apart, so
+// relaying it would save whatever that page posted under our Origin and
+// the session's cookie. A photo waits on the device for the confirmation
+// page's own post; a link goes to the link page, which saves nothing.
 const isShareTarget = ({ request, url }: { request: Request; url: URL }) =>
   url.origin === self.location.origin &&
   url.pathname === INSPIRATION_SHARE_PATH &&
   request.mode === 'navigate';
 
-const shareTargetHandler = async ({
-  request,
-  event,
-}: RouteHandlerCallbackOptions) => {
-  const response = await fetchFollowingRedirects(request);
-  if (response.status === 401) {
-    console.info('[sw] share target: signed out, to the login page');
-    await dropSession(event, 'share target found nobody signed in');
-    return Response.redirect(LOGIN_PATH, 303);
-  }
-  console.info(
-    `[sw] share target relayed: ${response.status}${response.redirected ? ` to ${new URL(response.url).pathname}` : ''}`,
+const shareTargetHandler = async ({ request }: RouteHandlerCallbackOptions) => {
+  const { outcome, response } = await receiveShare(
+    request,
+    self.caches,
+    Date.now(),
   );
-  return answerFor(request, response);
+  console.info(`[sw] share target: ${outcome}`);
+  return response;
 };
 
 registerRoute(isShareTarget, shareTargetHandler, 'POST');
