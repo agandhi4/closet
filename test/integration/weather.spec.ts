@@ -925,11 +925,13 @@ describe('weather', () => {
         name: 'Evening out',
         slots: [],
         plan: { day: '2026-09-28', occasion: 'evening' },
+        origin: 'person',
       });
       await createOutfit(t.db, t.owner.id, {
         name: 'Far ahead',
         slots: [],
         plan: { day: '2026-10-20', occasion: 'all-day' },
+        origin: 'person',
       });
       const calendar = await tool<{
         entries: {

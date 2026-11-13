@@ -78,6 +78,7 @@ export async function saveRecreation(
       const outfit = await pickIdea(tx, ownerId, {
         garmentIds,
         name: look.title ?? undefined,
+        origin: 'person',
       });
       if (outfit === 'not-found') return outfit;
       const recorded = await recordPieceChoices(tx, id, ownerId, choices);

@@ -1,5 +1,5 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
-import { Type } from '@sinclair/typebox';
+import { CloneType, Type } from '@sinclair/typebox';
 import { todayIn } from '../../calendar-date';
 import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
 import { apiResponses } from '../api/contract';
@@ -9,6 +9,7 @@ import {
   ListCursor,
   ListLimit,
   ListOf,
+  literals,
   readIdCursor,
 } from '../api/resource';
 import { HttpError } from '../errors';
@@ -34,6 +35,7 @@ import {
   toOutfitListItem,
   toOutfitResource,
 } from './outfit-resource';
+import { OUTFIT_LISTS } from './outfit-list';
 import { createOutfit, listOutfitsPage, outfitText } from './queries';
 import type { OutfitReaction } from './reactions';
 import { OutfitParams } from './schemas';
@@ -48,6 +50,12 @@ const OutfitListQuery = Type.Object({
     Type.Boolean({
       description:
         "`true`: your agent's proposals waiting on you (the Outfits tab's From Muse cards) instead of your own outfits; each carries its `proposal`",
+    }),
+  ),
+  show: Type.Optional(
+    CloneType(literals(OUTFIT_LISTS), {
+      description:
+        "The Saved tab's lists: `kept` (origin `person` or `agent`, what Saved shows) or `one-offs` (`idea`, `planner`: Worn and planned). Absent: every outfit",
     }),
   ),
 });
@@ -86,7 +94,12 @@ export const outfitApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       },
     },
     async (request) => {
-      const { cursor, limit = OUTFIT_PAGE_SIZE, proposed } = request.query;
+      const {
+        cursor,
+        limit = OUTFIT_PAGE_SIZE,
+        proposed,
+        show,
+      } = request.query;
       const { outfits, next } = await listOutfitsPage(
         db,
         actorOf(request).userId,
@@ -94,6 +107,7 @@ export const outfitApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
           before: cursor === undefined ? undefined : readIdCursor(cursor),
           limit,
           proposed: proposed === true,
+          list: show,
         },
       );
       return {
@@ -157,6 +171,7 @@ export const outfitApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
           day: plan.day,
           occasion: plan.occasion ?? DEFAULT_OCCASION,
         },
+        origin: 'person',
       });
       const planned = plan ? `, ${saved.schedule} on ${plan.day}` : '';
       const client = clientId ? `, client id ${clientId.slice(0, 8)}` : '';

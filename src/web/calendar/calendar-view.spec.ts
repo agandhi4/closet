@@ -46,7 +46,7 @@ function entryOn(
     worn: false,
     selfie: null,
     plannedBy: 'user',
-    outfit: { id, name: `Outfit ${id}`, garments: [] },
+    outfit: { id, name: `Outfit ${id}`, kept: true, garments: [] },
   };
 }
 
@@ -534,7 +534,7 @@ describe('entryPieces', () => {
   });
   const marksOf = (day: string, worn: boolean, garments: EntryGarment[]) =>
     entryPieces(
-      { day, worn, outfit: { id: 1, name: null, garments } },
+      { day, worn, outfit: { id: 1, name: null, kept: true, garments } },
       today,
     ).map((p) => p.marks);
   const lent = piece({ away: 'lent' });

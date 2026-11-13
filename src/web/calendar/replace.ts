@@ -1,4 +1,5 @@
 import type { Queryable } from '../../db/client';
+import type { OutfitOrigin } from '../../wardrobe/outfit-origin';
 import type { Occasion } from '../../wardrobe/occasions';
 import { ownerTransaction } from '../auth/queries';
 import { HttpError } from '../errors';
@@ -57,11 +58,12 @@ import {
 /**
  * What the entry gets: a saved outfit of the owner's, or garments (an
  * idea's, Styling's rows) through pickIdea, named `name` when they are not
- * an outfit yet.
+ * an outfit yet, with `origin` (#659: `idea` for a picked idea, `person`
+ * for Styling's composed rows).
  */
 export type ReplacementChoice =
   | { outfitId: number }
-  | { garmentIds: readonly number[]; name?: string };
+  | { garmentIds: readonly number[]; name?: string; origin: OutfitOrigin };
 
 export interface EntryTarget {
   entryId: number;
@@ -199,6 +201,7 @@ async function chosenOutfit(
   const picked = await pickIdea(tx, ownerId, {
     garmentIds: choice.garmentIds,
     name: choice.name,
+    origin: choice.origin,
   });
   return picked === 'not-found' ? undefined : picked;
 }

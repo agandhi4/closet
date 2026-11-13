@@ -87,6 +87,8 @@ async function planOnTrip(
     name: input.name,
     day,
     occasion,
+    // An idea for the trip: a one-off, whoever picked it (#659).
+    origin: 'idea',
   });
   return {
     outfitId: picked.outfit.id,

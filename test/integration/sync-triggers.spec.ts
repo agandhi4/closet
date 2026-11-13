@@ -171,7 +171,10 @@ describe('the sync triggers', () => {
       name: 'Sync shirt',
       category: 'tops',
     });
-    const pick = await pickIdea(t.db, t.owner.id, { garmentIds: [shirt] });
+    const pick = await pickIdea(t.db, t.owner.id, {
+      garmentIds: [shirt],
+      origin: 'person',
+    });
     if (pick === 'not-found') throw new Error('garment not found');
 
     const before = await revisionOf(t.owner.id);
@@ -236,7 +239,10 @@ describe('the sync triggers', () => {
         clientId,
       }),
     ).toBe('changed');
-    const pick = await pickIdea(t.db, t.owner.id, { garmentIds: [doomed] });
+    const pick = await pickIdea(t.db, t.owner.id, {
+      garmentIds: [doomed],
+      origin: 'person',
+    });
     if (pick === 'not-found') throw new Error('garment not found');
     const entry = await insertEntry(t.db, {
       ownerId: t.owner.id,

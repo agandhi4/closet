@@ -22,6 +22,7 @@ import {
   outfitEntriesSql,
   readOutfitEntries,
 } from './queries';
+import type { OutfitList } from './outfit-list';
 
 /**
  * The Outfits pages' reads, each page in one statement (selectScalars):
@@ -32,7 +33,7 @@ import {
 
 /** What GET /outfits shows (list-page.tsx). */
 export interface SavedContext {
-  /** The owner's own outfits, newest first: the tiles (ownersOutfit). */
+  /** The owner's own outfits of the list asked, newest first: the tiles (ownersOutfit, keptOutfit). */
   outfits: GarmentOutfit[];
   /**
    * Muse's outfits not the owner's yet (awaiting them, or set aside), and
@@ -46,23 +47,27 @@ export interface SavedContext {
 }
 
 /**
- * The Saved tab's tiles and their activity, Muse's outfits with what their
- * pieces to buy unlock (#335), and with a day to pick for, that day's
- * entries (readDayChoice: the plan page's rule): one statement.
+ * The Saved tab's tiles of `list` (#659) and their activity, Muse's
+ * outfits with what their pieces to buy unlock (#335), and with a day to
+ * pick for, that day's entries (readDayChoice: the plan page's rule): one
+ * statement.
  */
 export async function savedContext(
   db: Db,
   ownerId: number,
   today: IsoDate,
   day: DayDestination | undefined,
+  list: OutfitList,
 ): Promise<SavedContext> {
+  // Picking for a day is its own task, and the one-offs are not where
+  // Muse's proposals wait: her section shows only above the kept grid.
+  const withMuse = !day && list === 'kept';
   const row = await selectScalars(db, {
-    outfits: savedOutfitsSql(ownerId),
+    outfits: savedOutfitsSql(ownerId, list),
     activity: outfitActivitySql(ownerId, today),
     entries: day && entriesOfDaySql(ownerId, day.day),
-    // Picking for a day is its own task: Muse's section stays out of it.
-    muse: day ? undefined : museOutfitsSql(ownerId),
-    unlocks: day ? undefined : museUnlocksInputsSql(ownerId),
+    muse: withMuse ? museOutfitsSql(ownerId) : undefined,
+    unlocks: withMuse ? museUnlocksInputsSql(ownerId) : undefined,
   });
   return {
     outfits: row.outfits,

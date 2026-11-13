@@ -41,7 +41,7 @@ import { wearsSinceWashSql } from '../wears/queries';
  * the batches ("Plan my week" taps) and what each auto entry was planned
  * for, and the daily re-plan's claims. The signed-in owner's own, like the
  * calendar. The writes here run inside plan.ts's and replan.ts's
- * transactions (under lockOwner), and createOutfit's (adoptPlannerOutfit,
+ * transactions (under lockOwner), and createOutfit's (adoptOutfit,
  * adopt.ts); calendar entries themselves are only ever written through
  * insertEntry (pickIdea) and removed by removeAutoEntries.
  */

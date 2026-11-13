@@ -24,14 +24,17 @@ import {
 import { MuseSection } from './muse-cards';
 import type { MuseOutfit } from './proposals';
 import { buyFirstNote, toBuyLine } from './to-buy';
-import { outfitUrl } from './urls';
+import { type OutfitList, OutfitListTabs } from './outfit-list';
+import { outfitUrl, savedUrl } from './urls';
 
 /** Tiles above the fold on a phone (two rows of two): their images load at once. */
 const EAGER_TILES = 4;
 
 export interface SavedModel {
-  /** Every outfit of the owner's, newest first. */
+  /** The owner's outfits of `list`, newest first. */
   outfits: GarmentOutfit[];
+  /** `?show=` (#659): the kept outfits, or the one-offs ("Worn and planned"). */
+  list: OutfitList;
   /** Worn counts and next plans, by outfit id (absent: never planned). */
   activity: Map<number, OutfitActivity>;
   /**
@@ -89,6 +92,10 @@ export function OutfitsPage(props: { ctx: ViewContext; model: SavedModel }) {
         {!model.picking && model.muse.outfits.length > 0 && (
           <h2 class="font-semibold px-1 pt-2">{t('outfits.muse.YOURS')}</h2>
         )}
+        <OutfitListTabs
+          list={model.list}
+          href={savedUrl(destination ?? { kind: 'none' })}
+        />
         <SavedGrid model={model} destination={destination} />
       </PageMain>
       <DecisionToastView toast={model.toast} />
@@ -106,7 +113,11 @@ function SavedGrid({
   destination: DayDestination | undefined;
 }) {
   if (model.outfits.length === 0) {
-    return <NoOutfits destination={destination} />;
+    return model.list === 'kept' ? (
+      <NoOutfits destination={destination} />
+    ) : (
+      <p class="text-sm text-muted px-2">{t('outfits.NO_ONE_OFFS')}</p>
+    );
   }
   if (model.picking) {
     return <PickingGrid model={model} picking={model.picking} />;

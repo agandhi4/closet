@@ -15,7 +15,8 @@ import { dayUrl, planPageUrl } from './urls';
  * (Auto while "Plan my week"'s pick stands untouched, #16) and the Change
  * menu (another outfit in its place, #69, not once worn; and unscheduling
  * it, #636); then the
- * outfit as a small OutfitCollage with its name (tap to edit it in
+ * outfit as a small OutfitCollage with its name, a kept outfit's only
+ * (#659: a one-off's name is its garments' list; tap to edit it in
  * Styling), its selfie (or the buttons that take one, #19) and the worn
  * pill. The one way a day's entries are drawn: the week agenda stacks them
  * in occasion order, and Today (#15) draws the same entries larger through
@@ -66,7 +67,9 @@ export function OccasionRow(props: {
           <span class="w-16 shrink-0 lg:w-full">
             <OutfitCollage garments={entry.pieces} size="cell" />
           </span>
-          <span class="text-sm font-medium line-clamp-2">{name}</span>
+          {entry.outfit.kept && (
+            <span class="text-sm font-medium line-clamp-2">{name}</span>
+          )}
         </a>
         <EntrySelfie
           entryId={entry.id}
