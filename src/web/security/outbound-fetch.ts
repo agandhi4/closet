@@ -1,16 +1,15 @@
 import { lookup as dnsLookup } from 'node:dns/promises';
-import type { LookupAddress } from 'node:dns';
 import {
+  type IncomingHttpHeaders,
   type IncomingMessage,
   request as httpRequest,
-  type RequestOptions,
 } from 'node:http';
-import { request as httpsRequest } from 'node:https';
-import { isIP, type LookupFunction } from 'node:net';
+import { isIP, type Socket } from 'node:net';
 import type { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream';
 import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import type { Logger } from '../../logger';
+import { dial, type TrustedCertificates } from './outbound-dial';
 import { isPublicAddress } from './public-address';
 
 /**
@@ -27,10 +26,10 @@ import { isPublicAddress } from './public-address';
  *   and, when the request names `hosts`, only those hosts (redirects too);
  * - resolves the name once and refuses it if any answer is not a public
  *   address (public-address.ts), then connects to the checked address
- *   (`pinnedLookup`): the socket never resolves the name again, so DNS
- *   rebinding cannot swap the address between the check and the connect.
- *   TLS still gets the name for SNI and certificate checks, and Host is the
- *   name;
+ *   itself (`dial`, outbound-dial.ts, the one place a connection opens):
+ *   nothing resolves the name again, so DNS rebinding cannot swap the
+ *   address between the check and the connect. TLS still verifies the
+ *   certificate against the name, which is the SNI, and Host is the name;
  * - follows at most MAX_REDIRECTS redirects, each checked like the first;
  * - is bounded as a whole by one timeout (DNS, connects, redirects, body);
  * - reads the body only for a content type the caller accepts, and stops
@@ -199,21 +198,36 @@ export interface OutboundFetcherOptions {
    * a loopback alias standing in for the internet on a random port.
    */
   destinations?: DestinationPolicy;
+  /**
+   * Specs only: the TLS fixture's certificates, trusted instead of the
+   * system's. Absent in production, which verifies against Node's roots.
+   */
+  tls?: TrustedCertificates;
   timeoutMs?: number;
 }
+
+/**
+ * The specs' stand-in internet, the only options AppOptions passes through
+ * (`outboundFetch`, `weather.fetch`, `orderMail.fetch`); production passes
+ * none of them.
+ */
+export type OutboundStandIn = Pick<
+  OutboundFetcherOptions,
+  'resolve' | 'destinations' | 'tls'
+>;
 
 const systemResolve: Resolve = (hostname) =>
   dnsLookup(hostname, { all: true, order: 'verbatim' });
 
 /**
- * The URL's host (an IPv6 literal without brackets) once its scheme, port
- * and lack of credentials pass. Nothing is resolved yet.
+ * The URL's host (an IPv6 literal without brackets) and port once its
+ * scheme, port and lack of credentials pass. Nothing is resolved yet.
  */
 function checkedHost(
   url: URL,
   destinations: DestinationPolicy,
   hosts: readonly string[] | undefined,
-): string {
+): { host: string; port: number } {
   const protocol = url.protocol;
   if (protocol !== 'http:' && protocol !== 'https:') {
     throw new OutboundFetchError(
@@ -240,14 +254,28 @@ function checkedHost(
       `${url.hostname} is not one of this fetch's hosts`,
     );
   }
-  return url.hostname.replace(/^\[(.*)\]$/, '$1');
+  return { host: url.hostname.replace(/^\[(.*)\]$/, '$1'), port };
 }
 
 /** A checked URL and the one address the socket will connect to. */
 interface PinnedTarget {
   url: URL;
   host: string;
+  port: number;
   address: ResolvedAddress;
+}
+
+/**
+ * One response, whatever the protocol spoke it: all the refusal rules and
+ * the body readers see (`refuseStatus`, `readResponse`, `decoded`), so each
+ * rule has one copy. `headers` are lower case.
+ */
+interface Answer {
+  status: number;
+  headers: IncomingHttpHeaders;
+  body: Readable;
+  /** Drops the response and its connection; harmless twice. */
+  destroy(): void;
 }
 
 export function createOutboundFetcher(
@@ -257,6 +285,7 @@ export function createOutboundFetcher(
     logger,
     resolve = systemResolve,
     destinations = PUBLIC_DESTINATIONS,
+    tls,
     timeoutMs = FETCH_TIMEOUT_MS,
   } = options;
 
@@ -266,7 +295,7 @@ export function createOutboundFetcher(
     request: FetchRequest,
     signal: AbortSignal,
   ): Promise<PinnedTarget> {
-    const host = checkedHost(url, destinations, request.hosts);
+    const { host, port } = checkedHost(url, destinations, request.hosts);
     const addresses = isIP(host)
       ? [{ address: host, family: isIP(host) }]
       : await resolveName(host, signal);
@@ -280,7 +309,26 @@ export function createOutboundFetcher(
     }
     // IPv4 first: the container has no IPv6 route.
     const address = addresses.find((a) => a.family === 4) ?? addresses[0];
-    return { url, host, address };
+    return { url, host, port, address };
+  }
+
+  /** One request to the target's checked address, on a socket of its own. */
+  async function exchange(
+    target: PinnedTarget,
+    request: FetchRequest,
+    signal: AbortSignal,
+  ): Promise<Answer> {
+    const socket = await dial(
+      {
+        host: target.host,
+        address: target.address.address,
+        port: target.port,
+        secure: target.url.protocol === 'https:',
+      },
+      signal,
+      tls,
+    );
+    return sendHttp1(socket, target.url, request, signal);
   }
 
   async function resolveName(
@@ -315,11 +363,11 @@ export function createOutboundFetcher(
     let url = start;
     for (let redirects = 0; ; redirects++) {
       const target = await pin(url, request, signal);
-      const response = await send(target, request, signal);
-      const status = response.statusCode ?? 0;
-      const location = response.headers.location;
+      const answer = await exchange(target, request, signal);
+      const { status } = answer;
+      const location = answer.headers.location;
       if (REDIRECT_STATUSES.has(status) && location) {
-        response.destroy();
+        answer.destroy();
         if (carriesCredentialOrBody(request)) {
           throw new OutboundFetchError(
             'http-status',
@@ -338,7 +386,7 @@ export function createOutboundFetcher(
         continue;
       }
       return {
-        ...(await readResponse(response, request, signal)),
+        ...(await readResponse(answer, request, signal)),
         url,
         redirects,
       };
@@ -392,69 +440,66 @@ function parseUrl(value: string, base?: URL): URL {
 }
 
 /**
- * The socket's lookup, answering with the address that was checked and
- * never asking DNS. net.connect asks for every address (`all`) when it may
- * race IPv4 and IPv6 (autoSelectFamily), else for one.
+ * The request over HTTP/1.1 on `socket`, which `dial` connected: no agent,
+ * so nothing is pooled (a pooled socket could carry another hop's pin) and
+ * the request asks the server to close. Host is the URL's own (the name,
+ * with a port only when it is not the scheme's), set here rather than
+ * derived from a connect option.
  */
-function pinnedLookup({ address, family }: ResolvedAddress): LookupFunction {
-  return (_hostname, options, callback) => {
-    if (options.all) {
-      const all: LookupAddress[] = [{ address, family }];
-      callback(null, all);
-    } else {
-      callback(null, address, family);
-    }
-  };
-}
-
-function send(
-  { url, host, address }: PinnedTarget,
+function sendHttp1(
+  socket: Socket,
+  url: URL,
   { accept, authorization, json }: FetchRequest,
   signal: AbortSignal,
-): Promise<IncomingMessage> {
-  const secure = url.protocol === 'https:';
+): Promise<Answer> {
   const body = json === undefined ? undefined : JSON.stringify(json);
-  const options: RequestOptions & { servername?: string } = {
-    method: body === undefined ? 'GET' : 'POST',
-    host,
-    port: url.port || (secure ? 443 : 80),
-    path: `${url.pathname}${url.search}`,
-    headers: {
-      'user-agent': USER_AGENT,
-      accept: accept.map((kind) => ACCEPT_HEADERS[kind]).join(','),
-      'accept-encoding': 'gzip, deflate, br',
-      'accept-language': 'en',
-      ...(authorization !== undefined && { authorization }),
-      ...(body !== undefined && {
-        'content-type': 'application/json',
-        'content-length': Buffer.byteLength(body),
-      }),
-    },
-    lookup: pinnedLookup(address),
-    // A fresh socket per request: a pooled one could carry another pin.
-    agent: false,
-    signal,
-  };
-  // SNI and the certificate check use the name, never an IP (Node refuses
-  // an IP as servername). The Host header is the name for both schemes.
-  if (secure && !isIP(host)) options.servername = host;
   return new Promise((resolve, reject) => {
-    const request = (secure ? httpsRequest : httpRequest)(options);
-    request.once('response', resolve);
-    request.once('error', reject);
+    const request = httpRequest({
+      method: body === undefined ? 'GET' : 'POST',
+      path: `${url.pathname}${url.search}`,
+      headers: {
+        host: url.host,
+        'user-agent': USER_AGENT,
+        accept: accept.map((kind) => ACCEPT_HEADERS[kind]).join(','),
+        'accept-encoding': 'gzip, deflate, br',
+        'accept-language': 'en',
+        ...(authorization !== undefined && { authorization }),
+        ...(body !== undefined && {
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(body),
+        }),
+      },
+      createConnection: () => socket,
+      signal,
+    });
+    // `on`, not `once`: a second error (a reset after an abort) with no
+    // listener would crash the process. A 1xx never reaches 'response'
+    // (Node emits it as 'information'), so it is ignored.
+    request.on('error', reject);
+    request.once('response', (response: IncomingMessage) => {
+      resolve({
+        status: response.statusCode ?? 0,
+        headers: response.headers,
+        body: response,
+        destroy: () => {
+          response.destroy();
+          socket.destroy();
+        },
+      });
+    });
     request.end(body);
   });
 }
 
 async function readResponse(
-  response: IncomingMessage,
+  answer: Answer,
   { accept, hosts }: FetchRequest,
   signal: AbortSignal,
 ): Promise<Omit<FetchedResource, 'url' | 'redirects'>> {
   try {
-    refuseStatus(response, hosts);
+    refuseStatus(answer, hosts);
     const { mediaType, charset } = parseContentType(
-      response.headers['content-type'],
+      answer.headers['content-type'],
     );
     const kind = accept.find((k) => MEDIA_TYPES[k].includes(mediaType));
     if (!kind) {
@@ -465,34 +510,32 @@ async function readResponse(
     }
     const limit = BYTE_LIMITS[kind];
     const cut = kind === 'html';
-    const declared = Number(response.headers['content-length']);
-    if (!cut && !response.headers['content-encoding'] && declared > limit) {
+    // An early refusal only: the guard is the counted bytes, since a server
+    // can declare less than it sends.
+    const declared = Number(answer.headers['content-length']);
+    if (!cut && !answer.headers['content-encoding'] && declared > limit) {
       throw tooLarge(limit);
     }
     const { body, truncated } = await readCapped(
-      decoded(response),
+      decoded(answer),
       limit,
       cut,
       signal,
     );
     return { kind, mediaType, charset, body, truncated };
   } finally {
-    response.destroy();
+    answer.destroy();
   }
 }
 
 /** Throws unless the answer is a 2xx that is not a bot's challenge. */
 function refuseStatus(
-  response: IncomingMessage,
+  { status, headers }: Answer,
   hosts: FetchRequest['hosts'],
 ): void {
-  const status = response.statusCode ?? 0;
   // Only a user's URL meets a shop's bot protection; a fixed API's 403 or
   // 429 is its own answer (a token's scope, a quota), told by its status.
-  if (
-    !hosts &&
-    (BLOCKING_STATUSES.has(status) || isChallenge(response.headers))
-  ) {
+  if (!hosts && (BLOCKING_STATUSES.has(status) || isChallenge(headers))) {
     throw new OutboundFetchError(
       'blocked-by-site',
       `The site refused an automated fetch (${status})`,
@@ -514,7 +557,7 @@ function refuseStatus(
  * `captcha`), which would otherwise read as a page with nothing on it;
  * Cloudflare marks its challenges `cf-mitigated: challenge`.
  */
-function isChallenge(headers: IncomingMessage['headers']): boolean {
+function isChallenge(headers: IncomingHttpHeaders): boolean {
   const waf = headerValue(headers['x-amzn-waf-action']);
   return (
     waf === 'challenge' ||
@@ -537,14 +580,14 @@ const DECODERS = new Map<string, () => Transform>([
 ]);
 
 /** The body as sent, decompressed; the cap applies to these bytes. */
-function decoded(response: IncomingMessage): Readable {
-  const encoding = (response.headers['content-encoding'] ?? 'identity')
+function decoded({ headers, body }: Answer): Readable {
+  const encoding = (headers['content-encoding'] ?? 'identity')
     .trim()
     .toLowerCase();
   const decoder = DECODERS.get(encoding)?.();
   if (decoder) {
     // Errors on either side destroy both; the reader sees the first.
-    return pipeline(response, decoder, () => undefined);
+    return pipeline(body, decoder, () => undefined);
   }
   if (encoding !== 'identity') {
     throw new OutboundFetchError(
@@ -552,7 +595,7 @@ function decoded(response: IncomingMessage): Readable {
       `Unsupported content encoding ${encoding}`,
     );
   }
-  return response;
+  return body;
 }
 
 /**

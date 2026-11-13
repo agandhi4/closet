@@ -266,6 +266,22 @@ describe('adding a garment from a link', () => {
   });
 
   describe('a product page', () => {
+    it('loads over https, trusting the fixture only through the stand-in (#496a)', async () => {
+      // Its own account: the default one's LINK_IMPORT_LIMIT is spent below.
+      const { cookie } = await signUp('secure-shopper@example.com');
+      const res = await importLink(sites.secureUrl('/products/tee'), {
+        cookie,
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(unescapeHtml(res.body)).toContain(
+        'value="Heavyweight Pocket Tee"',
+      );
+      expect(
+        sites.requests.find((r) => r.servername === 'shop.test')?.path,
+      ).toBe('/products/tee');
+    });
+
     it('with JSON-LD prefills the form and offers its photos, writing nothing', async () => {
       const link = sites.url('/products/tee');
       let res!: Awaited<ReturnType<typeof importLink>>;

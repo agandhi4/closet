@@ -37,7 +37,7 @@ import { createPushSender, type PushSender } from './web/push/sender';
 import {
   createOutboundFetcher,
   type OutboundFetcher,
-  type OutboundFetcherOptions,
+  type OutboundStandIn,
 } from './web/security/outbound-fetch';
 import { registerRateLimit } from './web/security/rate-limit';
 import {
@@ -108,10 +108,11 @@ export interface ClosetApp {
 export interface AppOptions {
   /**
    * The outbound fetcher's test-only options (a scripted resolver, a
-   * loopback alias standing in for the internet): the link import's specs
-   * pass them; production never does (AGENTS.md Gotchas).
+   * loopback alias standing in for the internet, the TLS fixture's
+   * certificate): the link import's specs pass them; production never does
+   * (AGENTS.md Gotchas).
    */
-  outboundFetch?: Pick<OutboundFetcherOptions, 'resolve' | 'destinations'>;
+  outboundFetch?: OutboundStandIn;
   /**
    * Open-Meteo's stand-in (test/support/weather-stub.ts): its endpoints and
    * the address policy that admits it. The specs and the e2e test server
@@ -119,7 +120,7 @@ export interface AppOptions {
    */
   weather?: {
     endpoints: WeatherEndpoints;
-    fetch: Pick<OutboundFetcherOptions, 'resolve' | 'destinations'>;
+    fetch: OutboundStandIn;
   };
   /**
    * Fastmail's stand-in (test/support/jmap-stub.ts): its session URL and
@@ -128,7 +129,7 @@ export interface AppOptions {
    */
   orderMail?: {
     sessionUrl: string;
-    fetch: Pick<OutboundFetcherOptions, 'resolve' | 'destinations'>;
+    fetch: OutboundStandIn;
   };
   /**
    * Sees every route as it is registered: an onRoute hook added before any
