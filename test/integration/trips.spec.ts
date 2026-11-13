@@ -791,6 +791,29 @@ describe('trips', () => {
   });
 
   describe('"Wore it" on a trip outfit', () => {
+    it("marks only today's copy of an outfit on two days worn", async () => {
+      const today = t.today();
+      // An outfit of its own: other specs wear the polo outfit today.
+      const twice = await outfitOf('Twice on the trip', [['tops', polo]]);
+      const id = await newTrip({
+        name: 'Twice',
+        startsOn: today,
+        endsOn: addDays(today, 2),
+      });
+      await addOutfit(id, twice, { day: today, occasion: 'work' });
+      await addOutfit(id, twice, { day: addDays(today, 1) });
+      const rows = await t.db
+        .select({ id: tripOutfit.id, day: tripOutfit.day })
+        .from(tripOutfit)
+        .where(eq(tripOutfit.tripId, id));
+      const todays = rows.find((r) => r.day === today)!;
+      expect(
+        (await post(`/trips/${id}/outfits/${todays.id}/wear`, {})).statusCode,
+      ).toBe(303);
+      const page = unescapeHtml((await get(`/trips/${id}`)).body);
+      expect(page.match(/✓ Worn/g)).toHaveLength(1);
+    });
+
     it('plans the trip outfit today and marks it worn through the calendar, once', async () => {
       const today = t.today();
       const id = await newTrip({
