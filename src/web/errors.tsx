@@ -4,9 +4,7 @@ import { isLockTimeout } from '../db/errors';
 import { FRAGMENT_VARY, isFragmentRequest } from '../htmx/fragment-request';
 import { OWNER_LOCK_TIMEOUT_MS } from '../db/owner-lock';
 import { t } from './i18n';
-import { AppBar } from './layout/app-bar';
-import { Dock } from './layout/dock';
-import { Layout } from './layout/layout';
+import { ErrorPage } from './error-page';
 import { loggableUrl } from './loggable-url';
 import {
   type ErrorCode,
@@ -17,8 +15,9 @@ import {
 import type { Logger } from '../logger';
 import type { ErrorTracker } from '../metrics/error-tracker';
 import { renderPage } from './render';
+import { safeReturnTo } from './security/return-to';
+import { scrubSecrets } from '../secret-text';
 import { surfaceOf } from './surface';
-import type { ViewContext } from './view-context';
 
 const CODE_OF_STATUS: Readonly<Record<number, ErrorCode>> = {
   400: 'validation',
@@ -321,6 +320,20 @@ function failureMessage(error: unknown, answer: ErrorAnswer): string {
 }
 
 /**
+ * Where "Try again" goes: the request's own URL, only when it is a GET
+ * (a reload repeats it; a failed write is not repeated by following a
+ * link) that carries no secret: not a `secretPath` route, nothing
+ * scrubSecrets would filter from its query. `safeReturnTo` keeps the href a
+ * path of this site whatever the client sent as its target.
+ */
+function retryHref(request: FastifyRequest): string | undefined {
+  if (request.method !== 'GET') return undefined;
+  if (request.routeOptions.config?.secretPath === true) return undefined;
+  if (scrubSecrets(request.url) !== request.url) return undefined;
+  return safeReturnTo(request.url, '') || undefined;
+}
+
+/**
  * The app's error handler (set at the root by createApp(), so every route,
  * the not-found handler, the rate limiter's 429 and the owner lock's 503
  * share it): the one owner of how a failure reaches the person, by the
@@ -415,46 +428,10 @@ export function createErrorHandler(logger: Logger, errors: ErrorTracker) {
         status={status}
         message={message}
         path={request.url}
+        retryHref={retryHref(request)}
         requestId={request.id}
       />,
       { status },
     );
   };
-}
-
-function ErrorPage(props: {
-  ctx: ViewContext;
-  status: number;
-  message: string;
-  path: string;
-  /** Shown so a person reporting the error can quote it. */
-  requestId: string;
-}) {
-  return (
-    <Layout ctx={props.ctx}>
-      <AppBar ctx={props.ctx} title={`${t('ERROR')} ${props.status}`} />
-      <main class="p-20 flex flex-col justify-center items-center h-full">
-        <p>{props.message}</p>
-        <p>
-          <small>
-            {t('PATH')}: {props.path}
-          </small>
-        </p>
-        <p>
-          <small>
-            {t('TIME')}: {new Date().toISOString()}
-          </small>
-        </p>
-        <p>
-          <small>
-            {t('REQUEST_ID')}: {props.requestId}
-          </small>
-        </p>
-        <a href="/" class="btn">
-          {t('RETURN_TO_HOME')}
-        </a>
-      </main>
-      <Dock ctx={props.ctx} />
-    </Layout>
-  );
 }

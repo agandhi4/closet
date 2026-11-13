@@ -163,5 +163,11 @@ test.describe('Trips', () => {
     await page.goto('/auth/profile');
     await expectNoZoomingFields(page);
     await expectTouchTargets(page);
+    // The error page (#644): inside the phone's width, its actions tappable.
+    const missing = await page.goto('/wardrobe/999999');
+    expect(missing?.status()).toBe(404);
+    await expect(page.getByRole('link', { name: 'Back' })).toBeVisible();
+    await expectPhoneWidth(page);
+    await expectTouchTargets(page);
   });
 });

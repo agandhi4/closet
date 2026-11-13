@@ -102,6 +102,14 @@ describe('date labels', () => {
     expect(shown.match(ISO_DATE)).toBeNull();
   });
 
+  it('the error page shows no timestamp, only the way on', async () => {
+    const res = await t.inject({ method: 'GET', url: '/wardrobe/999999' });
+    expect(res.statusCode).toBe(404);
+    const shown = visibleText(res.body);
+    expect(shown.match(ISO_DATE)).toBeNull();
+    expect(shown).toContain('Open Wardrobe');
+  });
+
   it('an old date reads as a date with its year: last worn, acquired, washed', async () => {
     expect(await text('/wardrobe/insights')).toContain(
       `Last worn ${dateLabel(daysAgo(400), t.today())}`,

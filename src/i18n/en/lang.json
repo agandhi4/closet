@@ -60,9 +60,6 @@
   "WEAR_DELETED": "This wear was removed since, so it was not saved again.",
   "WEAR_CLIENT_ID_TAKEN": "This saved wear was already used for another garment.",
   "GARMENT_DELETED": "This garment was removed since, so it was not saved again.",
-  "ERROR": "Error",
-  "PATH": "Path",
-  "TIME": "Time",
   "REQUEST_ID": "Request ID",
   "RETURN_TO_HOME": "Return to Home",
   "FORCE_PWA": "Force PWA Install Prompt",
@@ -273,6 +270,17 @@
     "REPAIR_NOTE_REQUIRED": "Say what was done",
     "REPAIR_DAY_FUTURE": "Log it on the day it was done, not before",
     "REPAIR_DAY_REQUIRED": "Enter the day it was done"
+  },
+  "errorPage": {
+    "title": {
+      "missing": "Not found",
+      "refused": "Not allowed",
+      "retry": "Not right now",
+      "rejected": "That did not work",
+      "failed": "Something went wrong"
+    },
+    "TRY_AGAIN": "Try again",
+    "OPEN_SECTION": "Open {section}"
   },
   "refusal": {
     "FORBIDDEN": "Forbidden",
