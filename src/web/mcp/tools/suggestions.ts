@@ -18,11 +18,10 @@ import {
 import { CATEGORY_MAX, NAME_MAX } from '../../wardrobe/garment-input';
 import { findGarment } from '../../wardrobe/queries';
 import {
-  createOptionGroup,
-  markSuggestedProduct,
-  type SuggestedProduct,
-  suggestionRoom,
-} from '../../wishlist/decisions';
+  checkSuggestionRoom,
+  createNeed,
+  markSuggestedPick,
+} from '../../wishlist/suggestion-actions';
 import { readSuggestionFeedback } from '../../wishlist/feedback';
 import { notifyRounds, QUIET_PERIOD_MS } from '../../wishlist/round-end';
 import { finishRound, ROUND_SUMMARY_MAX } from '../../wishlist/rounds';
@@ -32,7 +31,7 @@ import {
   readInbox,
   type SetAsideRow,
 } from '../../wishlist/inbox';
-import { defineTool, type ToolContext } from '../tool';
+import { actorOf, defineTool } from '../tool';
 import { priceInput, rowId } from './common';
 import { addGarmentFromLink } from './link-import';
 
@@ -114,30 +113,6 @@ function setAsideOut(rows: readonly SetAsideRow[]) {
         : [],
     ),
   };
-}
-
-/** The refusal of a link the owner set aside, or one suggested already. */
-function sameProductRefusal(same: SuggestedProduct): HttpError {
-  return new HttpError(
-    409,
-    same.dismissed
-      ? `The owner set this product aside (garment ${same.id}, ${same.dismissedReason ?? 'with a note'}): never propose it again`
-      : `This product is suggested already (garment ${same.id})`,
-  );
-}
-
-/** A need full of open options: suggest_garment's refusal before and in the write. */
-const FULL = `That need has ${MAX_OPTIONS_PER_GROUP} open options already`;
-const DECIDED =
-  'That need is decided (chosen, bought or set aside): list_suggestions shows the open ones';
-
-/** suggest_garment's refusals before the fetch: the need's room, and a link never proposed before. */
-async function checkSuggestion(ctx: ToolContext, groupId: number, url: string) {
-  const room = await suggestionRoom(ctx.db, ctx.userId, groupId, url);
-  if (room.group === 'missing') throw new HttpError(404, 'Need not found');
-  if (room.group === 'closed') throw new HttpError(409, DECIDED);
-  if (room.group === 'full') throw new HttpError(409, FULL);
-  if (room.same) throw sameProductRefusal(room.same);
 }
 
 export const suggestionTools = [
@@ -243,34 +218,16 @@ export const suggestionTools = [
     writes: true,
     idempotent: false,
     async run({ name, budget, note }, ctx) {
-      const created = await createOptionGroup(ctx.db, ctx.userId, {
+      const id = await createNeed(ctx.db, actorOf(ctx), {
         name,
         budget: budget === undefined ? null : budget.toFixed(2),
         note: note ?? null,
         tokenId: ctx.tokenId,
       });
-      if (!created.ok && created.reason === 'chosen') {
-        throw new HttpError(
-          409,
-          `The owner chose an option for that need (id ${created.id}): it is decided`,
-        );
-      }
-      if (!created.ok && created.reason === 'open') {
-        throw new HttpError(
-          409,
-          `A need of that name is open already (id ${created.id}): add options to it`,
-        );
-      }
-      if (!created.ok) {
-        throw new HttpError(
-          409,
-          `The owner set that need aside (id ${created.id}, ${created.dismissedReason ?? 'with a note'}): never propose it again`,
-        );
-      }
       ctx.webLogger.info(
-        `Need ${created.id} created by user ${ctx.userId} (MCP, token ${ctx.tokenId})`,
+        `Need ${id} created by user ${ctx.userId} (MCP, token ${ctx.tokenId})`,
       );
-      return { id: created.id };
+      return { id };
     },
   }),
 
@@ -319,7 +276,10 @@ export const suggestionTools = [
     idempotent: false,
     openWorld: true,
     async run(args, ctx) {
-      await checkSuggestion(ctx, args.groupId, args.url);
+      // The need's room before the rate limit and the fetch, so a refused
+      // call spends neither.
+      const actor = actorOf(ctx);
+      await checkSuggestionRoom(ctx.db, actor, args.groupId, args.url);
       if (!(await ctx.allowLinkImport())) {
         throw new HttpError(
           429,
@@ -342,10 +302,10 @@ export const suggestionTools = [
           // In the garment's transaction, judged again under the owner
           // lock: a need decided or filled during the fetch, or the same
           // link marked by a call alongside, rolls the garment back.
-          withGarment: async (tx, garmentId) => {
-            const marked = await markSuggestedProduct(
+          withGarment: (tx, garmentId) =>
+            markSuggestedPick(
               tx,
-              ctx.userId,
+              actor,
               garmentId,
               {
                 tokenId: ctx.tokenId,
@@ -354,12 +314,7 @@ export const suggestionTools = [
                 rank: args.rank ?? null,
               },
               args.url,
-            );
-            if (typeof marked === 'object')
-              throw sameProductRefusal(marked.same);
-            if (marked === 'full') throw new HttpError(409, FULL);
-            if (marked === 'refused') throw new HttpError(409, DECIDED);
-          },
+            ),
         },
       );
       ctx.webLogger.info(

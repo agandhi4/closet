@@ -286,7 +286,8 @@
       "outfitRule": "Outfit rule not found",
       "repair": "Repair not found",
       "trip": "Trip not found",
-      "wardrobe": "Wardrobe not found"
+      "wardrobe": "Wardrobe not found",
+      "wishlistItem": "Not on your wishlist"
     }
   },
   "WARDROBE_SHARING": "Wardrobe Sharing",

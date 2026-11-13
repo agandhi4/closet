@@ -19,7 +19,7 @@ import {
   type CapsuleRef,
   findCapsule,
 } from '../capsules/queries';
-import { capsuleNotFound } from '../capsules/validation';
+import { capsuleNotFound } from '../capsules/capsule-actions';
 import { OUTFIT_NAME_MAX } from '../outfits/queries';
 import { categoryLabel } from '../wardrobe/garment';
 import { type ScalarValues, selectScalars } from '../../db/select-scalars';
@@ -57,6 +57,8 @@ import {
   styledGarment,
   type WishlistGarment,
 } from './queries';
+import { NotFound } from '../refusals';
+import type { Actor } from '../sharing/access';
 import { garmentNotFound } from '../wardrobe/garment-access';
 
 /**
@@ -442,24 +444,28 @@ export interface GoesWithCloset extends GoesWith<ClosetGarment> {
 }
 
 /**
- * "Goes with my closet" (#18b): the owner's wishlist item `itemId` judged
+ * "Goes with my closet" (#18b): the actor's wishlist item `itemId` judged
  * against their whole closet (closetGarments: dirty and away included),
  * their avoided pairs and their outfit rules, by the generator with the item locked
  * (src/wardrobe/goes-with.ts says what is judged: no weather, the item's
  * own formality, no rotation), and the closet garments near-identical to
- * it. Undefined when `itemId` is not one of the owner's wishlist items.
- * The owner's own, like ideas: a grantee who can see the wishlist never
- * gets this, as it reads the owner's closet and clashes. Display only: an
+ * it. Not one of the actor's wishlist items is a 404 (#188). The owner's
+ * own, like ideas: a grantee who can see the wishlist never gets this, as
+ * it reads the owner's closet and clashes. Display only: an
  * outfit with the item cannot be picked (pickIdea takes closet garments),
  * which "Bought it" changes. Seeded by the item's id, so the same closet
  * answers the same. One statement (goesWithInputs) and one search.
  */
 export async function goesWithCloset(
   db: Queryable,
-  ownerId: number,
+  actor: Actor,
   itemId: number,
-): Promise<GoesWithCloset | undefined> {
-  return judgeGoesWithCloset(await goesWithInputs(db, ownerId, itemId));
+): Promise<GoesWithCloset> {
+  const judged = judgeGoesWithCloset(
+    await goesWithInputs(db, actor.userId, itemId),
+  );
+  if (!judged) throw new NotFound('wishlistItem');
+  return judged;
 }
 
 /**

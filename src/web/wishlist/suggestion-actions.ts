@@ -1,0 +1,214 @@
+import type { Queryable } from '../../db/client';
+import {
+  MAX_OPTIONS_PER_GROUP,
+  type SuggestionDecision,
+} from '../../wardrobe/suggestions';
+import { HttpError } from '../errors';
+import { t } from '../i18n';
+import type { WebOptions } from '../plugin';
+import { NotFound, type Resource } from '../refusals';
+import {
+  type Actor,
+  type AuthorizedWardrobe,
+  authorizeWardrobe,
+} from '../sharing/access';
+import {
+  createOptionGroup,
+  decide,
+  markSuggestedProduct,
+  type NeedInput,
+  type Provenance,
+  type SuggestedProduct,
+  suggestionRoom,
+} from './decisions';
+import { type NeedDetail, readNeed } from './inbox';
+
+type Db = WebOptions['db'];
+
+/**
+ * The suggestion access path (#188; docs/plans/2026-11-12-json-api.md
+ * section 4): a need read, every decision the owner makes on Muse's
+ * suggestions, and the agent's writes of them, each taking the Actor and
+ * enforcing access itself, so a page, an MCP tool and the API refuse alike.
+ * A need is read by whoever reads the wishlist (a VIEW grantee sees Muse's
+ * notes, owner decision 2026-10-05); every decision is the owner's alone.
+ * Muse's writes are the caller's own wardrobe (no ownerId: a token acts as
+ * its user). The writers underneath (decisions.ts) trust their `ownerId`.
+ * "Bought it" is purchase.ts's, "Bought a different one" destination.ts's.
+ */
+
+/** A need as a page's `/needs/:id` and `?ownerId=` address it. */
+export interface NeedAddress {
+  id: number;
+  ownerId: number | '' | undefined;
+}
+
+/**
+ * The need `address` names, for whoever may read the wishlist; the owner's
+ * read judges each option against the closet (readNeed). One statement
+ * after the share's, which a page's read ahead answers.
+ */
+export async function requireNeed(
+  db: Db,
+  actor: Actor,
+  address: NeedAddress,
+): Promise<AuthorizedWardrobe & { detail: NeedDetail & { searchMs: number } }> {
+  const wardrobe = await authorizeWardrobe(
+    db,
+    actor,
+    address.ownerId,
+    'view',
+    'need',
+  );
+  const detail = await readNeed(db, {
+    ownerId: wardrobe.access.ownerId,
+    groupId: address.id,
+    isOwner: wardrobe.access.isOwner,
+  });
+  if (!detail) throw new NotFound('need');
+  return { ...wardrobe, detail };
+}
+
+/** A decision the owner makes on a page; "Bought it" settles its need itself (purchase.ts). */
+export type OwnerDecision = Exclude<SuggestionDecision, { kind: 'bought' }>;
+
+/** What a decision names: a pick (a garment) or a need. */
+function subjectOf(decision: OwnerDecision): {
+  resource: Resource;
+  label: string;
+} {
+  return 'garmentId' in decision
+    ? { resource: 'garment', label: `garment ${decision.garmentId}` }
+    : { resource: 'need', label: `need ${decision.groupId}` };
+}
+
+/**
+ * decide() for the owner of the wardrobe `ownerId` names (a grantee is a
+ * 403, an unseen wardrobe or another's pick or need the 404 of what the
+ * decision names), else a 409 for a page gone stale or a double tap.
+ * Answers what it set aside and restored.
+ */
+export async function makeDecision(
+  db: Db,
+  actor: Actor,
+  ownerId: number | '' | undefined,
+  decision: OwnerDecision,
+): Promise<
+  AuthorizedWardrobe & {
+    groupId: number | null;
+    dismissed: number[];
+    restored: number[];
+  }
+> {
+  const subject = subjectOf(decision);
+  const wardrobe = await authorizeWardrobe(
+    db,
+    actor,
+    ownerId,
+    'own',
+    subject.resource,
+  );
+  const outcome = await decide(db, wardrobe.access.ownerId, decision);
+  if (!outcome.ok) {
+    const logDetail = `${decision.kind} on ${subject.label}: ${outcome.reason}`;
+    if (outcome.reason === 'not-found') {
+      throw new NotFound(subject.resource, { logDetail });
+    }
+    throw new HttpError(409, t('muse.STALE'), { logDetail });
+  }
+  return {
+    ...wardrobe,
+    groupId: outcome.groupId,
+    dismissed: outcome.dismissed,
+    restored: outcome.restored,
+  };
+}
+
+/** The refusal of a link the owner set aside, or one suggested already. */
+function sameProductRefusal(same: SuggestedProduct): HttpError {
+  return new HttpError(
+    409,
+    same.dismissed
+      ? `The owner set this product aside (garment ${same.id}, ${same.dismissedReason ?? 'with a note'}): never propose it again`
+      : `This product is suggested already (garment ${same.id})`,
+  );
+}
+
+/** A need full of open options: suggest_garment's refusal before and in the write. */
+const FULL = `That need has ${MAX_OPTIONS_PER_GROUP} open options already`;
+const DECIDED =
+  'That need is decided (chosen, bought or set aside): list_suggestions shows the open ones';
+
+/**
+ * A new pick's refusals before its product is fetched (suggestionRoom:
+ * one statement, no lock): another's or an unknown need is a 404, a need
+ * decided or full and a product proposed before a 409. The writer judges
+ * again under the owner lock (markSuggestedPick).
+ */
+export async function checkSuggestionRoom(
+  db: Db,
+  actor: Actor,
+  groupId: number,
+  url: string,
+): Promise<void> {
+  const room = await suggestionRoom(db, actor.userId, groupId, url);
+  if (room.group === 'missing') throw new NotFound('need');
+  if (room.group === 'closed') throw new HttpError(409, DECIDED);
+  if (room.group === 'full') throw new HttpError(409, FULL);
+  if (room.same) throw sameProductRefusal(room.same);
+}
+
+/**
+ * The agent's new garment marked as its pick for a need, in the garment's
+ * own transaction (`tx`): a refusal throws, which rolls the garment back
+ * (a need decided or filled during the fetch, the same link marked by a
+ * call alongside).
+ */
+export async function markSuggestedPick(
+  tx: Queryable,
+  actor: Actor,
+  garmentId: number,
+  provenance: Provenance,
+  url: string,
+): Promise<void> {
+  const marked = await markSuggestedProduct(
+    tx,
+    actor.userId,
+    garmentId,
+    provenance,
+    url,
+  );
+  if (typeof marked === 'object') throw sameProductRefusal(marked.same);
+  if (marked === 'full') throw new HttpError(409, FULL);
+  if (marked === 'refused') throw new HttpError(409, DECIDED);
+}
+
+/**
+ * A need the agent states for the actor's wardrobe (createOptionGroup):
+ * its id, or a 409 naming the need of that name already open, chosen, or
+ * set aside (never proposed again).
+ */
+export async function createNeed(
+  db: Db,
+  actor: Actor,
+  need: NeedInput,
+): Promise<number> {
+  const created = await createOptionGroup(db, actor.userId, need);
+  if (created.ok) return created.id;
+  if (created.reason === 'chosen') {
+    throw new HttpError(
+      409,
+      `The owner chose an option for that need (id ${created.id}): it is decided`,
+    );
+  }
+  if (created.reason === 'open') {
+    throw new HttpError(
+      409,
+      `A need of that name is open already (id ${created.id}): add options to it`,
+    );
+  }
+  throw new HttpError(
+    409,
+    `The owner set that need aside (id ${created.id}, ${created.dismissedReason ?? 'with a note'}): never propose it again`,
+  );
+}

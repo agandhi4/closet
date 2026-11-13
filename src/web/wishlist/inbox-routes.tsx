@@ -1,18 +1,17 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
 import type { FastifyReply } from 'fastify';
-import {
-  OWNER_DISMISS_REASONS,
-  type SuggestionDecision,
-} from '../../wardrobe/suggestions';
+import { OWNER_DISMISS_REASONS } from '../../wardrobe/suggestions';
 import { sessionUserId } from '../auth/require-session';
-import { HttpError } from '../errors';
-import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import { GarmentParams, OwnerQuery, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
-import { type WardrobeRequest, wardrobeGuard } from '../sharing/access';
+import {
+  actorOf,
+  type WardrobeRequest,
+  wardrobeGuard,
+} from '../sharing/access';
 import { viewContext } from '../view-context';
 import {
   garmentUrl,
@@ -20,9 +19,8 @@ import {
   WISHLIST_PATH,
   withParams,
 } from '../wardrobe/urls';
-import { decide, type DecideOutcome } from './decisions';
 import { NeedPage } from './group-page';
-import { markSuggestionsSeen, readInbox, readNeed } from './inbox';
+import { markSuggestionsSeen, readInbox } from './inbox';
 import {
   GroupCards,
   INBOX_MORE_PATH,
@@ -35,8 +33,11 @@ import {
   type DecisionToast,
   decisionToastOf,
 } from './suggestion-parts';
-
-const NOT_FOUND = 'Not found';
+import {
+  makeDecision,
+  type OwnerDecision,
+  requireNeed,
+} from './suggestion-actions';
 
 /** `?decided=`: a decision's toast (decisionToastOf). */
 const DecidedFlag = Type.Optional(Type.String({ maxLength: 16 }));
@@ -92,9 +93,9 @@ function noteOf(note: string | undefined): string | null {
  * made on them. The pages are read by whoever reads the wishlist (a VIEW
  * grantee sees Muse's notes: owner decision, 2026-10-05); unlocks, best
  * outfits, the marker and every decision are the owner's alone. Each
- * decision is one call of decide() (decisions.ts), the one writer, and
- * answers 303 to the page it was made on with a toast; a refusal is decide's
- * 404 (not theirs) or 409 (a stale page or a double tap). "Bought it" stays
+ * decision is one call of makeDecision() (suggestion-actions.ts, which
+ * refuses itself: a 404 not theirs, a 409 a stale page or a double tap,
+ * #188) and answers 303 to the page it was made on with a toast. "Bought it" stays
  * GET|POST /wardrobe/:id/bought (wishlist/routes.tsx), whose buyWishlistItem settles
  * the need; "Bought a different one" is the closet form with
  * `?forNeed=` (src/web/wardrobe/destination.ts).
@@ -180,13 +181,11 @@ export const inboxRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     `${WISHLIST_PATH}/needs/:id`,
     { schema: { params: NeedParams, querystring: NeedQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorize(request, 'view');
-      const detail = await readNeed(db, {
-        ownerId: access.ownerId,
-        groupId: request.params.id,
-        isOwner: access.isOwner,
-      });
-      if (!detail) throw new HttpError(404, NOT_FOUND);
+      const { access, viewOwner, detail } = await requireNeed(
+        db,
+        actorOf(request),
+        { id: request.params.id, ownerId: request.query.ownerId },
+      );
       logger.debug(
         `Need ${detail.need.id} of wardrobe ${access.ownerId}: ${detail.options.length} options judged in ${detail.searchMs.toFixed(0)}ms`,
       );
@@ -207,34 +206,28 @@ export const inboxRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  /**
-   * decide() for the owner (a grantee naming the wardrobe is a 403, any
-   * other wardrobe's id a 404), then 303 to the page it was made on with
-   * its toast.
-   */
+  /** makeDecision() for the owner, then 303 to the page it was made on with its toast. */
   async function decided(
     request: WardrobeRequest,
     reply: FastifyReply,
-    decision: SuggestionDecision,
+    decision: OwnerDecision,
     {
       returnTo,
       fallback,
       toast,
     }: { returnTo: string | undefined; fallback: string; toast: DecisionToast },
   ): Promise<FastifyReply> {
-    const { access } = await authorize(request, 'own');
-    const outcome: DecideOutcome = await decide(db, access.ownerId, decision);
+    const outcome = await makeDecision(
+      db,
+      actorOf(request),
+      request.query.ownerId,
+      decision,
+    );
+    const { access } = outcome;
     const subject =
       'garmentId' in decision
         ? `garment ${decision.garmentId}`
         : `need ${decision.groupId}`;
-    if (!outcome.ok) {
-      logger.info(
-        `Decision ${decision.kind} on ${subject} refused for user ${access.ownerId}: ${outcome.reason}`,
-      );
-      if (outcome.reason === 'not-found') throw new HttpError(404, NOT_FOUND);
-      throw new HttpError(409, t('muse.STALE'));
-    }
     logger.info(
       `Decision ${decision.kind} on ${subject} (need ${outcome.groupId ?? 'none'}) by user ${access.ownerId}: ${outcome.dismissed.length} set aside, ${outcome.restored.length} restored`,
     );
@@ -365,19 +358,14 @@ export const inboxRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/returned',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access } = await authorize(request, 'own');
       const { id } = request.params;
-      const outcome = await decide(db, access.ownerId, {
-        kind: 'returned',
-        garmentId: id,
-      });
-      if (!outcome.ok) {
-        logger.info(
-          `Returned refused for garment ${id} of user ${access.ownerId}: ${outcome.reason}`,
-        );
-        if (outcome.reason === 'not-found') throw new HttpError(404, NOT_FOUND);
-        throw new HttpError(409, t('muse.STALE'));
-      }
+      const outcome = await makeDecision(
+        db,
+        actorOf(request),
+        request.query.ownerId,
+        { kind: 'returned', garmentId: id },
+      );
+      const { access } = outcome;
       logger.info(
         `Garment ${id} returned (archived) by user ${access.ownerId}; need ${outcome.groupId ?? 'none'} open again`,
       );

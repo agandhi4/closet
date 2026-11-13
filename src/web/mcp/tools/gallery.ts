@@ -1,7 +1,6 @@
 import * as z from 'zod';
 import { DEFAULT_OCCASION, OCCASION_HINTS } from '../../../wardrobe/occasions';
 import { todayIn } from '../../../calendar-date';
-import { HttpError } from '../../errors';
 import { OUTFIT_COUNT_CAP } from '../../../wardrobe/goes-with';
 import {
   dailySeed,
@@ -17,7 +16,7 @@ import { garmentsGoneError } from '../../outfits/gone-garments';
 import { pickIdea } from '../../outfits/pick';
 import { OUTFIT_NAME_MAX } from '../../outfits/queries';
 import { brokenRuleLabels } from '../../style/labels';
-import { defineTool } from '../tool';
+import { actorOf, defineTool } from '../tool';
 import { isoDate, occasionInput, rowId } from './common';
 
 const round1 = (value: number) => Math.round(value * 10) / 10;
@@ -150,8 +149,7 @@ export const galleryTools = [
     }),
     writes: false,
     async run({ garmentId }, ctx) {
-      const result = await goesWithCloset(ctx.db, ctx.userId, garmentId);
-      if (!result) throw new HttpError(404, 'Not on your wishlist');
+      const result = await goesWithCloset(ctx.db, actorOf(ctx), garmentId);
       return {
         item: named(result.item),
         outfits: {

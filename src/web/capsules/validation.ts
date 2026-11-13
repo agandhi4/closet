@@ -1,6 +1,5 @@
 import { type Static, Type } from '@sinclair/typebox';
 import type { FieldErrors } from '../auth/validation';
-import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { checklistBody } from '../checklist';
 import { OwnerQuery, RowId } from '../schemas';
@@ -13,17 +12,6 @@ import type { CapsuleFields } from './queries';
  * name re-renders the form with its message. The membership posts are ids
  * only; ids outside the wardrobe are dropped by the writer, not refused.
  */
-
-const CAPSULE_NOT_FOUND = 'Capsule not found';
-
-/**
- * A capsule outside the addressed wardrobe, whether it exists or not: the
- * same 404 as an unknown id (the capsule routes, the grid's `?capsule=` and
- * `?pick=`, Styling's `?capsule=`).
- */
-export function capsuleNotFound(): HttpError {
-  return new HttpError(404, CAPSULE_NOT_FOUND);
-}
 
 export const CAPSULE_NAME_MAX = 80;
 export const CAPSULE_NOTES_MAX = 2000;

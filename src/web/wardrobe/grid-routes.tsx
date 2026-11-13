@@ -1,6 +1,6 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import type { CapsuleRef } from '../capsules/queries';
-import { capsuleNotFound } from '../capsules/validation';
+import { capsuleNotFound } from '../capsules/capsule-actions';
 import {
   findType,
   FORMALITIES,

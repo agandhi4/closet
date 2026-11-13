@@ -1,24 +1,14 @@
 import * as z from 'zod';
 import {
-  changeMembership,
-  findCapsule,
-  listCapsules,
-} from '../../capsules/queries';
-import { HttpError } from '../../errors';
+  requireCapsule,
+  setCapsuleMembers,
+} from '../../capsules/capsule-actions';
+import { listCapsules } from '../../capsules/queries';
 import { GRID_PAGE_SIZE } from '../../wardrobe/grid-page-size';
 import { CLOSET_FILTERS, garmentSummaries } from '../../wardrobe/queries';
-import { defineTool, type ToolContext, wardrobeFor } from '../tool';
+import { actorOf, defineTool, wardrobeFor } from '../tool';
 import { ownerIdInput, rowId } from './common';
 import { summaryOut } from './garments';
-
-const CAPSULE_NOT_FOUND = 'Capsule not found';
-
-/** The capsule in the wardrobe, or the same 404 as an unknown id (capsuleNotFound). */
-async function capsuleIn(ctx: ToolContext, id: number, ownerId: number) {
-  const capsule = await findCapsule(ctx.db, id, ownerId);
-  if (!capsule) throw new HttpError(404, CAPSULE_NOT_FOUND);
-  return capsule;
-}
 
 export const capsuleTools = [
   defineTool({
@@ -48,8 +38,12 @@ export const capsuleTools = [
     }),
     writes: false,
     async run({ id, ownerId, before }, ctx) {
-      const access = await wardrobeFor(ctx, ownerId, 'view');
-      const capsule = await capsuleIn(ctx, id, access.ownerId);
+      const { access, capsule } = await requireCapsule(
+        ctx.db,
+        actorOf(ctx),
+        { id, ownerId, unseen: 'wardrobe' },
+        'view',
+      );
       const page = await garmentSummaries(
         ctx.db,
         access.ownerId,
@@ -86,18 +80,12 @@ export const capsuleTools = [
     writes: true,
     idempotent: true,
     async run({ id, ownerId, add, remove }, ctx) {
-      const access = await wardrobeFor(ctx, ownerId, 'manage');
-      // No lookup first (#172): the writer drops a capsule outside the
-      // wardrobe, writing nothing, and says so.
-      const { added, removed, capsules } = await changeMembership(
+      const { added, removed } = await setCapsuleMembers(
         ctx.db,
-        access.ownerId,
-        {
-          add: { capsuleIds: [id], garmentIds: add },
-          remove: { capsuleIds: [id], garmentIds: remove },
-        },
+        actorOf(ctx),
+        { id, ownerId, unseen: 'wardrobe' },
+        { add, remove },
       );
-      if (!capsules.has(id)) throw new HttpError(404, CAPSULE_NOT_FOUND);
       ctx.webLogger.info(
         `Capsule ${id} membership changed by user ${ctx.userId} (MCP): ${added} added, ${removed} removed`,
       );
