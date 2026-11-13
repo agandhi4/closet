@@ -1,6 +1,6 @@
 # HTTP/2 in the outbound fetcher, so Shopify product pages load (#496)
 
-Status: proposed. The owner decided on 2026-11-12 (`docs/decisions.md`, #347 follow-up) to plan and build HTTP/2 while keeping every `createOutboundFetcher` guarantee. This plan is for review, no code.
+Status: recommendations adopted by the coordinator 2026-11-13 under the owner's standing instruction to keep building on plan recommendations (decision to build: owner, 2026-11-12); the owner may veto any decision below.
 
 ## 1. Why
 
