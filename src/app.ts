@@ -42,6 +42,7 @@ import {
 import { registerRateLimit } from './web/security/rate-limit';
 import { createSameOriginHook } from './web/security/same-origin';
 import { isWarmRequest } from './warm-request';
+import { createQueuedWriteHook } from './web/offline-writes';
 import { createViewContextBuilder } from './web/view-context';
 import { createJmapClient } from './web/wardrobe/order-mail/jmap';
 import type { OrderMailDeps } from './web/wardrobe/order-mail/poll';
@@ -328,6 +329,14 @@ export async function createApp(
     request.auth = await resolveSession(request, reply);
     reply.locals = buildViewContext(request, request.auth);
   });
+
+  // A queued write's replay for another account is refused before its
+  // handler writes (#178). preHandler: after the web plugin's session gate
+  // (preValidation), so a replay without a session keeps its 401.
+  app.addHook(
+    'preHandler',
+    createQueuedWriteHook(logger.child({ logger: 'Web' })),
+  );
 
   // Security headers on all responses
   app.addHook('onSend', (_request, reply, payload, done) => {

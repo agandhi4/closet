@@ -481,25 +481,32 @@ export async function detachOutfitWears(
  * undo, which removes only that row (a worn calendar entry's stay).
  * 'not-found' when the garment is not the owner's, 'wishlist' when it is a
  * wishlist item (not owned yet, so not worn), and nothing written for
- * either. One statement: the lookup is a CTE the write reads, so the
- * garment page's tap costs one round trip, not two (#160).
+ * either; 'unchanged' when it already was so (a replayed tap, #178).
+ * `day` is today, or a queued tap's own day. One statement: the lookup is
+ * a CTE the write reads, so the garment page's tap costs one round trip,
+ * not two (#160).
  */
 export async function setWoreToday(
   db: Queryable,
   input: { garmentId: number; ownerId: number; day: IsoDate; worn: boolean },
-): Promise<'saved' | 'not-found' | 'wishlist'> {
+): Promise<'changed' | 'unchanged' | 'not-found' | 'wishlist'> {
   const write = input.worn
     ? sql`insert into ${garmentWear} (garment_id, owner_id, day)
         select id, owner_id, ${input.day}::date from owned where not wishlist
-        on conflict do nothing`
+        on conflict do nothing
+        returning 1`
     : sql`delete from ${garmentWear}
         where ${and(
           eq(garmentWear.garmentId, input.garmentId),
           eq(garmentWear.day, input.day),
           isNull(garmentWear.outfitCalendarId),
         )}
-        and exists (select 1 from owned where not wishlist)`;
-  const { rows } = await db.execute<{ wishlist: boolean }>(sql`
+        and exists (select 1 from owned where not wishlist)
+        returning 1`;
+  const { rows } = await db.execute<{
+    wishlist: boolean;
+    changed: boolean;
+  }>(sql`
     with owned as (
       select ${garment.id} as id, ${garment.ownerId} as owner_id,
         ${onWishlist()} as wishlist
@@ -507,28 +514,32 @@ export async function setWoreToday(
       where ${and(eq(garment.id, input.garmentId), eq(garment.ownerId, input.ownerId))}
     ),
     written as (${write})
-    select wishlist from owned`);
+    select wishlist, exists (select 1 from written) as changed from owned`);
   const [owned] = rows;
   if (!owned) return 'not-found';
-  return owned.wishlist ? 'wishlist' : 'saved';
+  if (owned.wishlist) return 'wishlist';
+  return owned.changed ? 'changed' : 'unchanged';
 }
 
 /**
  * Washes the listed garments of the owner on `day` (every copy: laundry
  * day), the ids of others and of wishlist items ignored like unknown ones;
- * returns the ids washed. Wears on `day` itself count as before the wash. The garment
- * page's Washed, the laundry page's batch and the seed's Sundays.
+ * returns the garments washed, each with whether its wash moved. Wears on
+ * `day` itself count as before the wash. Monotone: a wash never moves back
+ * (`greatest`), so a queued wash replayed after a later one (#178) changes
+ * nothing; washed has no undo. The garment page's Washed, the laundry
+ * page's batch, MCP's mark_washed and the seed's Sundays.
  */
 export async function markWashed(
   db: Queryable,
   ownerId: number,
   ids: number[],
   day: IsoDate,
-): Promise<number[]> {
+): Promise<{ id: number; changed: boolean }[]> {
   if (ids.length === 0) return [];
-  const washed = await db
+  return db
     .update(garment)
-    .set({ lastWashedOn: day })
+    .set({ lastWashedOn: sql`greatest(${garment.lastWashedOn}, ${day}::date)` })
     .where(
       and(
         eq(garment.ownerId, ownerId),
@@ -536,8 +547,11 @@ export async function markWashed(
         ownedGarment(),
       ),
     )
-    .returning({ id: garment.id });
-  return washed.map((row) => row.id);
+    .returning({
+      id: garment.id,
+      // Postgres 18's old/new in RETURNING: no read before the write.
+      changed: sql<boolean>`old.last_washed_on is distinct from new.last_washed_on`,
+    });
 }
 
 /**
