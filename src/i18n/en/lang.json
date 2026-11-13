@@ -888,6 +888,7 @@
     "RULES_NONE": "No rules yet.",
     "RULE_NEVER": "Never {a} with {b}",
     "RULE_ALWAYS": "Always {b} with {a}",
+    "RULE_BROKEN": "Breaks: {rule}",
     "RULE_REMOVE": "Remove",
     "RULE_REMOVE_LABEL": "Remove the rule {rule}",
     "RULE_ADD_HEADING": "Add a rule",
@@ -971,8 +972,7 @@
       "feet-too-warm": "Feet may be warm",
       "needs-water-resistance": "Rain: nothing waterproof",
       "too-casual": "A bit casual for the occasion",
-      "too-dressy": "A bit dressy for the occasion",
-      "breaks-rule": "Breaks one of your outfit rules"
+      "too-dressy": "A bit dressy for the occasion"
     },
     "PLAN_IDEAS": "Choose from ideas",
     "ALREADY_SAVED": "Already saved: this outfit was picked before.",

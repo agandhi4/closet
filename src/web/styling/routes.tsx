@@ -37,6 +37,7 @@ import { renderFragment, renderPage } from '../render';
 import { IsoDateSchema, OccasionSchema, OwnerQuery, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
 import { type WardrobeRequest, wardrobeGuard } from '../sharing/access';
+import { brokenRuleLabels } from '../style/labels';
 import { viewContext } from '../view-context';
 import {
   MAX_ROWS,
@@ -672,6 +673,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       held: RoledGarment[];
       seed?: number;
       notice?: 'no-idea';
+      broken?: string[];
       context: RowContext;
       /**
        * The capsule menu again, out of band: "Add row" and the Include
@@ -690,7 +692,12 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       reply,
       <>
         <StylingRows
-          model={{ rows, seed: input.seed, notice: input.notice }}
+          model={{
+            rows,
+            seed: input.seed,
+            notice: input.notice,
+            broken: input.broken,
+          }}
           context={input.context}
         />
         {/* The preview follows the rows (StylingPreview): out of band, as
@@ -760,7 +767,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const wardrobe = wardrobeOf(scope, capsule, editingHeld);
       const rows = withEveryRole(states, windows);
       logger.debug(
-        `Styling shuffle for user ${userId} over ${describeScope(wardrobe)}: ${lockedIds.length} locked, seed ${seed}, ${idea ? `idea of garments ${ids(idea.garments).join(', ')}` : 'no idea fits'} in ${Math.round(performance.now() - started)} ms`,
+        `Styling shuffle for user ${userId} over ${describeScope(wardrobe)}: ${lockedIds.length} locked, seed ${seed}, ${idea ? `idea of garments ${ids(idea.garments).join(', ')}` : 'no idea fits'}${idea?.brokenRules.length ? `, the locks breaking ${idea.brokenRules.length} rule(s)` : ''} in ${Math.round(performance.now() - started)} ms`,
       );
       return renderRows(reply, {
         states: idea ? shuffledStates(rows, idea.garments) : rows,
@@ -768,6 +775,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         held: read.held,
         seed: shuffledSeed(seed),
         notice: idea ? undefined : 'no-idea',
+        broken: idea && brokenRuleLabels(idea),
         context: {
           state: postedState(query, wardrobe),
           viewOwner: wardrobe.viewOwner,

@@ -78,6 +78,11 @@ export interface StylingModel {
   /** What the last Shuffle found: nothing that fits the locks. */
   notice?: 'no-idea';
   /**
+   * The outfit rules the last Shuffle's locked rows break between them
+   * (brokenRuleLabels): the idea is drawn all the same, and says so.
+   */
+  broken?: string[];
+  /**
    * A Save refused for garments it could not hold (#219): its words, and
    * the sheet as it was posted, so nothing typed is lost.
    */
@@ -178,11 +183,11 @@ export function StylingPage(props: { ctx: ViewContext; model: StylingModel }) {
 
 /**
  * The rows, and what Shuffle carries on: the page renders it inside the
- * form, and Shuffle and "Add row" answer it alone (outerHTML), so the seed
- * and the notice change with the rows.
+ * form, and Shuffle and "Add row" answer it alone (outerHTML), so the seed,
+ * the notice and the broken rules change with the rows.
  */
 export function StylingRows(props: {
-  model: Pick<StylingModel, 'rows' | 'seed' | 'notice'>;
+  model: Pick<StylingModel, 'rows' | 'seed' | 'notice' | 'broken'>;
   context: RowContext;
 }) {
   const { model, context } = props;
@@ -193,6 +198,18 @@ export function StylingRows(props: {
         <p class="alert alert-info alert-soft mx-4 py-2 text-sm" role="status">
           {t('styling.NO_IDEA')}
         </p>
+      )}
+      {model.broken && model.broken.length > 0 && (
+        // The Ideas cards' problem chips (Reasons), said as Shuffle answers.
+        <div role="status" class="mx-4">
+          <ul class="flex flex-wrap gap-1">
+            {model.broken.map((text) => (
+              <li class="badge badge-sm badge-soft badge-warning h-auto py-0.5">
+                {text}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {model.rows.map((row) => (
         <StylingRowView row={row} context={context} />

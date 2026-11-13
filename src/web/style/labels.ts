@@ -65,7 +65,8 @@ export function matcherLabel(
 /**
  * A rule as a sentence: "Never Stripes with Check", and an always-rule B
  * first, "Always Loafers with Chinos" (an outfit with chinos has loafers).
- * The Style page's list (#21b), and the broken-rule chips' text (#21c).
+ * The Style page's list (#21b), get_style_profile, and the broken-rule
+ * chips' text (brokenRuleLabels, #21c).
  */
 export function ruleSentence(
   rule: OutfitRule,
@@ -76,4 +77,20 @@ export function ruleSentence(
   return rule.kind === 'never'
     ? t('style.RULE_NEVER', { a, b })
     : t('style.RULE_ALWAYS', { a, b });
+}
+
+/**
+ * A flagged idea's chips, one per rule it breaks: "Breaks: Never Black
+ * with Stripes" (the Ideas cards' Reasons, Styling's Shuffle, and
+ * suggest_outfits' brokenRules). A broken rule is a never-rule between two
+ * locked garments, so a side naming a garment names one of the idea's.
+ */
+export function brokenRuleLabels(idea: {
+  brokenRules: readonly OutfitRule[];
+  garments: readonly NamedGarment[];
+}): string[] {
+  const garmentName = garmentNamesOf(idea.garments);
+  return idea.brokenRules.map((rule) =>
+    t('style.RULE_BROKEN', { rule: ruleSentence(rule, garmentName) }),
+  );
 }
