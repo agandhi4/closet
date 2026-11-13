@@ -695,10 +695,14 @@ describe('changing a planned outfit in place', () => {
         replaceEntryId: entryId,
       });
       expect(refused.isError).toBe(true);
-      expect(t.logs.messages('warn', 'Mcp')).toContainEqual(
-        expect.stringContaining(
-          `MCP schedule_outfit -> 409: ${'That outfit is already planned on this day (Evening).'} (Calendar entry ${entryId}`,
-        ),
+      expect(t.logs.messages('warn', 'Mcp')).toEqual([]);
+      const lines = t.logs
+        .messages('info', 'Mcp')
+        .filter((m) => m.includes('MCP schedule_outfit'));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain(`refused 409 (Calendar entry ${entryId}`);
+      expect(lines[0]).toContain(
+        ': That outfit is already planned on this day (Evening).',
       );
     });
 
