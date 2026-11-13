@@ -100,6 +100,6 @@ Every request goes through the root hooks in `app.ts` (the same-origin check at 
 - **A static file** (`public/`; `/modules/*` is `public/modules/`): `@fastify/static`, precompressed, with the cache policy in `src/static-assets.ts`.
 - **No route**: the not-found handler throws `HttpError(404, 'Cannot GET <url>')` into the error handler, which renders the 404 page (signed-in chrome included: the root hooks ran) or, on a static path, answers `{ statusCode, message }`.
 
-Every response gets the security headers (root onSend) and, off the static paths, one log line (root onResponse).
+Every response gets the security headers (root onSend) and, off the static paths, one log line (root onResponse). Off the static paths a second root onSend relays a redirect's `Clear-Site-Data` to the document it lands on (`createCacheClearRelay`, `src/web/auth/AGENTS.md`).
 
 htmx in the browser swaps fragments returned by further routes. A route that serves both a page and a fragment decides with `isFragmentRequest` from `src/htmx/fragment-request.ts` (shared with the service worker's cache keys) and sets `Vary`: in the web layer, `wantsFragment(request, reply)` does both.

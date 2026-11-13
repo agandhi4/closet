@@ -22,7 +22,10 @@ import { newRequestId, registerRequestContext } from './request-context';
 import { registerStaticAssets } from './static-assets';
 import { isStaticPath } from './static-prefixes';
 import { normalizeEmail } from './web/auth/queries';
-import { createSessionResolver } from './web/auth/session';
+import {
+  createCacheClearRelay,
+  createSessionResolver,
+} from './web/auth/session';
 import { createSessionTokens } from './web/auth/tokens';
 import { createErrorHandler, HttpError } from './web/errors';
 import { configurePhotoUrls } from './web/files/image-url';
@@ -288,10 +291,11 @@ export async function createApp(
   // (cleared, Clear-Site-Data), whatever the route answers.
   // Static paths skip everything, so asset requests never touch the database.
   const tokens = createSessionTokens(config.ACCESS_TOKEN_SECRET);
+  const sessionLogger = logger.child({ logger: 'Session' });
   const resolveSession = createSessionResolver({
     db,
     tokens,
-    logger: logger.child({ logger: 'Session' }),
+    logger: sessionLogger,
   });
   const buildViewContext = createViewContextBuilder({
     appName: config.APP_NAME,
@@ -330,6 +334,9 @@ export async function createApp(
     reply.headers(SECURITY_HEADERS);
     done(null, payload);
   });
+  // Clear-Site-Data on a redirect is repeated on the page it lands on, which
+  // is the only answer WebKit applies it from (#244, session.ts).
+  app.addHook('onSend', createCacheClearRelay(sessionLogger));
 
   // One line per request, never its headers (the session cookie is a
   // bearer credential). Static paths (every thumbnail, script and the 30 s

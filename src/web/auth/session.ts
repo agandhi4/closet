@@ -1,7 +1,9 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Db } from '../../db/client';
 import { SESSION_COOKIE } from '../../credential-names';
+import { isFragmentRequest } from '../../htmx/fragment-request';
 import type { Logger } from '../../logger';
+import { isStaticPath } from '../../static-prefixes';
 import { loggableUrl } from '../loggable-url';
 import { SESSION_ENDED_HEADER } from '../page-cache';
 import {
@@ -77,7 +79,8 @@ export function sessionAccount(request: FastifyRequest): AccountRow {
  * deleted elsewhere (no row), a rotated ACCESS_TOKEN_SECRET or a garbled
  * token (the signature), and expiry. This is the one place such a device is
  * noticed, so it is where it drops the account's HTTP cache (selfies,
- * pages); the session gate's redirect or 401 then carries both headers, and
+ * pages); the session gate's redirect or 401 then carries both headers (and
+ * the relay's marker, so the page it lands on repeats the clear: #244), and
  * the login page it lands on drops the browser's push subscription
  * (PushSignedOut, src/web/push/settings.tsx). A request without the cookie
  * gets neither header: nothing was signed in there.
@@ -181,6 +184,8 @@ export function startSession(
   return previous;
 }
 
+const CLEAR_SITE_DATA = 'Clear-Site-Data';
+
 /**
  * "cache", not "storage": "storage" also unregisters the service worker and
  * empties its precache, so the installed app would lose its offline shell
@@ -190,10 +195,108 @@ export function startSession(
  * sign-out navigations, an auth POST answered with X-Session-Ended, and the
  * signed-out page a revoked session lands on). Cookies are untouched, so a
  * cookie set on the same answer (startSession) survives it. Ignored outside
- * a secure context (the HTTP twin) and before Safari 17.
+ * a secure context (the HTTP twin) and before Safari 17. Most of these
+ * answers are redirects, which WebKit does not apply it from: the
+ * cache-clear relay below repeats it on the page they land on (#244).
  */
 function clearHttpCache(reply: FastifyReply): void {
-  reply.header('Clear-Site-Data', '"cache"');
+  reply.header(CLEAR_SITE_DATA, '"cache"');
+}
+
+/**
+ * The cache-clear relay's marker (#244): "this browser still owes itself a
+ * Clear-Site-Data". httpOnly, SameSite=Lax and never Secure, like the
+ * session cookie (setSessionCookie); a minute is ample for a redirect chain
+ * to land, and an unconsumed marker costs at most one needless clear.
+ */
+const CACHE_CLEAR_PENDING_COOKIE = 'cache_clear_pending';
+const CACHE_CLEAR_PENDING_SECONDS = 60;
+const CACHE_CLEAR_PENDING_OPTIONS = {
+  path: '/',
+  httpOnly: true,
+  sameSite: 'lax',
+} as const;
+
+/**
+ * Whether an answer is a whole HTML document a load ends on: a page, a
+ * boosted page or an error page, never a redirect, an htmx fragment, an
+ * image or a bodiless 401.
+ */
+function isLandingDocument(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): boolean {
+  const status = reply.statusCode;
+  const type = reply.getHeader('Content-Type');
+  return (
+    (status < 300 || status >= 400) &&
+    typeof type === 'string' &&
+    type.startsWith('text/html') &&
+    !isFragmentRequest(request.headers)
+  );
+}
+
+/**
+ * The root onSend hook (app.ts) that makes Clear-Site-Data reach a document
+ * on WebKit (#244). WebKit applies the header only to the response a load
+ * ends on (NetworkResourceLoader::didReceiveResponse), never to a redirect it
+ * follows, and endSession and startSession answer sign-out, account
+ * deletion, a revoked cookie at the session gate and a sign-in over another
+ * account with redirects (or a bodiless 401 whose HX-Redirect the page
+ * follows). So:
+ *
+ * - an answer carrying the header that is not a landing document also sets
+ *   the marker cookie; the header stays on it, which Chromium and Firefox
+ *   apply there;
+ * - the next landing document while the marker lives (the login page, the
+ *   profile, wherever safeReturnTo or a second redirect led) carries
+ *   `Clear-Site-Data: "cache"` and clears the marker, so exactly one page
+ *   repeats it, and none after.
+ *
+ * Decided here, on the finished answer, rather than in endSession, which
+ * runs before anyone knows whether the answer is a redirect (the resolver
+ * ends a session at preValidation; the gate redirects after). Static paths
+ * never take part, so no asset ever clears the cache. The marker cannot be
+ * abused: only this server's answers set it, every one already sending the
+ * header, and all it can make the browser do is drop its own HTTP cache for
+ * this site. The service worker never stores the header with a page
+ * (pageStore, src-sw.ts), so no cached copy replays it.
+ */
+export function createCacheClearRelay(logger: Logger) {
+  return function relayCacheClear(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    payload: unknown,
+    done: (err: null, payload: unknown) => void,
+  ): void {
+    if (!isStaticPath(request.url)) {
+      // Undefined when the same-origin hook refused the request at onRequest,
+      // before @fastify/cookie parsed it; such an answer carries no header.
+      const pending =
+        request.cookies?.[CACHE_CLEAR_PENDING_COOKIE] !== undefined;
+      if (isLandingDocument(request, reply)) {
+        if (pending) {
+          clearHttpCache(reply);
+          reply.clearCookie(
+            CACHE_CLEAR_PENDING_COOKIE,
+            CACHE_CLEAR_PENDING_OPTIONS,
+          );
+          logger.info(
+            `Clear-Site-Data relayed to the landing page ${loggableUrl(request)} (${reply.statusCode})`,
+          );
+        }
+      } else if (reply.hasHeader(CLEAR_SITE_DATA)) {
+        reply.setCookie(CACHE_CLEAR_PENDING_COOKIE, '1', {
+          ...CACHE_CLEAR_PENDING_OPTIONS,
+          maxAge: CACHE_CLEAR_PENDING_SECONDS,
+        });
+        logger.debug(
+          `Clear-Site-Data on ${loggableUrl(request)} (${reply.statusCode}): marked for the landing page`,
+        );
+      }
+    }
+    done(null, payload);
+  };
 }
 
 /**
