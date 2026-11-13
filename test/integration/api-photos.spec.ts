@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pendingPhoto } from '../../src/db/schema';
 import { t as text } from '../../src/web/i18n';
+import { LINK_IMPORT_LIMIT } from '../../src/web/security/rate-limit';
 import { deviceToken, expectProblem } from './api';
 import { failCutout } from './cutouts';
 import {
@@ -396,6 +397,20 @@ describe('POST /garments/link-imports', () => {
     expect(await t.db.$count(pendingPhoto)).toBe(0);
   });
 
+  it('refuses a bad body before the budget, so it spends none', async () => {
+    const { token } = await signUp('api-photos-cheap@example.com');
+    for (let i = 0; i < LINK_IMPORT_LIMIT.max + 2; i++) {
+      expect(
+        (await importLink(token, { url: 'no link here' })).statusCode,
+      ).toBe(400);
+    }
+    const res = await importLink(token, {
+      url: sites.url('/api-shirt'),
+      replacesGarmentId: 1,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("spends the page's budget: ten between the two doors, then a 429 at either", async () => {
     const { cookie, token } = await signUp('api-photos-importer@example.com');
     const page = () =>
@@ -405,10 +420,11 @@ describe('POST /garments/link-imports', () => {
         payload: { url: 'no link here' },
         headers: { cookie },
       });
-    const api = () => importLink(token, { url: 'no link here' });
+    // A link the site does not serve: refused after the fetch, so it spends.
+    const api = () => importLink(token, { url: sites.url('/api-missing') });
     for (let i = 0; i < 5; i++) {
       expect((await page()).statusCode).toBe(400);
-      expect((await api()).statusCode).toBe(400);
+      expect((await api()).statusCode).toBeGreaterThanOrEqual(400);
     }
     const refused = await api();
     expectProblem(refused, 429, 'rate_limited');

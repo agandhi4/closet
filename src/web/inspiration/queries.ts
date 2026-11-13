@@ -476,10 +476,16 @@ async function takePiecePositions(
   id: number,
   count: number,
 ): Promise<number> {
+  // greatest(): a piece an older build added (it has no counter) can sit at
+  // or past the counter, and the position key would then refuse every add.
   const [{ next }] = await tx
     .update(inspiration)
     .set({
-      nextPiecePosition: sql`${inspiration.nextPiecePosition} + ${count}`,
+      nextPiecePosition: sql`greatest(
+        ${inspiration.nextPiecePosition},
+        coalesce((select max(${inspirationPiece.position}) + 1 from ${inspirationPiece}
+          where ${inspirationPiece.inspirationId} = ${id}), 0)
+      ) + ${count}`,
     })
     .where(eq(inspiration.id, id))
     .returning({ next: inspiration.nextPiecePosition });
