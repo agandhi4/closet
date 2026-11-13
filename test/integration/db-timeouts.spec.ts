@@ -7,11 +7,8 @@ import {
   SERVER_TIMEOUTS,
 } from '../../src/db/client';
 import { outfit } from '../../src/db/schema';
-import {
-  lockOwner,
-  OWNER_LOCK_TIMEOUT_MS,
-  ownerTransaction,
-} from '../../src/web/auth/queries';
+import { OWNER_LOCK_TIMEOUT_MS } from '../../src/db/owner-lock';
+import { lockOwner, ownerTransaction } from '../../src/web/auth/queries';
 import { HttpError } from '../../src/web/errors';
 import { t as translate } from '../../src/web/i18n';
 import { createGarment } from './garments';
@@ -21,8 +18,9 @@ import { createTestApp, type TestApp } from './harness';
  * Database timeouts (#134, src/db/AGENTS.md, Timeouts): one stuck
  * transaction must not wedge an owner's writes. The server's pool opens its
  * connections with statement_timeout and idle_in_transaction_session_timeout;
- * ownerTransaction bounds its lock waits (lock_timeout), so a writer queued
- * behind a held owner lock fails fast with a 503 instead of hanging.
+ * every form of the owner lock bounds its lock waits (lock_timeout), so a
+ * writer queued behind a held owner lock fails fast with a 503 instead of
+ * hanging.
  */
 
 describe('database timeouts', () => {
@@ -63,7 +61,7 @@ describe('database timeouts', () => {
     expect(await setting(t.db, 'idle_in_transaction_session_timeout')).toBe(
       '30s',
     );
-    // Only an owner transaction bounds its lock waits.
+    // Only an owner lock bounds its lock waits.
     expect(await setting(t.db, 'lock_timeout')).toBe('0');
     const inside = await ownerTransaction(t.db, t.owner.id, 'spec', (tx) =>
       tx
@@ -75,7 +73,11 @@ describe('database timeouts', () => {
     expect(inside).toBe(`${OWNER_LOCK_TIMEOUT_MS / 1000}s`);
   });
 
-  it('fails a writer queued behind a held owner lock within the lock timeout, as a 503, and logs the owner and writer', async () => {
+  // Both forms of the lock behind one hold: ownerTransaction's (the outfit,
+  // logged with its writer) and a folded one (the condition autosave's
+  // update, src/db/owner-lock.ts), which waited to statement_timeout and
+  // answered a 500 before every form set the timeout (PR #537).
+  it('fails writers queued behind a held owner lock within the lock timeout, as a 503, whichever form of the lock they take', async () => {
     const tee = await createGarment(t, { name: 'Stuck tee' });
     let release!: () => void;
     const released = new Promise<void>((resolve) => (release = resolve));
@@ -97,19 +99,38 @@ describe('database timeouts', () => {
         garmentId: String(tee),
       },
     } as const;
+    const conditionPost = {
+      method: 'POST',
+      url: `/wardrobe/${tee}/condition`,
+      payload: {
+        condition: 'needs_repair',
+        conditionNote: 'Behind a stuck write',
+      },
+    } as const;
     const started = performance.now();
-    const res = await t.inject(outfitPost);
-    const waited = performance.now() - started;
+    const timed = async (request: Parameters<TestApp['inject']>[0]) => {
+      const answer = await t.inject(request);
+      return { answer, waited: performance.now() - started };
+    };
+    const answers = await Promise.all([
+      timed(outfitPost),
+      timed(conditionPost),
+    ]);
     release();
     await holder;
 
-    expect(res.statusCode).toBe(503);
-    expect(res.body).toContain(translate('WARDROBE_BUSY'));
-    expect(waited).toBeGreaterThanOrEqual(OWNER_LOCK_TIMEOUT_MS - 50);
-    // The timeout, not the statement's 15 s or the holder's release.
-    expect(waited).toBeLessThan(SERVER_TIMEOUTS.statementMs);
-    expect(t.logs.messages('warn', 'Web')).toContainEqual(
-      `POST /outfits -> 503: ${translate('WARDROBE_BUSY')} (createOutfit for owner ${t.owner.id} waited ${OWNER_LOCK_TIMEOUT_MS} ms for a lock)`,
+    for (const { answer, waited } of answers) {
+      expect(answer.statusCode).toBe(503);
+      expect(answer.body).toContain(translate('WARDROBE_BUSY'));
+      expect(waited).toBeGreaterThanOrEqual(OWNER_LOCK_TIMEOUT_MS - 50);
+      // The timeout, not the statement's 15 s or the holder's release.
+      expect(waited).toBeLessThan(SERVER_TIMEOUTS.statementMs);
+    }
+    expect(t.logs.messages('warn', 'Web')).toEqual(
+      expect.arrayContaining([
+        `POST /outfits -> 503: ${translate('WARDROBE_BUSY')} (createOutfit for owner ${t.owner.id} waited ${OWNER_LOCK_TIMEOUT_MS} ms for a lock)`,
+        `POST /wardrobe/${tee}/condition -> 503: ${translate('WARDROBE_BUSY')} (a write waited ${OWNER_LOCK_TIMEOUT_MS} ms for a lock)`,
+      ]),
     );
     const written = await t.db
       .select({ id: outfit.id })

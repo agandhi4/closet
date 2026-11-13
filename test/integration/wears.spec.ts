@@ -18,6 +18,7 @@ import {
   type TestApp,
   unescapeHtml,
   userIdOf,
+  asFixture,
 } from './harness';
 import { expectFragment, expectFullPage } from './pages';
 
@@ -572,10 +573,12 @@ describe('wears and washes', () => {
         (await post(`/wardrobe/${jacket}/away`, { away: 'stolen' })).statusCode,
       ).toBe(400);
       await expect(
-        t.db
-          .update(garment)
-          .set({ awayNote: 'orphan note' })
-          .where(eq(garment.id, jacket)),
+        asFixture(t.db, (tx) =>
+          tx
+            .update(garment)
+            .set({ awayNote: 'orphan note' })
+            .where(eq(garment.id, jacket)),
+        ),
       ).rejects.toMatchObject({
         cause: { code: '23514', constraint: 'garment_away_note_check' },
       });
@@ -659,26 +662,30 @@ describe('wears and washes', () => {
           cookie,
         );
         ids.set(c.name, id);
-        await t.db
-          .update(garment)
-          .set({
-            lastWashedOn:
-              c.washedDaysAgo === null ? null : daysAgo(c.washedDaysAgo),
-            away: c.away,
-            status: c.status,
-          })
-          .where(eq(garment.id, id));
+        await asFixture(t.db, (tx) =>
+          tx
+            .update(garment)
+            .set({
+              lastWashedOn:
+                c.washedDaysAgo === null ? null : daysAgo(c.washedDaysAgo),
+              away: c.away,
+              status: c.status,
+            })
+            .where(eq(garment.id, id)),
+        );
         // Straight rows: one per wear, repeats standing in for two entries.
         for (const days of c.worn) {
-          await t.db
-            .insert(garmentWear)
-            .values({
-              garmentId: id,
-              ownerId,
-              day: daysAgo(days),
-              outfitCalendarId: null,
-            })
-            .onConflictDoNothing();
+          await asFixture(t.db, (tx) =>
+            tx
+              .insert(garmentWear)
+              .values({
+                garmentId: id,
+                ownerId,
+                day: daysAgo(days),
+                outfitCalendarId: null,
+              })
+              .onConflictDoNothing(),
+          );
         }
       }
       const rows = await t.db
@@ -837,18 +844,22 @@ describe('wears and washes', () => {
         conditionNote: null,
       });
       await expect(
-        t.db
-          .update(garment)
-          .set({ conditionNote: 'orphan' })
-          .where(eq(garment.id, id)),
+        asFixture(t.db, (tx) =>
+          tx
+            .update(garment)
+            .set({ conditionNote: 'orphan' })
+            .where(eq(garment.id, id)),
+        ),
       ).rejects.toMatchObject({
         cause: { code: '23514', constraint: 'garment_condition_note_check' },
       });
       await expect(
-        t.db
-          .update(garment)
-          .set({ condition: 'shabby' as 'good' })
-          .where(eq(garment.id, id)),
+        asFixture(t.db, (tx) =>
+          tx
+            .update(garment)
+            .set({ condition: 'shabby' as 'good' })
+            .where(eq(garment.id, id)),
+        ),
       ).rejects.toMatchObject({
         cause: { code: '23514', constraint: 'garment_condition_check' },
       });

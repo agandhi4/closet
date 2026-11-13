@@ -1,5 +1,6 @@
 import { and, type Column, eq, ne, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
+import { ownerLockCte, ownerLocked } from '../../db/owner-lock';
 import { garment, optionGroup } from '../../db/schema';
 import {
   type GarmentStatus,
@@ -122,11 +123,20 @@ export function setGarmentStatus(
   change: StatusChange,
 ): Promise<StatusOutcome> {
   return db.transaction(async (tx) => {
+    // The owner lock first, in the garment's own locking statement.
+    const lock = ownerLockCte(tx, ownerId);
     const [row] = await tx
+      .with(lock)
       .select({ status: garment.status })
       .from(garment)
-      .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)))
-      .for('update');
+      .where(
+        and(
+          eq(garment.id, id),
+          eq(garment.ownerId, ownerId),
+          ownerLocked(tx, lock),
+        ),
+      )
+      .for('update', { of: garment });
     if (!row) return { ok: false, reason: 'not-found' };
     const move = garmentStatusTransition(row.status, change.event);
     if (!move.ok) {

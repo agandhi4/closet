@@ -1,7 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garment } from '../../src/db/schema';
-import { createTestApp, TestApp } from './harness';
+import { createTestApp, TestApp, asFixture } from './harness';
 
 /**
  * garment.colors is a text[] set of GARMENT_COLORS names (#28), stored in
@@ -128,8 +128,10 @@ describe('garment colours', () => {
     for (const colors of [sql`array['red', 'teal']`, sql`'{}'::text[]`]) {
       // Drizzle wraps the driver's error; the violation is its cause.
       await expect(
-        t.db.execute(
-          sql`update garment set colors = ${colors} where id = ${garmentId}`,
+        asFixture(t.db, (tx) =>
+          tx.execute(
+            sql`update garment set colors = ${colors} where id = ${garmentId}`,
+          ),
         ),
       ).rejects.toMatchObject(violation);
     }

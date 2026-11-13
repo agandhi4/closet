@@ -1,5 +1,12 @@
 import { and, asc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
+import {
+  OWNER_LOCKED,
+  lockedOwnerId,
+  ownerLockCte,
+  ownerLocked,
+  ownerLockSql,
+} from '../../db/owner-lock';
 import { isUniqueViolation } from '../../db/errors';
 import { selectScalars } from '../../db/select-scalars';
 import {
@@ -283,9 +290,11 @@ export async function createCapsule(
 ): Promise<number | NameTaken> {
   try {
     return await db.transaction(async (tx) => {
+      const lock = ownerLockCte(tx, ownerId);
       const [row] = await tx
+        .with(lock)
         .insert(capsule)
-        .values({ ownerId, ...fields })
+        .values({ ownerId: lockedOwnerId(lock), ...fields })
         .returning({ id: capsule.id });
       return row.id;
     });
@@ -303,10 +312,18 @@ export async function updateCapsule(
   fields: CapsuleFields,
 ): Promise<'updated' | 'not-found' | NameTaken> {
   try {
+    const lock = ownerLockCte(db, ownerId);
     const updated = await db
+      .with(lock)
       .update(capsule)
       .set(fields)
-      .where(and(eq(capsule.id, id), eq(capsule.ownerId, ownerId)))
+      .where(
+        and(
+          eq(capsule.id, id),
+          eq(capsule.ownerId, ownerId),
+          ownerLocked(db, lock),
+        ),
+      )
       .returning({ id: capsule.id });
     return updated.length > 0 ? 'updated' : 'not-found';
   } catch (error) {
@@ -321,9 +338,17 @@ export async function deleteCapsule(
   id: number,
   ownerId: number,
 ): Promise<boolean> {
+  const lock = ownerLockCte(db, ownerId);
   const deleted = await db
+    .with(lock)
     .delete(capsule)
-    .where(and(eq(capsule.id, id), eq(capsule.ownerId, ownerId)))
+    .where(
+      and(
+        eq(capsule.id, id),
+        eq(capsule.ownerId, ownerId),
+        ownerLocked(db, lock),
+      ),
+    )
     .returning({ id: capsule.id });
   return deleted.length > 0;
 }
@@ -422,7 +447,8 @@ export function changeMembership(
  * `garmentIds` its garments (`garments`, any status) and of those the ones
  * a capsule may hold (`pairable`: owned now or once, not wishlist items),
  * all locked FOR SHARE, in one statement (#172: it was one per side).
- * Capsules first, then garments, each in id order, as every multi-row
+ * The owner lock first (src/db/owner-lock.ts), then capsules, then
+ * garments, each in id order, as every multi-row
  * garment locker takes them (pickedGarments), so two lockers never
  * deadlock on each other's. A side with no ids reads nothing.
  */
@@ -439,6 +465,26 @@ async function lockMembers(
   if (capsuleIds.length === 0 && garmentIds.length === 0) {
     return { capsules: new Set(), garments: new Set(), pairable: new Set() };
   }
+  const { rows } = await tx.execute<{
+    capsules: number[];
+    garments: number[];
+    pairable: number[];
+  }>(lockMembersSql(tx, ownerId, capsuleIds, garmentIds));
+  const [row] = rows;
+  return {
+    capsules: new Set(row.capsules),
+    garments: new Set(row.garments),
+    pairable: new Set(row.pairable),
+  };
+}
+
+/** lockMembers' statement, exported for owner-lock.spec.ts, which EXPLAINs it. */
+export function lockMembersSql(
+  tx: Queryable,
+  ownerId: number,
+  capsuleIds: number[],
+  garmentIds: number[],
+): SQL {
   const ids = (list: number[]) =>
     sql`array[${sql.join(
       list.map((id) => sql`${id}`),
@@ -448,31 +494,24 @@ async function lockMembers(
   // Postgres cannot infer from `array[]`.
   const among = (column: SQL, list: number[]) =>
     list.length === 0 ? sql`false` : sql`${column} = any(${ids(list)})`;
-  const { rows } = await tx.execute<{
-    capsules: number[];
-    garments: number[];
-    pairable: number[];
-  }>(sql`
-    with capsules as (
+  return sql`
+    with ${ownerLockSql(tx, ownerId)},
+    capsules as (
       select ${capsule.id} as id from ${capsule}
       where ${capsule.ownerId} = ${ownerId} and ${among(sql`${capsule.id}`, capsuleIds)}
+        and ${OWNER_LOCKED}
       order by ${capsule.id}
       for share
     ),
     garments as (
       select ${garment.id} as id, ${ownedGarment()} as pairable from ${garment}
       where ${garment.ownerId} = ${ownerId} and ${among(sql`${garment.id}`, garmentIds)}
+        and ${OWNER_LOCKED}
       order by ${garment.id}
       for share
     )
     select
       (select coalesce(json_agg(id), '[]') from capsules) as capsules,
       (select coalesce(json_agg(id), '[]') from garments) as garments,
-      (select coalesce(json_agg(id) filter (where pairable), '[]') from garments) as pairable`);
-  const [row] = rows;
-  return {
-    capsules: new Set(row.capsules),
-    garments: new Set(row.garments),
-    pairable: new Set(row.pairable),
-  };
+      (select coalesce(json_agg(id) filter (where pairable), '[]') from garments) as pairable`;
 }

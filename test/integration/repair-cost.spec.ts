@@ -7,6 +7,7 @@ import {
   type TestApp,
   unescapeHtml,
   userIdOf,
+  asFixture,
 } from './harness';
 import { createAccessToken, tool } from './mcp';
 
@@ -65,9 +66,11 @@ describe('repair costs in cost per wear', () => {
   }
 
   async function wear(garmentId: number, days: string[], ownerId: number) {
-    await t.db
-      .insert(garmentWear)
-      .values(days.map((day) => ({ garmentId, ownerId, day })));
+    await asFixture(t.db, (tx) =>
+      tx
+        .insert(garmentWear)
+        .values(days.map((day) => ({ garmentId, ownerId, day }))),
+    );
   }
 
   async function repair(
@@ -172,13 +175,15 @@ describe('repair costs in cost per wear', () => {
         await userIdOf(t, 'hatter@example.com'),
       );
       await repair(hat, '2026-09-27', '10', cookie);
-      await t.db.insert(garmentRepair).values({
-        garmentId: hat,
-        day: '2026-09-28',
-        kind: 'repair',
-        note: 'Not done yet',
-        cost: '100.00',
-      });
+      await asFixture(t.db, (tx) =>
+        tx.insert(garmentRepair).values({
+          garmentId: hat,
+          day: '2026-09-28',
+          kind: 'repair',
+          note: 'Not done yet',
+          cost: '100.00',
+        }),
+      );
       const html = await get(`/wardrobe/${hat}`, cookie);
       // (10 + 10) / 2, and the 10.00 it adds.
       expect(section(html, 'garment-wear')).toContain('$10.00 a wear');

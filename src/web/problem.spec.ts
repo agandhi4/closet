@@ -2,8 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { captureLogs } from '../../test/support/log-capture';
 import { recordErrors } from '../../test/support/sentry-stub';
-import { OwnerLockTimeout } from './auth/queries';
-import { createErrorHandler, HttpError } from './errors';
+import { createErrorHandler, HttpError, OwnerLockTimeout } from './errors';
 import { Forbidden, NotFound } from './refusals';
 import { assignSurface } from './surface';
 
@@ -35,7 +34,7 @@ beforeEach(async () => {
     throw new Forbidden();
   });
   app.get('/api/v1/busy', () => {
-    throw new OwnerLockTimeout(7, 'scheduleOutfit');
+    throw new OwnerLockTimeout('scheduleOutfit', 7);
   });
   app.get('/api/v1/boom', () => {
     throw new Error('connection refused at 10.0.0.5');

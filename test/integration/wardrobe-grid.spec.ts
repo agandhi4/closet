@@ -8,6 +8,7 @@ import {
   recordQueries,
   type TestApp,
   unescapeHtml,
+  asFixture,
 } from './harness';
 
 /**
@@ -48,15 +49,17 @@ describe('wardrobe grid', () => {
     for (let i = 0; i < TOTAL; i++) {
       let photoId: number | null = null;
       if (i % 2 === 0) {
-        const [photo] = await t.db
-          .insert(file)
-          .values({
-            fileName: `${randomUUID()}.webp`,
-            shareableId: randomUUID(),
-            createdOn: new Date().toISOString(),
-            createdById: t.owner.id,
-          })
-          .returning({ id: file.id });
+        const [photo] = await asFixture(t.db, (tx) =>
+          tx
+            .insert(file)
+            .values({
+              fileName: `${randomUUID()}.webp`,
+              shareableId: randomUUID(),
+              createdOn: new Date().toISOString(),
+              createdById: t.owner.id,
+            })
+            .returning({ id: file.id }),
+        );
         photoId = photo.id;
       }
       rows.push({
@@ -67,10 +70,9 @@ describe('wardrobe grid', () => {
         photoId,
       });
     }
-    const inserted = await t.db
-      .insert(garment)
-      .values(rows)
-      .returning({ id: garment.id });
+    const inserted = await asFixture(t.db, (tx) =>
+      tx.insert(garment).values(rows).returning({ id: garment.id }),
+    );
     ids = inserted.map((row) => row.id).reverse();
   });
 
@@ -180,15 +182,19 @@ describe('wardrobe grid', () => {
     });
 
     it('the capsule picker: members marked on the tiles, the capsule looked up with the context', async () => {
-      const [picked] = await t.db
-        .insert(capsule)
-        .values({ ownerId: t.owner.id, name: 'Picked' })
-        .returning({ id: capsule.id });
-      await t.db.insert(capsuleGarment).values(
-        [ids[0], ids[2]].map((garmentId) => ({
-          capsuleId: picked.id,
-          garmentId,
-        })),
+      const [picked] = await asFixture(t.db, (tx) =>
+        tx
+          .insert(capsule)
+          .values({ ownerId: t.owner.id, name: 'Picked' })
+          .returning({ id: capsule.id }),
+      );
+      await asFixture(t.db, (tx) =>
+        tx.insert(capsuleGarment).values(
+          [ids[0], ids[2]].map((garmentId) => ({
+            capsuleId: picked.id,
+            garmentId,
+          })),
+        ),
       );
 
       const page = await recordQueries(() =>

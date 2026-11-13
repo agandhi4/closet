@@ -2,7 +2,12 @@ import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garment } from '../../src/db/schema';
 import { createGarment } from './garments';
-import { createTestApp, type TestApp, unescapeHtml } from './harness';
+import {
+  createTestApp,
+  type TestApp,
+  unescapeHtml,
+  asFixture,
+} from './harness';
 import { expectNativePostForms, expectNoRawI18nKeys } from './pages';
 
 /**
@@ -143,8 +148,10 @@ describe('garment product link and price', () => {
     ])('refuses %s = %s', async (column, value) => {
       const id = await createGarment(t, { name: 'Target', category: 'tops' });
       await expect(
-        t.db.execute(
-          sql`update garment set ${sql.identifier(column)} = ${value} where id = ${id}`,
+        asFixture(t.db, (tx) =>
+          tx.execute(
+            sql`update garment set ${sql.identifier(column)} = ${value} where id = ${id}`,
+          ),
         ),
       ).rejects.toMatchObject({
         cause: { code: '23514', constraint: `garment_${column}_check` },

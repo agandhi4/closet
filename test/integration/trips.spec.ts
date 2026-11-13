@@ -10,7 +10,6 @@ import {
 } from '../../src/db/schema';
 import { addDays } from '../../src/calendar-date';
 import { deleteOutfit } from '../../src/web/outfits/queries';
-import { lockTrip } from '../../src/web/trips/packed';
 import { addTripOutfit } from '../../src/web/trips/queries';
 import {
   STUB_WEATHER_NOW,
@@ -24,6 +23,7 @@ import {
   recordQueries,
   type TestApp,
   unescapeHtml,
+  asFixture,
 } from './harness';
 import { interleave } from './interleave';
 import { callTool, createAccessToken, tool } from './mcp';
@@ -388,21 +388,21 @@ describe('trips', () => {
       expect((await addOutfit(id, theirOutfit)).statusCode).toBe(404);
     });
 
-    // addTripOutfit is one statement, whose snapshot predates its wait for
-    // the trip lock: an outfit deleted during that wait must be read again
-    // (owned, FOR KEY SHARE), or the insert dies on the foreign key (500).
-    it('answers no-outfit, writing nothing, for an outfit deleted while it waited for the trip', async () => {
+    // addTripOutfit's locking statement has a snapshot that predates its
+    // wait for the locks (the owner's, then the trip's): an outfit deleted
+    // during that wait must be read again (owned, FOR KEY SHARE), or the
+    // insert dies on the foreign key (500).
+    it('answers no-outfit, writing nothing, for an outfit deleted while it waited for the locks', async () => {
       const doomed = await outfitOf('Deleted meanwhile', [['tops', polo]]);
       const [, added] = await interleave(
         t.db,
-        (tx) => lockTrip(tx, id, t.owner.id),
+        (tx) => deleteOutfit(tx, doomed, t.owner.id),
         () =>
           addTripOutfit(t.db, {
             tripId: id,
             ownerId: t.owner.id,
             outfitId: doomed,
           }),
-        () => deleteOutfit(t.db, doomed, t.owner.id),
       );
       expect(added).toBe('no-outfit');
       expect(
@@ -892,13 +892,15 @@ describe('trips', () => {
         ['outerwear', jacket],
         ['footwear', sneakers],
       ]);
-      await t.db.insert(outfitCalendar).values({
-        ownerId: t.owner.id,
-        outfitId: layers,
-        day: today,
-        occasion: 'evening',
-        plannedBy: 'auto',
-      });
+      await asFixture(t.db, (tx) =>
+        tx.insert(outfitCalendar).values({
+          ownerId: t.owner.id,
+          outfitId: layers,
+          day: today,
+          occasion: 'evening',
+          plannedBy: 'auto',
+        }),
+      );
       const id = await newTrip({ name: 'Planned already', startsOn: today });
       await addOutfit(id, layers, { day: today, occasion: 'work' });
       const [row] = await t.db
@@ -1241,10 +1243,12 @@ describe('trips', () => {
         .from(tripItem)
         .where(eq(tripItem.tripId, id));
       // Located without the rate-limited route, which specs above spend.
-      await t.db
-        .update(trip)
-        .set({ latitude: 30.27, longitude: -97.74 })
-        .where(eq(trip.id, id));
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(trip)
+          .set({ latitude: 30.27, longitude: -97.74 })
+          .where(eq(trip.id, id)),
+      );
     });
 
     it('reads each page in one statement after the session', async () => {

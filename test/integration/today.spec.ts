@@ -16,6 +16,7 @@ import {
   type TestApp,
   unescapeHtml,
   userIdOf,
+  asFixture,
 } from './harness';
 import { deviceToken } from './api';
 import { createAccessToken, callTool, mintToken, tool } from './mcp';
@@ -273,10 +274,9 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
 
     it("the garment page writes its acquired date in today's year without the year", async () => {
       const id = await createGarment(t, { name: `Acquired ${at}`, cookie });
-      await t.db
-        .update(garment)
-        .set({ acquiredOn: today })
-        .where(eq(garment.id, id));
+      await asFixture(t.db, (tx) =>
+        tx.update(garment).set({ acquiredOn: today }).where(eq(garment.id, id)),
+      );
       const page = unescapeHtml((await get(`/wardrobe/${id}`)).body);
       expect(page).toMatch(
         new RegExp(`>Date Acquired</dt>\\s*<dd[^>]*>${label}</dd>`),

@@ -3,16 +3,17 @@ import { alias } from 'drizzle-orm/pg-core';
 import type { TokenKind } from '../../credential-names';
 import type { Db, Queryable } from '../../db/client';
 import { isLockTimeout, isUniqueViolation } from '../../db/errors';
+import { ownerLockCte, ownerLocked, ownersLockCte } from '../../db/owner-lock';
 import {
   file,
+  garment,
   pendingPhoto,
   type SharePermission,
   user,
   USER_EMAIL_UNIQUE,
 } from '../../db/schema';
-import { HttpError } from '../errors';
+import { OwnerLockTimeout } from '../errors';
 import { sharePermissionSql } from '../sharing/access';
-import { t } from '../i18n';
 import { type StoredPhoto, unkeyedPhoto } from '../files/image-variant';
 import { STORED_PHOTO_COLUMNS } from '../files/queries';
 import { revokeDevicesStatement } from '../push/queries';
@@ -274,9 +275,18 @@ export async function deleteUserAndFileRows(
   id: number,
 ): Promise<StoredPhoto[]> {
   return db.transaction(async (tx) => {
+    // The owner locks first (src/db/owner-lock.ts): the user's, and those
+    // of the garments showing a photo they uploaded as a MANAGE grantee,
+    // whose photo_id the delete empties. Every one of them, in id order:
+    // ownerLocked counts the CTE's rows, so none is left unread.
+    const lock = ownersLockCte(
+      tx,
+      sql`select ${id}::int union select g.owner_id from ${garment} g join ${file} f on f.id = g.photo_id where f.created_by_id = ${id}`,
+    );
     const files = await tx
+      .with(lock)
       .delete(file)
-      .where(eq(file.createdById, id))
+      .where(and(eq(file.createdById, id), ownerLocked(tx, lock)))
       .returning(STORED_PHOTO_COLUMNS);
     // Link imports never saved: their bytes have no `file` row, and the
     // cascade would drop the rows that explain them to reconciliation.
@@ -299,15 +309,14 @@ export async function deleteUserAndFileRows(
  * insert, a wear), only another such write of the same owner.
  *
  * The same statement bounds every lock wait from here to the end of the
- * transaction by OWNER_LOCK_TIMEOUT_MS (`set_config(..., true)` is SET
- * LOCAL with a bound value; in a savepoint it lasts to the caller's
- * commit), this one included: the select list is computed below the plan's
- * LockRows node, before the row is locked. One round trip, not two (#158;
- * production reaches Postgres over a ~114 ms link). owner-lock.spec.ts's
+ * transaction by OWNER_LOCK_TIMEOUT_MS, and marks the transaction as
+ * holding the lock once it does (ownerLockCte, src/db/owner-lock.ts, which
+ * says why each set_config sits where it does). One round trip, not two
+ * (#158; production reaches Postgres over a ~114 ms link). owner-lock.spec.ts's
  * #134 case proves the bound holds (a re-plan behind a held lock defers).
  *
  * Writers call it through ownerTransaction; the rule it serves (every
- * writer of the calendar and the plan tables, the owner lock first) is in
+ * writer of a synced table, the owner lock first) is in
  * src/web/calendar/AGENTS.md, Owner lock.
  *
  * No row is NotFound('wardrobe'): the account is gone, typically deleted
@@ -322,51 +331,13 @@ export async function lockOwner(tx: Queryable, ownerId: number): Promise<void> {
 }
 
 /**
- * lockOwner's statement, exported for owner-lock.spec.ts, which EXPLAINs it.
- *
- * Keep set_config in the base scan's select list. It bounds the lock wait
- * only because Postgres computes that list in the scan, below LockRows,
- * before the row lock is taken. Moved elsewhere (a CTE, a subquery, a
- * second statement's order), it may run after the wait or not at all. Any
- * change here is verified with EXPLAIN (VERBOSE): the scan's Output must
- * hold set_config. The spec asserts exactly that.
+ * lockOwner's statement, exported for owner-lock.spec.ts, which EXPLAINs it:
+ * the lock timeout's set_config in the scan below LockRows, the mark's
+ * above it. Any change here is verified with EXPLAIN (VERBOSE).
  */
 export function lockOwnerQuery(tx: Queryable, ownerId: number) {
-  return tx
-    .select({
-      id: user.id,
-      lockTimeout: sql`set_config('lock_timeout', ${`${OWNER_LOCK_TIMEOUT_MS}ms`}, true)`,
-    })
-    .from(user)
-    .where(eq(user.id, ownerId))
-    .for('no key update');
-}
-
-/**
- * How long an owner transaction waits for any lock (the owner lock, or a
- * row lock under it) before it gives up: its `lock_timeout`. Behind a
- * stalled writer (a hung statement, a request stuck mid-transaction; the
- * pool's own timeouts end those, src/db/client.ts) a request fails fast
- * with OwnerLockTimeout instead of hanging with it.
- */
-export const OWNER_LOCK_TIMEOUT_MS = 5_000;
-
-/**
- * An owner transaction's lock wait ran past OWNER_LOCK_TIMEOUT_MS: a 503
- * asking to try again, logged with the owner and the writer. Nothing was
- * written (the transaction rolled back).
- */
-export class OwnerLockTimeout extends HttpError {
-  constructor(
-    readonly ownerId: number,
-    readonly writer: string,
-  ) {
-    super(503, t('WARDROBE_BUSY'), {
-      logDetail: `${writer} for owner ${ownerId} waited ${OWNER_LOCK_TIMEOUT_MS} ms for a lock`,
-      retryAfterSeconds: OWNER_LOCK_TIMEOUT_MS / 1000,
-    });
-    this.name = 'OwnerLockTimeout';
-  }
+  const lock = ownerLockCte(tx, ownerId);
+  return tx.with(lock).select({ id: lock.id }).from(lock);
 }
 
 /**
@@ -429,7 +400,7 @@ export async function ownerTransaction<T>(
   } catch (error) {
     // The innermost ownerTransaction maps it; the callers pass it on.
     if (!(error instanceof OwnerLockTimeout) && isLockTimeout(error)) {
-      throw new OwnerLockTimeout(ownerId, writer);
+      throw new OwnerLockTimeout(writer, ownerId);
     }
     throw error;
   }

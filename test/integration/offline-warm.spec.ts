@@ -28,6 +28,7 @@ import {
   type TestApp,
   unescapeHtml,
   userIdOf,
+  asFixture,
 } from './harness';
 
 /**
@@ -65,28 +66,32 @@ describe('GET /offline/warm', () => {
   ): Promise<number> => {
     let photoId: number | null = null;
     if (withPhoto) {
-      const [photo] = await t.db
-        .insert(file)
-        .values({
-          fileName: `${randomUUID()}.webp`,
-          shareableId: randomUUID(),
-          createdOn: new Date().toISOString(),
-          createdById: ownerId,
-        })
-        .returning({ id: file.id });
+      const [photo] = await asFixture(t.db, (tx) =>
+        tx
+          .insert(file)
+          .values({
+            fileName: `${randomUUID()}.webp`,
+            shareableId: randomUUID(),
+            createdOn: new Date().toISOString(),
+            createdById: ownerId,
+          })
+          .returning({ id: file.id }),
+      );
       photoId = photo.id;
     }
-    const [row] = await t.db
-      .insert(garment)
-      .values({
-        shareableId: randomUUID(),
-        ownerId,
-        name: `Piece ${randomUUID().slice(0, 8)}`,
-        category: 'tops',
-        status,
-        photoId,
-      })
-      .returning({ id: garment.id });
+    const [row] = await asFixture(t.db, (tx) =>
+      tx
+        .insert(garment)
+        .values({
+          shareableId: randomUUID(),
+          ownerId,
+          name: `Piece ${randomUUID().slice(0, 8)}`,
+          category: 'tops',
+          status,
+          photoId,
+        })
+        .returning({ id: garment.id }),
+    );
     return row.id;
   };
 
@@ -94,18 +99,22 @@ describe('GET /offline/warm', () => {
     ownerId: number,
     garmentIds: number[],
   ): Promise<number> => {
-    const [made] = await t.db
-      .insert(outfit)
-      .values({ shareableId: randomUUID(), ownerId, name: 'Warm outfit' })
-      .returning({ id: outfit.id });
+    const [made] = await asFixture(t.db, (tx) =>
+      tx
+        .insert(outfit)
+        .values({ shareableId: randomUUID(), ownerId, name: 'Warm outfit' })
+        .returning({ id: outfit.id }),
+    );
     if (garmentIds.length > 0) {
-      await t.db.insert(outfitSlot).values(
-        garmentIds.map((garmentId, position) => ({
-          outfitId: made.id,
-          position,
-          category: 'tops',
-          garmentId,
-        })),
+      await asFixture(t.db, (tx) =>
+        tx.insert(outfitSlot).values(
+          garmentIds.map((garmentId, position) => ({
+            outfitId: made.id,
+            position,
+            category: 'tops',
+            garmentId,
+          })),
+        ),
       );
     }
     return made.id;
@@ -123,10 +132,12 @@ describe('GET /offline/warm', () => {
     archived = await insertGarment(t.owner.id, 'archived', true);
     wished = await insertGarment(t.owner.id, 'wishlist', true);
     setAside = await insertGarment(t.owner.id, 'wishlist', false);
-    await t.db
-      .update(garment)
-      .set({ dismissedAt: new Date() })
-      .where(eq(garment.id, setAside));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(garment)
+        .set({ dismissedAt: new Date() })
+        .where(eq(garment.id, setAside)),
+    );
     outfitId = await insertOutfit(t.owner.id, [closet[0], closet[1]]);
   });
 
@@ -332,20 +343,21 @@ describe('GET /offline/warm', () => {
         name: `Capped ${i}`,
         category: 'tops',
       }));
-      const inserted = await t.db
-        .insert(garment)
-        .values(rows)
-        .returning({ id: garment.id });
+      const inserted = await asFixture(t.db, (tx) =>
+        tx.insert(garment).values(rows).returning({ id: garment.id }),
+      );
       garments = inserted.map((row) => row.id).reverse();
-      const made = await t.db
-        .insert(outfit)
-        .values(
-          Array.from({ length: WARM_OUTFIT_CAP + 1 }, () => ({
-            shareableId: randomUUID(),
-            ownerId,
-          })),
-        )
-        .returning({ id: outfit.id });
+      const made = await asFixture(t.db, (tx) =>
+        tx
+          .insert(outfit)
+          .values(
+            Array.from({ length: WARM_OUTFIT_CAP + 1 }, () => ({
+              shareableId: randomUUID(),
+              ownerId,
+            })),
+          )
+          .returning({ id: outfit.id }),
+      );
       outfits = made.map((row) => row.id).reverse();
     });
 

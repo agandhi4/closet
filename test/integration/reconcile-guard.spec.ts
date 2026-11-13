@@ -11,7 +11,7 @@ import {
 } from '../../src/maintenance/reconcile';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { photoRowCount } from './garments';
-import { createTestApp, TestApp } from './harness';
+import { createTestApp, TestApp, asFixture } from './harness';
 import { silentLogger } from './logger';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -58,24 +58,28 @@ describe('storage reconciliation guard', () => {
   /** Photo sets a garment points at: what a healthy store is made of. */
   const livePhotos = async (count: number) => {
     const names = await orphans(count);
-    const rows = await t.db
-      .insert(file)
-      .values(
-        names.map((fileName) => ({
-          fileName,
+    const rows = await asFixture(t.db, (tx) =>
+      tx
+        .insert(file)
+        .values(
+          names.map((fileName) => ({
+            fileName,
+            shareableId: randomUUID(),
+            createdOn: TWO_DAYS_AGO().toISOString(),
+            createdById: t.owner.id,
+          })),
+        )
+        .returning({ id: file.id }),
+    );
+    await asFixture(t.db, (tx) =>
+      tx.insert(garment).values(
+        rows.map(({ id }) => ({
           shareableId: randomUUID(),
-          createdOn: TWO_DAYS_AGO().toISOString(),
-          createdById: t.owner.id,
+          category: 'shirt',
+          ownerId: t.owner.id,
+          photoId: id,
         })),
-      )
-      .returning({ id: file.id });
-    await t.db.insert(garment).values(
-      rows.map(({ id }) => ({
-        shareableId: randomUUID(),
-        category: 'shirt',
-        ownerId: t.owner.id,
-        photoId: id,
-      })),
+      ),
     );
     return names;
   };
@@ -85,8 +89,8 @@ describe('storage reconciliation guard', () => {
   });
 
   beforeEach(async () => {
-    await t.db.delete(garment);
-    await t.db.delete(file);
+    await asFixture(t.db, (tx) => tx.delete(garment));
+    await asFixture(t.db, (tx) => tx.delete(file));
     for (const name of await storedPhotos()) {
       await rm(join(t.dataPath, name));
     }
@@ -137,17 +141,19 @@ describe('storage reconciliation guard', () => {
     const live = await livePhotos(20);
     // Six rows lose their garments: the rows and their bytes would go.
     const unreferenced = live.slice(0, 6);
-    await t.db
-      .delete(garment)
-      .where(
-        inArray(
-          garment.photoId,
-          t.db
-            .select({ id: file.id })
-            .from(file)
-            .where(inArray(file.fileName, unreferenced)),
+    await asFixture(t.db, (tx) =>
+      tx
+        .delete(garment)
+        .where(
+          inArray(
+            garment.photoId,
+            t.db
+              .select({ id: file.id })
+              .from(file)
+              .where(inArray(file.fileName, unreferenced)),
+          ),
         ),
-      );
+    );
 
     const report = await reconcile();
     expect(report.refused).toMatch(/6 of 20 stored photo sets/);
