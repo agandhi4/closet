@@ -2166,15 +2166,10 @@ export const tripItem = pgTable(
     // Trimmed, never blank; bounded by the route (TRIP_ITEM_MAX).
     label: text('label').notNull(),
     packed: boolean('packed').default(false).notNull(),
-    clientId: clientId(),
+    // No client_id: a child table has no tombstone trigger, so a replayed
+    // create could not be refused after a delete (src/db/AGENTS.md, sync triggers).
   },
   (table) => [
-    // A trip's extra created offline, by its client id (per trip: the
-    // row has no owner column).
-    unique('trip_item_trip_id_client_id_unique').on(
-      table.tripId,
-      table.clientId,
-    ),
     // Also the index of the trip_id foreign key. trip_id as an expression,
     // for drizzle-kit's introspection (see capsule_owner_id_lower_name_unique).
     uniqueIndex('trip_item_trip_id_lower_label_unique').on(

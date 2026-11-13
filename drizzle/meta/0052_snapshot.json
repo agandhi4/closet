@@ -1,6 +1,6 @@
 {
-  "id": "8bdb1956-8167-482b-993a-ee714f0ef462",
-  "prevId": "c14e17be-810a-437f-a446-5ddd66ed77c1",
+  "id": "a174ad4c-24cd-4a58-9790-2be5a8f87c89",
+  "prevId": "f96bdee0-4510-4391-99ba-50e2fa912399",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4352,12 +4352,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
-        },
-        "client_id": {
-          "name": "client_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -4399,16 +4393,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "trip_item_trip_id_client_id_unique": {
-          "name": "trip_item_trip_id_client_id_unique",
-          "columns": [
-            "trip_id",
-            "client_id"
-          ],
-          "nullsNotDistinct": false
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

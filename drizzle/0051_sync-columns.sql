@@ -1,12 +1,3 @@
--- Expand-only (#196a-2): the sync columns. Every ADD COLUMN default is a
--- constant or now(), so no table is rewritten (existing rows read revision
--- 0 and updated_at = this migration's instant). Each ALTER takes its
--- table's ACCESS EXCLUSIVE lock until the boot's migration transaction
--- commits: behind a long writer of the previous build it gives up after 5 s
--- and the boot fails and is retried (the container restart), rather than
--- queueing every request behind the DDL. SET LOCAL: the transaction's only.
-SET LOCAL lock_timeout = '5s';
---> statement-breakpoint
 CREATE TABLE "sync_tombstone" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"owner_id" integer NOT NULL,
@@ -43,7 +34,6 @@ ALTER TABLE "style_profile" ADD COLUMN "revision" bigint DEFAULT 0 NOT NULL;--> 
 ALTER TABLE "trip" ADD COLUMN "revision" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "trip" ADD COLUMN "updated_at" timestamp with time zone DEFAULT now() NOT NULL;--> statement-breakpoint
 ALTER TABLE "trip" ADD COLUMN "client_id" uuid;--> statement-breakpoint
-ALTER TABLE "trip_item" ADD COLUMN "client_id" uuid;--> statement-breakpoint
 ALTER TABLE "user" ADD COLUMN "revision" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "user" ADD COLUMN "sync_floor" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "user" ADD COLUMN "week_template_revision" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
@@ -67,5 +57,4 @@ ALTER TABLE "garment" ADD CONSTRAINT "garment_owner_id_client_id_unique" UNIQUE(
 ALTER TABLE "garment_wear" ADD CONSTRAINT "garment_wear_owner_id_client_id_unique" UNIQUE("owner_id","client_id");--> statement-breakpoint
 ALTER TABLE "outfit" ADD CONSTRAINT "outfit_owner_id_client_id_unique" UNIQUE("owner_id","client_id");--> statement-breakpoint
 ALTER TABLE "outfit_calendar" ADD CONSTRAINT "outfit_calendar_owner_id_client_id_unique" UNIQUE("owner_id","client_id");--> statement-breakpoint
-ALTER TABLE "trip" ADD CONSTRAINT "trip_owner_id_client_id_unique" UNIQUE("owner_id","client_id");--> statement-breakpoint
-ALTER TABLE "trip_item" ADD CONSTRAINT "trip_item_trip_id_client_id_unique" UNIQUE("trip_id","client_id");
+ALTER TABLE "trip" ADD CONSTRAINT "trip_owner_id_client_id_unique" UNIQUE("owner_id","client_id");
