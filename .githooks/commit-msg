@@ -4,6 +4,8 @@
 # devkit new and by devkit-sync in a repo that tracks the other hooks.
 set -uo pipefail
 ROOT=$(git rev-parse --show-toplevel) || exit 1
+# A pinned repo materializes devkit/ first (.devkit-bootstrap.sh: silent when current).
+[ ! -f "$ROOT/.devkit-bootstrap.sh" ] || "$ROOT/.devkit-bootstrap.sh" || exit 1
 BIN=$ROOT/devkit/bin
 [ ! -f "$ROOT/VENDOR_PATHS" ] || BIN=$ROOT/bin   # devkit's own checkout: bin/ at the root
 # shellcheck source=/dev/null

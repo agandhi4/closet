@@ -1,3 +1,13 @@
+# devkit/ is not tracked: .devkit-bootstrap.sh materializes the commit .devkit-rev pins (devkit
+# docs/plans/2026-11-13-stop-vendoring.md). GNU make remakes this include, then restarts, so every
+# target (install, the hooks' ci-* steps, check_tree) runs with devkit/ at the pin. SHELL is /bin/sh
+# for this one rule because the repo's SHELL lives under devkit/bin. Not `-include`: that would hide
+# a failed bootstrap. macOS's make 3.81 prints "No such file or directory" once before remaking it.
+include devkit/.devkit-materialized.mk
+devkit/.devkit-materialized.mk: SHELL := /bin/sh
+devkit/.devkit-materialized.mk: .devkit-rev .devkit-bootstrap.sh devkit/.devkit-materialized ; @./.devkit-bootstrap.sh && touch $@
+devkit/.devkit-materialized: ;
+
 .PHONY: help ci-deps ci-quick ci-guards ci-guards-staged devkit-check-staged ci-lint ci-typecheck secrets-staged ci-unit ci-db ci-e2e ci-image ci-smoke ci-metrics metrics-snapshot metrics-tighten metrics-rebaseline screenshots gate pr merge review publish devkit-sync devkit-check toolchain-check release-check workflows-check docs-check hooks-check layer-check guard-check migration-check secrets-check install
 
 # Thin callers: the npm scripts in package.json stay the definitions of each check. These
@@ -46,7 +56,7 @@ E2E_FLOOR := 10
 
 help:
 	@echo "make ci-deps          — npm ci (patches applied by postinstall)"
-	@echo "make install          — once per checkout or worktree: devkit-check, then point core.hooksPath at .githooks"
+	@echo "make install          — once per checkout or worktree: materialize devkit/, devkit-check, then point core.hooksPath at .githooks"
 	@echo "make ci-quick         — ci-guards, secrets-check, ci-lint, ci-typecheck (the two git hooks split it: scripts/ci/hooks.conf)"
 	@echo "make ci-guards        — devkit-check, toolchain-check, release-check, workflows-check, docs-check, layer-check, guard-check, migration-check"
 	@echo "make ci-lint          — prettier format:check, eslint lint:check (both cached), then the changed-file rules"
@@ -66,8 +76,8 @@ help:
 	@echo "make review PR=<n>    — one local review round: claude -p over PR <n>'s diff, its record posted"
 	@echo "make merge PR=<n>     — squash-merge PR <n> once its review rounds allow it"
 	@echo "make publish          — the publisher host's timer only: move ghcr.io/kashhq/closet:latest to the newest green main"
-	@echo "make devkit-sync      — pull the latest kashhq/devkit into devkit/ and record it in .devkit-rev"
-	@echo "make devkit-check     — fail if devkit/ differs from .devkit-rev (part of ci-quick)"
+	@echo "make devkit-sync      — pin the latest kashhq/devkit in .devkit-rev (a one-line commit) and materialize it"
+	@echo "make devkit-check     — fail if the materialized devkit/ differs from .devkit-rev (part of ci-quick)"
 	@echo "make toolchain-check  — fail if a Dockerfile or workflow disagrees with the Node in .nvmrc (part of ci-quick)"
 	@echo "make release-check    — fail unless the image is APP_VERSION's only source (part of ci-quick)"
 	@echo "make workflows-check  — fail unless the workflows follow devkit's Actions rules (part of ci-quick)"

@@ -29,6 +29,7 @@ In full: `docs/conventions.md#tooling-gotchas`. The web layer's are rules under 
 - **`npm install <package>` skips our `postinstall`**, so `patches/` are unapplied and the drift test fails; run `npx patch-package` or `npm ci`.
 - **Regenerate `package-lock.json` only with Node 22 / npm 10**: npm 11 prunes entries the Docker build's `npm ci` needs.
 - **macOS needs `sudo ifconfig lo0 alias 127.0.0.2`** before the integration tier or `npm run check`: without it about 22 specs fail with EADDRNOTAVAIL (`test/integration/link-sites.ts`).
+- **`devkit/` is untracked** (pinned in `.devkit-rev`, filled by `.devkit-bootstrap.sh`): a fresh worktree runs `make install` before `npm test` or ESLint can find `devkit/lint/`; `rm -rf devkit` before checking out a commit older than the pin (git refuses otherwise). Never edit it: `make devkit-check` fails.
 - **`public/build.json` lingers after `npm run build`**: stale styles in `start:dev`; set `NODE_ENV=development` in `.env.local` or delete it.
 
 ## Architecture
