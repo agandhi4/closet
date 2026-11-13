@@ -1,5 +1,7 @@
+import { eq } from 'drizzle-orm';
 import type { InjectOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { outfit } from '../../src/db/schema';
 import { deviceToken, SIGN_IN_URL, signInDevice } from './api';
 import { failCutout } from './cutouts';
 import { jpeg, type LinkSites, startLinkSites } from './link-sites';
@@ -11,6 +13,7 @@ import {
   uploadPhoto,
 } from './garments';
 import {
+  asFixture,
   createTestApp,
   multipart,
   recordQueries,
@@ -466,6 +469,224 @@ describe('API statements per route', () => {
       expect([pageRun.status, apiRun.status]).toEqual(ok);
       expect(apiRun.statements).toBe(pageRun.statements);
     });
+  });
+
+  describe('outfits, wears and washes: what their page twins cost (#193a)', () => {
+    let token: string;
+
+    beforeAll(async () => {
+      token = (await deviceToken(t)).token;
+    });
+
+    /** One run's garments: one bare, one in an outfit (`outfitId`), which is Muse's proposal for `proposal`. */
+    interface Setup {
+      bare: number;
+      outfitId: number;
+      today: string;
+    }
+
+    const setupFor = async (proposal: boolean): Promise<Setup> => {
+      const bare = await createGarment(t, {
+        name: 'Counted',
+        category: 'shirt',
+      });
+      const held = await createGarment(t, { name: 'Held', category: 'shirt' });
+      const made = await t.inject({
+        method: 'POST',
+        url: '/outfits',
+        payload: { category: 'shirt', garmentId: String(held) },
+      });
+      const outfitId = Number(
+        /^\/outfits\/(\d+)$/.exec(made.headers.location as string)![1],
+      );
+      if (proposal) {
+        await asFixture(t.db, (tx) =>
+          tx
+            .update(outfit)
+            .set({ proposedAt: new Date(), reaction: 'proposed' })
+            .where(eq(outfit.id, outfitId)),
+        );
+      }
+      return { bare, outfitId, today: t.today() };
+    };
+
+    /**
+     * Each route's page twin and its API request, each on a setup of its
+     * own: the same domain function, so the same statements, but a rename
+     * (PATCH without `slots`), which leaves the rows and the trips alone
+     * where the form's save replaces them.
+     */
+    const CASES: {
+      name: string;
+      proposal?: boolean;
+      extra?: number;
+      ok: [page: number, api: number];
+      page: (s: Setup) => InjectOptions;
+      api: (s: Setup) => InjectOptions;
+    }[] = [
+      {
+        name: 'GET /outfits (GET /outfits)',
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: '/outfits' }),
+        api: () => ({ method: 'GET', url: '/api/v1/outfits' }),
+      },
+      {
+        name: 'GET /outfits/{id} (GET /outfits/:id)',
+        ok: [200, 200],
+        page: (s) => ({ method: 'GET', url: `/outfits/${s.outfitId}` }),
+        api: (s) => ({ method: 'GET', url: `/api/v1/outfits/${s.outfitId}` }),
+      },
+      {
+        name: 'POST /outfits (POST /outfits)',
+        ok: [302, 201],
+        page: (s) => ({
+          method: 'POST',
+          url: '/outfits',
+          payload: { category: 'shirt', garmentId: String(s.bare) },
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: '/api/v1/outfits',
+          payload: { slots: [{ category: 'shirt', garmentId: s.bare }] },
+        }),
+      },
+      {
+        name: 'PATCH /outfits/{id} with slots (POST /outfits/:id)',
+        ok: [302, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/outfits/${s.outfitId}`,
+          payload: {
+            name: 'Renamed',
+            category: 'shirt',
+            garmentId: String(s.bare),
+          },
+        }),
+        api: (s) => ({
+          method: 'PATCH',
+          url: `/api/v1/outfits/${s.outfitId}`,
+          payload: {
+            name: 'Renamed',
+            slots: [{ category: 'shirt', garmentId: s.bare }],
+          },
+        }),
+      },
+      {
+        name: 'PATCH /outfits/{id}, a rename (POST /outfits/:id)',
+        extra: -2,
+        ok: [302, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/outfits/${s.outfitId}`,
+          payload: { name: 'Renamed' },
+        }),
+        api: (s) => ({
+          method: 'PATCH',
+          url: `/api/v1/outfits/${s.outfitId}`,
+          payload: { name: 'Renamed' },
+        }),
+      },
+      {
+        name: 'DELETE /outfits/{id} (DELETE /outfits/:id)',
+        ok: [200, 204],
+        page: (s) => ({ method: 'DELETE', url: `/outfits/${s.outfitId}` }),
+        api: (s) => ({
+          method: 'DELETE',
+          url: `/api/v1/outfits/${s.outfitId}`,
+        }),
+      },
+      {
+        name: 'POST /outfits/{id}/reactions (POST /outfits/:id/love)',
+        proposal: true,
+        ok: [303, 200],
+        page: (s) => ({ method: 'POST', url: `/outfits/${s.outfitId}/love` }),
+        api: (s) => ({
+          method: 'POST',
+          url: `/api/v1/outfits/${s.outfitId}/reactions`,
+          payload: { event: 'love' },
+        }),
+      },
+      {
+        name: 'PUT /garments/{id}/wears/{day} (POST /wardrobe/:id/wear)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/wardrobe/${s.bare}/wear`,
+          payload: { worn: '1' },
+        }),
+        api: (s) => ({
+          method: 'PUT',
+          url: `/api/v1/garments/${s.bare}/wears/${s.today}`,
+        }),
+      },
+      {
+        name: 'DELETE /garments/{id}/wears/{day} (POST /wardrobe/:id/wear, worn=0)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/wardrobe/${s.bare}/wear`,
+          payload: { worn: '0' },
+        }),
+        api: (s) => ({
+          method: 'DELETE',
+          url: `/api/v1/garments/${s.bare}/wears/${s.today}`,
+        }),
+      },
+      {
+        name: 'POST /garments/{id}/washes (POST /wardrobe/:id/washed)',
+        ok: [303, 200],
+        page: (s) => ({ method: 'POST', url: `/wardrobe/${s.bare}/washed` }),
+        api: (s) => ({
+          method: 'POST',
+          url: `/api/v1/garments/${s.bare}/washes`,
+          payload: { day: s.today },
+        }),
+      },
+      {
+        name: 'POST /garments/washes (POST /laundry)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: '/laundry',
+          payload: { ids: [String(s.bare)] },
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: '/api/v1/garments/washes',
+          payload: { garmentIds: [s.bare], day: s.today },
+        }),
+      },
+      {
+        name: 'PUT /garments/{id}/away (POST /wardrobe/:id/away)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/wardrobe/${s.bare}/away`,
+          payload: { away: 'lent', awayNote: 'Sam' },
+        }),
+        api: (s) => ({
+          method: 'PUT',
+          url: `/api/v1/garments/${s.bare}/away`,
+          payload: { away: 'lent', note: 'Sam' },
+        }),
+      },
+    ];
+
+    it.each(CASES)(
+      '$name',
+      async ({ proposal = false, extra = 0, ok, page, api }) => {
+        const [onPage, onApi] = [
+          await setupFor(proposal),
+          await setupFor(proposal),
+        ];
+        const pageRun = await statementsOf(() => t.inject(page(onPage)));
+        // A second call of the minute: no last-use write.
+        await t.api(token, { method: 'GET', url: '/api/v1/me' });
+        const apiRun = await statementsOf(() => t.api(token, api(onApi)));
+        expect([pageRun.status, apiRun.status]).toEqual(ok);
+        expect(apiRun.statements).toBe(pageRun.statements + extra);
+      },
+    );
   });
 
   it('POST /garments/link-imports: the token, the pending photo kept, the claim; no read back', async () => {

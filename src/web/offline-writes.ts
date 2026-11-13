@@ -104,6 +104,22 @@ export function requestedDay(
 }
 
 /**
+ * The API's day check (wears' api-routes.ts): the same window and words as
+ * requestedDay, for a day every API wear and wash sends, but a plain 409
+ * without `X-Closet-Outcome`, which is the page outbox's contract.
+ */
+export function dayOutsideWindow(
+  day: IsoDate,
+  today: IsoDate,
+): HttpError | undefined {
+  const refusal = dayRefusal(day, today);
+  return (
+    refusal &&
+    new HttpError(409, REFUSAL_MESSAGES[refusal], { logDetail: `day ${day}` })
+  );
+}
+
+/**
  * What a queueable write's log line adds: ` (replayed, key 1a2b3c4d)`, or
  * the key alone for a live tap that sent one, or nothing. The key is a
  * client's header, so only its first characters of [A-Za-z0-9-] are

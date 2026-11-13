@@ -4,6 +4,7 @@ import {
   gte,
   inArray,
   isNotNull,
+  lt,
   or,
   type SQL,
   sql,
@@ -85,6 +86,9 @@ export const OUTFIT_NOTES_MAX = 4000;
 // The garments one outfit holds at most: create_outfit's and suggest_outfit's
 // bound.
 export const OUTFIT_GARMENTS_MAX = 20;
+// The rows one save takes at most, empty ones included: position is a
+// smallint, and no form needs more (the outfit form, the API's slots).
+export const OUTFIT_SLOTS_MAX = 100;
 
 /** One slot as a write takes it: a category and its garment (or none). */
 export interface SlotInput {
@@ -99,6 +103,19 @@ export interface OutfitInput {
   slots: SlotInput[];
   /** "Add to calendar": plan the outfit on this day, for this occasion, in the same transaction. */
   plan?: { day: IsoDate; occasion: Occasion; plannedBy?: PlannedBy };
+}
+
+/**
+ * An edit (updateOutfit): what is absent is left as it is. The outfit form
+ * and Styling post every row; the API may send only a name.
+ */
+export type OutfitEdit = Omit<OutfitInput, 'slots'> & { slots?: SlotInput[] };
+
+/** A name or notes as stored: trimmed, null when blank; undefined (not sent) stays so. */
+export function outfitText(
+  value: string | null | undefined,
+): string | null | undefined {
+  return value === undefined ? undefined : value?.trim() || null;
 }
 
 export interface SaveResult {
@@ -132,7 +149,13 @@ export interface CreateResult extends SaveResult {
  * query writes every column of a `where` against its root table, which
  * breaks a predicate with a subquery of its own (ownersOutfit).
  */
-function toolOutfitsSql(where: SQL): SQL<ToolOutfit[]> {
+function toolOutfitsSql(where: SQL, limit?: number): SQL<ToolOutfit[]> {
+  // A page reads the newest `limit` under the table's own name, so every
+  // correlated column below (outfitGarmentsSql's) still names its row.
+  const rows =
+    limit === undefined
+      ? sql`${outfit} where ${where}`
+      : sql`(select * from ${outfit} where ${where} order by ${outfit.id} desc limit ${limit}) as ${outfit}`;
   return sql<ToolOutfit[]>`(
     select coalesce(json_agg(json_build_object(
       'id', ${outfit.id},
@@ -147,8 +170,7 @@ function toolOutfitsSql(where: SQL): SQL<ToolOutfit[]> {
         'dismissedReason', ${outfit.dismissedReason}
       ) end
     ) order by ${outfit.id} desc), '[]')
-    from ${outfit}
-    where ${where}
+    from ${rows}
   )`;
 }
 
@@ -176,6 +198,35 @@ export function listOutfits(db: Db, ownerId: number): Promise<ToolOutfit[]> {
     and(eq(outfit.ownerId, ownerId), ownersOutfit())!,
   );
 }
+
+/**
+ * listOutfits a page at a time, newest first, for GET /api/v1/outfits: the
+ * outfits below id `before`, and the id the next page starts below (null
+ * on the last). One statement, as the Saved tab's.
+ */
+export async function listOutfitsPage(
+  db: Db,
+  ownerId: number,
+  page: { before: number | undefined; limit: number },
+): Promise<{ outfits: ToolOutfit[]; next: number | null }> {
+  const { outfits } = await selectScalars(db, {
+    outfits: toolOutfitsSql(
+      and(
+        eq(outfit.ownerId, ownerId),
+        ownersOutfit(),
+        page.before === undefined ? undefined : lt(outfit.id, page.before),
+      )!,
+      // One more than the page: whether there is a next.
+      page.limit + 1,
+    ),
+  });
+  const shown = outfits.slice(0, page.limit);
+  return {
+    outfits: shown,
+    next: outfits.length > page.limit ? shown[shown.length - 1].id : null,
+  };
+}
+
 /**
  * An outfit as a collage or a saved-outfit button shows it, without its
  * notes or share link: the Saved tab's tiles, the garment page's strip, a
@@ -867,13 +918,14 @@ export async function reuseOutfit(
  *
  * Statements (#164): the outfit's lock with its fields and the take-over
  * (lockForEdit), the slots (insertSlots), the trips it is on, then the
- * prune (only when on one) and the plan (only when asked).
+ * prune (only when on one) and the plan (only when asked). An edit without
+ * slots (the API's rename) leaves them, and the trips, alone.
  */
 export function updateOutfit(
   db: Queryable,
   id: number,
   ownerId: number,
-  input: OutfitInput,
+  input: OutfitEdit,
 ): Promise<SaveResult | 'not-found'> {
   return ownerTransaction(db, ownerId, 'updateOutfit', async (tx) => {
     const edited = await lockForEdit(tx, id, ownerId, {
@@ -881,18 +933,20 @@ export function updateOutfit(
       ...(input.notes !== undefined && { notes: input.notes }),
     });
     if (!edited) return 'not-found';
-    await insertSlots(tx, id, ownerId, input.slots, { replace: true });
-    // A garment the edit took out may have left a trip's packing list (#10).
-    // Read after the lock: a trip that added the outfit meanwhile waited on
-    // it and committed first, so it is seen.
-    await prunePacked(tx, await tripsOfOutfit(tx, id));
+    if (input.slots) {
+      await insertSlots(tx, id, ownerId, input.slots, { replace: true });
+      // A garment the edit took out may have left a trip's packing list
+      // (#10). Read after the lock: a trip that added the outfit meanwhile
+      // waited on it and committed first, so it is seen.
+      await prunePacked(tx, await tripsOfOutfit(tx, id));
+    }
     const schedule = input.plan
       ? (await insertEntry(tx, { ownerId, outfitId: id, ...input.plan }))
           .outcome
       : undefined;
     return {
       id,
-      slots: input.slots.length,
+      slots: input.slots?.length ?? 0,
       schedule,
       entriesClaimed: edited.claimed,
     };

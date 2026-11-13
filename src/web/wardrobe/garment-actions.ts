@@ -407,10 +407,16 @@ export async function garmentToMend(
   address: GarmentAddress,
 ): Promise<AuthorizedGarment> {
   const owned = await requireGarment(db, actor, address, 'own');
-  if (owned.garment.status === 'wishlist') {
-    throw new HttpError(409, 'On the wishlist: not bought yet');
-  }
+  if (owned.garment.status === 'wishlist') throw garmentNotOwnedYet();
   return owned;
+}
+
+/**
+ * A wishlist item, seen but not owned yet, where an owner's record needs a
+ * garment they have (a repair, a wear, a wash, away: wear-actions.ts): 409.
+ */
+export function garmentNotOwnedYet(): HttpError {
+  return new HttpError(409, 'On the wishlist: not bought yet');
 }
 
 /**

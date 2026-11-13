@@ -10,7 +10,7 @@ import { type OutfitContext, outfitContext } from './page-context';
 import {
   deleteOutfit,
   findOutfit,
-  type OutfitInput,
+  type OutfitEdit,
   type OutfitProposalInput,
   proposeOutfit,
   type SaveResult,
@@ -66,12 +66,12 @@ export async function requireOutfit(
   return found;
 }
 
-/** An edit of the actor's outfit (the outfit form, Styling's Save in place): updateOutfit. */
+/** An edit of the actor's outfit (the outfit form, Styling's Save in place, the API's PATCH): updateOutfit. */
 export async function editOutfit(
   db: Db,
   actor: Actor,
   id: number,
-  input: OutfitInput,
+  input: OutfitEdit,
 ): Promise<SaveResult> {
   const saved = await updateOutfit(db, id, actor.userId, input);
   if (saved === 'not-found') throw outfitNotFound();

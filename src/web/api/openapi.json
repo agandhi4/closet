@@ -7237,6 +7237,1838 @@
           }
         }
       }
+    },
+    "/api/v1/garments/{id}/wears/{day}": {
+      "put": {
+        "operationId": "wearGarment",
+        "summary": "Wore it that day",
+        "tags": [
+          "wears"
+        ],
+        "description": "Wore today, for a day of the last week: the garment's own wear, apart from an outfit's (a calendar entry marked worn). Once a day: a repeat is `changed: false`. Your own garments only; a wishlist item is a 409.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "clientId": {
+                        "format": "uuid",
+                        "description": "Your id for this wear, for retrying it offline: accepted, not yet stored (a wear is once a garment a day anyway)",
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "format": "date",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "description": "The household day it happened (GET /me's `today`), at most 7 days back; another is a 409"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The garment's own wear that day",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "GarmentWear",
+                  "description": "The garment's own wear that day",
+                  "type": "object",
+                  "required": [
+                    "day",
+                    "worn",
+                    "changed"
+                  ],
+                  "properties": {
+                    "day": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "worn": {
+                      "type": "boolean"
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "unwearGarment",
+        "summary": "Undoes that day's wear",
+        "tags": [
+          "wears"
+        ],
+        "description": "Only the garment's own wear that day: an outfit's wear is undone on its calendar entry. None that day is `changed: false`.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "format": "date",
+              "type": "string"
+            },
+            "in": "path",
+            "name": "day",
+            "required": true,
+            "description": "The household day it happened (GET /me's `today`), at most 7 days back; another is a 409"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The garment's own wear that day",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "GarmentWear",
+                  "description": "The garment's own wear that day",
+                  "type": "object",
+                  "required": [
+                    "day",
+                    "worn",
+                    "changed"
+                  ],
+                  "properties": {
+                    "day": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "worn": {
+                      "type": "boolean"
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/{id}/washes": {
+      "post": {
+        "operationId": "washGarment",
+        "summary": "Washed it that day",
+        "tags": [
+          "wears"
+        ],
+        "description": "Every copy, clean from that day: wears that day count as before the wash. A wash never moves back, so an older one than the last is `changed: false`. Your own garments only; a wishlist item is a 409.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "GarmentWash",
+                "type": "object",
+                "required": [
+                  "day"
+                ],
+                "properties": {
+                  "day": {
+                    "description": "The household day it happened (GET /me's `today`), at most 7 days back; another is a 409",
+                    "format": "date",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "GarmentWashed",
+                  "type": "object",
+                  "required": [
+                    "day",
+                    "changed"
+                  ],
+                  "properties": {
+                    "day": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/washes": {
+      "post": {
+        "operationId": "washGarments",
+        "summary": "Laundry day: washes many garments",
+        "tags": [
+          "wears"
+        ],
+        "description": "The laundry's \"Mark washed\". GET /garments?needsWash=true lists what needs one. Always your own garments, whatever is shared with you.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "LaundryWash",
+                "description": "Laundry day: every copy of each garment washed. Ids that are not your garments' (or wishlist items) are left out of the answer, never an error",
+                "type": "object",
+                "required": [
+                  "garmentIds",
+                  "day"
+                ],
+                "properties": {
+                  "garmentIds": {
+                    "minItems": 1,
+                    "maxItems": 2000,
+                    "type": "array",
+                    "items": {
+                      "minimum": 1,
+                      "maximum": 2147483647,
+                      "type": "integer"
+                    }
+                  },
+                  "day": {
+                    "description": "The household day it happened (GET /me's `today`), at most 7 days back; another is a 409",
+                    "format": "date",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "description": "Laundry day: every copy of each garment washed. Ids that are not your garments' (or wishlist items) are left out of the answer, never an error"
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "LaundryWashed",
+                  "type": "object",
+                  "required": [
+                    "washed"
+                  ],
+                  "properties": {
+                    "washed": {
+                      "description": "The garments washed (those already washed then or later included)",
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/{id}/away": {
+      "put": {
+        "operationId": "setGarmentAway",
+        "summary": "Says where a garment is: lent, at the repair shop, or back",
+        "tags": [
+          "wears"
+        ],
+        "description": "Away, it is never suggested or packed. Set-state: a repeat changes nothing. Your own garments only; a wishlist item is a 409.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "GarmentAway",
+                "type": "object",
+                "required": [
+                  "away"
+                ],
+                "properties": {
+                  "away": {
+                    "description": "Lent, or at the repair shop; null is back in the closet",
+                    "anyOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "lent"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "repair"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "note": {
+                    "description": "Who has it, or which shop: kept only while away",
+                    "anyOf": [
+                      {
+                        "maxLength": 200,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Where the garment is: no `away`, in the closet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "GarmentWhereabouts",
+                  "description": "Where the garment is: no `away`, in the closet",
+                  "type": "object",
+                  "properties": {
+                    "away": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "lent"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "repair"
+                          ]
+                        }
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/outfits": {
+      "get": {
+        "operationId": "listOutfits",
+        "summary": "Your outfits, newest first",
+        "tags": [
+          "outfits"
+        ],
+        "description": "Each with its garments in the order it was built and the pieces still to buy. Muse's proposals you have not made yours are not listed.",
+        "parameters": [
+          {
+            "schema": {
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "description": "The previous page's `pagination.nextCursor`"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 30,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "limit",
+            "required": true,
+            "description": "How many a page holds: 30 unless asked, at most 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of your outfits, newest first (not those your agent proposed that are not yours yet)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "OutfitList",
+                  "description": "A page of your outfits, newest first (not those your agent proposed that are not yours yet)",
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "pagination"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "title": "OutfitListItem",
+                        "description": "One of your outfits as a list shows it: GET /outfits/{id} adds its days",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "garments",
+                          "toBuy"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "notes": {
+                            "type": "string"
+                          },
+                          "garments": {
+                            "type": "array",
+                            "items": {
+                              "title": "OutfitGarment",
+                              "description": "A garment the outfit holds, as its collage shows it, in the order it was built (an empty row is left out): GET /garments/{id} has the rest",
+                              "type": "object",
+                              "required": [
+                                "id",
+                                "category",
+                                "role",
+                                "status"
+                              ],
+                              "properties": {
+                                "id": {
+                                  "type": "integer"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "category": {
+                                  "type": "string"
+                                },
+                                "role": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "top"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "bottom"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "one-piece"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "layer"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "footwear"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "accessory"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "bag"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "none"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "status": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "wishlist"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "closet"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "archived"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "thumbUrl": {
+                                  "type": "string"
+                                },
+                                "away": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "lent"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "repair"
+                                      ]
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "toBuy": {
+                            "description": "Its garments not bought yet (wishlist items): an outfit with any cannot be planned, packed or worn until they are",
+                            "type": "array",
+                            "items": {
+                              "type": "integer"
+                            }
+                          },
+                          "proposal": {
+                            "title": "OutfitProposal",
+                            "description": "Your agent proposed this outfit: its note, and your reaction (`loved` and complete: yours, like any other)",
+                            "type": "object",
+                            "required": [
+                              "reaction"
+                            ],
+                            "properties": {
+                              "reaction": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "proposed"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "loved"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "revise"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "declined"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "note": {
+                                "type": "string"
+                              },
+                              "ownerNote": {
+                                "type": "string"
+                              },
+                              "dismissedReason": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "too_pricey"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "colour"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "style"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "already_have"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "not_now"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "agent": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "pagination": {
+                      "title": "Pagination",
+                      "type": "object",
+                      "required": [
+                        "limit"
+                      ],
+                      "properties": {
+                        "nextCursor": {
+                          "type": "string"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createOutfit",
+        "summary": "Saves an outfit of your garments",
+        "tags": [
+          "outfits"
+        ],
+        "description": "Once per garment set: garments that are an outfit of yours already answer that one, 200 with `alreadySaved` (planned too when a `plan` is given), so a retry creates nothing. A new one is 201 with its `Location`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "NewOutfit",
+                "description": "An outfit of your own garments. Once per garment set: when they are an outfit of yours already, that one is the answer (200, `alreadySaved`, its own name and notes kept)",
+                "type": "object",
+                "required": [
+                  "slots"
+                ],
+                "properties": {
+                  "name": {
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  "notes": {
+                    "maxLength": 4000,
+                    "type": "string"
+                  },
+                  "slots": {
+                    "maxItems": 100,
+                    "description": "Its rows top to toe, replaced whole. A garment it cannot hold (another's, deleted, archived, or not bought yet while the outfit is planned) refuses the save, nothing written: a 404 when any is not yours, else a 409 naming them",
+                    "type": "array",
+                    "items": {
+                      "title": "OutfitSlot",
+                      "type": "object",
+                      "required": [
+                        "category"
+                      ],
+                      "properties": {
+                        "category": {
+                          "description": "The row's category",
+                          "minLength": 1,
+                          "maxLength": 255,
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        "garmentId": {
+                          "description": "One of your own garments (closet; archived ones it holds already stay); absent, a row kept empty",
+                          "minimum": 1,
+                          "maximum": 2147483647,
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  },
+                  "plan": {
+                    "description": "Also plan it on this day (all day unless an occasion is given), in the same transaction; an outfit with pieces to buy cannot be (409)",
+                    "type": "object",
+                    "required": [
+                      "day"
+                    ],
+                    "properties": {
+                      "day": {
+                        "format": "date",
+                        "type": "string"
+                      },
+                      "occasion": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "all-day"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "workout"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "work"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "daytime"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "evening"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "night-out"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "clientId": {
+                    "format": "uuid",
+                    "description": "Your id for this create, for retrying it offline: accepted, not yet stored (the same garments are the same outfit anyway)",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "description": "An outfit of your own garments. Once per garment set: when they are an outfit of yours already, that one is the answer (200, `alreadySaved`, its own name and notes kept)"
+        },
+        "responses": {
+          "200": {
+            "description": "The outfit saved, new or found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "OutfitSaved",
+                  "description": "The outfit saved, new or found",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "alreadySaved"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "alreadySaved": {
+                      "type": "boolean"
+                    },
+                    "schedule": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "scheduled"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "already-scheduled"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "The outfit saved, new or found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "OutfitSaved",
+                  "description": "The outfit saved, new or found",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "alreadySaved"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "alreadySaved": {
+                      "type": "boolean"
+                    },
+                    "schedule": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "scheduled"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "already-scheduled"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/outfits/{id}": {
+      "get": {
+        "operationId": "getOutfit",
+        "summary": "One of your outfits, with its days",
+        "tags": [
+          "outfits"
+        ],
+        "description": "Its garments (each piece away marked), the days it is planned from today on and the days it was worn. Another's outfit is a 404 like an unknown id.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One of your outfits in full, as its page shows it: its garments (with where each is when away), and its days planned and worn",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Outfit",
+                  "description": "One of your outfits in full, as its page shows it: its garments (with where each is when away), and its days planned and worn",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "garments",
+                    "toBuy",
+                    "planned",
+                    "worn"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "notes": {
+                      "type": "string"
+                    },
+                    "garments": {
+                      "type": "array",
+                      "items": {
+                        "title": "OutfitGarment",
+                        "description": "A garment the outfit holds, as its collage shows it, in the order it was built (an empty row is left out): GET /garments/{id} has the rest",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "category",
+                          "role",
+                          "status"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "category": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "top"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "bottom"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "one-piece"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "layer"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "footwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "accessory"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "bag"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "none"
+                                ]
+                              }
+                            ]
+                          },
+                          "status": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "wishlist"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "closet"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "archived"
+                                ]
+                              }
+                            ]
+                          },
+                          "thumbUrl": {
+                            "type": "string"
+                          },
+                          "away": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "lent"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "repair"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "toBuy": {
+                      "description": "Its garments not bought yet (wishlist items): an outfit with any cannot be planned, packed or worn until they are",
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "proposal": {
+                      "title": "OutfitProposal",
+                      "description": "Your agent proposed this outfit: its note, and your reaction (`loved` and complete: yours, like any other)",
+                      "type": "object",
+                      "required": [
+                        "reaction"
+                      ],
+                      "properties": {
+                        "reaction": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "proposed"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "loved"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "revise"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "declined"
+                              ]
+                            }
+                          ]
+                        },
+                        "note": {
+                          "type": "string"
+                        },
+                        "ownerNote": {
+                          "type": "string"
+                        },
+                        "dismissedReason": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "too_pricey"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "colour"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "style"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "already_have"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "not_now"
+                              ]
+                            }
+                          ]
+                        },
+                        "agent": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "planned": {
+                      "type": "array",
+                      "items": {
+                        "title": "OutfitPlannedDay",
+                        "type": "object",
+                        "required": [
+                          "entryId",
+                          "day",
+                          "occasion"
+                        ],
+                        "properties": {
+                          "entryId": {
+                            "type": "integer"
+                          },
+                          "day": {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          "occasion": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "all-day"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "workout"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "work"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "daytime"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "evening"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "night-out"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "worn": {
+                      "type": "array",
+                      "items": {
+                        "title": "OutfitWornDay",
+                        "type": "object",
+                        "required": [
+                          "entryId",
+                          "day"
+                        ],
+                        "properties": {
+                          "entryId": {
+                            "type": "integer"
+                          },
+                          "day": {
+                            "format": "date",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateOutfit",
+        "summary": "Changes an outfit's name, notes or rows",
+        "tags": [
+          "outfits"
+        ],
+        "description": "Only what is sent: `slots` replaces every row. It may leave the outfit with the garments of another (an edit is not a save). Planning is the calendar's.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "OutfitPatch",
+                "description": "Only what is sent changes. Editing an outfit makes its days planned by Plan my week yours (`entriesClaimed`)",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "description": "null or blank: untitled",
+                    "anyOf": [
+                      {
+                        "maxLength": 255,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "notes": {
+                    "description": "null or blank: none",
+                    "anyOf": [
+                      {
+                        "maxLength": 4000,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "slots": {
+                    "maxItems": 100,
+                    "description": "Its rows top to toe, replaced whole. A garment it cannot hold (another's, deleted, archived, or not bought yet while the outfit is planned) refuses the save, nothing written: a 404 when any is not yours, else a 409 naming them",
+                    "type": "array",
+                    "items": {
+                      "title": "OutfitSlot",
+                      "type": "object",
+                      "required": [
+                        "category"
+                      ],
+                      "properties": {
+                        "category": {
+                          "description": "The row's category",
+                          "minLength": 1,
+                          "maxLength": 255,
+                          "pattern": "\\S",
+                          "type": "string"
+                        },
+                        "garmentId": {
+                          "description": "One of your own garments (closet; archived ones it holds already stay); absent, a row kept empty",
+                          "minimum": 1,
+                          "maximum": 2147483647,
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "description": "Only what is sent changes. Editing an outfit makes its days planned by Plan my week yours (`entriesClaimed`)"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "OutfitUpdated",
+                  "type": "object",
+                  "required": [
+                    "entriesClaimed"
+                  ],
+                  "properties": {
+                    "entriesClaimed": {
+                      "minimum": 0,
+                      "description": "Its calendar entries Plan my week had planned, now yours",
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteOutfit",
+        "summary": "Deletes an outfit",
+        "tags": [
+          "outfits"
+        ],
+        "description": "The days it was worn stay (each piece's wear kept on its day), and so do its selfies, as looks. One of your agent's proposals not loved is a 409: decline it instead. An outfit already gone is a 404, which a retry may read as done.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/outfits/{id}/reactions": {
+      "post": {
+        "operationId": "reactToOutfit",
+        "summary": "Reacts to an outfit your agent proposed",
+        "tags": [
+          "outfits"
+        ],
+        "description": "The Outfits tab's Love, Not for me and its Undo. An outfit your agent did not propose is a 404; one that is yours already, or a move its reaction does not take (a double tap), a 409.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "OutfitReactionInput",
+                "description": "`love` (keep it; once every piece is bought it is yours), `decline` (Not for me, with a reason) or `reconsider` (undo that)",
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "event"
+                    ],
+                    "properties": {
+                      "event": {
+                        "type": "string",
+                        "enum": [
+                          "love"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "event",
+                      "reason"
+                    ],
+                    "properties": {
+                      "event": {
+                        "type": "string",
+                        "enum": [
+                          "decline"
+                        ]
+                      },
+                      "reason": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "too_pricey"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "colour"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "style"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "already_have"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "not_now"
+                            ]
+                          }
+                        ]
+                      },
+                      "note": {
+                        "maxLength": 500,
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "event"
+                    ],
+                    "properties": {
+                      "event": {
+                        "type": "string",
+                        "enum": [
+                          "reconsider"
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "description": "`love` (keep it; once every piece is bought it is yours), `decline` (Not for me, with a reason) or `reconsider` (undo that)"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "OutfitReacted",
+                  "type": "object",
+                  "required": [
+                    "from",
+                    "to",
+                    "complete"
+                  ],
+                  "properties": {
+                    "from": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "proposed"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "loved"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "revise"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "declined"
+                          ]
+                        }
+                      ]
+                    },
+                    "to": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "proposed"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "loved"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "revise"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "declined"
+                          ]
+                        }
+                      ]
+                    },
+                    "complete": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "security": [

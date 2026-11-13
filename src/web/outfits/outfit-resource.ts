@@ -1,0 +1,286 @@
+import { CloneType, type Static, Type } from '@sinclair/typebox';
+import { AWAY_REASONS } from '../../wardrobe/availability';
+import { LOOK_REACTIONS } from '../../wardrobe/look-reaction';
+import { OCCASIONS } from '../../wardrobe/occasions';
+import { categoryRole, GARMENT_ROLES } from '../../wardrobe/properties';
+import { GARMENT_STATUSES } from '../../wardrobe/status';
+import { OUTFIT_DISMISS_REASONS } from '../../wardrobe/suggestions';
+import { literals, Nullable, withoutNulls } from '../api/resource';
+import type { ScheduleOutcome } from '../calendar/queries';
+import { imageUrl } from '../files/image-url';
+import { IsoDateSchema, RowId } from '../schemas';
+import type { OutfitContext } from './page-context';
+import {
+  OUTFIT_NAME_MAX,
+  OUTFIT_NOTES_MAX,
+  OUTFIT_SLOTS_MAX,
+  type OutfitGarment,
+  type OutfitPageDetail,
+  type SlotInput,
+  type ToolOutfit,
+} from './queries';
+import { piecesToBuy } from './references';
+import { DECLINE_NOTE_MAX, SlotCategory } from './schemas';
+
+/**
+ * The API's outfit resources and inputs (#193a; docs/plans/2026-11-12-json-
+ * api.md section 2), mapped from what the pages and MCP read: a list's
+ * outfit (listOutfitsPage, list_outfits' read a page at a time) and one in
+ * full (requireOutfitPage, the outfit page's one statement). camelCase,
+ * null fields left out. An outfit's garments are as its collage shows them;
+ * a client reads the rest from GET /garments/{id}.
+ */
+
+const OutfitGarmentResource = Type.Object(
+  {
+    id: Type.Integer(),
+    name: Type.Optional(Type.String()),
+    category: Type.String(),
+    role: literals(GARMENT_ROLES),
+    /** `wishlist`: a piece to buy (toBuy). */
+    status: literals(GARMENT_STATUSES),
+    /** Signed, relative, immutable: from the cutout when it shows. */
+    thumbUrl: Type.Optional(Type.String()),
+    /** Only on GET /outfits/{id}: where the piece is when not in the closet. */
+    away: Type.Optional(literals(AWAY_REASONS)),
+  },
+  {
+    title: 'OutfitGarment',
+    description:
+      'A garment the outfit holds, as its collage shows it, in the order it was built (an empty row is left out): GET /garments/{id} has the rest',
+  },
+);
+
+const OutfitProposalResource = Type.Object(
+  {
+    reaction: literals(LOOK_REACTIONS),
+    note: Type.Optional(Type.String()),
+    ownerNote: Type.Optional(Type.String()),
+    dismissedReason: Type.Optional(literals(OUTFIT_DISMISS_REASONS)),
+    /** The agent's name, on GET /outfits/{id} only, while its token exists. */
+    agent: Type.Optional(Type.String()),
+  },
+  {
+    title: 'OutfitProposal',
+    description:
+      'Your agent proposed this outfit: its note, and your reaction (`loved` and complete: yours, like any other)',
+  },
+);
+
+const outfitFields = {
+  id: Type.Integer(),
+  name: Type.Optional(Type.String()),
+  notes: Type.Optional(Type.String()),
+  garments: Type.Array(OutfitGarmentResource),
+  toBuy: Type.Array(Type.Integer(), {
+    description:
+      'Its garments not bought yet (wishlist items): an outfit with any cannot be planned, packed or worn until they are',
+  }),
+  proposal: Type.Optional(OutfitProposalResource),
+};
+
+export const OutfitListItem = Type.Object(outfitFields, {
+  title: 'OutfitListItem',
+  description:
+    'One of your outfits as a list shows it: GET /outfits/{id} adds its days',
+});
+type OutfitListItem = Static<typeof OutfitListItem>;
+
+const PlannedDay = Type.Object(
+  {
+    entryId: Type.Integer(),
+    day: IsoDateSchema,
+    occasion: literals(OCCASIONS),
+  },
+  { title: 'OutfitPlannedDay' },
+);
+
+const WornDay = Type.Object(
+  { entryId: Type.Integer(), day: IsoDateSchema },
+  { title: 'OutfitWornDay' },
+);
+
+export const Outfit = Type.Object(
+  {
+    ...outfitFields,
+    /** Its calendar entries not worn yet, from today on, soonest first. */
+    planned: Type.Array(PlannedDay),
+    /** The days it was worn (marked, or with a selfie), newest first. */
+    worn: Type.Array(WornDay),
+  },
+  {
+    title: 'Outfit',
+    description:
+      'One of your outfits in full, as its page shows it: its garments (with where each is when away), and its days planned and worn',
+  },
+);
+type Outfit = Static<typeof Outfit>;
+
+function toOutfitGarment(garment: OutfitGarment) {
+  return withoutNulls({
+    id: garment.id,
+    name: garment.name,
+    category: garment.category,
+    role: categoryRole(garment.category),
+    status: garment.status,
+    thumbUrl: garment.photo && imageUrl(garment.photo, 'thumb'),
+    away: garment.away ?? null,
+  });
+}
+
+function toOutfitFields(outfit: ToolOutfit | OutfitPageDetail) {
+  return {
+    id: outfit.id,
+    ...withoutNulls({ name: outfit.name, notes: outfit.notes }),
+    garments: outfit.garments.map(toOutfitGarment),
+    toBuy: piecesToBuy(outfit.garments).map(({ id }) => id),
+    ...(outfit.proposal && { proposal: withoutNulls(outfit.proposal) }),
+  };
+}
+
+export function toOutfitListItem(outfit: ToolOutfit): OutfitListItem {
+  return toOutfitFields(outfit);
+}
+
+export function toOutfitResource({ outfit, entries }: OutfitContext): Outfit {
+  return {
+    ...toOutfitFields(outfit),
+    planned: entries.planned,
+    worn: entries.worn.map(({ entryId, day }) => ({ entryId, day })),
+  };
+}
+
+const OutfitName = Type.String({ maxLength: OUTFIT_NAME_MAX });
+const OutfitNotes = Type.String({ maxLength: OUTFIT_NOTES_MAX });
+
+const OutfitSlot = Type.Object(
+  {
+    category: CloneType(SlotCategory, { description: "The row's category" }),
+    garmentId: Type.Optional(
+      CloneType(RowId, {
+        description:
+          'One of your own garments (closet; archived ones it holds already stay); absent, a row kept empty',
+      }),
+    ),
+  },
+  { title: 'OutfitSlot' },
+);
+
+const Slots = Type.Array(OutfitSlot, {
+  maxItems: OUTFIT_SLOTS_MAX,
+  description:
+    "Its rows top to toe, replaced whole. A garment it cannot hold (another's, deleted, archived, or not bought yet while the outfit is planned) refuses the save, nothing written: a 404 when any is not yours, else a 409 naming them",
+});
+
+/** The rows as the outfit writers take them: an absent garment is an empty row. */
+export function slotsOf(slots: Static<typeof Slots>): SlotInput[] {
+  return slots.map(({ category, garmentId }) => ({
+    category,
+    garmentId: garmentId ?? null,
+  }));
+}
+
+/** POST /outfits. */
+export const NewOutfit = Type.Object(
+  {
+    name: Type.Optional(OutfitName),
+    notes: Type.Optional(OutfitNotes),
+    slots: Slots,
+    plan: Type.Optional(
+      Type.Object(
+        {
+          day: IsoDateSchema,
+          occasion: Type.Optional(literals(OCCASIONS)),
+        },
+        {
+          description:
+            'Also plan it on this day (all day unless an occasion is given), in the same transaction; an outfit with pieces to buy cannot be (409)',
+        },
+      ),
+    ),
+    clientId: Type.Optional(
+      Type.String({
+        format: 'uuid',
+        description:
+          'Your id for this create, for retrying it offline: accepted, not yet stored (the same garments are the same outfit anyway)',
+      }),
+    ),
+  },
+  {
+    title: 'NewOutfit',
+    description:
+      'An outfit of your own garments. Once per garment set: when they are an outfit of yours already, that one is the answer (200, `alreadySaved`, its own name and notes kept)',
+  },
+);
+
+/** PATCH /outfits/{id}: absent leaves a field as it is. */
+export const OutfitPatch = Type.Object(
+  {
+    name: Nullable(OutfitName, { description: 'null or blank: untitled' }),
+    notes: Nullable(OutfitNotes, { description: 'null or blank: none' }),
+    slots: Type.Optional(Slots),
+  },
+  {
+    title: 'OutfitPatch',
+    description:
+      'Only what is sent changes. Editing an outfit makes its days planned by Plan my week yours (`entriesClaimed`)',
+  },
+);
+
+const SCHEDULE_OUTCOMES = [
+  'scheduled',
+  'already-scheduled',
+] as const satisfies readonly ScheduleOutcome[];
+
+export const OutfitSaved = Type.Object(
+  {
+    id: Type.Integer(),
+    /** The garments were an outfit of yours already: nothing created. */
+    alreadySaved: Type.Boolean(),
+    /** With a `plan`: planned, or it was on that day already. */
+    schedule: Type.Optional(literals(SCHEDULE_OUTCOMES)),
+  },
+  { title: 'OutfitSaved', description: 'The outfit saved, new or found' },
+);
+
+export const OutfitUpdated = Type.Object(
+  {
+    entriesClaimed: Type.Integer({
+      minimum: 0,
+      description: 'Its calendar entries Plan my week had planned, now yours',
+    }),
+  },
+  { title: 'OutfitUpdated' },
+);
+
+/**
+ * POST /outfits/{id}/reactions: the owner's moves on one of Muse's outfits
+ * (reactToProposal): Love (Save, once complete), Not for me with a
+ * reason, and its Undo.
+ */
+export const OutfitReactionInput = Type.Union(
+  [
+    Type.Object({ event: Type.Literal('love') }),
+    Type.Object({
+      event: Type.Literal('decline'),
+      reason: literals(OUTFIT_DISMISS_REASONS),
+      note: Type.Optional(Type.String({ maxLength: DECLINE_NOTE_MAX })),
+    }),
+    Type.Object({ event: Type.Literal('reconsider') }),
+  ],
+  {
+    title: 'OutfitReactionInput',
+    description:
+      '`love` (keep it; once every piece is bought it is yours), `decline` (Not for me, with a reason) or `reconsider` (undo that)',
+  },
+);
+
+export const OutfitReacted = Type.Object(
+  {
+    from: literals(LOOK_REACTIONS),
+    to: literals(LOOK_REACTIONS),
+    /** Every piece owned: a love made it yours. */
+    complete: Type.Boolean(),
+  },
+  { title: 'OutfitReacted' },
+);
