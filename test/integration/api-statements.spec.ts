@@ -3,6 +3,7 @@ import type { InjectOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { addDays } from '../../src/calendar-date';
 import {
+  brandSize,
   file,
   inspiration,
   optionGroup,
@@ -2287,6 +2288,177 @@ describe('API statements per route', () => {
       const apiRun = await statementsOf(() => w.api(token, api()));
       expect([pageRun.status, apiRun.status]).toEqual(ok);
       expect(apiRun.statements).toBe(pageRun.statements);
+    });
+  });
+
+  describe('insights, the recap and sizes: what their page twins cost (#588)', () => {
+    // A user of their own: the shared twin device's API_LIMIT is spent by
+    // the sections above.
+    const email = 'sizes-statements@example.com';
+    let cookie: string;
+    let token: string;
+    let brands = 0;
+
+    const asUser = (request: InjectOptions): InjectOptions => ({
+      ...request,
+      headers: { ...request.headers, cookie },
+    });
+
+    beforeAll(async () => {
+      cookie = await t.register(email);
+      token = (await deviceToken(t, { email })).token;
+      const worn = await createGarment(t, { name: 'Counted tee', cookie });
+      await t.inject(
+        asUser({
+          method: 'POST',
+          url: `/wardrobe/${worn}/wear`,
+          payload: { worn: '1' },
+        }),
+      );
+    });
+
+    /** A brand row of this user's, through the editor: its id and brand. */
+    const newBrand = async () => {
+      const brand = `Counted ${++brands}`;
+      await t.inject(
+        asUser({
+          method: 'POST',
+          url: '/auth/profile/sizes/brands',
+          payload: { brand, size: 'M' },
+        }),
+      );
+      const [row] = await t.db
+        .select({ id: brandSize.id })
+        .from(brandSize)
+        .where(eq(brandSize.brand, brand));
+      return { id: row.id, brand };
+    };
+    type Brand = Awaited<ReturnType<typeof newBrand>>;
+
+    /** Each route's page twin and its API request, each on a brand row of its own. */
+    const CASES: {
+      name: string;
+      ok: [page: number, api: number];
+      page: (b: Brand) => InjectOptions;
+      api: (b: Brand) => InjectOptions;
+    }[] = [
+      {
+        name: 'GET /insights (GET /wardrobe/insights)',
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: '/wardrobe/insights' }),
+        api: () => ({ method: 'GET', url: '/api/v1/insights' }),
+      },
+      {
+        name: 'GET /insights/recap (GET /wardrobe/recap)',
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: '/wardrobe/recap' }),
+        api: () => ({ method: 'GET', url: '/api/v1/insights/recap' }),
+      },
+      {
+        name: 'GET /sizes (GET /auth/profile/sizes)',
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: '/auth/profile/sizes' }),
+        api: () => ({ method: 'GET', url: '/api/v1/sizes' }),
+      },
+      {
+        name: 'GET /sizes/brands?brand= (GET /auth/profile/sizes/hint)',
+        ok: [200, 200],
+        page: (b) => ({
+          method: 'GET',
+          url: `/auth/profile/sizes/hint?brand=${encodeURIComponent(b.brand)}`,
+        }),
+        api: (b) => ({
+          method: 'GET',
+          url: `/api/v1/sizes/brands?brand=${encodeURIComponent(b.brand)}`,
+        }),
+      },
+      {
+        name: 'PUT /sizes/unit (POST /auth/profile/sizes/unit)',
+        ok: [303, 200],
+        page: () => ({
+          method: 'POST',
+          url: '/auth/profile/sizes/unit',
+          payload: { unit: 'cm' },
+        }),
+        api: () => ({
+          method: 'PUT',
+          url: '/api/v1/sizes/unit',
+          payload: { unit: 'cm' },
+        }),
+      },
+      {
+        name: 'POST /sizes/brands (POST /auth/profile/sizes/brands)',
+        ok: [303, 201],
+        page: (b) => ({
+          method: 'POST',
+          url: '/auth/profile/sizes/brands',
+          payload: { brand: `${b.brand} new`, size: 'L' },
+        }),
+        api: (b) => ({
+          method: 'POST',
+          url: '/api/v1/sizes/brands',
+          payload: { brand: `${b.brand} new`, size: 'L' },
+        }),
+      },
+      {
+        name: 'PUT /sizes/brands/{id} (POST /auth/profile/sizes/brands/:id)',
+        ok: [303, 200],
+        page: (b) => ({
+          method: 'POST',
+          url: `/auth/profile/sizes/brands/${b.id}`,
+          payload: { brand: b.brand, size: 'L', note: 'Runs small' },
+        }),
+        api: (b) => ({
+          method: 'PUT',
+          url: `/api/v1/sizes/brands/${b.id}`,
+          payload: { brand: b.brand, size: 'L', note: 'Runs small' },
+        }),
+      },
+      {
+        name: 'DELETE /sizes/brands/{id} (POST /auth/profile/sizes/brands/:id/delete)',
+        ok: [303, 204],
+        page: (b) => ({
+          method: 'POST',
+          url: `/auth/profile/sizes/brands/${b.id}/delete`,
+          payload: {},
+        }),
+        api: (b) => ({ method: 'DELETE', url: `/api/v1/sizes/brands/${b.id}` }),
+      },
+    ];
+
+    it.each(CASES)('$name', async ({ ok, page, api }) => {
+      const [onPage, onApi] = [await newBrand(), await newBrand()];
+      const pageRun = await statementsOf(() => t.inject(asUser(page(onPage))));
+      // A second call of the minute: no last-use write.
+      await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      const apiRun = await statementsOf(() => t.api(token, api(onApi)));
+      expect([pageRun.status, apiRun.status]).toEqual(ok);
+      expect(apiRun.statements).toBe(pageRun.statements);
+    });
+
+    it('PUT /sizes/measurements: one statement fewer than its page twin, which reads the stored lengths first', async () => {
+      const pageRun = await statementsOf(() =>
+        t.inject(
+          asUser({
+            method: 'POST',
+            url: '/auth/profile/sizes/measurements',
+            payload: { unit: 'cm', height: '180' },
+          }),
+        ),
+      );
+      await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      const apiRun = await statementsOf(() =>
+        t.api(token, {
+          method: 'PUT',
+          url: '/api/v1/sizes/measurements',
+          payload: { height: 180 },
+        }),
+      );
+      expect([pageRun.status, apiRun.status]).toEqual([303, 200]);
+      // The form keeps a stored length posted as it showed it
+      // (readMeasurementsForm), so the page reads them before the save; a
+      // length in centimetres has nothing to keep.
+      expect(apiRun.statements).toBe(pageRun.statements - 1);
     });
   });
 

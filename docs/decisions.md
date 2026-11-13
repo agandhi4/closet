@@ -790,3 +790,9 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 **Why:** a PUT that replaces the style profile whole must not silently drop a misspelled key, and ajv's `removeAdditional` strips keys inside an `anyOf` while trying branches, so a rule side `{ color, pattern }` could match after mutation.
 **Decision:** `jsonApiValidator` compiles bodies with `removeAdditional: false` too. A schema with `additionalProperties: false` (the style profile's, a rule and its sides) is a 400 naming `body/<key>`; open schemas, every other route's, are unaffected.
 **Consequence:** closing an existing route's body is a contract change for its clients: do it with its own decision, not in passing.
+
+## 2026-11-13 — The API's insights, recap and sizes: data where the pages fall back, centimetres on the wire (#588)
+
+**Why:** a native client needs insights, the year in review and Profile › Sizes; the pages treat `?unworn=`/`?year=` as navigation state (anything falls back) and the measurements form posts strings in the unit shown, keeping a stored length posted as shown (`readMeasurementsForm`).
+**Decision:** `GET /insights?unwornDays=` and `GET /insights/recap?year=` (`readInsights`; `readRecap`, now the page's too), owner-only like the pages, so no `ownerId`; an unknown window, or a year after this one, is a 400. `GET /sizes`, `PUT /sizes/measurements` (every length in cm, replaced whole, rounded to the column's two decimals), `PUT /sizes/unit`, `GET /sizes/brands[?brand=]` (the hint), `POST`/`PUT`/`DELETE /sizes/brands[/{id}]` (`readBrandSizeForm`; a brand noted already is a 400 under `body/brand`, as the form). The recap's "Save image" is drawn on the device: web-only, in the plan's list.
+**Consequence:** every twin costs its page's statements but `PUT /sizes/measurements`, one fewer (no stored lengths to keep). Measurements never reach a share on any surface. #195 has no pending line left.

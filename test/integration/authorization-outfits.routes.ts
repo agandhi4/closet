@@ -614,6 +614,10 @@ export const ROUTES: Route[] = [
       viewer: 'hidden',
       stranger: 'hidden',
     },
+    api: {
+      ok: 200,
+      request: (_, q) => ({ method: 'GET', url: `/api/v1/insights${q}` }),
+    },
   },
   {
     // The year in review (#26) reads the wear log like insights: the
@@ -631,6 +635,10 @@ export const ROUTES: Route[] = [
       manager: 'hidden',
       viewer: 'hidden',
       stranger: 'hidden',
+    },
+    api: {
+      ok: 200,
+      request: (_, q) => ({ method: 'GET', url: `/api/v1/insights/recap${q}` }),
     },
   },
   {

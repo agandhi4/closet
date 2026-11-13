@@ -133,6 +133,10 @@ export const ROUTES: Route[] = [
       viewer: 'hidden',
       stranger: 'hidden',
     },
+    api: {
+      ok: 200,
+      request: (_f, q) => ({ method: 'GET', url: `/api/v1/sizes${q}` }),
+    },
   },
   {
     name: 'GET /auth/profile/sizes/hint',
@@ -150,6 +154,13 @@ export const ROUTES: Route[] = [
       manager: 'hidden',
       viewer: 'hidden',
       stranger: 'hidden',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'GET',
+        url: `/api/v1/sizes/brands?brand=${encodeURIComponent(f.brand)}${q.replace('?', '&')}`,
+      }),
     },
   },
   {
@@ -169,6 +180,14 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/sizes/brands/${f.brandSizeId}${q}`,
+        payload: { brand: f.brand, size: 'L', note: OWNER_SIZE_NOTE },
+      }),
+    },
   },
   {
     name: 'POST /auth/profile/sizes/brands/:id/delete',
@@ -185,6 +204,13 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 204,
+      request: (f, q) => ({
+        method: 'DELETE',
+        url: `/api/v1/sizes/brands/${f.brandSizeId}${q}`,
+      }),
     },
   },
   {

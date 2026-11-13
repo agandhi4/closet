@@ -22717,6 +22717,2255 @@
         }
       }
     },
+    "/api/v1/insights": {
+      "get": {
+        "operationId": "getInsights",
+        "summary": "How your closet is used",
+        "tags": [
+          "insights"
+        ],
+        "description": "The insights page's figures, computed from your wear log on every call: worn lately, unworn, most and least worn, cost per wear, pairs, colours, categories, brands and condition. Your own closet only.",
+        "parameters": [
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "enum": [
+                    30
+                  ]
+                },
+                {
+                  "type": "number",
+                  "enum": [
+                    90
+                  ]
+                },
+                {
+                  "type": "number",
+                  "enum": [
+                    180
+                  ]
+                }
+              ]
+            },
+            "in": "query",
+            "name": "unwornDays",
+            "required": false,
+            "description": "The unworn list's window in days; 90 unless given"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "How your closet is used, from your wear log: the closet is garments not archived and not on the wishlist, each counted once whatever its copies; wears are distinct days",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Insights",
+                  "description": "How your closet is used, from your wear log: the closet is garments not archived and not on the wishlist, each counted once whatever its copies; wears are distinct days",
+                  "type": "object",
+                  "required": [
+                    "today",
+                    "closet",
+                    "recentWearDays",
+                    "worn",
+                    "unworn",
+                    "mostWorn",
+                    "leastWorn",
+                    "cost",
+                    "pairs",
+                    "colours",
+                    "uncoloured",
+                    "categories",
+                    "brands",
+                    "unbranded",
+                    "condition"
+                  ],
+                  "properties": {
+                    "today": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "closet": {
+                      "type": "object",
+                      "required": [
+                        "garments",
+                        "pieces"
+                      ],
+                      "properties": {
+                        "garments": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "pieces": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "recentWearDays": {
+                      "minimum": 0,
+                      "description": "Wear days in the last 365 days over the closet: 0 when nothing was worn",
+                      "type": "integer"
+                    },
+                    "worn": {
+                      "description": "The share of the closet worn in the last 30, 90 and 365 days, today included",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "days",
+                          "worn",
+                          "total",
+                          "percent"
+                        ],
+                        "properties": {
+                          "days": {
+                            "type": "integer"
+                          },
+                          "worn": {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "total": {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "percent": {
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "worn ÷ total",
+                            "type": "number"
+                          }
+                        }
+                      }
+                    },
+                    "unworn": {
+                      "description": "Not worn in `days` among the garments owned that long (or undated), never worn first; the first 48 of `count`",
+                      "type": "object",
+                      "required": [
+                        "days",
+                        "count",
+                        "garments"
+                      ],
+                      "properties": {
+                        "days": {
+                          "type": "integer"
+                        },
+                        "count": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "garments": {
+                          "maxItems": 48,
+                          "type": "array",
+                          "items": {
+                            "title": "InsightGarment",
+                            "description": "A garment as a figure counts it",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "category",
+                              "quantity",
+                              "wearDays",
+                              "recentWearDays"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "category": {
+                                "type": "string"
+                              },
+                              "brand": {
+                                "type": "string"
+                              },
+                              "quantity": {
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "wearDays": {
+                                "minimum": 0,
+                                "description": "Distinct days worn, ever (up to the last day counted)",
+                                "type": "integer"
+                              },
+                              "recentWearDays": {
+                                "minimum": 0,
+                                "description": "Distinct days worn in the window: the last 365 days for insights, the year for a recap",
+                                "type": "integer"
+                              },
+                              "lastWorn": {
+                                "format": "date",
+                                "type": "string"
+                              },
+                              "daysSinceWorn": {
+                                "minimum": 0,
+                                "description": "Days from the last wear to the last day counted",
+                                "type": "integer"
+                              },
+                              "thumbUrl": {
+                                "description": "The photo's thumb, a signed relative URL",
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "mostWorn": {
+                      "maxItems": 5,
+                      "type": "array",
+                      "items": {
+                        "title": "InsightGarment",
+                        "description": "A garment as a figure counts it",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "category",
+                          "quantity",
+                          "wearDays",
+                          "recentWearDays"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "category": {
+                            "type": "string"
+                          },
+                          "brand": {
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "wearDays": {
+                            "minimum": 0,
+                            "description": "Distinct days worn, ever (up to the last day counted)",
+                            "type": "integer"
+                          },
+                          "recentWearDays": {
+                            "minimum": 0,
+                            "description": "Distinct days worn in the window: the last 365 days for insights, the year for a recap",
+                            "type": "integer"
+                          },
+                          "lastWorn": {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          "daysSinceWorn": {
+                            "minimum": 0,
+                            "description": "Days from the last wear to the last day counted",
+                            "type": "integer"
+                          },
+                          "thumbUrl": {
+                            "description": "The photo's thumb, a signed relative URL",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "leastWorn": {
+                      "maxItems": 5,
+                      "description": "Among garments owned 90 days or more, leaving out the most worn",
+                      "type": "array",
+                      "items": {
+                        "title": "InsightGarment",
+                        "description": "A garment as a figure counts it",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "category",
+                          "quantity",
+                          "wearDays",
+                          "recentWearDays"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "category": {
+                            "type": "string"
+                          },
+                          "brand": {
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "wearDays": {
+                            "minimum": 0,
+                            "description": "Distinct days worn, ever (up to the last day counted)",
+                            "type": "integer"
+                          },
+                          "recentWearDays": {
+                            "minimum": 0,
+                            "description": "Distinct days worn in the window: the last 365 days for insights, the year for a recap",
+                            "type": "integer"
+                          },
+                          "lastWorn": {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          "daysSinceWorn": {
+                            "minimum": 0,
+                            "description": "Days from the last wear to the last day counted",
+                            "type": "integer"
+                          },
+                          "thumbUrl": {
+                            "description": "The photo's thumb, a signed relative URL",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "cost": {
+                      "type": "object",
+                      "required": [
+                        "best",
+                        "worst",
+                        "notWornYet",
+                        "notWornYetCount",
+                        "closetValue",
+                        "priced",
+                        "unpriced"
+                      ],
+                      "properties": {
+                        "best": {
+                          "description": "The lowest cost per wear first",
+                          "type": "array",
+                          "items": {
+                            "title": "CostPerWear",
+                            "type": "object",
+                            "required": [
+                              "garment",
+                              "cost"
+                            ],
+                            "properties": {
+                              "garment": {
+                                "title": "InsightGarment",
+                                "description": "A garment as a figure counts it",
+                                "type": "object",
+                                "required": [
+                                  "id",
+                                  "category",
+                                  "quantity",
+                                  "wearDays",
+                                  "recentWearDays"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "integer"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "category": {
+                                    "type": "string"
+                                  },
+                                  "brand": {
+                                    "type": "string"
+                                  },
+                                  "quantity": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "wearDays": {
+                                    "minimum": 0,
+                                    "description": "Distinct days worn, ever (up to the last day counted)",
+                                    "type": "integer"
+                                  },
+                                  "recentWearDays": {
+                                    "minimum": 0,
+                                    "description": "Distinct days worn in the window: the last 365 days for insights, the year for a recap",
+                                    "type": "integer"
+                                  },
+                                  "lastWorn": {
+                                    "format": "date",
+                                    "type": "string"
+                                  },
+                                  "daysSinceWorn": {
+                                    "minimum": 0,
+                                    "description": "Days from the last wear to the last day counted",
+                                    "type": "integer"
+                                  },
+                                  "thumbUrl": {
+                                    "description": "The photo's thumb, a signed relative URL",
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "cost": {
+                                "pattern": "^\\d+\\.\\d{2}$",
+                                "description": "What it cost: the price per piece × copies, plus its repairs: a decimal amount in the household currency",
+                                "type": "string"
+                              },
+                              "perWear": {
+                                "pattern": "^\\d+\\.\\d{2}$",
+                                "description": "cost ÷ wear days; absent while not worn yet: a decimal amount in the household currency",
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "worst": {
+                          "description": "The highest first; none of them in `best`",
+                          "type": "array",
+                          "items": {
+                            "title": "CostPerWear",
+                            "type": "object",
+                            "required": [
+                              "garment",
+                              "cost"
+                            ],
+                            "properties": {
+                              "garment": {
+                                "title": "InsightGarment",
+                                "description": "A garment as a figure counts it",
+                                "type": "object",
+                                "required": [
+                                  "id",
+                                  "category",
+                                  "quantity",
+                                  "wearDays",
+                                  "recentWearDays"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "integer"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "category": {
+                                    "type": "string"
+                                  },
+                                  "brand": {
+                                    "type": "string"
+                                  },
+                                  "quantity": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "wearDays": {
+                                    "minimum": 0,
+                                    "description": "Distinct days worn, ever (up to the last day counted)",
+                                    "type": "integer"
+                                  },
+                                  "recentWearDays": {
+                                    "minimum": 0,
+                                    "description": "Distinct days worn in the window: the last 365 days for insights, the year for a recap",
+                                    "type": "integer"
+                                  },
+                                  "lastWorn": {
+                                    "format": "date",
+                                    "type": "string"
+                                  },
+                                  "daysSinceWorn": {
+                                    "minimum": 0,
+                                    "description": "Days from the last wear to the last day counted",
+                                    "type": "integer"
+                                  },
+                                  "thumbUrl": {
+                                    "description": "The photo's thumb, a signed relative URL",
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "cost": {
+                                "pattern": "^\\d+\\.\\d{2}$",
+                                "description": "What it cost: the price per piece × copies, plus its repairs: a decimal amount in the household currency",
+                                "type": "string"
+                              },
+                              "perWear": {
+                                "pattern": "^\\d+\\.\\d{2}$",
+                                "description": "cost ÷ wear days; absent while not worn yet: a decimal amount in the household currency",
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "notWornYet": {
+                          "description": "Priced and never worn, the most expensive first",
+                          "type": "array",
+                          "items": {
+                            "title": "CostPerWear",
+                            "type": "object",
+                            "required": [
+                              "garment",
+                              "cost"
+                            ],
+                            "properties": {
+                              "garment": {
+                                "title": "InsightGarment",
+                                "description": "A garment as a figure counts it",
+                                "type": "object",
+                                "required": [
+                                  "id",
+                                  "category",
+                                  "quantity",
+                                  "wearDays",
+                                  "recentWearDays"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "integer"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "category": {
+                                    "type": "string"
+                                  },
+                                  "brand": {
+                                    "type": "string"
+                                  },
+                                  "quantity": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "wearDays": {
+                                    "minimum": 0,
+                                    "description": "Distinct days worn, ever (up to the last day counted)",
+                                    "type": "integer"
+                                  },
+                                  "recentWearDays": {
+                                    "minimum": 0,
+                                    "description": "Distinct days worn in the window: the last 365 days for insights, the year for a recap",
+                                    "type": "integer"
+                                  },
+                                  "lastWorn": {
+                                    "format": "date",
+                                    "type": "string"
+                                  },
+                                  "daysSinceWorn": {
+                                    "minimum": 0,
+                                    "description": "Days from the last wear to the last day counted",
+                                    "type": "integer"
+                                  },
+                                  "thumbUrl": {
+                                    "description": "The photo's thumb, a signed relative URL",
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "cost": {
+                                "pattern": "^\\d+\\.\\d{2}$",
+                                "description": "What it cost: the price per piece × copies, plus its repairs: a decimal amount in the household currency",
+                                "type": "string"
+                              },
+                              "perWear": {
+                                "pattern": "^\\d+\\.\\d{2}$",
+                                "description": "cost ÷ wear days; absent while not worn yet: a decimal amount in the household currency",
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "notWornYetCount": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "closetValue": {
+                          "pattern": "^\\d+\\.\\d{2}$",
+                          "description": "What the priced garments cost, repairs included: a decimal amount in the household currency",
+                          "type": "string"
+                        },
+                        "priced": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "unpriced": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "pairs": {
+                      "description": "Worn together most often in the last 365 days",
+                      "type": "array",
+                      "items": {
+                        "title": "WornPair",
+                        "type": "object",
+                        "required": [
+                          "garments",
+                          "days"
+                        ],
+                        "properties": {
+                          "garments": {
+                            "minItems": 2,
+                            "maxItems": 2,
+                            "type": "array",
+                            "items": {
+                              "title": "InsightGarment",
+                              "description": "A garment as a figure counts it",
+                              "type": "object",
+                              "required": [
+                                "id",
+                                "category",
+                                "quantity",
+                                "wearDays",
+                                "recentWearDays"
+                              ],
+                              "properties": {
+                                "id": {
+                                  "type": "integer"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "category": {
+                                  "type": "string"
+                                },
+                                "brand": {
+                                  "type": "string"
+                                },
+                                "quantity": {
+                                  "minimum": 1,
+                                  "type": "integer"
+                                },
+                                "wearDays": {
+                                  "minimum": 0,
+                                  "description": "Distinct days worn, ever (up to the last day counted)",
+                                  "type": "integer"
+                                },
+                                "recentWearDays": {
+                                  "minimum": 0,
+                                  "description": "Distinct days worn in the window: the last 365 days for insights, the year for a recap",
+                                  "type": "integer"
+                                },
+                                "lastWorn": {
+                                  "format": "date",
+                                  "type": "string"
+                                },
+                                "daysSinceWorn": {
+                                  "minimum": 0,
+                                  "description": "Days from the last wear to the last day counted",
+                                  "type": "integer"
+                                },
+                                "thumbUrl": {
+                                  "description": "The photo's thumb, a signed relative URL",
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          },
+                          "days": {
+                            "minimum": 2,
+                            "description": "Days the two were worn on together",
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "colours": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "colour",
+                          "closetPercent",
+                          "wornPercent"
+                        ],
+                        "properties": {
+                          "colour": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "red"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "pink"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "orange"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "yellow"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "green"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "blue"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "purple"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "black"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "white"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "grey"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "beige"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "brown"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "gold"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "silver"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "pattern"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
+                              }
+                            ]
+                          },
+                          "closetPercent": {
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Its share of the closet's garments (a two-colour garment is half of each)",
+                            "type": "number"
+                          },
+                          "wornPercent": {
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Its share of the last 365 days' wears",
+                            "type": "number"
+                          }
+                        }
+                      }
+                    },
+                    "uncoloured": {
+                      "description": "Garments without a colour: the rest of each strip",
+                      "type": "object",
+                      "required": [
+                        "garments",
+                        "closetPercent",
+                        "wornPercent"
+                      ],
+                      "properties": {
+                        "garments": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "closetPercent": {
+                          "minimum": 0,
+                          "maximum": 100,
+                          "description": "Their share of the closet's garments",
+                          "type": "number"
+                        },
+                        "wornPercent": {
+                          "minimum": 0,
+                          "maximum": 100,
+                          "description": "Their share of the last 365 days' wears",
+                          "type": "number"
+                        }
+                      }
+                    },
+                    "categories": {
+                      "type": "array",
+                      "items": {
+                        "title": "InsightBreakdown",
+                        "type": "object",
+                        "required": [
+                          "garments",
+                          "pieces",
+                          "recentWearDays",
+                          "closetPercent",
+                          "wornPercent"
+                        ],
+                        "properties": {
+                          "key": {
+                            "description": "The category, or the brand as first spelled; absent for the others summed",
+                            "type": "string"
+                          },
+                          "garments": {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "pieces": {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "recentWearDays": {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "closetPercent": {
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Its share of the closet's garments",
+                            "type": "number"
+                          },
+                          "wornPercent": {
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Its share of the last 365 days' wears",
+                            "type": "number"
+                          }
+                        }
+                      }
+                    },
+                    "brands": {
+                      "description": "Grouped regardless of case and spaces; the others summed last, without a key",
+                      "type": "array",
+                      "items": {
+                        "title": "InsightBreakdown",
+                        "type": "object",
+                        "required": [
+                          "garments",
+                          "pieces",
+                          "recentWearDays",
+                          "closetPercent",
+                          "wornPercent"
+                        ],
+                        "properties": {
+                          "key": {
+                            "description": "The category, or the brand as first spelled; absent for the others summed",
+                            "type": "string"
+                          },
+                          "garments": {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "pieces": {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "recentWearDays": {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "closetPercent": {
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Its share of the closet's garments",
+                            "type": "number"
+                          },
+                          "wornPercent": {
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Its share of the last 365 days' wears",
+                            "type": "number"
+                          }
+                        }
+                      }
+                    },
+                    "unbranded": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "condition": {
+                      "type": "object",
+                      "required": [
+                        "needsRepair",
+                        "replaceSoon"
+                      ],
+                      "properties": {
+                        "needsRepair": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "replaceSoon": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/insights/recap": {
+      "get": {
+        "operationId": "getRecap",
+        "summary": "Your year in review",
+        "tags": [
+          "insights"
+        ],
+        "description": "The year in review's figures over a calendar year: January 1 to December 31, or to today while the year runs. Garments archived since still count; `enough` false is the page's empty state. Your own wear log only.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1000,
+              "maximum": 9999,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "year",
+            "required": false,
+            "description": "The year to recap, the household's current one unless given; a later year is a 400"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The year in review, from your wear log: insights' rules over a calendar year, garments archived since included",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "YearRecap",
+                  "description": "The year in review, from your wear log: insights' rules over a calendar year, garments archived since included",
+                  "type": "object",
+                  "required": [
+                    "year",
+                    "from",
+                    "to",
+                    "complete",
+                    "wears",
+                    "piecesWorn",
+                    "enough",
+                    "earlier",
+                    "mostWorn",
+                    "additions",
+                    "bestValue",
+                    "colours",
+                    "uncolouredWorn"
+                  ],
+                  "properties": {
+                    "year": {
+                      "type": "integer"
+                    },
+                    "from": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "to": {
+                      "description": "December 31, or today while the year runs",
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "complete": {
+                      "description": "False while the year runs",
+                      "type": "boolean"
+                    },
+                    "wears": {
+                      "minimum": 0,
+                      "description": "Garment-days worn in the year",
+                      "type": "integer"
+                    },
+                    "piecesWorn": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "enough": {
+                      "description": "At least 10 wears: else the page shows its empty state",
+                      "type": "boolean"
+                    },
+                    "earlier": {
+                      "description": "Something was worn before the year: an earlier recap",
+                      "type": "boolean"
+                    },
+                    "mostWorn": {
+                      "description": "By the year's wear days",
+                      "type": "array",
+                      "items": {
+                        "title": "InsightGarment",
+                        "description": "A garment as a figure counts it",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "category",
+                          "quantity",
+                          "wearDays",
+                          "recentWearDays"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "category": {
+                            "type": "string"
+                          },
+                          "brand": {
+                            "type": "string"
+                          },
+                          "quantity": {
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "wearDays": {
+                            "minimum": 0,
+                            "description": "Distinct days worn, ever (up to the last day counted)",
+                            "type": "integer"
+                          },
+                          "recentWearDays": {
+                            "minimum": 0,
+                            "description": "Distinct days worn in the window: the last 365 days for insights, the year for a recap",
+                            "type": "integer"
+                          },
+                          "lastWorn": {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          "daysSinceWorn": {
+                            "minimum": 0,
+                            "description": "Days from the last wear to the last day counted",
+                            "type": "integer"
+                          },
+                          "thumbUrl": {
+                            "description": "The photo's thumb, a signed relative URL",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "additions": {
+                      "description": "Acquired in the year, the newest first",
+                      "type": "object",
+                      "required": [
+                        "count",
+                        "garments"
+                      ],
+                      "properties": {
+                        "count": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "garments": {
+                          "type": "array",
+                          "items": {
+                            "title": "InsightGarment",
+                            "description": "A garment as a figure counts it",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "category",
+                              "quantity",
+                              "wearDays",
+                              "recentWearDays"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "category": {
+                                "type": "string"
+                              },
+                              "brand": {
+                                "type": "string"
+                              },
+                              "quantity": {
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "wearDays": {
+                                "minimum": 0,
+                                "description": "Distinct days worn, ever (up to the last day counted)",
+                                "type": "integer"
+                              },
+                              "recentWearDays": {
+                                "minimum": 0,
+                                "description": "Distinct days worn in the window: the last 365 days for insights, the year for a recap",
+                                "type": "integer"
+                              },
+                              "lastWorn": {
+                                "format": "date",
+                                "type": "string"
+                              },
+                              "daysSinceWorn": {
+                                "minimum": 0,
+                                "description": "Days from the last wear to the last day counted",
+                                "type": "integer"
+                              },
+                              "thumbUrl": {
+                                "description": "The photo's thumb, a signed relative URL",
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "bestValue": {
+                      "description": "The best cost per wear among the pieces worn in the year, over their wears up to `to`",
+                      "type": "array",
+                      "items": {
+                        "title": "CostPerWear",
+                        "type": "object",
+                        "required": [
+                          "garment",
+                          "cost"
+                        ],
+                        "properties": {
+                          "garment": {
+                            "title": "InsightGarment",
+                            "description": "A garment as a figure counts it",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "category",
+                              "quantity",
+                              "wearDays",
+                              "recentWearDays"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "category": {
+                                "type": "string"
+                              },
+                              "brand": {
+                                "type": "string"
+                              },
+                              "quantity": {
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "wearDays": {
+                                "minimum": 0,
+                                "description": "Distinct days worn, ever (up to the last day counted)",
+                                "type": "integer"
+                              },
+                              "recentWearDays": {
+                                "minimum": 0,
+                                "description": "Distinct days worn in the window: the last 365 days for insights, the year for a recap",
+                                "type": "integer"
+                              },
+                              "lastWorn": {
+                                "format": "date",
+                                "type": "string"
+                              },
+                              "daysSinceWorn": {
+                                "minimum": 0,
+                                "description": "Days from the last wear to the last day counted",
+                                "type": "integer"
+                              },
+                              "thumbUrl": {
+                                "description": "The photo's thumb, a signed relative URL",
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "cost": {
+                            "pattern": "^\\d+\\.\\d{2}$",
+                            "description": "What it cost: the price per piece × copies, plus its repairs: a decimal amount in the household currency",
+                            "type": "string"
+                          },
+                          "perWear": {
+                            "pattern": "^\\d+\\.\\d{2}$",
+                            "description": "cost ÷ wear days; absent while not worn yet: a decimal amount in the household currency",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "colours": {
+                      "description": "The largest first",
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "colour",
+                          "wornPercent"
+                        ],
+                        "properties": {
+                          "colour": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "red"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "pink"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "orange"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "yellow"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "green"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "blue"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "purple"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "black"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "white"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "grey"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "beige"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "brown"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "gold"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "silver"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "pattern"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
+                              }
+                            ]
+                          },
+                          "wornPercent": {
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Its share of the year's wears",
+                            "type": "number"
+                          }
+                        }
+                      }
+                    },
+                    "uncolouredWorn": {
+                      "minimum": 0,
+                      "maximum": 100,
+                      "description": "The share of the year's wears by garments without a colour",
+                      "type": "number"
+                    },
+                    "pair": {
+                      "title": "WornPair",
+                      "type": "object",
+                      "required": [
+                        "garments",
+                        "days"
+                      ],
+                      "properties": {
+                        "garments": {
+                          "minItems": 2,
+                          "maxItems": 2,
+                          "type": "array",
+                          "items": {
+                            "title": "InsightGarment",
+                            "description": "A garment as a figure counts it",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "category",
+                              "quantity",
+                              "wearDays",
+                              "recentWearDays"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "category": {
+                                "type": "string"
+                              },
+                              "brand": {
+                                "type": "string"
+                              },
+                              "quantity": {
+                                "minimum": 1,
+                                "type": "integer"
+                              },
+                              "wearDays": {
+                                "minimum": 0,
+                                "description": "Distinct days worn, ever (up to the last day counted)",
+                                "type": "integer"
+                              },
+                              "recentWearDays": {
+                                "minimum": 0,
+                                "description": "Distinct days worn in the window: the last 365 days for insights, the year for a recap",
+                                "type": "integer"
+                              },
+                              "lastWorn": {
+                                "format": "date",
+                                "type": "string"
+                              },
+                              "daysSinceWorn": {
+                                "minimum": 0,
+                                "description": "Days from the last wear to the last day counted",
+                                "type": "integer"
+                              },
+                              "thumbUrl": {
+                                "description": "The photo's thumb, a signed relative URL",
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "days": {
+                          "minimum": 2,
+                          "description": "Days the two were worn on together",
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sizes": {
+      "get": {
+        "operationId": "getSizes",
+        "summary": "Your measurements and brand sizes",
+        "tags": [
+          "sizes"
+        ],
+        "description": "Profile › Sizes: your body measurements, the unit you read them in and the size you wear in each brand. Yours alone: a shared wardrobe never shows them, not even your own (they describe another body than its owner's).",
+        "responses": {
+          "200": {
+            "description": "Your own body measurements and brand notes, for choosing a size; never anyone else’s, and never shown on a shared wardrobe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Sizes",
+                  "description": "Your own body measurements and brand notes, for choosing a size; never anyone else’s, and never shown on a shared wardrobe",
+                  "type": "object",
+                  "required": [
+                    "unit",
+                    "measurements",
+                    "brands"
+                  ],
+                  "properties": {
+                    "unit": {
+                      "description": "How you read and type lengths; every length here stays centimetres",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "in"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "cm"
+                          ]
+                        }
+                      ]
+                    },
+                    "measurements": {
+                      "title": "Measurements",
+                      "description": "Each body measurement you set, in centimetres; absent: not set",
+                      "type": "object",
+                      "properties": {
+                        "height": {
+                          "minimum": 1,
+                          "maximum": 300,
+                          "description": "Your height, in centimetres (two decimals kept)",
+                          "type": "number"
+                        },
+                        "neck": {
+                          "minimum": 1,
+                          "maximum": 300,
+                          "description": "Your neck, in centimetres (two decimals kept)",
+                          "type": "number"
+                        },
+                        "shoulders": {
+                          "minimum": 1,
+                          "maximum": 300,
+                          "description": "Your shoulders, in centimetres (two decimals kept)",
+                          "type": "number"
+                        },
+                        "chest": {
+                          "minimum": 1,
+                          "maximum": 300,
+                          "description": "Your chest, in centimetres (two decimals kept)",
+                          "type": "number"
+                        },
+                        "sleeve": {
+                          "minimum": 1,
+                          "maximum": 300,
+                          "description": "Your sleeve, in centimetres (two decimals kept)",
+                          "type": "number"
+                        },
+                        "waist": {
+                          "minimum": 1,
+                          "maximum": 300,
+                          "description": "Your waist, in centimetres (two decimals kept)",
+                          "type": "number"
+                        },
+                        "hips": {
+                          "minimum": 1,
+                          "maximum": 300,
+                          "description": "Your hips, in centimetres (two decimals kept)",
+                          "type": "number"
+                        },
+                        "inseam": {
+                          "minimum": 1,
+                          "maximum": 300,
+                          "description": "Your inseam, in centimetres (two decimals kept)",
+                          "type": "number"
+                        }
+                      }
+                    },
+                    "brands": {
+                      "description": "By brand, whatever the case",
+                      "type": "array",
+                      "items": {
+                        "title": "BrandSize",
+                        "description": "Your size in a brand: a size, a note, or both",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "brand"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "brand": {
+                            "description": "The brand as you spelled it",
+                            "type": "string"
+                          },
+                          "size": {
+                            "description": "The size you wear in it",
+                            "type": "string"
+                          },
+                          "note": {
+                            "description": "How it runs (\"runs small, size up\")",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sizes/measurements": {
+      "put": {
+        "operationId": "saveMeasurements",
+        "summary": "Saves your body measurements",
+        "tags": [
+          "sizes"
+        ],
+        "description": "Every measurement at once, as the editor saves them: one absent or null is cleared. Set-state.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "MeasurementsInput",
+                "description": "Every measurement, in centimetres, replaced whole: one absent or null is cleared",
+                "type": "object",
+                "properties": {
+                  "height": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "maximum": 300,
+                        "description": "Your height, in centimetres (two decimals kept)",
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "neck": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "maximum": 300,
+                        "description": "Your neck, in centimetres (two decimals kept)",
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "shoulders": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "maximum": 300,
+                        "description": "Your shoulders, in centimetres (two decimals kept)",
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "chest": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "maximum": 300,
+                        "description": "Your chest, in centimetres (two decimals kept)",
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sleeve": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "maximum": 300,
+                        "description": "Your sleeve, in centimetres (two decimals kept)",
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "waist": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "maximum": 300,
+                        "description": "Your waist, in centimetres (two decimals kept)",
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "hips": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "maximum": 300,
+                        "description": "Your hips, in centimetres (two decimals kept)",
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "inseam": {
+                    "anyOf": [
+                      {
+                        "minimum": 1,
+                        "maximum": 300,
+                        "description": "Your inseam, in centimetres (two decimals kept)",
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "description": "Every measurement, in centimetres, replaced whole: one absent or null is cleared"
+        },
+        "responses": {
+          "200": {
+            "description": "Each body measurement you set, in centimetres; absent: not set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Measurements",
+                  "description": "Each body measurement you set, in centimetres; absent: not set",
+                  "type": "object",
+                  "properties": {
+                    "height": {
+                      "minimum": 1,
+                      "maximum": 300,
+                      "description": "Your height, in centimetres (two decimals kept)",
+                      "type": "number"
+                    },
+                    "neck": {
+                      "minimum": 1,
+                      "maximum": 300,
+                      "description": "Your neck, in centimetres (two decimals kept)",
+                      "type": "number"
+                    },
+                    "shoulders": {
+                      "minimum": 1,
+                      "maximum": 300,
+                      "description": "Your shoulders, in centimetres (two decimals kept)",
+                      "type": "number"
+                    },
+                    "chest": {
+                      "minimum": 1,
+                      "maximum": 300,
+                      "description": "Your chest, in centimetres (two decimals kept)",
+                      "type": "number"
+                    },
+                    "sleeve": {
+                      "minimum": 1,
+                      "maximum": 300,
+                      "description": "Your sleeve, in centimetres (two decimals kept)",
+                      "type": "number"
+                    },
+                    "waist": {
+                      "minimum": 1,
+                      "maximum": 300,
+                      "description": "Your waist, in centimetres (two decimals kept)",
+                      "type": "number"
+                    },
+                    "hips": {
+                      "minimum": 1,
+                      "maximum": 300,
+                      "description": "Your hips, in centimetres (two decimals kept)",
+                      "type": "number"
+                    },
+                    "inseam": {
+                      "minimum": 1,
+                      "maximum": 300,
+                      "description": "Your inseam, in centimetres (two decimals kept)",
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sizes/unit": {
+      "put": {
+        "operationId": "setLengthUnit",
+        "summary": "Sets how you read lengths",
+        "tags": [
+          "sizes"
+        ],
+        "description": "Display only: every length here stays centimetres. Set-state.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "LengthUnit",
+                "type": "object",
+                "required": [
+                  "unit"
+                ],
+                "properties": {
+                  "unit": {
+                    "description": "How you read and type lengths; every length here stays centimetres",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "in"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "cm"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "LengthUnit",
+                  "type": "object",
+                  "required": [
+                    "unit"
+                  ],
+                  "properties": {
+                    "unit": {
+                      "description": "How you read and type lengths; every length here stays centimetres",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "in"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "cm"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sizes/brands": {
+      "get": {
+        "operationId": "listBrandSizes",
+        "summary": "Your brand sizes, or one brand’s",
+        "tags": [
+          "sizes"
+        ],
+        "description": "The garment form's hint with `brand`: your note on that brand (none: an empty list), as you type it. Without, every note.",
+        "parameters": [
+          {
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            },
+            "in": "query",
+            "name": "brand",
+            "required": false,
+            "description": "Only this brand’s note, matched whatever the case and spacing (\"UNIQLO\" is Uniqlo); every note unless given"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Your brand notes, by brand: never paged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "BrandSizeList",
+                  "description": "Your brand notes, by brand: never paged",
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "title": "BrandSize",
+                        "description": "Your size in a brand: a size, a note, or both",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "brand"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "brand": {
+                            "description": "The brand as you spelled it",
+                            "type": "string"
+                          },
+                          "size": {
+                            "description": "The size you wear in it",
+                            "type": "string"
+                          },
+                          "note": {
+                            "description": "How it runs (\"runs small, size up\")",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "addBrandSize",
+        "summary": "Notes your size in a brand",
+        "tags": [
+          "sizes"
+        ],
+        "description": "A brand you have a note on already, in any case, is a 400 naming `body/brand`: change that one (PUT /sizes/brands/{id}).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "BrandSizeInput",
+                "description": "A brand note, replaced whole: the brand (one row per brand, whatever the case) and a size or a note, at least one; a size is normalized like a garment’s (XL is X-Large)",
+                "type": "object",
+                "required": [
+                  "brand"
+                ],
+                "properties": {
+                  "brand": {
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  "size": {
+                    "maxLength": 40,
+                    "type": "string"
+                  },
+                  "note": {
+                    "maxLength": 200,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "description": "A brand note, replaced whole: the brand (one row per brand, whatever the case) and a size or a note, at least one; a size is normalized like a garment’s (XL is X-Large)"
+        },
+        "responses": {
+          "201": {
+            "description": "Your size in a brand: a size, a note, or both",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "BrandSize",
+                  "description": "Your size in a brand: a size, a note, or both",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "brand"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "brand": {
+                      "description": "The brand as you spelled it",
+                      "type": "string"
+                    },
+                    "size": {
+                      "description": "The size you wear in it",
+                      "type": "string"
+                    },
+                    "note": {
+                      "description": "How it runs (\"runs small, size up\")",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sizes/brands/{id}": {
+      "put": {
+        "operationId": "updateBrandSize",
+        "summary": "Changes a brand note",
+        "tags": [
+          "sizes"
+        ],
+        "description": "Replaced whole, as the editor saves a row. A brand another of your notes has is a 400 naming `body/brand`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "BrandSizeInput",
+                "description": "A brand note, replaced whole: the brand (one row per brand, whatever the case) and a size or a note, at least one; a size is normalized like a garment’s (XL is X-Large)",
+                "type": "object",
+                "required": [
+                  "brand"
+                ],
+                "properties": {
+                  "brand": {
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  "size": {
+                    "maxLength": 40,
+                    "type": "string"
+                  },
+                  "note": {
+                    "maxLength": 200,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "description": "A brand note, replaced whole: the brand (one row per brand, whatever the case) and a size or a note, at least one; a size is normalized like a garment’s (XL is X-Large)"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Your size in a brand: a size, a note, or both",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "BrandSize",
+                  "description": "Your size in a brand: a size, a note, or both",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "brand"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "brand": {
+                      "description": "The brand as you spelled it",
+                      "type": "string"
+                    },
+                    "size": {
+                      "description": "The size you wear in it",
+                      "type": "string"
+                    },
+                    "note": {
+                      "description": "How it runs (\"runs small, size up\")",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteBrandSize",
+        "summary": "Removes a brand note",
+        "tags": [
+          "sizes"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/style-profile": {
       "get": {
         "operationId": "getStyleProfile",
