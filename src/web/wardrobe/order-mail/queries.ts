@@ -197,7 +197,7 @@ export function pendingOrderItems(
 
 /** One of `ownerId`'s items while it is still pending. */
 export async function findPendingOrderItem(
-  db: Db,
+  db: Queryable,
   id: number,
   ownerId: number,
 ): Promise<ReviewItem | undefined> {

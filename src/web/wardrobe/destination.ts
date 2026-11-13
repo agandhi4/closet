@@ -1,4 +1,4 @@
-import type { Db } from '../../db/client';
+import type { Db, Queryable } from '../../db/client';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { NotFound } from '../refusals';
@@ -30,7 +30,7 @@ import { garmentNotFound } from './garment-access';
  * stored. decide checks it again under the owner lock (a 409 then).
  */
 async function resolveNeed(
-  db: Db,
+  db: Queryable,
   needId: number,
   access: WardrobeAccess,
 ): Promise<NeedBoughtFor> {
@@ -47,10 +47,13 @@ async function resolveNeed(
  * before anything is stored (resolveOrderItem) and marked added in the
  * garment's own transaction; for a Muse need's "Bought a different one"
  * (#333) the need (resolveNeed), settled by the garment in that
- * transaction through decide, the one writer of a decision.
+ * transaction through decide, the one writer of a decision. `db` is the
+ * pool, or the transaction the checks must share with the write
+ * (createGarmentOnce's settle): a check on the pool from inside a
+ * transaction holding the owner lock would take a second connection.
  */
 export async function postedDestination(
-  db: Db,
+  db: Queryable,
   body: Pick<GarmentBody, 'to' | 'orderItem' | 'forNeed'>,
   access: WardrobeAccess,
 ): Promise<{
@@ -100,7 +103,7 @@ export async function postedDestination(
  * like an unknown id, before anything is stored.
  */
 async function resolveOrderItem(
-  db: Db,
+  db: Queryable,
   orderItemId: number,
   access: WardrobeAccess,
 ): Promise<number> {

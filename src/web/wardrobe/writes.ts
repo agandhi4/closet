@@ -123,7 +123,8 @@ export function createGarment(
  * `settle` resolves what rides with a new garment (a Muse need it was
  * bought for, postedDestination), and runs only after the insert has
  * proved the create new, in the insert's transaction holding the owner
- * lock: a retry of a create that settled its need answers the first row
+ * lock, on that transaction (`tx`, never the pool: a second connection
+ * would wait on a lock its own request holds): a retry of a create that settled its need answers the first row
  * instead of the need's refusal, and no concurrent first create can settle
  * the need between the check and the write. Its refusal rolls the garment
  * back.
@@ -134,13 +135,13 @@ export async function createGarmentOnce(
   fields: GarmentFields,
   status: EntryStatus,
   clientId: string,
-  settle?: () => Promise<WithGarment | undefined>,
+  settle?: (tx: Queryable) => Promise<WithGarment | undefined>,
 ): Promise<{ id: number; created: boolean }> {
   try {
     const write = async (tx: Queryable) => {
       const id = await insertGarmentOnce(tx, ownerId, fields, status, clientId);
       if (id === null) return null;
-      const withGarment = await settle?.();
+      const withGarment = await settle?.(tx);
       await withGarment?.(tx, id);
       return id;
     };

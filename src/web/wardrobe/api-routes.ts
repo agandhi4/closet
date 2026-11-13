@@ -20,6 +20,7 @@ import {
   readIdCursor,
   withoutNulls,
 } from '../api/resource';
+import type { Queryable } from '../../db/client';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { GarmentParams, RowId } from '../schemas';
@@ -308,14 +309,14 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       // anything is stored, and its settling in the garment's transaction.
       // A create with a clientId checks inside createGarmentOnce, after
       // the insert proves it is not a retry of one that settled the need.
-      const posted = () =>
+      const posted = (on: Queryable) =>
         postedDestination(
-          db,
+          on,
           { to: destination, forNeed: boughtForNeedId },
           access,
         );
       const settle = boughtForNeedId
-        ? async () => (await posted()).withGarment
+        ? async (tx: Queryable) => (await posted(tx)).withGarment
         : undefined;
       let created = true;
       let id: number;
@@ -334,7 +335,7 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
           access.ownerId,
           form.fields,
           destination,
-          (await posted()).withGarment,
+          (await posted(db)).withGarment,
         );
       }
       logger.info(

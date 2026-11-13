@@ -822,3 +822,8 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 ## 2026-11-13 — The lock_timeout rule is unconditional (#610)
 
 **Decision:** every migration from 0051 on starts with a positive `SET LOCAL lock_timeout`, not only those with a locking statement (#603's list). A statement list cannot be complete: `ALTER INDEX`, `REINDEX`, `LOCK TABLE`, policies and FK references in `CREATE TABLE` all lock, and a miss is silent.
+
+## 2026-11-13 — createGarmentOnce's settle runs on its transaction (#615)
+Why: `settle` resolved the Muse need through `postedDestination(db, ...)` on the pool while the insert's transaction held a connection and the owner lock: two connections for one create, and a pool at its limit could deadlock the request on itself.
+Decision: `settle(tx)` receives the transaction; `postedDestination`, `resolveNeed`, `resolveOrderItem` and `findPendingOrderItem` take `Queryable`. No other `db.transaction` callback in `src/` reaches the pool (audited).
+Consequence: no per-app pool size exists in the harness (`POOL_MAX` is a constant), so the proof is the type (a pool-typed closure no longer compiles) plus the retry and need specs in api-wishlist.
