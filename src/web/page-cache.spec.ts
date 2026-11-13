@@ -4,6 +4,7 @@ import {
   CACHED_AT_HEADER,
   cachedAt,
   endedSession,
+  isNavigationPost,
   isRenderedPage,
   PAGE_ACCOUNT_HEADER,
   pageAccount,
@@ -12,6 +13,7 @@ import {
   servesStaleWhileRevalidate,
   SESSION_ENDED_HEADER,
 } from './page-cache';
+import { PROFILE_PATH } from './auth/urls';
 
 const ORIGIN = 'https://closet.test';
 
@@ -40,6 +42,30 @@ describe('bypassesWorker', () => {
   ])('handles %s as the app', (path) => {
     expect(bypassesWorker(new URL(`${ORIGIN}${path}`))).toBe(false);
   });
+});
+
+describe('isNavigationPost', () => {
+  // Every method a form or a share target can navigate with but GET: the
+  // worker stops each one before any route (#542), the share target's
+  // POST included, so no route can relay a cross-site post with this
+  // site's Origin.
+  it.each(['POST', 'PUT', 'DELETE', 'PATCH'])(
+    'keeps the worker out of a %s navigation',
+    (method) => {
+      expect(isNavigationPost({ method, mode: 'navigate' })).toBe(true);
+    },
+  );
+
+  it('leaves the worker a GET navigation (its page routes)', () => {
+    expect(isNavigationPost({ method: 'GET', mode: 'navigate' })).toBe(false);
+  });
+
+  it.each(['cors', 'same-origin', 'no-cors'])(
+    'leaves the worker a %s POST (only our own pages’ fetches reach it)',
+    (mode) => {
+      expect(isNavigationPost({ method: 'POST', mode })).toBe(false);
+    },
+  );
 });
 
 describe('servesStaleWhileRevalidate', () => {
@@ -84,6 +110,19 @@ describe('servesStaleWhileRevalidate', () => {
     expect(
       servesStaleWhileRevalidate(
         { mode: 'navigate', url: `${ORIGIN}/` },
+        ORIGIN,
+      ),
+    ).toBe(false);
+  });
+
+  // Signing in or registering lands on Profile (routes.tsx). A landing the
+  // worker answered from its cache could show the previous account's copy;
+  // fetched first, its answer for the new account claims the cache, which
+  // drops the old one before anything is stored (claimPageCache).
+  it('fetches a sign-in’s landing, Profile, from the server', () => {
+    expect(
+      servesStaleWhileRevalidate(
+        { mode: 'navigate', url: `${ORIGIN}${PROFILE_PATH}` },
         ORIGIN,
       ),
     ).toBe(false);

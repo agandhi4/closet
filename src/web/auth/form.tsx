@@ -133,6 +133,13 @@ export function ErrorAlert({ message }: { message: string }) {
  * `@post-form-offline` makes it carry its reason as a literal.
  * `offlineQueue` is the other (#178): a write the page's outbox queues
  * offline and replays (src/web/outbox.tsx), which stays enabled.
+ *
+ * `endsSession` marks the four posts that change whose session this device
+ * has (sign-in, registration, sign-out, account deletion) as
+ * `data-ends-session`: public/js/pwa.js tells the service worker as one
+ * leaves (SESSION_ENDING), so it drops the session caches first, and the
+ * outbox holds a sign-out or deletion to sync or discard what is queued.
+ * The worker never relays the post itself (#542).
  */
 export function PostForm(props: {
   action: string;
@@ -149,6 +156,8 @@ export function PostForm(props: {
   offlineQueue?: QueueableKind;
   /** Posts a file (multipart/form-data): selfies, garment photos, the add sheet. */
   multipart?: boolean;
+  /** Signs in or out (see above): the session caches go as it leaves. */
+  endsSession?: boolean;
   children?: Child;
 }) {
   return (
@@ -167,6 +176,7 @@ export function PostForm(props: {
       }
       data-allow-offline={props.allowOffline}
       data-offline-queue={props.offlineQueue}
+      data-ends-session={props.endsSession ? '' : undefined}
       // One post per tap: public/js/submit-once.js (the layout loads it).
       data-submit-once=""
       onsubmit={

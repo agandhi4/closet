@@ -133,7 +133,7 @@ export function LoginPage(props: {
           their notifications. */}
       {ctx.pwaEnabled && !ctx.user && <PushSignedOut />}
       {props.failed && <ErrorAlert message={t('LOGIN_FAILED')} />}
-      <PostForm action="/auth/login">
+      <PostForm action="/auth/login" endsSession>
         <Fieldset legend={t('LOGIN')}>
           <Field
             id="email"
@@ -217,7 +217,7 @@ export function RegisterPage(props: { ctx: ViewContext } & RegisterFormState) {
   const description = t('REGISTER_OG_DESC', { appName: ctx.appName });
   return (
     <AccountShell ctx={ctx} title={title} description={description}>
-      <PostForm action="/auth/register">
+      <PostForm action="/auth/register" endsSession>
         <RegisterFields input={props.input} errors={props.errors} />
       </PostForm>
     </AccountShell>
@@ -599,6 +599,7 @@ export function DeleteAccountPage(props: {
       <PostForm
         action="/auth/delete-account"
         confirm={t('DELETE_ACCOUNT_CONFIRMATION')}
+        endsSession
       >
         <Fieldset legend={t('DELETE_ACCOUNT')}>
           <Field
