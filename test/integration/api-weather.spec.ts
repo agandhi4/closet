@@ -249,6 +249,62 @@ describe('the weather', () => {
     expect((await api('DELETE', '/weather/here')).statusCode).toBe(204);
   });
 
+  it('shares each budget with its page twin: the page spends the location writes, the API spends the search', async () => {
+    const email = 'two-doors@example.com';
+    const cookie = await t.register(email);
+    const device = (await deviceToken(t, { email })).token;
+    const page = (method: 'GET' | 'POST', url: string, payload?: string) =>
+      t.inject({
+        method,
+        url,
+        headers: {
+          cookie,
+          'hx-request': 'true',
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+        payload,
+      });
+
+    // Ten phone locations through the page leave the API none.
+    for (let i = 0; i < 10; i++) {
+      const res = await page(
+        'POST',
+        '/weather/here',
+        new URLSearchParams({
+          latitude: String(40 + i / 10),
+          longitude: '-73.98',
+        }).toString(),
+      );
+      expect(res.statusCode).toBe(200);
+    }
+    const refused = await api(
+      'PUT',
+      '/weather/here',
+      { latitude: 41.5, longitude: -73.98 },
+      device,
+    );
+    expectProblem(refused, 429, 'rate_limited');
+    // Home is its own budget on the page and the API, so it is still open.
+    expect(
+      (await api('PUT', '/weather/home', { name: 'Home', ...PRECISE }, device))
+        .statusCode,
+    ).toBe(200);
+
+    // Twenty searches through the API leave the page none.
+    for (let i = 0; i < 20; i++) {
+      const res = await api(
+        'GET',
+        '/weather/places?q=Brooklyn',
+        undefined,
+        device,
+      );
+      expect(res.statusCode).toBe(200);
+    }
+    expect((await page('GET', '/weather/places?q=Brooklyn')).statusCode).toBe(
+      429,
+    );
+  });
+
   it('clears the home: no location, no forecast', async () => {
     expect((await api('DELETE', '/weather/home')).statusCode).toBe(204);
     const cleared = (await api('GET', '/weather')).json<Weather>();

@@ -13,7 +13,7 @@ import {
 } from '../api/resource';
 import { outfitOrGarments } from '../outfits/outfit-resource';
 import { RowId } from '../schemas';
-import { WEATHER_LOCATION_LIMIT } from '../security/rate-limit';
+import { enforceLimit } from '../security/rate-limit';
 import { type Actor, actorOf } from '../sharing/access';
 import { API_PREFIX } from '../surface';
 import { pickedPlace } from '../weather/place-picker';
@@ -100,7 +100,7 @@ const deleted = { 204: Type.Null({ description: 'Deleted' }) };
  */
 export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
   app,
-  { db, config, logger, weather },
+  { db, config, logger, weather, weatherLimits },
   done,
 ) => {
   const today = () => todayIn(config.timeZone, new Date());
@@ -555,10 +555,13 @@ export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
           body: PlaceInput,
           response: apiResponses({ 200: KeptPlace }),
         },
-        config: { rateLimit: WEATHER_LOCATION_LIMIT },
       },
       async (request) => {
         const actor = actorOf(request);
+        await enforceLimit(weatherLimits.destination, request, {
+          logger,
+          who: `user ${actor.userId}`,
+        });
         const { id } = request.params;
         const place = pickedPlace(request.body);
         await locateTrip(db, actor, id, place);

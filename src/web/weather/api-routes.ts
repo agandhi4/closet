@@ -9,10 +9,7 @@ import { literals } from '../api/resource';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { IsoDateSchema } from '../schemas';
-import {
-  WEATHER_LOCATION_LIMIT,
-  WEATHER_SEARCH_LIMIT,
-} from '../security/rate-limit';
+import { enforceLimit } from '../security/rate-limit';
 import { actorOf } from '../sharing/access';
 import {
   PlaceQuery,
@@ -92,14 +89,14 @@ function searchFailed(): HttpError {
  * WEATHER_ENABLED, as /weather/* is (webPlugin): without a service none of
  * these exists (the problem 404), so nothing can store a location. The
  * token's user's own settings and forecast, as the profile's: no
- * `?ownerId=`. The location writes keep the page's WEATHER_LOCATION_LIMIT and
- * the search its WEATHER_SEARCH_LIMIT, each a route of its own; the search
- * reaches Open-Meteo only through the service's fetcher. The logs name the
+ * `?ownerId=`. The search and the location writes count on their page
+ * twins' checkers (`weatherLimits`, one budget per user between the two
+ * doors); the search reaches Open-Meteo only through the service's fetcher. The logs name the
  * user, never a place.
  */
 export const weatherApiRoutes: FastifyPluginCallbackTypebox<
   WeatherApiOptions
-> = (app, { db, config, logger, weather }, done) => {
+> = (app, { db, config, logger, weather, weatherLimits }, done) => {
   app.get(
     '/weather',
     {
@@ -146,9 +143,13 @@ export const weatherApiRoutes: FastifyPluginCallbackTypebox<
         response: apiResponses({ 200: PlaceList }),
       },
       // The typed city never reaches the request log (loggableUrl).
-      config: { rateLimit: WEATHER_SEARCH_LIMIT, secretPath: true },
+      config: { secretPath: true },
     },
     async (request) => {
+      await enforceLimit(weatherLimits.search, request, {
+        logger,
+        who: `user ${actorOf(request).userId}`,
+      });
       const answer = await placeAnswer(weather, request.query);
       if ('failed' in answer) throw searchFailed();
       return { data: answer.places.map(toPlaceResource) };
@@ -167,10 +168,13 @@ export const weatherApiRoutes: FastifyPluginCallbackTypebox<
         body: PlaceInput,
         response: apiResponses({ 200: KeptPlace }),
       },
-      config: { rateLimit: WEATHER_LOCATION_LIMIT },
     },
     async (request) => {
       const userId = actorOf(request).userId;
+      await enforceLimit(weatherLimits.home, request, {
+        logger,
+        who: `user ${userId}`,
+      });
       const home = pickedPlace(request.body);
       await setHome(db, userId, home);
       logger.info(`Weather home set by user ${userId} (API)`);
@@ -208,10 +212,13 @@ export const weatherApiRoutes: FastifyPluginCallbackTypebox<
         body: LocationInput,
         response: apiResponses({ 200: HerePlace }),
       },
-      config: { rateLimit: WEATHER_LOCATION_LIMIT },
     },
     async (request) => {
       const userId = actorOf(request).userId;
+      await enforceLimit(weatherLimits.here, request, {
+        logger,
+        who: `user ${userId}`,
+      });
       const location = postedLocation(request.body);
       const at = new Date();
       await setHere(db, userId, location, at);

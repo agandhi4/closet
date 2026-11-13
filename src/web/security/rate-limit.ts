@@ -158,9 +158,10 @@ export const LINK_IMPORT_LIMIT = {
  * and the API's GET /api/v1/weather/places): each search is a call to
  * Open-Meteo's geocoding. Per user (the session's or the device token's),
  * like LINK_IMPORT_LIMIT: room for a few tries at a spelling, and a ceiling
- * on how hard one account can make the server ask a free service. A route
- * config, so each route counts on its own (the page's two searches always
- * did; the API's is a third, decisions 2026-11-13).
+ * on how hard one account can make the server ask a free service. The
+ * weather page's search and the API's share ONE checker
+ * (`WeatherLimits.search`), so a user's two doors are 20 in all; a trip's
+ * search stays a route config of its own (decisions 2026-11-13).
  */
 export const WEATHER_SEARCH_LIMIT = {
   max: 20,
@@ -177,7 +178,9 @@ export const WEATHER_SEARCH_LIMIT = {
  * new rounded location misses the forecast cache, so each is an Open-Meteo
  * request and a weather_forecast row: per user (the session's or the device
  * token's), room for a few tries and a ceiling on how many one account can
- * make the server fetch and keep. Each route counts on its own.
+ * make the server fetch and keep. Each page route counts on its own, and
+ * shares its checker with its API twin (`WeatherLimits`: home, here,
+ * destination), so a user's two doors are 10 in all per write.
  */
 export const WEATHER_LOCATION_LIMIT = {
   max: 10,
@@ -186,6 +189,33 @@ export const WEATHER_LOCATION_LIMIT = {
   keyGenerator: (request) =>
     `user ${request.accessToken?.user.id ?? request.auth!.user.id}`,
 } satisfies RateLimitOptions;
+
+/**
+ * The budgets a weather page route and its API twin share, one checker each
+ * built by `createWeatherLimits` in webPlugin: the place search, the home
+ * and phone-location writes and a trip's destination. A route's
+ * `config.rateLimit` would count the page and the API apart, doubling the
+ * bound on the same Open-Meteo calls.
+ */
+export interface WeatherLimits {
+  weatherLimits: {
+    search: RateLimitChecker;
+    home: RateLimitChecker;
+    here: RateLimitChecker;
+    destination: RateLimitChecker;
+  };
+}
+
+export function createWeatherLimits(
+  app: FastifyInstance,
+): WeatherLimits['weatherLimits'] {
+  return {
+    search: app.createRateLimit(WEATHER_SEARCH_LIMIT),
+    home: app.createRateLimit(WEATHER_LOCATION_LIMIT),
+    here: app.createRateLimit(WEATHER_LOCATION_LIMIT),
+    destination: app.createRateLimit(WEATHER_LOCATION_LIMIT),
+  };
+}
 
 /**
  * The devices' timing beacon (POST /metrics/vitals, src/web/metrics): per

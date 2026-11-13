@@ -16,6 +16,7 @@ import {
   API_LIMIT,
   API_PHOTO_LIMIT,
   enforceLimit,
+  type WeatherLimits,
 } from '../security/rate-limit';
 import { API_PREFIX } from '../surface';
 import { todayApiRoutes } from '../today/api-routes';
@@ -34,7 +35,8 @@ import { jsonApiValidator } from './validator';
 export type ApiOptions = WebOptions &
   SignInLimit &
   LinkImportLimit &
-  InspirationLinkLimit;
+  InspirationLinkLimit &
+  WeatherLimits;
 
 /**
  * Registers apiPlugin under API_PREFIX (webPlugin, scripts/api-spec.ts).

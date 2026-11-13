@@ -963,7 +963,7 @@ describe('weather', () => {
     }
     expect(statuses.slice(0, 10)).toEqual(Array(10).fill(200));
     expect(statuses[10]).toBe(429);
-    expect(t.logs.messages('warn', 'RateLimit')).toContainEqual(
+    expect(t.logs.messages('warn', 'Web')).toContainEqual(
       expect.stringMatching(
         /^Rate limit reached: POST \/weather\/here for user \d+$/,
       ),
