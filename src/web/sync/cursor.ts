@@ -79,6 +79,11 @@ export interface ChangesCursor {
   coverage: number;
   /** By owner id. */
   positions: Map<number, Position>;
+  /**
+   * A full sync (begun without a cursor) not finished yet: every page of it
+   * says so, so the client can drop what it did not re-send (feed.ts).
+   */
+  snapshot: boolean;
 }
 
 const Count = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
@@ -96,6 +101,7 @@ const CursorJson = Type.Object(
   {
     v: Type.Literal(1),
     c: Count,
+    s: Type.Optional(Type.Literal(1)),
     w: Type.Record(Type.String({ pattern: '^[1-9]\\d{0,9}$' }), PositionJson),
   },
   { additionalProperties: false },
@@ -109,7 +115,12 @@ export function writeChangesCursor(cursor: ChangesCursor): string {
     ]),
   );
   return Buffer.from(
-    JSON.stringify({ v: 1, c: cursor.coverage, w: positions }),
+    JSON.stringify({
+      v: 1,
+      c: cursor.coverage,
+      ...(cursor.snapshot && { s: 1 }),
+      w: positions,
+    }),
   ).toString('base64url');
 }
 
@@ -130,7 +141,7 @@ export function readChangesCursor(text: string): ChangesCursor {
     if (ownerId > ROW_ID_MAX) throw badCursor();
     positions.set(ownerId, { revision, kind, resource, id, seq, floor });
   }
-  return { coverage: json.c, positions };
+  return { coverage: json.c, positions, snapshot: json.s === 1 };
 }
 
 function parsed(text: string): unknown {

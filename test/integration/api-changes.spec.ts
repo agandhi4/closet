@@ -36,6 +36,7 @@ interface Page {
   cursor: string;
   more: boolean;
   revokedWardrobes?: number[];
+  snapshot?: { wardrobes: number[] };
 }
 
 interface Account {
@@ -413,6 +414,65 @@ describe('the cursor', () => {
       410,
       'cursor_expired',
     );
+  });
+});
+
+describe('a full sync', () => {
+  it('after a 410 is marked a snapshot on every page, carries no deleted row and lists only the wardrobes still seen', async () => {
+    const owner = await account('changes-snapshot-owner@example.com');
+    const a = await account('changes-snapshot@example.com');
+    const kept = [
+      await newGarment(a.device, 'Kept'),
+      await newGarment(a.device, 'Also kept'),
+    ];
+    const gone = await newGarment(a.device, 'Gone');
+    await t.db.insert(wardrobeShare).values({
+      grantorId: owner.id,
+      granteeId: a.id,
+      permission: 'VIEW',
+      acceptedAt: new Date(),
+      createdAt: new Date(),
+    });
+    const synced = await syncAll(a.device, { limit: 100 });
+    expect(synced.pages[0].snapshot).toEqual({
+      wardrobes: [a.id, owner.id],
+    });
+
+    // The deletion pruned, the share revoked: neither is a deletion the
+    // full sync can send, so the snapshot's own shape says them.
+    expect(
+      (await api(a.device, 'DELETE', `/garments/${gone}`)).statusCode,
+    ).toBe(204);
+    await t.db
+      .delete(wardrobeShare)
+      .where(
+        and(
+          eq(wardrobeShare.grantorId, owner.id),
+          eq(wardrobeShare.granteeId, a.id),
+        ),
+      );
+    await setFloor(a.id, await revisionOf(a.id));
+    expectProblem(
+      await api(a.device, 'GET', `/changes?cursor=${synced.cursor}`),
+      410,
+      'cursor_expired',
+    );
+
+    const full = await syncAll(a.device, { limit: 1 });
+    expect(full.pages.length).toBeGreaterThanOrEqual(2);
+    for (const page of full.pages) {
+      expect(page.snapshot).toEqual({ wardrobes: [a.id] });
+    }
+    expect(changeKeys(full.pages)).toEqual(kept.map((id) => `garment:${id}`));
+    expect(deletionKeys(full.pages)).toEqual([]);
+
+    // Its end cursor is an incremental sync's: never marked.
+    await newGarment(a.device, 'After');
+    const delta = await syncAll(a.device, { cursor: full.cursor, limit: 100 });
+    expect(changeKeys(delta.pages)).toHaveLength(1);
+    for (const page of delta.pages) {
+      expect(page).not.toHaveProperty('snapshot');
+    }
   });
 });
 

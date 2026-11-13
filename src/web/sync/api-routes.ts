@@ -83,6 +83,20 @@ const ChangesPage = Type.Object(
           'Owners in your cursor whose wardrobe you no longer see (a share revoked or left): drop their rows',
       }),
     ),
+    snapshot: Type.Optional(
+      Type.Object(
+        {
+          wardrobes: Type.Array(Type.Integer(), {
+            description:
+              'The wardrobes this full sync covers: yours, then each shared with you',
+          }),
+        },
+        {
+          description:
+            'On every page of a full sync (one begun without a cursor), until the page where `more` is false. After that page, drop every synced row you were not sent during it, and every wardrobe not in its `wardrobes`: a full sync carries no deletions it has no need of, nor shares you lost. Your creates not yet sent stay',
+        },
+      ),
+    ),
   },
   {
     title: 'ChangesPage',
@@ -110,7 +124,7 @@ export const syncApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         tags: ['sync'],
         summary: 'What changed since your last sync',
         description:
-          "Rows and deletions after `cursor`, oldest first, across your wardrobe and each one shared with you (its garments and capsules only). Apply each page's deletions, then its changes, then keep its `cursor`; call again while `more`. A 410 `cursor_expired` means the feed no longer holds what the cursor needs: sync again from no cursor. The garment carries what is stored on it: a garment's wear counts and capsules are yours to derive from the wears and capsules.",
+          "Rows and deletions after `cursor`, oldest first, across your wardrobe and each one shared with you (its garments and capsules only). Apply each page's deletions, then its changes, then keep its `cursor`; call again while `more`. A 410 `cursor_expired` means the feed no longer holds what the cursor needs: sync again from no cursor. A sync from no cursor is a full sync: its pages carry `snapshot`, and after its last one every synced row it did not send, and every wardrobe it did not list, is gone. The garment carries what is stored on it: a garment's wear counts and capsules are yours to derive from the wears and capsules.",
         querystring: ChangesQuery,
         response: apiResponses({ 200: ChangesPage }),
       },

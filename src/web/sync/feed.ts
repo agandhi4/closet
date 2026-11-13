@@ -167,6 +167,13 @@ export interface ChangesPage {
   more: boolean;
   /** Owners in the cursor the caller no longer sees: a share revoked or left. */
   revokedWardrobes: number[];
+  /**
+   * On every page of a full sync: the wardrobes it covers (the caller's own,
+   * then each accepted share). After its last page the client drops every
+   * row it was not re-sent and every wardrobe not listed: a cursorless read
+   * leaves out deletions at or below the floor and knows no revoked shares.
+   */
+  snapshot?: { wardrobes: number[] };
 }
 
 /** The 410 `cursor_expired`: a deletion the cursor needs may have been pruned. */
@@ -196,6 +203,8 @@ export async function readChanges(
       `a cursor of coverage ${cursor.coverage}, not ${FEED_COVERAGE}`,
     );
   }
+  // A 410 mid-way restarts the full sync: the client syncs from no cursor.
+  const fullSync = cursor === undefined || cursor.snapshot;
   return inFeedSnapshot(db, async (tx) => {
     const wardrobes = await feedWardrobes(tx, actor.userId);
     const reads = wardrobes.map((wardrobe): WardrobeRead => {
@@ -215,7 +224,9 @@ export async function readChanges(
     const items = await feedItems(tx, reads, limit + 1);
     const page = items.slice(0, limit);
     const data = await hydrate(tx, actor.userId, page);
-    const seen = new Set(wardrobes.map((wardrobe) => wardrobe.ownerId));
+    const owners = wardrobes.map((wardrobe) => wardrobe.ownerId);
+    const seen = new Set(owners);
+    const more = items.length > limit;
     return {
       changes: page
         .filter((item) => item.kind === KIND.row)
@@ -223,11 +234,15 @@ export async function readChanges(
       deletions: page
         .filter((item) => item.kind === KIND.tombstone)
         .map(itemOf),
-      cursor: writeChangesCursor(nextCursor(reads, page.at(-1), items[limit])),
-      more: items.length > limit,
+      cursor: writeChangesCursor({
+        ...nextCursor(reads, page.at(-1), items[limit]),
+        snapshot: fullSync && more,
+      }),
+      more,
       revokedWardrobes: cursor
         ? [...cursor.positions.keys()].filter((ownerId) => !seen.has(ownerId))
         : [],
+      ...(fullSync && { snapshot: { wardrobes: owners } }),
     };
   });
 }
@@ -289,7 +304,7 @@ function nextCursor(
   reads: readonly WardrobeRead[],
   last: FeedItem | undefined,
   next: FeedItem | undefined,
-): ChangesCursor {
+): Omit<ChangesCursor, 'snapshot'> {
   const nextRank = next
     ? reads.findIndex((read) => read.ownerId === next.ownerId)
     : reads.length;
