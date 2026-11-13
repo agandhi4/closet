@@ -1,6 +1,7 @@
 import { type TSchema, Type } from '@sinclair/typebox';
 import type { RouteOptions } from 'fastify';
 import { Problem, PROBLEM_CONTENT_TYPE } from '../problem';
+import { isOperationId } from './operations';
 
 declare module 'fastify' {
   // What an /api/v1 route declares for its OpenAPI operation (#190): the
@@ -47,14 +48,18 @@ export function apiResponses<Success extends Record<number, TSchema>>(
 /**
  * What every /api/v1 route must declare, checked as it registers (apiPlugin's
  * onRoute), so a route without its contract stops the boot instead of
- * shipping undocumented: an operationId, tags, a 2xx schema and the problem
- * for 4xx and 5xx (apiResponses). The drift test (scripts/api-spec.spec.ts)
+ * shipping undocumented: an operationId listed in OPERATIONS (operations.ts,
+ * the parity manifest), tags, a 2xx schema and the problem for 4xx and 5xx
+ * (apiResponses). The drift test (scripts/api-spec.spec.ts)
  * checks the generated spec the same way.
  */
 export function contractGaps(route: Pick<RouteOptions, 'schema'>): string[] {
   const { schema } = route;
   const gaps: string[] = [];
   if (!schema?.operationId) gaps.push('operationId');
+  else if (!isOperationId(schema.operationId)) {
+    gaps.push(`operationId in OPERATIONS (${schema.operationId})`);
+  }
   if (!schema?.tags?.length) gaps.push('tags');
   return [...gaps, ...responseGaps(schema?.response)];
 }

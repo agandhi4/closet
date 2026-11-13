@@ -1,20 +1,14 @@
-import Fastify, {
-  type FastifyInstance,
-  type HTTPMethods,
-  type RouteOptions,
-} from 'fastify';
-import { readdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import type { FastifyInstance, HTTPMethods, RouteOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startSentryStub, type SentryStub } from '../support/sentry-stub';
 import {
-  featureApp,
-  type Fixture,
-  type MatrixGroup,
-  type Route,
-  type Via,
-} from './authorization-matrix';
-import { createTestApp, PWA_ENV, type TestApp } from './harness';
+  ADDRESS,
+  bootEveryFeature,
+  type EveryFeatureApp,
+  loadMatrixGroups,
+  type RouteKey,
+  templateRouter,
+} from './app-routes';
+import type { MatrixGroup, Via } from './authorization-matrix';
 
 /**
  * Every route that takes an id is in the authorization matrix (#182): a
@@ -26,13 +20,11 @@ import { createTestApp, PWA_ENV, type TestApp } from './harness';
  * `ownerId` via). So a new id route fails CI until it joins its group's
  * authorization-<group>.spec.ts or EXEMPT.
  *
- * The app's routes are what its Fastify instance registered, seen by
- * createApp's onRoute option (the routes register inside createApp, before a
- * spec could add a hook), on an app with every optional feature on, so a
- * route behind a flag counts too. The matrix's routes are its cases'
- * requests (each group's authorization-<group>.routes.ts), each resolved to
- * the route template it reaches by Fastify's own router: a mirror app with
- * the same templates, each answering its own name.
+ * The app's routes are app-routes.ts's inventory (every feature on). The
+ * matrix's routes are its cases' requests (each group's
+ * authorization-<group>.routes.ts), each resolved to the route template it
+ * reaches by Fastify's own router: a mirror app with the same templates,
+ * each answering its own name.
  */
 
 /**
@@ -56,9 +48,6 @@ const EXEMPT: Record<RouteKey, string> = {
   'GET /wardrobe/:id/plan-items':
     "a redirect to the garment's page that reads nothing (#337, plans removed): the page then authorizes; covered by plans-removed.spec.ts",
 };
-
-/** `METHOD /template`, the key EXEMPT and the report use. */
-type RouteKey = string;
 
 interface AppRoute {
   key: RouteKey;
@@ -110,76 +99,6 @@ function appRoutes(registered: RouteOptions[]): AppRoute[] {
       }))
   );
 }
-
-/**
- * Fastify's router over the app's templates: each answers its own key, so a
- * concrete request resolves to the template the app would run.
- */
-async function templateRouter(routes: AppRoute[]) {
-  const mirror = Fastify({ exposeHeadRoutes: false });
-  for (const { key } of routes) {
-    const [method, url] = key.split(' ') as [HTTPMethods, string];
-    mirror.route({
-      method,
-      url,
-      handler: (_request, reply) => reply.send(key),
-    });
-  }
-  await mirror.ready();
-  return mirror;
-}
-
-/**
- * Stand-ins for the fixture's ids and names: only the URL a case requests
- * matters here, never the data behind it.
- */
-const ADDRESS: Fixture = {
-  garmentId: 101,
-  garmentName: 'Coat',
-  wishlistId: 102,
-  wishlistName: 'Wish',
-  needId: 131,
-  needName: 'Need',
-  needPickId: 132,
-  setAsidePickId: 133,
-  asideNeedId: 134,
-  boughtPickId: 135,
-  archivedId: 103,
-  archivedName: 'Old',
-  capsuleId: 104,
-  capsuleName: 'Capsule',
-  outfitId: 105,
-  museOutfitId: 141,
-  museDeclinedId: 142,
-  outfitName: 'Look',
-  entryId: 106,
-  selfieId: 107,
-  selfieFileName: 'selfie.webp',
-  selfieShareableId: '00000000-0000-4000-8000-000000000107',
-  inspirationId: 150,
-  inspirationTitle: 'Inspo',
-  inspirationFileName: 'look.webp',
-  inspirationTeeId: 151,
-  ownerId: 1,
-  tripId: 110,
-  tripName: 'Trip',
-  tripOutfitId: 111,
-  tripItemId: 112,
-  otherTripId: 113,
-  today: '2026-09-28',
-  ownerToken: () => Promise.resolve(114),
-  brandSizeId: 115,
-  outfitRuleId: 120,
-  brand: 'Brand',
-  repairId: 116,
-  orderItemId: 117,
-  orderItemName: 'Ordered',
-  weekPlanId: 118,
-  inviteShareId: 119,
-  photo: Buffer.alloc(0),
-  cutout: Buffer.alloc(0),
-  shopPhotoUrl: 'http://shop.test/photo.jpg',
-};
 
 /** Each template a matrix case requests, and by which vias. */
 async function matrixCoverage(
@@ -241,9 +160,7 @@ function coverageProblems(
 }
 
 describe('authorization matrix coverage', () => {
-  let t: TestApp;
-  let features: Awaited<ReturnType<typeof featureApp>>;
-  let sentry: SentryStub;
+  let app: EveryFeatureApp;
   let routes: AppRoute[];
   let router: FastifyInstance;
   /** The <group> of every authorization-<group>.spec.ts. */
@@ -251,44 +168,15 @@ describe('authorization matrix coverage', () => {
   let groups: MatrixGroup[];
 
   beforeAll(async () => {
-    [features, sentry] = await Promise.all([
-      featureApp(new Set(['weather', 'orderMail'])),
-      startSentryStub(),
-    ]);
-    // Every optional feature on: some routes are registered only then.
-    const registered: RouteOptions[] = [];
-    t = await createTestApp(
-      {
-        ...features.env,
-        ...PWA_ENV,
-        METRICS_ENABLED: 'true',
-        SENTRY_DSN: sentry.dsn,
-      },
-      { ...features.options, onRoute: (route) => registered.push(route) },
-    );
-    routes = appRoutes(registered);
-    router = await templateRouter(routes);
-    const entries = await readdir(__dirname);
-    const groupsOf = (pattern: RegExp) =>
-      entries.flatMap((file) => {
-        const group = pattern.exec(file)?.[1];
-        return group && group !== 'coverage' ? [group] : [];
-      });
-    specGroups = groupsOf(/^authorization-(.+)\.spec\.ts$/);
-    groups = await Promise.all(
-      groupsOf(/^authorization-(.+)\.routes\.ts$/).map(async (group) => {
-        const module = (await import(
-          join(__dirname, `authorization-${group}.routes.ts`)
-        )) as { ROUTES: Route[] };
-        return { group, routes: module.ROUTES };
-      }),
-    );
+    app = await bootEveryFeature();
+    routes = appRoutes(app.registered);
+    router = await templateRouter(routes.map(({ key }) => key));
+    ({ specGroups, groups } = await loadMatrixGroups());
   });
 
   afterAll(async () => {
     await router?.close();
-    await t?.cleanup();
-    await Promise.all([features?.close(), sentry?.close()]);
+    await app?.close();
   });
 
   it('loads the routes of every authorization-<group>.spec.ts', () => {
