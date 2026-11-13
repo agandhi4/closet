@@ -8,6 +8,7 @@ import {
 } from '../../files/photos';
 import type { StringKey } from '../../i18n';
 import type { Logger } from '../../../logger';
+import type { RateLimitChecker } from '../../security/rate-limit';
 import {
   type FetchedResource,
   type OutboundFetcher,
@@ -124,6 +125,15 @@ export interface LinkImportDeps {
   fetcher: OutboundFetcher;
   photos: Photos;
   logger: Logger;
+}
+
+/**
+ * LINK_IMPORT_LIMIT's one checker, built in webPlugin and handed to every
+ * route that fetches a user's link: the page's import and photo choice,
+ * and the API's import share one budget per user.
+ */
+export interface LinkImportLimit {
+  linkImportLimit: RateLimitChecker;
 }
 
 /** One of a page's photos, to pick instead of the first. */

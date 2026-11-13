@@ -1,12 +1,15 @@
 import fastifyRateLimit from '@fastify/rate-limit';
 import fastifySwagger from '@fastify/swagger';
-import Fastify from 'fastify';
+import Fastify, { type FastifySchema } from 'fastify';
 import { join } from 'node:path';
 import { pino } from 'pino';
 import { PROJECT_ROOT } from '../src/project-root';
 import { DEVICE_TOKEN_SCHEME } from '../src/web/api/contract';
 import { type ApiOptions, registerApi } from '../src/web/api/plugin';
-import { SIGN_IN_LIMIT } from '../src/web/security/rate-limit';
+import {
+  LINK_IMPORT_LIMIT,
+  SIGN_IN_LIMIT,
+} from '../src/web/security/rate-limit';
 import { assignSurface } from '../src/web/surface';
 
 /**
@@ -38,6 +41,10 @@ function unservedOptions(): ApiOptions {
 export async function generateApiSpec(): Promise<unknown> {
   const app = Fastify();
   await app.register(fastifySwagger, {
+    transform: ({ schema, url }) => ({
+      schema: withMultipartBody(schema),
+      url,
+    }),
     // A shared schema is a component named by its $id (Problem).
     refResolver: {
       buildLocalReference: (json, _baseUri, _fragment, i) =>
@@ -71,11 +78,70 @@ export async function generateApiSpec(): Promise<unknown> {
   await registerApi(app, {
     ...unservedOptions(),
     signInLimit: app.createRateLimit(SIGN_IN_LIMIT),
+    linkImportLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
   });
   await app.ready();
-  const spec = app.swagger();
+  const spec: unknown = app.swagger();
   await app.close();
+  markOptionalBodies(spec);
   return spec;
+}
+
+/**
+ * A multipart route's body, for the spec only: its `multipartBody` (the
+ * parts it reads, contract.ts) as the operation's multipart/form-data
+ * request body. The route itself declares no `body`, which Fastify would
+ * validate: a multipart body is read by the handler (request.files()),
+ * never parsed before it.
+ */
+function withMultipartBody(schema: FastifySchema): FastifySchema {
+  if (!schema.multipartBody) return schema;
+  return {
+    ...schema,
+    body: { content: { [MULTIPART]: { schema: schema.multipartBody } } },
+  };
+}
+
+const MULTIPART = 'multipart/form-data';
+
+/**
+ * @fastify/swagger marks every declared body required (it assumes Fastify
+ * demands one), but Fastify validates an absent body as null: a body whose
+ * schema admits null may be left out, and the spec says so (#546: a clone
+ * or a copy without a body).
+ */
+function markOptionalBodies(spec: unknown): void {
+  if (!isRecord(spec) || !isRecord(spec.paths)) return;
+  for (const methods of Object.values(spec.paths)) {
+    if (!isRecord(methods)) continue;
+    for (const operation of Object.values(methods)) {
+      if (!isRecord(operation)) continue;
+      const { requestBody } = operation;
+      if (isRecord(requestBody) && everyMediaAdmitsNull(requestBody)) {
+        requestBody.required = false;
+      }
+    }
+  }
+}
+
+function everyMediaAdmitsNull(requestBody: Record<string, unknown>): boolean {
+  const media = isRecord(requestBody.content)
+    ? Object.values(requestBody.content)
+    : [];
+  return (
+    media.length > 0 &&
+    media.every((type) => isRecord(type) && admitsNull(type.schema))
+  );
+}
+
+function admitsNull(schema: unknown): boolean {
+  if (!isRecord(schema)) return false;
+  if (schema.type === 'null') return true;
+  return Array.isArray(schema.anyOf) && schema.anyOf.some(admitsNull);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** The file's bytes: what `npm run api:spec` writes and the drift test compares. */

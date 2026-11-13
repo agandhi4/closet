@@ -13,6 +13,13 @@ declare module 'fastify' {
     summary?: string;
     description?: string;
     security?: ReadonlyArray<{ [securityLabel: string]: readonly string[] }>;
+    /**
+     * A multipart route's parts, for the spec only (scripts/api-spec.ts
+     * makes it the operation's multipart/form-data body). Fastify never
+     * reads it: the handler reads the parts (request.files()), and a
+     * `body` schema would validate the unparsed body as null.
+     */
+    multipartBody?: TSchema;
   }
 }
 

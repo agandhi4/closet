@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp from 'sharp';
+import { recordCutoutEvent } from '../../src/cutout/queries';
 import type { CutoutMask, CutoutRunner } from '../../src/cutout/runner';
 import { file } from '../../src/db/schema';
 import {
@@ -117,4 +118,24 @@ export async function eventually(
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
+}
+
+/**
+ * A stored photo's cutout failed as the queue fails it (a job started,
+ * then its failure, through the state machine), with no queue running:
+ * what "Try again" requeues. The matrix's fixture and the API specs'.
+ */
+export async function failCutout(t: TestApp, fileName: string): Promise<void> {
+  const started = await recordCutoutEvent(t.db, fileName, {
+    type: 'start',
+    worker: 'spec',
+  });
+  if (!started.ok || started.state.jobVersion === null) {
+    throw new Error(`The cutout of ${fileName} did not start`);
+  }
+  const failed = await recordCutoutEvent(t.db, fileName, {
+    type: 'fail',
+    jobVersion: started.state.jobVersion,
+  });
+  if (!failed.ok) throw new Error(`The cutout of ${fileName} did not fail`);
 }

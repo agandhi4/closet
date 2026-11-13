@@ -227,7 +227,7 @@ describe('page, MCP and API parity', () => {
     expect(
       classificationProblems(
         [...inventory.pageWrites, 'POST /wardrobe/:id/unlisted'],
-        { ...Object.fromEntries(kept), 'DELETE /gone': { pending: '#192' } },
+        { ...Object.fromEntries(kept), 'DELETE /gone': { pending: '#193' } },
         'route',
       ),
     ).toEqual([

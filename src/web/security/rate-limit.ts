@@ -136,19 +136,21 @@ export const ACCOUNT_LIMIT = {
 
 /**
  * The routes that fetch a URL the user supplied through the outbound
- * fetcher: the link import and its photo choice together (one import
- * fetches the page and up to MAX_PHOTO_CHOICES images). Both count on ONE
- * checker, `app.createRateLimit(LINK_IMPORT_LIMIT)` built once in
- * link-import/routes.tsx, never a route's `config.rateLimit`: each of
- * those, and each createRateLimit call, gets a store of its own, so two
- * would allow ten a minute each. Per signed-in user, like
- * ACCOUNT_LIMIT: generous for someone adding what they bought, and a
- * ceiling on how hard the server can be made to hammer another site.
+ * fetcher: the link import, its photo choice and the API's link import
+ * (one import fetches the page and up to MAX_PHOTO_CHOICES images). All
+ * three count on ONE checker, `linkImportLimit`, built once in webPlugin,
+ * never a route's `config.rateLimit`: each of those, and each
+ * createRateLimit call, gets a store of its own, so two would allow ten a
+ * minute each. Per user, whichever door (the page's session or the API's
+ * device token), like ACCOUNT_LIMIT: generous for someone adding what
+ * they bought, and a ceiling on how hard the server can be made to hammer
+ * another site.
  */
 export const LINK_IMPORT_LIMIT = {
   max: 10,
   timeWindow: MINUTE_MS,
-  keyGenerator: (request) => `user ${request.auth!.user.id}`,
+  keyGenerator: (request) =>
+    `user ${request.accessToken?.user.id ?? request.auth!.user.id}`,
 } satisfies RateLimitOptions;
 
 /**
