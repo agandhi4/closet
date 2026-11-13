@@ -93,6 +93,24 @@ export function queueableKindOf(path: string): QueueableKind | undefined {
   return QUEUEABLE_PATHS.find((route) => route.path.test(path))?.kind;
 }
 
+/**
+ * What marks a replay (plan section 4), naming the account that queued it:
+ * sent by the page's outbox, read by src/web/offline-writes.ts (the replay
+ * contract) and src/web/auth/session-access.ts, which answers a replay
+ * without a session the bodiless 401, never the navigation's 302. The
+ * household's HTTP twin gets no Fetch Metadata, so without this header a
+ * replay would look like a navigation and its redirect reach the outbox as
+ * an opaque answer.
+ */
+export const REPLAY_HEADER = 'X-Closet-Queued';
+
+/** Whether a request is a replay, from Node's lower-cased headers. */
+export function isReplayRequest(
+  headers: Record<string, string | string[] | undefined>,
+): boolean {
+  return headers[REPLAY_HEADER.toLowerCase()] !== undefined;
+}
+
 /** The kinds whose record posts the tap's `day` (todayIn APP_TIMEZONE). */
 export function takesDay(kind: QueueableKind): boolean {
   return kind === 'wear' || kind === 'wash';
@@ -109,6 +127,40 @@ export function isChecklist(kind: QueueableKind): boolean {
  */
 export const OUTBOX_MAX_PENDING = 200;
 
+/**
+ * Whether a tap goes through the outbox rather than straight to the server:
+ * offline, or while any of its keys has a pending record (queued, backing
+ * off or in flight), even online. A tap sent past a pending record would
+ * land first and then be overwritten by the older record's replay (Wore
+ * today, a 503, Undo during the backoff: the replay marks it worn again);
+ * through the outbox it replaces that record (`collapsed`) and replays
+ * after the one in flight.
+ */
+export function goesThroughOutbox(
+  offline: boolean,
+  keys: readonly string[],
+  pendingKeys: ReadonlySet<string>,
+): boolean {
+  return offline || keys.some((key) => pendingKeys.has(key));
+}
+
+/**
+ * One record per account and key, the last intent wins: `records` with
+ * each of `incoming` in place of its account's record of the same key.
+ * The page's in-memory view of the store, which applies the same rule in
+ * one transaction (views/assets/outbox.ts, putCollapsed).
+ */
+export function collapsed<T extends { account: string; key: string }>(
+  records: readonly T[],
+  incoming: readonly T[],
+): T[] {
+  const replaced = (record: T) =>
+    incoming.some(
+      (next) => next.account === record.account && next.key === record.key,
+    );
+  return [...records.filter((record) => !replaced(record)), ...incoming];
+}
+
 /** Why a queued write was not saved: the notice's reason. */
 export type ReplayFailure = 'gone' | 'refused' | ReplayRefusal;
 
@@ -120,7 +172,7 @@ export type ReplayVerdict =
   | { verdict: 'failed'; reason: ReplayFailure }
   /** The server may take it later (5xx, 408, 429): stop, back off. */
   | { verdict: 'retry' }
-  /** No session (401): stop, keep everything for the next sign-in. */
+  /** No session (401, or a redirect): stop, keep everything for the next sign-in. */
   | { verdict: 'signed-out' };
 
 function isRefusal(outcome: string | null): outcome is ReplayRefusal {
@@ -131,7 +183,10 @@ function isRefusal(outcome: string | null): outcome is ReplayRefusal {
  * A replay's answer (src/web/offline-writes.ts): 204 saved, 401 signed out,
  * 404 gone (a deleted garment, entry or trip), a 409 refused for the reason
  * in `X-Closet-Outcome` (a wishlist item has none), a server error or rate
- * limit retried. Anything else (a 400, a 403, a redirect) is refused: the
+ * limit retried. A redirect (status 0: the outbox fetches with `redirect:
+ * 'manual'`, so it is opaque) is kept like a 401: the only one a queueable
+ * route gives is the session gate's to the login page, for a client that
+ * did not say it was a replay. Anything else (a 400, a 403) is refused: the
  * page must never take an answer it does not know for saved.
  */
 export function replayVerdict(
@@ -140,7 +195,7 @@ export function replayVerdict(
 ): ReplayVerdict {
   if (status === 204)
     return { verdict: 'saved', changed: outcome === 'changed' };
-  if (status === 401) return { verdict: 'signed-out' };
+  if (status === 401 || status === 0) return { verdict: 'signed-out' };
   if (status === 404) return { verdict: 'failed', reason: 'gone' };
   if (status === 409 && isRefusal(outcome)) {
     return { verdict: 'failed', reason: outcome };

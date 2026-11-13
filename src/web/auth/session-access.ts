@@ -1,13 +1,14 @@
 import type { FastifyRequest } from 'fastify';
 import { isFragmentRequest } from '../../htmx/fragment-request';
+import { isReplayRequest } from '../../offline-writes';
 
 /**
  * What a request gets from the session gate:
  *  - `allow`: the route is public or the request has a session;
  *  - `redirect-to-login`: a page navigation without a session, answered with
  *    a 302 to LOGIN_PATH;
- *  - `login-required`: an htmx fragment or fetch without a session, answered
- *    with a bodiless 401 and `HX-Redirect: LOGIN_PATH` (a 302 would be
+ *  - `login-required`: an htmx fragment, a fetch or an outbox replay without
+ *    a session, answered with a bodiless 401 and `HX-Redirect: LOGIN_PATH` (a 302 would be
  *    followed by the XHR and the login page swapped into a fragment target).
  */
 export type SessionAccess = 'allow' | 'redirect-to-login' | 'login-required';
@@ -30,10 +31,14 @@ export function decideSessionAccess(
  * page, everything else is a fragment (isFragmentRequest, shared with the
  * service worker). Other script requests are told apart by Sec-Fetch-Mode,
  * which browsers set to `navigate` only for navigations and plain form posts.
- * A client that sends no fetch metadata (curl, an old browser) is treated as
- * a navigation: a redirect is what a person at a browser needs.
+ * A client that sends no fetch metadata (curl, an old browser, any browser
+ * on the plain-HTTP twin) is treated as a navigation: a redirect is what a
+ * person at a browser needs. So the outbox's replays say what they are
+ * (REPLAY_HEADER): the 401 keeps their records for the next sign-in, where
+ * the redirect would reach the page as an opaque answer.
  */
 function isPageNavigation(request: Pick<FastifyRequest, 'headers'>): boolean {
+  if (isReplayRequest(request.headers)) return false;
   if (request.headers['hx-request'] === 'true') {
     return !isFragmentRequest(request.headers);
   }

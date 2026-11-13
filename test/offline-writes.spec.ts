@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type Page, type Route, test } from '@playwright/test';
 import { createGarment, createOutfit } from './support/e2e-data';
 import {
   E2E_PASSWORD,
@@ -24,7 +24,9 @@ import { queueableKindOf } from '../src/offline-writes';
  * today and a packing tick stay enabled offline, show their other state and
  * "Waiting to sync", and save on reconnect; a write the server refuses is a
  * notice until dismissed or signed out; another account's page never sends
- * them. Their markup is test/integration/queued-writes.spec.ts's.
+ * them. A tap behind a record still waiting (backing off, or in flight)
+ * goes through the outbox too, so the older one never lands after it.
+ * Their markup is test/integration/queued-writes.spec.ts's.
  */
 
 // The worker blocked: once it controls the page, WebKit sends the heartbeat
@@ -254,5 +256,82 @@ test('wears and ticks queue offline, save on reconnect, and stay their account�
   await setWritesReachable(page, true);
   await expect(banner).toBeHidden();
   expect(attempted).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
+test('a tap behind a waiting replay replaces it and lands last', async ({
+  page,
+}) => {
+  const errors = pageErrors(page);
+  await signIn(page, 'outbox-order');
+  const chinos = await createGarment(page, 'Order chinos');
+  const wore = page.getByRole('button', { name: 'Wore today', exact: true });
+  const undo = page.getByRole('button', { name: 'Undo “Wore today”' });
+  const waiting = page.locator('[data-outbox="pending"]');
+  const wearPath = `/wardrobe/${chinos}/wear`;
+  const worn = (route: Route) =>
+    new URLSearchParams(route.request().postData() ?? '').get('worn');
+  const replayed = (value: string) =>
+    page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === wearPath &&
+        new URLSearchParams(response.request().postData() ?? '').get('worn') ===
+          value &&
+        response.status() === 204,
+    );
+  // How the wear route answers: every worn=1 a 503 (backing off for as
+  // long as the test needs), or the first request held until released.
+  let answer: 'refuse-worn' | 'hold' | 'pass' = 'refuse-worn';
+  let release: (() => Promise<void>) | undefined;
+  let holding: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    holding = resolve;
+  });
+  await page.goto(`/wardrobe/${chinos}`);
+  await page.route(`**${wearPath}`, async (route) => {
+    if (answer === 'refuse-worn' && worn(route) === '1') {
+      await route.fulfill({ status: 503 });
+    } else if (answer === 'hold') {
+      answer = 'pass';
+      release = () => route.fallback();
+      holding();
+    } else {
+      await route.fallback();
+    }
+  });
+
+  // Backing off: Wore today queued, its replay a 503; the Undo tapped
+  // online replaces it and is the only one sent.
+  await setWritesReachable(page, false);
+  await wore.click();
+  await expect(undo).toBeVisible();
+  const backingOff = page.waitForEvent('console', (message) =>
+    message.text().includes('unreachable, retry 1'),
+  );
+  await setWritesReachable(page, true);
+  await backingOff;
+  const undone = replayed('0');
+  await undo.click();
+  await undone;
+  await expect(waiting).toHaveCount(0);
+  await page.reload();
+  await expect(wore).toBeVisible();
+  await expect(waiting).toHaveCount(0);
+
+  // In flight: Wore today's replay held at the server's door; the Undo
+  // tapped meanwhile waits for it, then lands after it.
+  await setWritesReachable(page, false);
+  await wore.click();
+  await expect(undo).toBeVisible();
+  answer = 'hold';
+  await setWritesReachable(page, true);
+  await held;
+  await undo.click();
+  const undoneAfter = replayed('0');
+  await release?.();
+  await undoneAfter;
+  await expect(waiting).toHaveCount(0);
+  await page.reload();
+  await expect(wore).toBeVisible();
   expect(errors).toEqual([]);
 });

@@ -467,6 +467,12 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Decision:** `views/assets/outbox.ts` (IndexedDB, replay on reconnect, load and visibility; `navigator.locks` across tabs) is bundled by esbuild into `public/js/outbox.js` (gitignored, like `sw.js`) and imports the pure rules from `src/offline-writes.ts`, which the views use too. A queueable control is `data-offline-queue` plus a region whose other state is a server-rendered `<template data-outbox-state>`: the script picks, never draws. Failures stay in a notice until dismissed; another account's page deletes records unsent. The exception to "unreachable writes are disabled, never dropped" is in AGENTS.md's project rules.
 **Consequence:** a new queueable write is a route kind (178a) plus `queueForm`/`outboxRegion` on its control and a row in `queued-writes.spec.ts`; an integration assertion that a state is absent reads `shownMarkup`. The worker's own deletion and refetch are 178c's (`src/web/shell/outbox.md`).
 
+## 2026-11-13 — A tap behind a waiting record goes through the outbox; replays name themselves to the session gate (#178b review)
+
+**Why:** PR #507's review: online, a tap past a record still backing off or in flight landed first and the older replay then overwrote it (Wore today, 503, Undo: worn again). And on the plain-HTTP twin (no Fetch Metadata) a replay without a session got the navigation's 302, opaque under `redirect: 'manual'`, and was failed for good instead of kept for sign-in.
+**Decision:** one rule, `goesThroughOutbox` (`src/offline-writes.ts`): offline, or any key of the tap pending, the tap is queued (collapsed over the old record) and drained at once after a drain in flight; an answer is written back only to a record still queued (`settle`), and a replaced record is never sent. The drain lock waits instead of `ifAvailable`. The session gate treats `X-Closet-Queued` (`REPLAY_HEADER`) as a script request (401); `replayVerdict` keeps a status-0 answer like a 401.
+**Consequence:** no control may decide its own online/offline path: `mustQueue` in `views/assets/outbox.ts` is the only one. A new client of the queued-write routes sends `REPLAY_HEADER`, not Fetch Metadata, to be told 401.
+
 ## 2026-11-13 — The Calendar week is a grid from lg, from the same markup (#467)
 
 **Why:** a desktop week read as a 40rem column of seven stacked days; `/calendar` is a cached tab root, so a `?view=` page would be another cache key that fails offline, and the server cannot see the width.

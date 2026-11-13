@@ -317,18 +317,22 @@ describe('queued writes', () => {
       sameOrigin: false,
     });
     expect(noOrigin.statusCode).toBe(403);
-    const signedOut = await t.inject({
-      method: 'POST',
-      url,
-      payload: 'worn=1',
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
-        'x-closet-queued': String(t.owner.id),
-        'sec-fetch-mode': 'cors',
-      },
-      anonymous: true,
-    });
-    expect(signedOut.statusCode).toBe(401);
+    // No Fetch Metadata, as on the plain-HTTP twin: the replay header alone
+    // gets the 401 that keeps the record, where a bare post (a person at a
+    // browser) is sent to the login page.
+    const signedOut = (queued: boolean) =>
+      t.inject({
+        method: 'POST',
+        url,
+        payload: 'worn=1',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          ...(queued ? { 'x-closet-queued': String(t.owner.id) } : {}),
+        },
+        anonymous: true,
+      });
+    expect((await signedOut(true)).statusCode).toBe(401);
+    expect((await signedOut(false)).statusCode).toBe(302);
     expect(await wearDays(shirt)).toEqual([]);
   });
 

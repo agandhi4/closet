@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  collapsed,
   dayRefusal,
+  goesThroughOutbox,
   isChecklist,
+  isReplayRequest,
   QUEUEABLE_ROUTES,
   type QueueableKind,
   queueableKindOf,
@@ -86,11 +89,65 @@ describe('the kinds', () => {
   });
 });
 
+describe('isReplayRequest', () => {
+  it('reads the replay header from Node’s lower-cased headers', () => {
+    expect(isReplayRequest({ 'x-closet-queued': '12' })).toBe(true);
+    expect(isReplayRequest({ 'sec-fetch-mode': 'cors' })).toBe(false);
+  });
+});
+
+describe('goesThroughOutbox', () => {
+  const pending = new Set(['wear:41:2026-11-12']);
+
+  it('queues every tap offline, and online any tap whose key waits', () => {
+    expect(goesThroughOutbox(true, ['wash:41'], new Set())).toBe(true);
+    expect(goesThroughOutbox(false, ['wear:41:2026-11-12'], pending)).toBe(
+      true,
+    );
+    // The laundry's batch: one waiting row sends all of them through it.
+    expect(
+      goesThroughOutbox(false, ['wash:7', 'wear:41:2026-11-12'], pending),
+    ).toBe(true);
+  });
+
+  it('sends a tap straight on online when none of its keys waits', () => {
+    expect(goesThroughOutbox(false, ['wear:41:2026-11-11'], pending)).toBe(
+      false,
+    );
+    expect(goesThroughOutbox(false, [], pending)).toBe(false);
+  });
+});
+
+describe('collapsed', () => {
+  const record = (id: string, key: string, account = '1') => ({
+    id,
+    key,
+    account,
+  });
+
+  it('puts the newest intent in place of its account’s record of the key', () => {
+    const old = [record('a', 'wash:41'), record('b', 'wear:41:2026-11-12')];
+    expect(collapsed(old, [record('c', 'wear:41:2026-11-12')])).toEqual([
+      record('a', 'wash:41'),
+      record('c', 'wear:41:2026-11-12'),
+    ]);
+  });
+
+  it('keeps another account’s record of the same key', () => {
+    expect(
+      collapsed([record('a', 'wash:41', '2')], [record('b', 'wash:41')]),
+    ).toEqual([record('a', 'wash:41', '2'), record('b', 'wash:41')]);
+  });
+});
+
 describe('replayVerdict', () => {
   it.each([
     [204, 'changed', { verdict: 'saved', changed: true }],
     [204, 'unchanged', { verdict: 'saved', changed: false }],
     [401, null, { verdict: 'signed-out' }],
+    // The login redirect, opaque under `redirect: 'manual'`: kept for the
+    // sign-in, never failed.
+    [0, null, { verdict: 'signed-out' }],
     [404, null, { verdict: 'failed', reason: 'gone' }],
     [409, 'too-old', { verdict: 'failed', reason: 'too-old' }],
     [409, 'future', { verdict: 'failed', reason: 'future' }],
@@ -100,10 +157,9 @@ describe('replayVerdict', () => {
     [409, 'changed', { verdict: 'failed', reason: 'refused' }],
     [400, null, { verdict: 'failed', reason: 'refused' }],
     [403, null, { verdict: 'failed', reason: 'refused' }],
-    // A redirect or a page: an answer that is not the replay contract's
-    // is never taken for saved.
+    // A page: an answer that is not the replay contract's is never taken
+    // for saved.
     [200, null, { verdict: 'failed', reason: 'refused' }],
-    [0, null, { verdict: 'failed', reason: 'refused' }],
     [500, null, { verdict: 'retry' }],
     [503, null, { verdict: 'retry' }],
     [408, null, { verdict: 'retry' }],
