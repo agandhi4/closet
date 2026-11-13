@@ -75,6 +75,15 @@ export function limbTarget(feelsLike: number): Warmth {
   return clamp(Math.round((33 - feelsLike) / 7), 1, max) as Warmth;
 }
 
+/**
+ * What the cold would welcome on legs and feet, uncapped (1-5): the bound
+ * for "too warm". `limbTarget`'s cap only lets ordinary gear meet the cold
+ * side; it must not make insulated boots too warm for a winter day (#645).
+ */
+function limbCeiling(feelsLike: number): Warmth {
+  return clamp(Math.round((33 - feelsLike) / 7), 1, 5) as Warmth;
+}
+
 export interface WeatherNeeds {
   occasion: Occasion;
   /** The occasion's hours, `from` inclusive, `to` exclusive (APP_TIMEZONE). */
@@ -90,6 +99,8 @@ export interface WeatherNeeds {
   torsoWithoutLayer: number;
   /** Legs and feet, for the window's middle. */
   limbs: Warmth;
+  /** Legs and feet's too-warm bound: `limbs` without the cold-side cap. */
+  limbsCeiling: Warmth;
   /** The swing is LAYER_STEPS or more: add a layer that comes off. */
   layer: boolean;
   /** An hour of the window reaches RAIN_CHANCE: water resistance wanted. */
@@ -124,6 +135,7 @@ export function weatherNeeds(
     torso: torsoTarget(layer ? min : middle),
     torsoWithoutLayer: torsoTarget(layer ? max : middle),
     limbs: limbTarget(middle),
+    limbsCeiling: limbCeiling(middle),
     layer,
     rain: hours.some((h) => h.precipitationChance >= RAIN_CHANCE),
   };
@@ -297,7 +309,7 @@ export function assessOutfit(
     if (worn.length === 0) return;
     const warmth = Math.max(...worn.map((g) => g.warmth));
     const below = needs.limbs - tolerance.below - warmth;
-    const above = warmth - (needs.limbs + tolerance.above);
+    const above = warmth - (needs.limbsCeiling + tolerance.above);
     if (below > 0) miss(cold, below);
     if (above > 0) miss(warm, above);
   };

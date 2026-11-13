@@ -83,6 +83,13 @@ describe('weather matching', () => {
       );
     });
 
+    it('does not call the warmest footwear too warm on a winter day', () => {
+      const winter = needs(JANUARY, 'all-day');
+      expect(winter.limbs).toBe(3);
+      const fit = assessOutfit(winter, [SWEATER, JEANS, g('footwear', 5)]);
+      expect(fit.problems).not.toContain('feet-too-warm');
+    });
+
     it('steps legs and feet from shorts and sandals to boots in a cold snap', () => {
       expect([30, 26, 19, 12, 5, -5, -12].map(limbTarget)).toEqual([
         1, 1, 2, 3, 3, 3, 4,
