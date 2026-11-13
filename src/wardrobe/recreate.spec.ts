@@ -379,6 +379,44 @@ describe('recreateLook', () => {
     expect(unfixed).toEqual([]);
   });
 
+  it('keeps a saved choice that still matches, even outside the top matches', () => {
+    const closer = [1, 2, 3].map(() =>
+      garment('top', { type: 't-shirt', colors: ['white'] }),
+    );
+    const saved = garment('top', { type: 'shirt', colors: ['white'] });
+    const request = {
+      pieces: [piece('top', { type: 't-shirt', colors: ['white'] })],
+      closet: [...closer, saved],
+    };
+    expect(recreate(request).pieces[0].matches[0].garment.id).toBe(
+      closer[0].id,
+    );
+    const { pieces } = recreate({ ...request, saved: [saved.id] });
+    expect(pieces[0].matches.length).toBeLessThanOrEqual(MATCHES_PER_PIECE);
+    expect(pieces[0].matches[0].garment.id).toBe(saved.id);
+    expect(pieces[0].repicked).toBe(false);
+  });
+
+  it('ignores a saved choice that no longer matches, and never defaults two pieces to one garment', () => {
+    const a = garment('top', { type: 't-shirt', colors: ['white'] });
+    const b = garment('top', { type: 't-shirt', colors: ['white'] });
+    const c = garment('top', { type: 't-shirt', colors: ['white'] });
+    const two = [
+      piece('top', { type: 't-shirt', colors: ['white'] }),
+      piece('top', { type: 't-shirt', colors: ['white'] }),
+    ];
+    // A (saved for the first) is archived, so absent from the closet; B is saved for the second.
+    const { pieces } = recreate({
+      pieces: two,
+      closet: [b, c],
+      saved: [a.id, b.id],
+    });
+    const chosen = pieces.map((p) => p.matches[0].garment.id);
+    expect(chosen).toEqual([c.id, b.id]);
+    // The pinned garment is not offered to the other piece.
+    expect(pieces[0].matches.map((m) => m.garment.id)).toEqual([c.id]);
+  });
+
   it('answers the same for the same closet, in whatever order it comes', () => {
     const closet = [
       garment('top', { type: 't-shirt', colors: ['white'], idleDays: null }),

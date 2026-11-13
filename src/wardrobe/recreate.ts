@@ -30,6 +30,12 @@ import {
  * - **The floor**: a garment is a match only when it shares the piece's
  *   type or one of its colours (a close shade counts). A piece naming
  *   neither takes any garment of its role. A piece with no match is missing.
+ * - **Saved choices** are pinned: a garment saved for a piece that still
+ *   matches it (it is in the closet and clears the floor) is that piece's
+ *   garment before anything is ranked or matched, always among its matches
+ *   however far down its ranking, and no other piece is offered or given
+ *   it (the first piece to name one keeps it). The rest are matched around
+ *   them, so the chosen garments are unique by construction.
  * - **Going together**: the chosen set must pass the generator's colour and
  *   pattern rule (colorsGoTogether) and break none of the owner's
  *   never-rules (avoided pairs included), and no garment fills two pieces:
@@ -69,6 +75,11 @@ export interface RecreateRequest<G extends RecreateGarment> {
   avoid: readonly (readonly [number, number])[];
   /** The owner's outfit rules: the never-rules are read. */
   rules: readonly OutfitRule[];
+  /**
+   * The garment saved for each piece, in `pieces` order (null: none), a
+   * choice the owner made: pinned (see the module comment).
+   */
+  saved?: readonly (number | null)[];
 }
 
 /** How a match agrees with its piece, for the page to say. */
@@ -432,22 +443,58 @@ function chosenSteps<G extends RecreateGarment>(
   };
 }
 
+/**
+ * The garment each piece is pinned to: its saved one while that still
+ * matches the piece, the first piece to name a garment keeping it.
+ */
+function pins<G extends RecreateGarment>(
+  request: RecreateRequest<G>,
+  rankings: readonly Scored<G>[][],
+): Map<number, Scored<G>> {
+  const pinned = new Map<number, Scored<G>>();
+  const taken = new Set<number>();
+  rankings.forEach((ranking, index) => {
+    const id = request.saved?.[index];
+    const found = ranking.find(({ garment }) => garment.id === id);
+    if (found && !taken.has(found.garment.id)) {
+      taken.add(found.garment.id);
+      pinned.set(index, found);
+    }
+  });
+  return pinned;
+}
+
 export function recreateLook<G extends RecreateGarment>(
   request: RecreateRequest<G>,
 ): Recreation<G> {
-  const rankings = request.pieces.map((piece) => ranked(piece, request.closet));
-  const matched = request.pieces.flatMap((piece, index) =>
-    rankings[index].length > 0
-      ? [{ index, ranking: rankings[index], loud: loudness(piece) }]
-      : [],
+  const full = request.pieces.map((piece) => ranked(piece, request.closet));
+  const pinned = pins(request, full);
+  const pinnedIds = new Set([...pinned.values()].map((s) => s.garment.id));
+  // What each piece is offered: its ranking without the garments pinned to
+  // another piece.
+  const offered = full.map((ranking, index) =>
+    ranking.filter(
+      ({ garment }) =>
+        pinned.get(index)?.garment.id === garment.id ||
+        !pinnedIds.has(garment.id),
+    ),
   );
+  // What the matching may choose from: a pinned piece has only its pin.
+  const matched = request.pieces.flatMap((piece, index) => {
+    const pin = pinned.get(index);
+    const ranking = pin ? [pin] : offered[index];
+    return ranking.length > 0
+      ? [{ index, ranking, loud: loudness(piece) }]
+      : [];
+  });
   const judge = judgeOf(request);
   const { steps, unfixed } = chosenSteps(matched, judge);
   return {
-    pieces: rankings.map((ranking, index) => {
+    pieces: offered.map((ranking, index) => {
       const step = steps.get(index);
       if (step === undefined) return { matches: [], repicked: false };
-      const chosen = ranking[step];
+      const pin = pinned.get(index);
+      const chosen = pin ?? ranking[step];
       return {
         matches: [chosen, ...ranking.filter((s) => s !== chosen)]
           .slice(0, MATCHES_PER_PIECE)

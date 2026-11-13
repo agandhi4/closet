@@ -618,3 +618,9 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Why:** a piece's autosave raced the save (a role changed under it, a top recorded for a bottom), and one joined `FOR UPDATE` statement reads the pieces from its start snapshot, not after the wait. A wishlisted piece in `recreateLook` reserved a garment a later piece needed.
 **Decision:** `updateInspirationPiece` runs in a transaction under `lockOwnLook`, the save's lock; `lockLookForSave` locks, then reads roles in a second statement. The GET passes only unwishlisted pieces to `recreateLook` and maps results back.
 **Consequence:** a save after an edit sees the edited role, and its category check refuses a stale choice (409).
+
+## 2026-11-13 — Recreate: saved choices are pinned in the matching, duplicates are refused
+
+Why: a saved garment (`matched_garment_id`) lived outside `recreateLook`, so truncating to the top three could drop it, and two strips could default to or post one garment, which `pickIdea`'s Set dedup silently collapsed.
+Decision: `recreateLook` takes `saved` per piece; a saved garment that still matches is that piece's only candidate in the assignment and leads its matches, and no other piece is offered it. `saveRecreation` answers 409 for one garment on two pieces.
+Consequence: the page's defaults are unique by construction; the view no longer picks the saved garment itself.

@@ -709,6 +709,39 @@ describe('inspiration', () => {
     expect(await matchedOf(id)).toEqual([null, null, null]);
   });
 
+  it('refuses one garment chosen for two pieces: a 409, nothing saved or recorded', async () => {
+    const email = 'look-duplicate@example.com';
+    const cookie = await t.register(email);
+    const tee = await wear(cookie, 'White tee', 'tops', 't-shirt', 'white');
+    const shirt = await wear(cookie, 'White shirt', 'tops', 't-shirt', 'white');
+    const { id } = await addLook(t, photo, cookie);
+    for (const payload of [
+      piece('top/t-shirt', 'white'),
+      piece('top/t-shirt', 'white'),
+    ]) {
+      await t.inject({
+        method: 'POST',
+        url: `/inspiration/${id}/pieces`,
+        payload,
+        headers: { cookie },
+      });
+    }
+    const save = (garment: number[]) =>
+      t.inject({
+        method: 'POST',
+        url: `/inspiration/${id}/recreate/outfit`,
+        payload: { position: ['0', '1'], garment: garment.map(String) },
+        headers: { cookie },
+      });
+    const dup = await save([tee, tee]);
+    expect(dup.statusCode).toBe(409);
+    expect(
+      await t.db.$count(outfit, eq(outfit.ownerId, await userIdOf(t, email))),
+    ).toBe(0);
+    expect(await matchedOf(id)).toEqual([null, null]);
+    expect((await save([tee, shirt])).statusCode).toBe(303);
+  });
+
   it('a piece already on the wishlist takes no garment from the closet assignment: the next piece keeps the only match', async () => {
     const cookie = await t.register('look-wishlisted@example.com');
     const tee = await wear(cookie, 'Only tee', 'tops', 't-shirt', 'white');

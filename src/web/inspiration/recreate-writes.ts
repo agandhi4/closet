@@ -37,8 +37,9 @@ export interface SavedRecreation {
  * (closet garments only, top to toe, once per garment set, named after the
  * look's title, else as an idea is), then every choice recorded
  * (recordPieceChoices). A choice for a piece the look no longer has, or of
- * a garment that is not of the piece's kind, refuses the save whole (409:
- * the page is out of date); a garment gone from the closet is pickIdea's
+ * a garment that is not of the piece's kind, or one garment chosen for two pieces (an outfit
+ * holds it once, so the save would drop a piece's choice silently), refuses
+ * the save whole (409: the page is out of date); a garment gone from the closet is pickIdea's
  * refusal, named (garmentsGoneError). Nothing chosen is a 400 (the page
  * offers no save without a match).
  */
@@ -53,6 +54,9 @@ export async function saveRecreation(
     throw new HttpError(400, t('inspiration.NOTHING_CHOSEN'), {
       logDetail: `inspiration ${id}: every piece None`,
     });
+  }
+  if (new Set(garmentIds).size < garmentIds.length) {
+    throw lookChanged(id, 'one garment chosen for two pieces');
   }
   const saved = await ownerTransaction(
     db,
@@ -83,7 +87,7 @@ export async function saveRecreation(
   if (saved === 'not-found') {
     throw await garmentsGoneError(db, ownerId, garmentIds, 'closet');
   }
-  return { outfit: saved, garments: new Set(garmentIds).size };
+  return { outfit: saved, garments: garmentIds.length };
 }
 
 function lookChanged(id: number, detail: string): HttpError {

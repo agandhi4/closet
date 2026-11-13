@@ -45,8 +45,8 @@ import {
  * "Save as outfit" posts them all (saveRecreation). A missing piece's "Find
  * this" is a button of the same form naming its own route (`formaction`,
  * forms cannot nest), and a piece whose match is a wishlist item says so
- * instead, with no strip: its choice is made. The strip centres the
- * garment chosen last time when it is still a match.
+ * instead, with no strip: its choice is made. The saved garment of a
+ * piece stays its chosen one while it is still a match.
  */
 export function RecreatePage(props: {
   ctx: ViewContext;
@@ -195,9 +195,9 @@ function PieceChoice(props: {
 }
 
 /**
- * The piece's matches to choose from, then None. The garment chosen last
- * time is centred when it is still a match, else the closest that goes
- * with the rest. Its `position` comes first, so the save reads the two
+ * The piece's matches to choose from, then None. The first match is the
+ * chosen one: the garment saved last time while it is still a match, else
+ * the closest that goes with the rest (recreateLook pins saved choices). Its `position` comes first, so the save reads the two
  * fields as pairs in document order; the strip's own input is its
  * `garment` (the strip's contract: right after it).
  */
@@ -208,10 +208,7 @@ function ChoiceStrip(props: {
   repicked: boolean;
 }) {
   const { piece, matches } = props;
-  const previous = matches.findIndex(
-    (match) => match.garment.id === piece.matched?.id,
-  );
-  const chosen = matches[previous === -1 ? 0 : previous].garment.id;
+  const chosen = matches[0].garment.id;
   return (
     <>
       {props.repicked && (

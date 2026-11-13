@@ -122,7 +122,7 @@ const FileParams = Type.Object({ fileName: Type.String() });
  */
 function recreateClosetPieces(
   pieces: readonly StoredPiece[],
-  request: Omit<RecreateRequest<RecreatePoolGarment>, 'pieces'>,
+  request: Omit<RecreateRequest<RecreatePoolGarment>, 'pieces' | 'saved'>,
 ): Recreation<RecreatePoolGarment> {
   const open = pieces.flatMap((piece, index) =>
     wishlisted(piece) ? [] : [index],
@@ -130,6 +130,7 @@ function recreateClosetPieces(
   const found = recreateLook({
     ...request,
     pieces: open.map((index) => pieces[index]),
+    saved: open.map((index) => pieces[index].matched?.id ?? null),
   });
   const result: Recreation<RecreatePoolGarment> = {
     pieces: pieces.map(() => ({ matches: [], repicked: false })),
