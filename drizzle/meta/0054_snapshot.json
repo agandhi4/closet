@@ -1,5 +1,5 @@
 {
-  "id": "42f015db-0721-4cb2-b7d1-60d8dab5c938",
+  "id": "46c5c651-6043-4435-b8c5-bf6a05121302",
   "prevId": "0ab9a3c9-6315-43dc-8689-1983a7b7c2e8",
   "version": "7",
   "dialect": "postgresql",
@@ -5319,6 +5319,10 @@
         "week_plan_entry_needs_check": {
           "name": "week_plan_entry_needs_check",
           "value": "num_nulls(\"week_plan_entry\".\"torso\", \"week_plan_entry\".\"limbs\", \"week_plan_entry\".\"layer\", \"week_plan_entry\".\"rain\") in (0, 4)"
+        },
+        "week_plan_entry_limbs_ceiling_check": {
+          "name": "week_plan_entry_limbs_ceiling_check",
+          "value": "\"week_plan_entry\".\"limbs_ceiling\" between 1 and 5"
         }
       },
       "isRLSEnabled": false

@@ -15,6 +15,7 @@ import {
   needsChange,
   type OutfitGarmentState,
   PLAN_DAYS,
+  type PlannedNeeds,
   type PlannerGarment,
   plannedNeeds,
   planWeek,
@@ -765,7 +766,7 @@ describe('unwearableOn', () => {
 });
 
 describe('needs', () => {
-  const base = {
+  const base: PlannedNeeds = {
     torso: 4,
     limbs: 3,
     layer: false,

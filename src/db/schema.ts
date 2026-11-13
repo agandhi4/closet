@@ -1801,6 +1801,10 @@ export const weekPlanEntry = pgTable(
       'week_plan_entry_needs_check',
       sql`num_nulls(${table.torso}, ${table.limbs}, ${table.layer}, ${table.rain}) in (0, 4)`,
     ),
+    check(
+      'week_plan_entry_limbs_ceiling_check',
+      sql`${table.limbsCeiling} between 1 and 5`,
+    ),
     foreignKey({
       name: 'week_plan_entry_entry_id_foreign',
       columns: [table.entryId],

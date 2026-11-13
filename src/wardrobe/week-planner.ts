@@ -274,7 +274,7 @@ export interface PlannedNeeds {
    * side) cannot show. Null for an entry planned before it was stored: never
    * judged on it.
    */
-  limbsCeiling: number | null;
+  limbsCeiling: Warmth | null;
 }
 
 export function plannedNeeds(needs: WeatherNeeds | null): PlannedNeeds | null {
@@ -347,7 +347,7 @@ function limbsTurnedTooWarm(
     ).problems.some((p) => LIMBS_TOO_WARM.includes(p));
   return (
     tooWarm(needs) &&
-    !tooWarm({ ...needs, limbsCeiling: plannedFor.limbsCeiling as Warmth })
+    !tooWarm({ ...needs, limbsCeiling: plannedFor.limbsCeiling })
   );
 }
 

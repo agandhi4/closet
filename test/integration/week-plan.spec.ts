@@ -28,6 +28,7 @@ import {
 import type { Occasion } from '../../src/wardrobe/occasions';
 import { addDays, instantAt, type IsoDate } from '../../src/calendar-date';
 import { insertEntry } from '../../src/web/calendar/queries';
+import { claimAutoEntries } from '../../src/web/week-plan/queries';
 import type { PushPayload } from '../../src/web/push/payload';
 import {
   type ReminderDeps,
@@ -1010,6 +1011,21 @@ describe('the weekly auto-plan', () => {
         recorded.sql.filter((q) => q.includes('"user_weather"')),
       ).toHaveLength(1);
       expect(sends).toEqual([]);
+    });
+
+    it('stores the limb ceiling it planned for, and the re-plan reads it back (#750)', async () => {
+      await planWarm();
+      // 24 C: the uncapped too-warm bound for legs and feet is 1.
+      const rows = await t.db.select().from(weekPlanEntry);
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.map((r) => r.limbsCeiling)).toEqual(rows.map(() => 1));
+      const claimed = await t.db.transaction((tx) =>
+        claimAutoEntries(tx, t.owner.id, TODAY, at(TODAY, REPLAN_HOUR)),
+      );
+      expect(claimed).toHaveLength(rows.length);
+      expect(claimed!.map((a) => a.plannedFor?.limbsCeiling)).toEqual(
+        rows.map(() => 1),
+      );
     });
 
     it('swaps an auto entry the colder forecast finds too light, and tells the morning reminder’s device', async () => {

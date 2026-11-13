@@ -24,7 +24,7 @@ import {
 } from '../../db/schema';
 import { washLimit } from '../../wardrobe/availability';
 import type { Occasion } from '../../wardrobe/occasions';
-import { categoryRole } from '../../wardrobe/properties';
+import { categoryRole, isWarmth } from '../../wardrobe/properties';
 import type { PlannedBy } from '../../wardrobe/week';
 import type {
   OutfitGarmentState,
@@ -143,7 +143,9 @@ type EntryRow = Omit<AutoEntryRow, 'plannedFor'> & {
 };
 
 function autoEntryOf(row: EntryRow): AutoEntryRow {
-  const { torso, limbs, layer, rain, limbsCeiling } = row;
+  const { torso, limbs, layer, rain } = row;
+  // A column check keeps it 1-5; the guard narrows it for the type.
+  const limbsCeiling = isWarmth(row.limbsCeiling) ? row.limbsCeiling : null;
   return {
     entryId: row.entryId,
     day: row.day,
