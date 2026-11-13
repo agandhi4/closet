@@ -383,3 +383,14 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Why:** of Muse's first ten `suggest_garment` calls four failed. Probed from the Mac with the fetcher's headers: Shopify stores behind Cloudflare (darntough after its www→apex 301, which was followed; blauerboardshop) answer product pages 429 `Retry-After: 60` over HTTP/1.1 whatever the User-Agent, and 200 to the same request over HTTP/2; campmor is Cloudflare's 403 challenge (`cf-mitigated: challenge`) to any UA; sunandski's product pages are AWS WAF's 202 challenge (`x-amzn-waf-action: challenge`) and its og/twitter image is the site logo, `image/svg+xml` (the header is honest; product photos are `image/jpeg`). blauerboardshop's product page is 3.8 MB of HTML, its JSON-LD and og tags in the first 110 KB, `</head>` at 3.2 MB behind a size-chart blob.
 **Decision:** the outbound fetcher answers a user's URL that gets a 403, a 429 or a challenge header (any status) with `blocked-by-site` (status kept; fetches naming `hosts` keep `http-status`); the link page says so, and the MCP tools' errors lead with the reason. A page past 2 MB is cut at 2 MB (`truncated`), never refused; images and JSON past their caps still are. No magic-byte sniffing: the refused types were honest. No HTTP/2 and no browser User-Agent: that would be getting past a shop's bot rule, an owner decision.
 **Consequence:** `too-large` is now only an image's (or JSON's). A truncated page may cut a late JSON-LD block, which then fails to parse and is skipped like any broken one. Shopify product pages stay `blocked-by-site` until an HTTP/2 transport is decided.
+
+## 2026-11-12 — The whole backlog is approved, in waves, with every recommended option
+**Why:** the owner wants every open issue built, the JSON API and the desktop views included ("I want all of this built"), and approved the session's recommendations in one reply.
+**Decision:**
+- Outfit rules: `docs/plans/2026-11-12-generator-rules.md`.
+- Desktop Styling and Calendar: `docs/plans/2026-11-12-desktop-styling-and-calendar.md`, CSS-first and one markup.
+- JSON API: `docs/plans/2026-11-12-json-api.md`. #188 goes first; APNs later.
+- Offline (#178): wears, washes and packing ticks queue while offline and sync on reconnect (last write wins); a new garment with its photo stays online-only.
+- Safari (#244): the sign-out redirect sets a short-lived marker, and the login page sends `Clear-Site-Data` on its 200.
+- Link import: HTTP/2 in the outbound fetcher gets its own issue and plan, keeping its pinned-address guarantees.
+**Consequence:** the frontend-pwa rule "unreachable writes are disabled, never dropped" gains an exception for those three queued writes, written into AGENTS.md with #178's change. Each plan's slices are its PRs.
