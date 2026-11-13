@@ -398,14 +398,24 @@ export class Photos {
   }
 
   // The pipeline's own failure already left nothing (storeImage); only a
-  // stored photo is deleted here.
+  // stored photo is deleted here. Never throws: the caller rethrows the
+  // refusal (a 413 stays a 413), and bytes a failed delete leaves are
+  // reconciliation's orphan.
   private async discardStartedUpload(
     photo: Promise<NewPhotoRow> | undefined,
     userId: number,
   ): Promise<void> {
     const stored = await photo?.catch(() => undefined);
     if (!stored) return;
-    await this.deleteVariants(unkeyedPhoto(stored.fileName));
+    try {
+      await this.deleteVariants(unkeyedPhoto(stored.fileName));
+    } catch (error) {
+      this.logger.error(
+        { err: error },
+        `Upload by user ${userId} refused after its photo was stored: could not delete ${stored.fileName}`,
+      );
+      return;
+    }
     this.logger.info(
       `Upload by user ${userId} refused after its photo was stored: deleted ${stored.fileName}`,
     );
