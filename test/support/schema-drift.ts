@@ -2,6 +2,14 @@ import { pushSchema } from 'drizzle-kit/api';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import type { Db } from '../../src/db/client';
 import * as schema from '../../src/db/schema';
+import { hidePrototypeExtensions } from './prototype-hygiene';
+
+// drizzle-kit/api assigns helpers onto Array.prototype (`random`) and
+// String.prototype (`camelCase`, `trimChar`, ...) when it is evaluated, as
+// plain enumerable properties. This module is its only importer, and runs
+// right after it: pushSchema keeps calling them, no `for...in` in the shared
+// worker sees them (#620; shared-worker-setup.ts fails a file that leaves one).
+hidePrototypeExtensions();
 
 /**
  * The statements `drizzle-kit push` would run to make the database match

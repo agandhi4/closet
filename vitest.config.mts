@@ -99,8 +99,10 @@ export default defineConfig({
         // stores, metrics registry and error tracker are per app), and
         // Vitest restores spies after every file. It forbids what would leak:
         // vi.mock/vi.doMock in test/integration/ (eslint.config.mjs), timers
-        // left fake (the setup file below restores them), and importing
-        // another spec file (it would collect no tests on its own turn).
+        // left fake (the setup file below restores them), importing another
+        // spec file (it would collect no tests on its own turn), and a module
+        // that adds enumerable keys to a built-in prototype (the setup file
+        // fails the file that loaded it; test/support/prototype-hygiene.ts).
         extends: true,
         test: {
           name: 'integration',
