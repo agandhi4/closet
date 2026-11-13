@@ -812,3 +812,7 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 
 **Decision:** `src/db/migration-lock-timeout.spec.ts` (unit tier, reads `drizzle/*.sql`) fails any file from 0051 on with `ALTER TABLE`, trigger, `DROP`, `TRUNCATE` or non-concurrent `CREATE INDEX` whose first statement is not `SET LOCAL lock_timeout`; 0000-0050 are exempt by number.
 **Consequence:** 0051 shipped without one and only review caught it (#601); a new migration now fails fast, naming file and fix.
+
+## 2026-11-13 — The lock_timeout rule is unconditional (#610)
+
+**Decision:** every migration from 0051 on starts with a positive `SET LOCAL lock_timeout`, not only those with a locking statement (#603's list). A statement list cannot be complete: `ALTER INDEX`, `REINDEX`, `LOCK TABLE`, policies and FK references in `CREATE TABLE` all lock, and a miss is silent.
