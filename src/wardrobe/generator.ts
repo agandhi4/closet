@@ -273,6 +273,8 @@ export function generateIdeas<G extends IdeaGarment>(
   });
   const placeOf = placeKeyer(byRole, locked);
   const layers = layersOffered ? (viable.get('layer') ?? []) : [];
+  // Weighed once per request, not per base judged.
+  const layerWeights = layers.map(rotationWeight);
   return drawPage(request, {
     outfits: outfitsOf(
       drawer(request.seed, templates, byRole, locked),
@@ -290,7 +292,7 @@ export function generateIdeas<G extends IdeaGarment>(
     layersFor: (base) =>
       rotationOrder(
         layers,
-        (layer) => layer,
+        layerWeights,
         'generator-layer',
         request.seed,
         placeOf(base),
@@ -412,7 +414,7 @@ function repairer<G extends IdeaGarment>(
       if (kept.length > 0) {
         const [mend] = rotationOrder(
           kept,
-          (swap) => swap.mender,
+          kept.map((swap) => rotationWeight(swap.mender)),
           'generator-repair',
           seed,
           placeOf(outfit),
@@ -613,7 +615,7 @@ function templatesFor(
 
 /**
  * `choices` in a seeded rotation order, lazily: each next one drawn by its
- * garment's rotation weight from what is left, from a sequence keyed by
+ * rotation weight (`choiceWeights`, parallel to `choices`) from what is left, from a sequence keyed by
  * `key` (its purpose, then what the choice is for: the seed and the base),
  * so the same order comes out however often it is asked for. Of any subset
  * (the layers that fit), the first in the order is each one as often as
@@ -623,7 +625,7 @@ function templatesFor(
  */
 function* rotationOrder<T>(
   choices: readonly T[],
-  garmentOf: (choice: T) => Pick<IdeaGarment, 'idleDays'>,
+  choiceWeights: readonly number[],
   purpose: string,
   ...key: (string | number)[]
 ): Generator<T, undefined, undefined> {
@@ -631,7 +633,7 @@ function* rotationOrder<T>(
   if (choices.length === 0) return undefined;
   const random = seededRandom(purpose, GENERATOR_VERSION, ...key);
   const left = [...choices];
-  const weights = left.map((choice) => rotationWeight(garmentOf(choice)));
+  const weights = [...choiceWeights];
   while (left.length > 0) {
     const n = random.weighted(weights);
     weights.splice(n, 1);
@@ -662,7 +664,7 @@ export function keyOf(garments: readonly { id: number }[]): string {
  * same: the ideas are a function of the pool as a set, as the drawer's
  * draws by position are.
  */
-function placeKeyer<G extends IdeaGarment>(
+export function placeKeyer<G extends IdeaGarment>(
   byRole: Map<GarmentRole, readonly G[]>,
   locked: readonly G[],
 ): (garments: readonly G[]) => string {
@@ -675,7 +677,15 @@ function placeKeyer<G extends IdeaGarment>(
   }
   return (garments) =>
     garments
-      .map((g) => places.get(g.id)!)
+      .map((g) => {
+        const place = places.get(g.id);
+        if (place === undefined) {
+          throw new Error(
+            `placeKeyer: garment ${g.id} is in neither the drawable pool nor the locks`,
+          );
+        }
+        return place;
+      })
       .sort()
       .join(',');
 }
