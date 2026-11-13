@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { addDays, type IsoDate } from '../calendar-date';
 import type { DayForecast } from '../weather/forecast';
 import { keyOf } from './generator';
-import type { GarmentColor, GarmentRole, Warmth } from './properties';
+import {
+  builtInCategoriesOf,
+  type GarmentColor,
+  type GarmentRole,
+  type Warmth,
+} from './properties';
 import type { TemplateSlot } from './week';
 import {
   emptySlots,
@@ -47,6 +52,8 @@ function garment(
   return {
     id: nextId++,
     role,
+    category: builtInCategoriesOf(role)[0],
+    type: null,
     colors: options.colors ?? ['black'],
     pattern: 'solid',
     formality: null,
@@ -110,6 +117,7 @@ function input(
     forecast: new Map(),
     offset: 0,
     avoid: [],
+    rules: [],
     saved: [],
     ...overrides,
   };

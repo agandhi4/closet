@@ -16,12 +16,15 @@ import {
   rotationWeight,
 } from './generator';
 import { OCCASION_HINTS } from './occasions';
-import type {
-  Formality,
-  GarmentColor,
-  GarmentRole,
-  Pattern,
-  Warmth,
+import { avoidedPairRule, type OutfitRule } from './outfit-rules';
+import {
+  builtInCategoriesOf,
+  GarmentCategory,
+  type Formality,
+  type GarmentColor,
+  type GarmentRole,
+  type Pattern,
+  type Warmth,
 } from './properties';
 
 /**
@@ -41,12 +44,15 @@ function garment(
     warmth?: Warmth;
     idleDays?: number | null;
     waterResistant?: boolean;
+    type?: string;
   } = {},
 ): IdeaGarment {
   const warmth = options.warmth ?? (role === 'layer' ? 3 : 2);
   return {
     id: nextId++,
     role,
+    category: builtInCategoriesOf(role)[0],
+    type: options.type ?? null,
     colors: options.colors ?? ['black'],
     pattern: options.pattern ?? 'solid',
     formality: options.formality ?? null,
@@ -314,6 +320,215 @@ describe('generateIdeas', () => {
       ['one-piece', 'footwear'],
       ['one-piece', 'footwear'],
     ]);
+  });
+
+  describe('outfit rules (#21)', () => {
+    const holds = (idea: Idea, garment: IdeaGarment) =>
+      ids(idea).includes(garment.id);
+    const colored = (idea: Idea, color: GarmentColor) =>
+      idea.garments.filter((g) => g.colors.includes(color));
+
+    it('never A with B, by garment: as an avoided pair is', () => {
+      const pool = closet();
+      const [white, , , , blueBottom] = pool;
+      const never: OutfitRule = {
+        kind: 'never',
+        a: { by: 'garment', garmentId: white.id },
+        b: { by: 'garment', garmentId: blueBottom.id },
+      };
+      const { ideas } = page({ pool, rules: [never], limit: 50 });
+      expect(ideas).toHaveLength(22); // 24 less the two shoes with that pair
+      for (const idea of ideas) {
+        expect(holds(idea, white) && holds(idea, blueBottom)).toBe(false);
+        expect(idea.brokenRules).toEqual([]);
+      }
+    });
+
+    it('never A with B, by colour: either way round', () => {
+      const never: OutfitRule = {
+        kind: 'never',
+        a: { by: 'color', color: 'beige' },
+        b: { by: 'color', color: 'white' },
+      };
+      const { ideas } = page({ pool: closet(), rules: [never], limit: 50 });
+      // Of 24: the beige top with white shoes (3), the beige bottom with
+      // the white top (2) or with white shoes under another top (2).
+      expect(ideas).toHaveLength(17);
+      for (const idea of ideas) {
+        expect(
+          colored(idea, 'beige').length > 0 &&
+            colored(idea, 'white').length > 0,
+        ).toBe(false);
+      }
+    });
+
+    it('never A with B, by category and type', () => {
+      const tee = garment('top', { type: 't-shirt' });
+      const shirt = garment('top', { type: 'shirt', colors: ['white'] });
+      const jeans = garment('bottom', { colors: ['blue'] });
+      const sneakers = garment('footwear', { type: 'sneakers' });
+      const loafers = garment('footwear', { type: 'loafers' });
+      const never: OutfitRule = {
+        kind: 'never',
+        a: { by: 'category', category: GarmentCategory.TOPS, type: 'shirt' },
+        b: {
+          by: 'category',
+          category: GarmentCategory.FOOTWEAR,
+          type: 'sneakers',
+        },
+      };
+      const { ideas } = page({
+        pool: [tee, shirt, jeans, sneakers, loafers],
+        rules: [never],
+      });
+      expect(ideas.map((idea) => keyOf(idea.garments)).sort()).toEqual(
+        [
+          keyOf([tee, jeans, sneakers]),
+          keyOf([tee, jeans, loafers]),
+          keyOf([shirt, jeans, loafers]),
+        ].sort(),
+      );
+    });
+
+    it('never A with B, by pattern and a whole category', () => {
+      const breton = garment('top', { pattern: 'stripes', colors: ['white'] });
+      const plain = garment('top', { colors: ['grey'] });
+      const bottoms = [
+        garment('bottom'),
+        garment('bottom', { colors: ['blue'] }),
+      ];
+      const never: OutfitRule = {
+        kind: 'never',
+        a: { by: 'pattern', pattern: 'stripes' },
+        b: { by: 'category', category: GarmentCategory.BOTTOMS, type: null },
+      };
+      const { ideas } = page({
+        pool: [breton, plain, ...bottoms, garment('footwear')],
+        rules: [never],
+      });
+      expect(ideas).toHaveLength(2);
+      for (const idea of ideas) expect(holds(idea, plain)).toBe(true);
+    });
+
+    it('always B with A: every idea holding A holds B', () => {
+      const pool = closet();
+      const black = pool[2];
+      const brown = pool[8];
+      const always: OutfitRule = {
+        kind: 'always',
+        a: { by: 'garment', garmentId: black.id },
+        b: { by: 'color', color: 'brown' },
+      };
+      const { ideas } = page({ pool, rules: [always], limit: 50 });
+      // 24 less the black top's three with white shoes, which the repair
+      // turns into the three it already makes with brown ones.
+      expect(ideas).toHaveLength(21);
+      const withBlack = ideas.filter((idea) => holds(idea, black));
+      expect(withBlack).toHaveLength(3);
+      for (const idea of withBlack) expect(holds(idea, brown)).toBe(true);
+    });
+
+    it('an always-rule nothing drawable answers is moot: it never empties the ideas', () => {
+      const pool = closet();
+      const black = pool[2];
+      const [blueBottom, , beigeBottom] = pool.slice(4);
+      const askFor = (b: OutfitRule['b']): OutfitRule => ({
+        kind: 'always',
+        a: { by: 'garment', garmentId: black.id },
+        b,
+      });
+      // No green garment at all.
+      const none = page({
+        pool,
+        rules: [askFor({ by: 'color', color: 'green' })],
+        limit: 50,
+      });
+      expect(none.ideas).toHaveLength(24);
+      // The beige bottom's slot is taken by a locked bottom.
+      const locked = page({
+        pool,
+        locked: [blueBottom],
+        rules: [askFor({ by: 'garment', garmentId: beigeBottom.id })],
+        limit: 50,
+      });
+      expect(locked.ideas).toHaveLength(8); // 4 tops x 2 shoes
+      expect(locked.ideas.some((idea) => holds(idea, black))).toBe(true);
+    });
+
+    it('an always-rule whose only B clashes with the rest of the outfit is moot (PR #501)', () => {
+      const striped = garment('top', { pattern: 'stripes', colors: ['white'] });
+      const bottom = garment('bottom');
+      const stripedShoes = garment('footwear', { pattern: 'stripes' });
+      const plainShoes = garment('footwear');
+      const always: OutfitRule = {
+        kind: 'always',
+        a: { by: 'garment', garmentId: striped.id },
+        b: { by: 'garment', garmentId: stripedShoes.id },
+      };
+      // Two loud patterns clash, so the striped shoes can never join the
+      // striped top: the rule leaves the plain-shoed outfit standing.
+      const { ideas } = page({
+        pool: [striped, bottom, stripedShoes, plainShoes],
+        rules: [always],
+      });
+      expect(ideas.map((idea) => keyOf(idea.garments))).toEqual([
+        keyOf([striped, bottom, plainShoes]),
+      ]);
+    });
+
+    it('an always-rule is still kept when one of its Bs fits the outfit', () => {
+      const striped = garment('top', { pattern: 'stripes', colors: ['white'] });
+      const bottom = garment('bottom');
+      const stripedBrown = garment('footwear', {
+        pattern: 'stripes',
+        colors: ['brown'],
+      });
+      const plainBrown = garment('footwear', { colors: ['brown'] });
+      const plainBlack = garment('footwear');
+      const always: OutfitRule = {
+        kind: 'always',
+        a: { by: 'garment', garmentId: striped.id },
+        b: { by: 'color', color: 'brown' },
+      };
+      const { ideas } = page({
+        pool: [striped, bottom, stripedBrown, plainBrown, plainBlack],
+        rules: [always],
+      });
+      expect(ideas.map((idea) => keyOf(idea.garments))).toEqual([
+        keyOf([striped, bottom, plainBrown]),
+      ]);
+    });
+
+    it('locks that break a never-rule are still shown, each idea flagged with the rule', () => {
+      const pool = closet();
+      const [white, , , , blueBottom] = pool;
+      const never: OutfitRule = {
+        kind: 'never',
+        a: { by: 'garment', garmentId: white.id },
+        b: { by: 'garment', garmentId: blueBottom.id },
+      };
+      const flagged = page({
+        pool,
+        locked: [white, blueBottom],
+        rules: [never],
+      });
+      expect(flagged.ideas).toHaveLength(2); // the two shoes
+      for (const idea of flagged.ideas) {
+        expect(idea.problems).toEqual(['breaks-rule']);
+        expect(idea.brokenRules).toEqual([never]);
+        expect(holds(idea, white) && holds(idea, blueBottom)).toBe(true);
+      }
+      // An avoided pair is the same never-rule.
+      const avoided = page({
+        pool,
+        locked: [white, blueBottom],
+        avoid: [[blueBottom.id, white.id]],
+      });
+      expect(avoided.ideas.map((idea) => idea.brokenRules)).toEqual([
+        [avoidedPairRule(blueBottom.id, white.id)],
+        [avoidedPairRule(blueBottom.id, white.id)],
+      ]);
+    });
   });
 
   describe('weather', () => {

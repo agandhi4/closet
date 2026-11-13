@@ -201,7 +201,7 @@ export const calendarTools = [
       ctx.webLogger.info(
         `Laundry by user ${ctx.userId} on ${today} (MCP): ${washed.length} washed of ${garmentIds.length} asked`,
       );
-      return { washed, day: today };
+      return { washed: washed.map((row) => row.id), day: today };
     },
   }),
 ];

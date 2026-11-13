@@ -942,7 +942,8 @@
       "feet-too-warm": "Feet may be warm",
       "needs-water-resistance": "Rain: nothing waterproof",
       "too-casual": "A bit casual for the occasion",
-      "too-dressy": "A bit dressy for the occasion"
+      "too-dressy": "A bit dressy for the occasion",
+      "breaks-rule": "Breaks one of your outfit rules"
     },
     "PLAN_IDEAS": "Choose from ideas",
     "ALREADY_SAVED": "Already saved: this outfit was picked before.",
@@ -1264,6 +1265,7 @@
     "MONTH_TITLE": "{month} {year}",
     "MORE": "+{count}",
     "PLAN_SHEET_TITLE": "Plan {day}",
+    "PLAN_CELL": "Plan {occasion} on {day}",
     "PLAN_SAVED": "Pick a saved outfit",
     "month": {
       "JAN": "January",

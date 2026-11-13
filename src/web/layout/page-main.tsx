@@ -7,6 +7,8 @@ import type { Child } from 'hono/jsx';
  *  - `narrow` (40rem): forms, reading and single-column lists. The default,
  *    so a new page stays a column until it earns more.
  *  - `wide` (80rem): galleries, which fill the width the left rail leaves.
+ *  - `agenda`: `narrow` below lg, `wide` from it, for a list a phone reads
+ *    as one column and a desktop lays out as a grid (the Calendar week, #467).
  * Below the narrow width the column is the screen, so phones are unchanged.
  *
  * Always `w-full` beside `mx-auto`: the body is a flex column, and a flex
@@ -14,12 +16,13 @@ import type { Child } from 'hono/jsx';
  * horizontal scroll strip once widened the garment page past a phone).
  * Pass `class` for the page's own padding and layout, never a max width.
  */
-export type PageWidth = 'narrow' | 'wide';
+export type PageWidth = 'narrow' | 'wide' | 'agenda';
 
 // Whole class names, so Tailwind finds them.
 const WIDTH_CLASS: Readonly<Record<PageWidth, string>> = {
   narrow: 'max-w-page-narrow',
   wide: 'max-w-page-wide',
+  agenda: 'max-w-page-narrow lg:max-w-page-wide',
 };
 
 /**

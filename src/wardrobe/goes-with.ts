@@ -6,17 +6,18 @@ import {
   OUTFIT_ORDER,
 } from './generator';
 import { brandKey } from './brands';
+import type { OutfitRule } from './outfit-rules';
 import type { GarmentColor, GarmentRole } from './properties';
 
 /**
  * "Goes with my closet" (#18b; docs/plans/2026-09-26-wardrobe-features.md,
  * section 11): a wishlist item judged against the closet, pure. Every
  * outfit comes from the generator (generateIdeas), with the item `locked`
- * the way `?with=` locks a closet garment, so the colour, pattern and clash
- * rules are the gallery's and nowhere else. The caller
- * (goesWithCloset, src/web/gallery/ideas.ts) reads the item, the closet and
- * the avoided pairs; the item only ever rides along as `locked`, never in a
- * pool, so no other surface can draw it.
+ * the way `?with=` locks a closet garment, so the colour, pattern, clash
+ * and outfit rules are the gallery's and nowhere else. The caller
+ * (goesWithCloset, src/web/gallery/ideas.ts) reads the item, the closet,
+ * the avoided pairs and the rules; the item only ever rides along as
+ * `locked`, never in a pool, so no other surface can draw it.
  *
  * What is judged, and why:
  * - **No weather.** A purchase is worn across seasons: today's forecast
@@ -54,6 +55,8 @@ export interface GoesWithRequest<G extends IdeaGarment> {
   closet: readonly G[];
   /** Garment pairs never to combine (generator_avoid). */
   avoid: readonly (readonly [number, number])[];
+  /** The owner's outfit rules (outfit_rule). */
+  rules: readonly OutfitRule[];
   seed: number;
 }
 
@@ -120,6 +123,7 @@ function outfitsWith<G extends IdeaGarment>(
     locked: [request.item],
     formality: formalityOf(request.item),
     avoid: request.avoid,
+    rules: request.rules,
     offset: 0,
     limit: MAX_DRAWS,
   }).ideas;
@@ -229,10 +233,13 @@ function layerChecks<G extends IdeaGarment>(
       locked: [request.item, layer],
       formality: formalityOf(request.item),
       avoid: request.avoid,
+      rules: request.rules,
       offset: 0,
       limit: 1,
     }).ideas;
-    return first
+    // Locked together, a layer that breaks a never-rule with the item only
+    // flags the idea (brokenRules): it does not go with it.
+    return first && first.brokenRules.length === 0
       ? [{ garment: layer, outfits: null, atFormality: first.score === 0 }]
       : [];
   });

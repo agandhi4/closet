@@ -6,11 +6,19 @@ import {
   type WeatherNeeds,
 } from '../weather/match';
 import {
+  type AlwaysCheck,
+  alwaysCheck,
+  avoidedPairRule,
+  type CompiledRules,
+  compileRules,
+  type OutfitRule,
+  type RuleGarment,
+} from './outfit-rules';
+import {
   categoryRole,
   type Formality,
   type GarmentColor,
   type GarmentRole,
-  type Pattern,
 } from './properties';
 
 /**
@@ -40,10 +48,13 @@ import {
  *   recently (days since its last wear day; never worn weighs most), so the
  *   gallery rotates the wardrobe instead of showing the favourites.
  * - Hard rules, never relaxed: at most MAX_ACCENT_COLORS non-neutral
- *   colours and MAX_LOUD_PATTERNS patterned garment; no avoided pair
- *   (generator_avoid, "clashes"); no combination equal to a saved outfit
- *   (compared on the drawn roles, so a saved outfit with a belt still
- *   counts); every locked garment in every idea.
+ *   colours and MAX_LOUD_PATTERNS patterned garment; the owner's outfit
+ *   rules (outfit-rules.ts: never A with B, always B with A, the avoided
+ *   pairs of generator_avoid among the never-rules); no combination equal
+ *   to a saved outfit (compared on the drawn roles, so a saved outfit with
+ *   a belt still counts); every locked garment in every idea. A never-rule
+ *   the locked garments break among themselves does not empty the ideas:
+ *   each is flagged 'breaks-rule', naming it (brokenRules).
  * - Soft rules, a score: the weather (assessOutfit, src/weather/match.ts)
  *   and the occasion's formality (OCCASION_HINTS, one step per garment
  *   outside the range). Ideas that fit (score 0) come first in draw order;
@@ -155,12 +166,12 @@ export function topToToe<T>(
   });
 }
 
-export interface IdeaGarment {
-  id: number;
-  role: GarmentRole;
-  /** 'pattern' marks a patterned garment. */
-  colors: readonly GarmentColor[];
-  pattern: Pattern | null;
+/**
+ * A garment as the generator judges it: what the rules read (RuleGarment;
+ * the colour 'pattern' marks a patterned garment), its formality, its
+ * weather and its rest.
+ */
+export interface IdeaGarment extends RuleGarment {
   formality: Formality | null;
   /** How it counts for the weather (matchGarment, src/weather/match.ts). */
   weather: MatchGarment;
@@ -185,14 +196,21 @@ export interface IdeaRequest<G extends IdeaGarment = IdeaGarment> {
   needs?: WeatherNeeds | null;
   /** The occasion's formality range; null for any. */
   formality?: { min: Formality; max: Formality } | null;
-  /** Garment pairs never to combine (generator_avoid). */
+  /** Garment pairs never to combine (generator_avoid): never-rules beside `rules`. */
   avoid?: readonly (readonly [number, number])[];
+  /** The owner's outfit rules (outfit_rule); none over a share. */
+  rules?: readonly OutfitRule[];
   saved?: readonly SavedOutfit[];
   offset: number;
   limit: number;
 }
 
-export type IdeaProblem = FitProblem | 'too-casual' | 'too-dressy';
+/** 'breaks-rule': the locked garments break an outfit rule (Idea.brokenRules says which). */
+export type IdeaProblem =
+  | FitProblem
+  | 'too-casual'
+  | 'too-dressy'
+  | 'breaks-rule';
 
 export interface Idea<G extends IdeaGarment = IdeaGarment> {
   /** In OUTFIT_ORDER. */
@@ -200,6 +218,8 @@ export interface Idea<G extends IdeaGarment = IdeaGarment> {
   /** 0: fits the weather and the occasion. */
   score: number;
   problems: IdeaProblem[];
+  /** The never-rules the locked garments break among themselves (every idea holds them); empty without. */
+  brokenRules: OutfitRule[];
   /** Garments unworn REST_DAYS or more (or never): what the rotation brought back. */
   rested: number[];
 }
@@ -219,79 +239,188 @@ export function generateIdeas<G extends IdeaGarment>(
   request: IdeaRequest<G>,
 ): IdeaPage<G> {
   const locked = request.locked ?? [];
+  const lockedIds = new Set(locked.map((g) => g.id));
   const lockedRoles = new Set(locked.map((g) => g.role));
   const byRole = drawableByRole(request.pool, locked);
   const templates = templatesFor(byRole, lockedRoles);
-  const rules = hardRules(request);
+  const rules = compileRules(rulesOf(request));
+  const compatible = compatibleWith(rules, lockedIds);
   // Every idea holds the locked garments, and a garment added never mends a
-  // broken rule: locks that break one can make no idea, however long drawn.
-  if (templates.length === 0 || !rules.compatible(locked)) {
+  // broken colour or pattern rule: locks that break one can make no idea,
+  // however long drawn. A never-rule the locks break among themselves is
+  // not judged here: it flags every idea instead (brokenRules).
+  if (templates.length === 0 || !compatible(locked)) {
     return { ideas: [], more: false };
   }
+  // What can be in an idea with the locks at all: a garment that breaks a
+  // rule beside them breaks it in every idea. Drawn all the same (the
+  // draws pick by position in byRole, so the sequence stays the seed's),
+  // but neither counted among the bases nor offered as a layer or a mend.
+  const viable = viableByRole(byRole, (g) => compatible([...locked, g]));
+  const bases = baseCount(templates, viable, lockedRoles);
+  if (bases === 0) return { ideas: [], more: false };
 
   // A layer only when the weather asks (and none is locked).
-  const layers =
-    request.needs && !lockedRoles.has('layer')
-      ? byLayerPreference(byRole.get('layer') ?? [])
-      : [];
+  const layersOffered = Boolean(request.needs) && !lockedRoles.has('layer');
+  const always = alwaysCheck<G>(rules.always, {
+    drawable: viable,
+    lockedIds,
+    layersOffered,
+    compatible,
+  });
   return drawPage(request, {
-    draw: drawer(request.seed, templates, byRole, locked),
-    bases: baseCount(templates, byRole, lockedRoles),
+    outfits: outfitsOf(
+      drawer(request.seed, templates, byRole, locked),
+      new Set([...lockedIds, ...[...viable.values()].flat().map((g) => g.id)]),
+      repairer(request.seed, always),
+    ),
+    bases,
     floor: scoreFloor(
       templates,
-      byRole,
+      viable,
       locked,
       lockedRoles,
       request.formality,
     ),
-    layers,
-    rules,
+    layers: layersOffered ? byLayerPreference(viable.get('layer') ?? []) : [],
+    rules: hardRules(request, compatible, always, rules.brokenAmong(locked)),
   });
+}
+
+/** The owner's rules, then the avoided pairs as never-rules: one list (outfit-rules.ts). */
+function rulesOf(request: IdeaRequest<IdeaGarment>): OutfitRule[] {
+  return [
+    ...(request.rules ?? []),
+    ...(request.avoid ?? []).map(([a, b]) => avoidedPairRule(a, b)),
+  ];
 }
 
 /** generateIdeas' draws: until the page is settled, then the page. */
 function drawPage<G extends IdeaGarment>(
   request: IdeaRequest<G>,
   {
-    draw,
+    outfits,
     bases,
     floor,
     layers,
     rules,
   }: {
-    draw: () => G[];
+    outfits: Outfits<G>;
     bases: number;
     floor: number;
     layers: readonly G[];
-    rules: HardRules;
+    rules: HardRules<G>;
   },
 ): IdeaPage<G> {
   const want = request.offset + request.limit + 1;
   const fitting: Idea<G>[] = [];
   const nearMisses: Idea<G>[] = [];
   let atFloor = 0;
-  const drawn = new Set<string>();
   // The page is settled, and drawing stops, once `want` ideas score the
   // floor: no later draw scores lower, and one that ties ranks after them
   // (ideas that fit keep draw order; near misses sort stably). With a floor
-  // of 0 those are the ideas that fit. Past `bases` distinct draws every
-  // further draw is a repeat, skipped. Either way the page is the one
-  // MAX_DRAWS would give, sooner.
+  // of 0 those are the ideas that fit. Past `bases` distinct viable draws
+  // every further draw is a repeat or holds a garment no idea can, skipped.
+  // Either way the page is the one MAX_DRAWS would give, sooner.
   for (
     let n = 0;
-    n < MAX_DRAWS && atFloor < want && drawn.size < bases;
+    n < MAX_DRAWS && atFloor < want && outfits.distinct() < bases;
     n += 1
   ) {
-    const base = draw();
-    const key = keyOf(base);
-    if (drawn.has(key)) continue;
-    drawn.add(key);
-    const idea = bestIdea(base, layers, request, rules);
+    const outfit = outfits.next();
+    const idea = outfit && bestIdea(outfit, layers, request, rules);
     if (!idea) continue;
     (idea.score === 0 ? fitting : nearMisses).push(idea);
     if (idea.score === floor) atFloor += 1;
   }
   return pageOf(fitting, nearMisses, request);
+}
+
+/** The draws as outfits to judge (outfitsOf). */
+interface Outfits<G> {
+  /** The next outfit to judge; undefined for a draw to skip. */
+  next(): G[] | undefined;
+  /** Distinct viable bases drawn so far: what `bases` counts. */
+  distinct(): number;
+}
+
+/**
+ * Each draw once, as an outfit to judge: a base already drawn, or holding
+ * a garment no idea with the locks can (outside `allowed`), is skipped;
+ * the rest are mended (repairer), and an outfit a mend made of another
+ * base is judged once too. A base is mended the same way every time it is
+ * drawn, so skipping its repeats loses nothing.
+ */
+function outfitsOf<G extends IdeaGarment>(
+  draw: () => G[],
+  allowed: ReadonlySet<number>,
+  repair: (base: G[]) => G[],
+): Outfits<G> {
+  const drawn = new Set<string>();
+  const judged = new Set<string>();
+  return {
+    distinct: () => drawn.size,
+    next: () => {
+      const base = draw();
+      const key = keyOf(base);
+      if (drawn.has(key) || !base.every((g) => allowed.has(g.id))) {
+        return undefined;
+      }
+      drawn.add(key);
+      const outfit = repair(base);
+      const outfitKey = outfit === base ? key : keyOf(outfit);
+      if (judged.has(outfitKey)) return undefined;
+      judged.add(outfitKey);
+      return outfit;
+    },
+  };
+}
+
+/**
+ * The always-rules' one repair step (the plan's section 2): a base holding
+ * a garment that asks for another and none answering gets one in the slot
+ * of the answer's role, before it is judged; each broken rule in turn,
+ * once. Of the swaps alwaysCheck offers (each breaking no colour, pattern
+ * or never-rule), one by rotation weight from a sequence keyed by the
+ * seed, the base and the rule, so a base is mended the same way however
+ * often it is drawn. A rule only a layer answers is left to bestIdea's
+ * layers; one no compatible swap answers is moot (alwaysCheck).
+ */
+function repairer<G extends IdeaGarment>(
+  seed: number,
+  always: AlwaysCheck<G>,
+): (base: G[]) => G[] {
+  return (base) => {
+    let outfit = base;
+    let unmet = always.unmet(outfit, 0);
+    while (unmet) {
+      // A base has no layer slot: bestIdea adds layers.
+      const kept = unmet.swaps.filter((swap) => swap.mender.role !== 'layer');
+      if (kept.length > 0) {
+        const random = seededRandom(
+          'generator-repair',
+          GENERATOR_VERSION,
+          seed,
+          keyOf(outfit),
+          unmet.index,
+        );
+        const weights = kept.map((swap) => rotationWeight(swap.mender));
+        outfit = kept[random.weighted(weights)].outfit;
+      }
+      unmet = always.unmet(outfit, unmet.index + 1);
+    }
+    return outfit;
+  };
+}
+
+/** byRole without what `fits` refuses: the garments an idea with the locks can hold. */
+function viableByRole<G extends IdeaGarment>(
+  byRole: Map<GarmentRole, G[]>,
+  fits: (garment: G) => boolean,
+): Map<GarmentRole, G[]> {
+  return new Map(
+    [...byRole].map(([role, garments]) => [role, garments.filter(fits)]),
+  );
 }
 
 /**
@@ -487,35 +616,59 @@ function drawnKey(garments: readonly { id: number; role: GarmentRole }[]) {
   return keyOf(garments.filter((g) => DRAWN_ROLES.includes(g.role)));
 }
 
-function pairKey(a: number, b: number): string {
-  return a < b ? `${a}:${b}` : `${b}:${a}`;
-}
+type HardRule<G extends IdeaGarment = IdeaGarment> = (
+  garments: readonly G[],
+) => boolean;
 
-type HardRule = (garments: readonly IdeaGarment[]) => boolean;
-
-interface HardRules {
+interface HardRules<G extends IdeaGarment> {
   /**
-   * The colour, pattern and clash rules: a garment added never mends one
-   * they break (colours and patterns only add up, a clashing pair stays),
-   * so what fails here fails with anything added to it.
+   * The colour, pattern and never-rules (compatibleWith): a garment added
+   * never mends one they break (colours and patterns only add up, a
+   * clashing pair stays), so what fails here fails with anything added to
+   * it.
    */
   compatible: HardRule;
-  /** compatible, and not equal to a saved outfit (which a layer can change). */
-  passes: HardRule;
+  /**
+   * compatible, not equal to a saved outfit, and keeping every always-rule
+   * that can be kept: a layer can change either, so they are judged last.
+   */
+  passes: HardRule<G>;
+  /** The never-rules the locks break among themselves: each idea is flagged with them. */
+  lockBroken: readonly OutfitRule[];
 }
 
-function hardRules(request: IdeaRequest<IdeaGarment>): HardRules {
-  const avoided = new Set((request.avoid ?? []).map(([a, b]) => pairKey(a, b)));
-  const saved = new Set((request.saved ?? []).map(drawnKey));
-  const compatible: HardRule = (garments) =>
+/**
+ * The colour and pattern rules, and no two garments breaking a never-rule
+ * together, unless both are locked: the person chose those, so the rule
+ * flags the ideas rather than emptying them.
+ */
+function compatibleWith(
+  rules: CompiledRules,
+  lockedIds: ReadonlySet<number>,
+): HardRule {
+  const pairBreaks = (a: IdeaGarment, b: IdeaGarment) =>
+    !(lockedIds.has(a.id) && lockedIds.has(b.id)) && rules.clash(a, b);
+  return (garments) =>
     colorsGoTogether(garments) &&
     !garments.some((a, i) =>
-      garments.slice(i + 1).some((b) => avoided.has(pairKey(a.id, b.id))),
+      garments.slice(i + 1).some((b) => pairBreaks(a, b)),
     );
+}
+
+function hardRules<G extends IdeaGarment>(
+  request: IdeaRequest<G>,
+  compatible: HardRule,
+  always: AlwaysCheck<G>,
+  lockBroken: readonly OutfitRule[],
+): HardRules<G> {
+  const saved = new Set((request.saved ?? []).map(drawnKey));
   return {
     compatible,
     passes: (garments) =>
-      compatible(garments) && !saved.has(drawnKey(garments)),
+      compatible(garments) &&
+      !saved.has(drawnKey(garments)) &&
+      always.holds(garments),
+    lockBroken,
   };
 }
 
@@ -577,27 +730,36 @@ function bestIdea<G extends IdeaGarment>(
   /** The layers to try, in byLayerPreference order: none without a forecast. */
   layers: readonly G[],
   request: IdeaRequest<G>,
-  rules: HardRules,
+  rules: HardRules<G>,
 ): Idea<G> | undefined {
   if (!rules.compatible(base)) return undefined;
   const options: Option<G>[] = [];
   for (const layer of [null, ...layers]) {
     const garments = layer ? [...base, layer] : [...base];
     const option = { garments, ...judge(garments, request) };
-    if (option.score === 0 && rules.passes(garments)) return ideaOf(option);
+    if (option.score === 0 && rules.passes(garments)) {
+      return ideaOf(option, rules.lockBroken);
+    }
     options.push(option);
   }
   // Stable: equal scores keep preference order.
   options.sort((a, b) => a.score - b.score);
   const best = options.find((option) => rules.passes(option.garments));
-  return best && ideaOf(best);
+  return best && ideaOf(best, rules.lockBroken);
 }
 
-function ideaOf<G extends IdeaGarment>(option: Option<G>): Idea<G> {
+function ideaOf<G extends IdeaGarment>(
+  option: Option<G>,
+  lockBroken: readonly OutfitRule[],
+): Idea<G> {
   return {
     garments: inOutfitOrder(option.garments),
     score: option.score,
-    problems: option.problems,
+    problems:
+      lockBroken.length > 0
+        ? [...option.problems, 'breaks-rule']
+        : option.problems,
+    brokenRules: [...lockBroken],
     rested: option.garments
       .filter((g) => g.idleDays === null || g.idleDays >= REST_DAYS)
       .map((g) => g.id),

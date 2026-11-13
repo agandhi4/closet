@@ -1,5 +1,5 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { selectScalars } from '../../db/select-scalars';
 import {
   DEFAULT_OCCASION,
@@ -15,6 +15,7 @@ import { unchecked } from '../checklist';
 import { HttpError } from '../errors';
 import { savedOutfitsSql } from '../outfits/queries';
 import type { WebOptions } from '../plugin';
+import { answerReplay, isReplay, replayNote } from '../offline-writes';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import {
   WEATHER_LOCATION_LIMIT,
@@ -32,7 +33,7 @@ import { tripForecast } from './forecast';
 import { TripFormPage, type TripFormModel } from './form-page';
 import { TripsPage } from './list-page';
 import { tripModel, tripPageModel } from './model';
-import { setPacked } from './packed';
+import { type PackedChange, setPacked } from './packed';
 import {
   addTripItems,
   addTripOutfit,
@@ -394,25 +395,63 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // ---- Packing ----------------------------------------------------------------
 
+  /**
+   * A checklist's autosave (the packing list, the extras): the posted ticks
+   * through the list's writer, logged, then a replay's 204 (#178: both are
+   * queueable, `changed` when a tick moved) or the list's own answer.
+   */
+  function checklistRoute<Change extends PackedChange>(route: {
+    path: string;
+    kind: 'packed' | 'item';
+    list: string;
+    write: (input: {
+      tripId: number;
+      ownerId: number;
+      packed: readonly number[];
+      unpacked: readonly number[];
+    }) => Promise<Change | 'not-found'>;
+    answer: (
+      request: FastifyRequest,
+      reply: FastifyReply,
+      trip: { id: number; ownerId: number; change: Change },
+    ) => FastifyReply | Promise<FastifyReply>;
+  }) {
+    app.post(
+      route.path,
+      {
+        config: { queueable: route.kind },
+        schema: { params: TripParams, body: ChecklistBody },
+      },
+      async (request, reply) => {
+        const ownerId = sessionUserId(request);
+        const { id } = request.params;
+        const { packed = [], shown } = request.body ?? {};
+        const change = await route.write({
+          tripId: id,
+          ownerId,
+          packed,
+          unpacked: unchecked(shown, packed),
+        });
+        if (change === 'not-found') throw tripNotFound();
+        logger.info(
+          `Trip ${id} ${route.list} set by user ${ownerId}: ${change.packed} packed, ${change.unpacked} unpacked${replayNote(request)}`,
+        );
+        if (isReplay(request)) {
+          return answerReplay(reply, change.packed + change.unpacked > 0);
+        }
+        return route.answer(request, reply, { id, ownerId, change });
+      },
+    );
+  }
+
   // The packing list's AutosaveForm: the status line and the summary out of
   // band; a plain post comes back to the list.
-  app.post(
-    `${TRIPS_PATH}/:id/packed`,
-    { schema: { params: TripParams, body: ChecklistBody } },
-    async (request, reply) => {
-      const ownerId = sessionUserId(request);
-      const { id } = request.params;
-      const { packed = [], shown } = request.body ?? {};
-      const change = await setPacked(db, {
-        tripId: id,
-        ownerId,
-        packed,
-        unpacked: unchecked(shown, packed),
-      });
-      if (change === 'not-found') throw tripNotFound();
-      logger.info(
-        `Trip ${id} packing set by user ${ownerId}: ${change.packed} packed, ${change.unpacked} unpacked`,
-      );
+  checklistRoute({
+    path: `${TRIPS_PATH}/:id/packed`,
+    kind: 'packed',
+    list: 'packing',
+    write: (input) => setPacked(db, input),
+    answer: async (request, reply, { id, ownerId }) => {
       if (!request.headers['hx-request']) return backToTrip(reply, id);
       const model = await tripModel(db, ownerId, id, today());
       return renderFragment(
@@ -423,7 +462,7 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         </>,
       );
     },
-  );
+  });
 
   // ---- Extras -----------------------------------------------------------------
 
@@ -442,23 +481,13 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  app.post(
-    `${TRIPS_PATH}/:id/items/packed`,
-    { schema: { params: TripParams, body: ChecklistBody } },
-    async (request, reply) => {
-      const ownerId = sessionUserId(request);
-      const { id } = request.params;
-      const { packed = [], shown } = request.body ?? {};
-      const change = await setItemsPacked(db, {
-        tripId: id,
-        ownerId,
-        packed,
-        unpacked: unchecked(shown, packed),
-      });
-      if (change === 'not-found') throw tripNotFound();
-      logger.info(
-        `Trip ${id} extras set by user ${ownerId}: ${change.packed} packed, ${change.unpacked} unpacked`,
-      );
+  // The extras' AutosaveForm: its summary comes from the write itself.
+  checklistRoute({
+    path: `${TRIPS_PATH}/:id/items/packed`,
+    kind: 'item',
+    list: 'extras',
+    write: (input) => setItemsPacked(db, input),
+    answer: (request, reply, { id, change }) => {
       if (!request.headers['hx-request']) {
         return backToTrip(reply, id, 'extras');
       }
@@ -470,7 +499,7 @@ export const tripRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         </>,
       );
     },
-  );
+  });
 
   app.post(
     `${TRIPS_PATH}/:id/items/:itemId/delete`,

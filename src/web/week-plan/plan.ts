@@ -225,9 +225,9 @@ export function readWeekColumns(
 }
 
 /**
- * The pool and the saved outfits with the avoided pairs: what the planner
- * fills slots from, as scalar subqueries (the generator's own, in
- * src/web/gallery/queries.ts).
+ * The pool and the saved outfits with the avoided pairs and the outfit
+ * rules: what the planner fills slots from, as scalar subqueries (the
+ * generator's own, in src/web/gallery/queries.ts).
  */
 function generatorSql(ownerId: number, today: IsoDate) {
   return {
@@ -238,7 +238,7 @@ function generatorSql(ownerId: number, today: IsoDate) {
 
 function readGeneratorColumns(
   row: ScalarValues<ReturnType<typeof generatorSql>>,
-): Pick<WeekContext<WeekPoolGarment>, 'pool' | 'saved' | 'avoid'> {
+): Pick<WeekContext<WeekPoolGarment>, 'pool' | 'saved' | 'avoid' | 'rules'> {
   return { pool: readWeekPool(row.pool), ...readGeneratorMemory(row) };
 }
 
@@ -247,7 +247,9 @@ async function readGenerator(
   tx: Queryable,
   ownerId: number,
   today: IsoDate,
-): Promise<Pick<WeekContext<WeekPoolGarment>, 'pool' | 'saved' | 'avoid'>> {
+): Promise<
+  Pick<WeekContext<WeekPoolGarment>, 'pool' | 'saved' | 'avoid' | 'rules'>
+> {
   return readGeneratorColumns(
     await selectScalars(tx, generatorSql(ownerId, today)),
   );

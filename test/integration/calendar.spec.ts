@@ -101,6 +101,35 @@ describe('calendar', () => {
     return unescapeHtml(res.body);
   };
 
+  const saveWeekTemplate = async (body: URLSearchParams) => {
+    const saved = await t.inject({
+      method: 'POST',
+      url: '/auth/profile/week',
+      payload: body.toString(),
+      headers: form({}).headers,
+    });
+    expect(saved.statusCode).toBe(303);
+  };
+
+  /** Monday to Friday work, an evening on Friday; nothing at weekends. */
+  const saveOfficeWeek = () => {
+    const body = new URLSearchParams();
+    for (const weekday of [0, 1, 2, 3, 4, 5, 6]) {
+      const work = weekday >= 1 && weekday <= 5;
+      body.append(`day-${weekday}`, work ? 'work' : '');
+      if (weekday === 5) body.append(`around-${weekday}`, 'evening');
+    }
+    return saveWeekTemplate(body);
+  };
+
+  const clearWeekTemplate = () => {
+    const cleared = new URLSearchParams();
+    for (const weekday of [0, 1, 2, 3, 4, 5, 6]) {
+      cleared.append(`day-${weekday}`, '');
+    }
+    return saveWeekTemplate(cleared);
+  };
+
   beforeAll(async () => {
     t = await createTestApp();
   });
@@ -318,20 +347,7 @@ describe('calendar', () => {
         now: new Date('2026-09-23T12:00:00-04:00'),
       });
       try {
-        // Monday to Friday work, an evening on Friday; nothing at weekends.
-        const body = new URLSearchParams();
-        for (const weekday of [0, 1, 2, 3, 4, 5, 6]) {
-          const work = weekday >= 1 && weekday <= 5;
-          body.append(`day-${weekday}`, work ? 'work' : '');
-          if (weekday === 5) body.append(`around-${weekday}`, 'evening');
-        }
-        const saved = await t.inject({
-          method: 'POST',
-          url: '/auth/profile/week',
-          payload: body.toString(),
-          headers: form({}).headers,
-        });
-        expect(saved.statusCode).toBe(303);
+        await saveOfficeWeek();
         const friday = await createOutfit('Friday office');
         await t.inject({
           method: 'POST',
@@ -364,16 +380,98 @@ describe('calendar', () => {
         expect(planButtonLabel(html, '2026-09-26')).toBe('+ Plan');
       } finally {
         vi.useRealTimers();
-        const cleared = new URLSearchParams();
-        for (const weekday of [0, 1, 2, 3, 4, 5, 6]) {
-          cleared.append(`day-${weekday}`, '');
+        await clearWeekTemplate();
+      }
+    });
+
+    it('from lg lays the days out as columns, each occasion on its own row across them (#467)', async () => {
+      vi.useFakeTimers({
+        toFake: ['Date'],
+        now: new Date('2026-09-23T12:00:00-04:00'),
+      });
+      try {
+        await saveOfficeWeek();
+        const plan = async (date: string, occasion: string) => {
+          const outfit = await createOutfit(`Grid ${date} ${occasion}`);
+          const res = await t.inject({
+            method: 'POST',
+            url: '/calendar',
+            ...form({ outfitId: String(outfit), date, occasion }),
+          });
+          expect(res.statusCode).toBe(302);
+        };
+        await plan('2026-09-22', 'night-out');
+        await plan('2026-09-24', 'work');
+        await plan('2026-09-26', 'all-day');
+
+        const html = await weekPage('/calendar');
+        // The week's rows: all day (Saturday's entry), work and evening (the
+        // template), night out (Tuesday's): heading, four, looks, the button.
+        expect(html).toContain('lg:grid-rows-[repeat(7,auto)]');
+        const columns = dayColumns(html);
+        /** A day's cells in page order, each as `occasion@row`. */
+        const cells = (day: string) =>
+          [
+            ...columns
+              .get(day)!
+              .matchAll(
+                /<div class="[^"]*\blg:row-start-(\d)\b[^"]*" data-cell="([a-z-]+)"/g,
+              ),
+          ].map(([, row, occasion]) => `${occasion}@${row}`);
+        const openers = (day: string) =>
+          [...columns.get(day)!.matchAll(/data-cell-plan="([a-z-]+)"/g)].map(
+            (m) => m[1],
+          );
+        // The same occasion is the same row on every day.
+        expect(cells('2026-09-22')).toEqual(['night-out@5']);
+        expect(cells('2026-09-23')).toEqual([
+          'work@3',
+          'all-day@2',
+          'evening@4',
+          'night-out@5',
+        ]);
+        expect(cells('2026-09-24')).toEqual([
+          'work@3',
+          'all-day@2',
+          'evening@4',
+          'night-out@5',
+        ]);
+        expect(cells('2026-09-26')).toEqual([
+          'all-day@2',
+          'work@3',
+          'evening@4',
+          'night-out@5',
+        ]);
+        // Desktop-only "+" openers in the empty cells, from today on only.
+        for (const past of ['2026-09-20', '2026-09-21', '2026-09-22']) {
+          expect(openers(past)).toEqual([]);
         }
-        await t.inject({
-          method: 'POST',
-          url: '/auth/profile/week',
-          payload: cleared.toString(),
-          headers: form({}).headers,
+        expect(openers('2026-09-23')).toEqual([
+          'all-day',
+          'evening',
+          'night-out',
+        ]);
+        expect(openers('2026-09-26')).toEqual(['work', 'evening', 'night-out']);
+        expect(columns.get('2026-09-26')).toContain(
+          'data-plan="plan-2026-09-26-work"',
+        );
+        expect(html).toMatch(
+          /<div class="hidden lg:flex lg:flex-col lg:row-start-3" data-cell="work">/,
+        );
+        // The day's own "+ Plan" closes the column, under its looks' row.
+        expect(html).toMatch(
+          /class="[^"]*\blg:row-start-7"[^>]*data-day-plan="2026-09-26"/,
+        );
+        // One markup for every viewport: the tab root is cached as is.
+        const desktop = await t.inject({
+          method: 'GET',
+          url: '/calendar',
+          headers: { 'viewport-width': '1440', 'sec-ch-ua-mobile': '?0' },
         });
+        expect(unescapeHtml(desktop.body)).toBe(html);
+      } finally {
+        vi.useRealTimers();
+        await clearWeekTemplate();
       }
     });
   });

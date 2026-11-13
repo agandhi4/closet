@@ -197,8 +197,8 @@ export async function ideasFor(
  * reads its own columns in the same round trip and answers with ideasFrom
  * (Styling, #163: its rows, and the garments it locks, which it only knows
  * from that statement; so `input.locked` may be filled in between, as it
- * is not read here). Its keys (pool, saved, avoid, weather, capsules) are
- * taken: a caller's own columns need other names.
+ * is not read here). Its keys (pool, saved, avoid, rules, weather,
+ * capsules) are taken: a caller's own columns need other names.
  */
 export function ideasColumns(
   deps: { weather: WeatherService | undefined },
@@ -229,7 +229,7 @@ export async function ideasFrom(
   row: IdeasRow,
   now: Date,
 ): Promise<IdeasResult> {
-  const { saved, avoid } = readGeneratorMemory(row);
+  const { saved, avoid, rules } = readGeneratorMemory(row);
   const weather = await dayWeather(
     deps,
     input,
@@ -248,6 +248,7 @@ export async function ideasFrom(
     needs: weather?.needs ?? null,
     formality: OCCASION_HINTS[input.occasion].formality,
     avoid,
+    rules,
     saved,
     offset: input.offset,
     limit: input.limit,
@@ -371,7 +372,7 @@ async function typicalWeather(
  * what the share shows goes in: the closet (closetGarments, so no wash or
  * away state, which are the owner's own records), no rotation (idle days
  * nulled: when a garment was last worn is a wear), and none of the owner's
- * saved outfits, clashes or weather, which are theirs alone. Undefined when
+ * saved outfits, clashes, outfit rules or weather, which are theirs alone. Undefined when
  * nothing fits the locks. Pure: Styling reads the closet
  * (closetGarmentsSql, readCloset) and the locked garments
  * (styledGarmentsSql without a day) in its own statement (#163).
@@ -422,8 +423,8 @@ export interface GoesWithCloset extends GoesWith<ClosetGarment> {
 
 /**
  * "Goes with my closet" (#18b): the owner's wishlist item `itemId` judged
- * against their whole closet (closetGarments: dirty and away included) and
- * their avoided pairs, by the generator with the item locked
+ * against their whole closet (closetGarments: dirty and away included),
+ * their avoided pairs and their outfit rules, by the generator with the item locked
  * (src/wardrobe/goes-with.ts says what is judged: no weather, the item's
  * own formality, no rotation), and the closet garments near-identical to
  * it. Undefined when `itemId` is not one of the owner's wishlist items.
@@ -450,11 +451,12 @@ export function judgeGoesWithCloset({
   item,
   closet,
   avoid,
+  rules,
 }: GoesWithInputs): GoesWithCloset | undefined {
   if (!item) return undefined;
   return {
     item,
-    ...goesWith({ item, closet, avoid, seed: item.id }),
+    ...goesWith({ item, closet, avoid, rules, seed: item.id }),
     nearDuplicates: nearDuplicates(item, closet).map((garment) => ({
       ...garment,
       replaced: garment.id === item.replacesGarmentId,
@@ -472,11 +474,12 @@ export function unlocksOf({
   items,
   closet,
   avoid,
+  rules,
 }: ManyGoesWithInputs): Map<number, OutfitCount> {
   return new Map(
     items.map((item) => [
       item.id,
-      outfitCount({ item, closet, avoid, seed: item.id }),
+      outfitCount({ item, closet, avoid, rules, seed: item.id }),
     ]),
   );
 }
@@ -491,11 +494,12 @@ export function bestOutfitsOf({
   items,
   closet,
   avoid,
+  rules,
 }: ManyGoesWithInputs): Map<number, BestOutfits<ClosetGarment>> {
   return new Map(
     items.map((item) => [
       item.id,
-      bestOutfits({ item, closet, avoid, seed: item.id }),
+      bestOutfits({ item, closet, avoid, rules, seed: item.id }),
     ]),
   );
 }

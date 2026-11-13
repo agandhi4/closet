@@ -4,6 +4,12 @@ import { sessionUserId } from '../auth/require-session';
 import { HttpError } from '../errors';
 import { alreadySavedOf } from '../gallery/urls';
 import type { WebOptions } from '../plugin';
+import {
+  answerReplay,
+  isReplay,
+  replayNote,
+  replayRefused,
+} from '../offline-writes';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
 import {
@@ -364,9 +370,14 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // together (setEntryWorn). A day after today is refused (409): its chip
   // has no pill, so only a page the installed app cached before that rule
   // posts it.
+  // Queueable (#178): a replay is answered 204 (src/web/offline-writes.ts),
+  // last write wins between Wore it and Undo.
   app.post(
     '/calendar/:id/worn',
-    { schema: { params: EntryParams, body: WornBody } },
+    {
+      config: { queueable: 'entry' },
+      schema: { params: EntryParams, body: WornBody },
+    },
     async (request, reply) => {
       const ownerId = sessionUserId(request);
       const { id } = request.params;
@@ -383,9 +394,12 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if (outcome === 'not-found') throw entryNotFound();
       if (outcome === 'future') {
         logger.info(`Calendar entry ${id}: not marked worn, its day is ahead`);
-        throw new HttpError(409, 'A planned day cannot be marked worn yet');
+        throw replayRefused(reply, 'future', {
+          message: 'A planned day cannot be marked worn yet',
+        });
       }
-      logger.info(wornMessage(id, ownerId, outcome));
+      logger.info(`${wornMessage(id, ownerId, outcome)}${replayNote(request)}`);
+      if (isReplay(request)) return answerReplay(reply, outcome.changed);
       const back = safeReturnTo(
         request.body?.returnTo,
         weekUrl(request.body?.week),
