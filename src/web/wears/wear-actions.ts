@@ -27,6 +27,16 @@ import { markWashed, setAway, setWoreToday } from './queries';
  * judge (today, or a queued tap's within the window).
  */
 
+/** A queued wear's client id refused; the page route logs it with the replay's key. */
+export class WearClientIdRefusal extends HttpError {
+  constructor(readonly outcome: 'gone' | 'client-id-taken') {
+    super(
+      outcome === 'gone' ? 410 : 409,
+      t(outcome === 'gone' ? 'WEAR_DELETED' : 'WEAR_CLIENT_ID_TAKEN'),
+    );
+  }
+}
+
 /** What a wear or wash did, in whose wardrobe (always the actor's own). */
 export interface WearWrite {
   ownerId: number;
@@ -51,9 +61,8 @@ export async function wearGarment(
   if (outcome === 'wishlist') throw garmentNotOwnedYet();
   // A queued wear's client id (#196a): its wear was deleted since (410), or
   // the id names another wear (409).
-  if (outcome === 'gone') throw new HttpError(410, t('WEAR_DELETED'));
-  if (outcome === 'client-id-taken') {
-    throw new HttpError(409, t('WEAR_CLIENT_ID_TAKEN'));
+  if (outcome === 'gone' || outcome === 'client-id-taken') {
+    throw new WearClientIdRefusal(outcome);
   }
   return { ownerId: access.ownerId, changed: outcome === 'changed' };
 }

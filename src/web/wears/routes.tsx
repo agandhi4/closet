@@ -21,7 +21,12 @@ import { garmentUrl, LAUNDRY_PATH } from '../wardrobe/urls';
 import { CARE_NOTE_MAX } from '../wardrobe/garment-input';
 import { LaundryPage } from './laundry-page';
 import { laundryList, markWashed, wearStatusOf } from './queries';
-import { putGarmentAway, washGarment, wearGarment } from './wear-actions';
+import {
+  putGarmentAway,
+  washGarment,
+  WearClientIdRefusal,
+  wearGarment,
+} from './wear-actions';
 import { WearStatus } from './wear-section';
 
 // `day` is a queued tap's own day (#178), else today: requestedDay
@@ -118,12 +123,20 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { id } = request.params;
       const worn = request.body.worn === '1';
       const day = requestedDay(reply, request.body.day, today());
+      const { clientId } = request.body;
       const { ownerId, changed } = await wearGarment(
         db,
         actorOf(request),
         garmentAddress(request),
-        { day, worn, clientId: worn ? request.body.clientId : undefined },
-      );
+        { day, worn, clientId: worn ? clientId : undefined },
+      ).catch((error: unknown) => {
+        if (error instanceof WearClientIdRefusal) {
+          logger.info(
+            `Garment ${id} wear on ${day} by user ${sessionUserId(request)} refused: client id ${clientId!.slice(0, 8)} ${error.outcome === 'gone' ? 'was deleted' : 'names another wear'}${replayNote(request)}`,
+          );
+        }
+        throw error;
+      });
       logger.info(
         `Garment ${id} ${worn ? 'worn' : 'wear undone'} on ${day} by user ${ownerId}${changed ? '' : ', already so'}${replayNote(request)}`,
       );
