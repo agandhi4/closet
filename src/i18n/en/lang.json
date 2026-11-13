@@ -312,7 +312,8 @@
     "BOUGHT_FOR_IN_CLOSET_ONLY": "A garment bought for a need goes in the closet: send destination closet",
     "CALENDAR_RANGE": "Ask for 1 to {max} days, from before to",
     "WEEKDAY_TWICE": "Each weekday once: send a weekday's occasions in one entry",
-    "OUTFIT_ONE_OF": "Send either outfitId (a saved outfit) or garmentIds (an idea), not both"
+    "OUTFIT_ONE_OF": "Send either outfitId (a saved outfit) or garmentIds (an idea), not both",
+    "OUTFIT_NAME_NEEDS_GARMENTS": "A name goes with garmentIds, naming the new outfit: a saved outfit (outfitId) keeps its own"
   },
   "agentAccess": {
     "TITLE": "Agent Access",

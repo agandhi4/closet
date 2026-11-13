@@ -7,6 +7,7 @@ import {
   selfie,
   weekPlan,
 } from '../../src/db/schema';
+import { t as text } from '../../src/web/i18n';
 import { deviceToken, expectProblem } from './api';
 import { createGarment, jpegPhoto } from './garments';
 import { createTestApp, multipart, type TestApp } from './harness';
@@ -249,6 +250,30 @@ describe('calendar entries', () => {
       outcome: 'unchanged',
     });
     expect((await entryRow(entry.id)).outfitId).toBe(second.id);
+
+    // Each body fault is named at its own field.
+    const both = expectProblem(
+      await api('PUT', `/calendar-entries/${entry.id}/outfit`, {
+        outfitId: second.id,
+        garmentIds: [1],
+      }),
+      400,
+      'validation',
+    );
+    expect(both.errors?.map(({ path }) => path)).toEqual(['body/outfitId']);
+    expect(both.errors?.[0]?.message).toBe(text('api.OUTFIT_ONE_OF'));
+    const named = expectProblem(
+      await api('PUT', `/calendar-entries/${entry.id}/outfit`, {
+        outfitId: second.id,
+        name: 'Nope',
+      }),
+      400,
+      'validation',
+    );
+    expect(named.errors?.map(({ path }) => path)).toEqual(['body/name']);
+    expect(named.errors?.[0]?.message).toBe(
+      text('api.OUTFIT_NAME_NEEDS_GARMENTS'),
+    );
 
     // The first outfit on the day again: the entry would hold it twice.
     await schedule(first.id, today, 'evening');

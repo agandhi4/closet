@@ -6,6 +6,7 @@ import { MAX_PICKED } from '../gallery/pick';
 import { OUTFIT_NAME_MAX, outfitText } from '../outfits/queries';
 import {
   OutfitGarmentResource,
+  outfitNameNeedsGarments,
   outfitOrGarments,
   toOutfitGarment,
 } from '../outfits/outfit-resource';
@@ -183,16 +184,17 @@ export const EntryOutfitInput = Type.Object(
   },
 );
 
-/** The choice an EntryOutfitInput names; both or neither is a 400 `validation`. */
+/**
+ * The choice an EntryOutfitInput names. Each fault is a 400 `validation` at
+ * its own field: both or neither of `outfitId`/`garmentIds` at `outfitId`, a
+ * `name` beside `outfitId` alone at `name`.
+ */
 export function entryOutfitChoice(
   input: Static<typeof EntryOutfitInput>,
 ): ReplacementChoice {
   const { outfitId, garmentIds, name } = input;
-  if (
-    outfitId !== undefined &&
-    garmentIds === undefined &&
-    name === undefined
-  ) {
+  if (outfitId !== undefined && garmentIds === undefined) {
+    if (name !== undefined) throw outfitNameNeedsGarments();
     return { outfitId };
   }
   if (outfitId === undefined && garmentIds !== undefined) {
