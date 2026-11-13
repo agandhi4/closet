@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   outfit,
   outfitCalendar,
+  outfitRule,
   outfitSlot,
   tripOutfit,
 } from '../../src/db/schema';
@@ -514,6 +515,39 @@ describe('Styling', () => {
           hasText(res.body, 'Nothing clean goes with the locked rows'),
         ).toBe(true);
         expect(rowsOf(res.body)).toContainEqual(['one-piece', dress, true]);
+      });
+
+      // #21c: two locked rows that break a never-rule still get an idea,
+      // which names the rule in the Style page's words (brokenRuleLabels).
+      it('names the outfit rule the locked rows break', async () => {
+        const locked: Row[] = [
+          ['top', tops[1], true],
+          ['bottom', bottoms[1], true],
+        ];
+        const chip = 'Breaks: Never Grey tee with Khaki chinos';
+        expect(hasText((await shuffle(locked)).body, chip)).toBe(false);
+        const added = await t.inject({
+          method: 'POST',
+          url: '/auth/profile/style/rules',
+          ...form({
+            kind: 'never',
+            a: `garment:${bottoms[1]}`,
+            b: `garment:${tops[1]}`,
+          }),
+        });
+        expect(added.statusCode).toBe(303);
+        try {
+          const res = await shuffle(locked);
+          expect(res.statusCode).toBe(200);
+          expect(hasText(res.body, chip)).toBe(true);
+          expect(rowsOf(res.body)).toContainEqual([
+            'footwear',
+            shoes[0],
+            false,
+          ]);
+        } finally {
+          await t.db.delete(outfitRule);
+        }
       });
 
       it('drops a posted garment that is not the wardrobe’s, and 400s rows that do not line up', async () => {

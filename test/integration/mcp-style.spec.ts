@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestApp, type TestApp } from './harness';
+import { avoidPair } from '../../src/web/gallery/queries';
+import { createGarment } from './garments';
+import { createTestApp, OWNER_EMAIL, type TestApp, userIdOf } from './harness';
 import { createAccessToken, tool } from './mcp';
 
 /**
@@ -36,6 +38,8 @@ describe('MCP: the style profile', () => {
     expect(await tool(t, token, 'get_style_profile')).toEqual({
       profile: null,
       week: { template: emptyWeek, rhythm: [] },
+      outfitRules: [],
+      avoidedPairs: [],
     });
     await post('/auth/profile/style', {
       styles: ['minimal'],
@@ -69,6 +73,8 @@ describe('MCP: the style profile', () => {
           { occasion: 'night-out', perWeek: 1 },
         ],
       },
+      outfitRules: [],
+      avoidedPairs: [],
     });
     expect(answer.week.template[2]).toEqual({
       weekday: 2,
@@ -77,10 +83,55 @@ describe('MCP: the style profile', () => {
     });
   });
 
+  // #21c: the rules in the Style page's words, and the gallery's clashes.
+  it('lists the outfit rules as the Style page words them, and the avoided pairs', async () => {
+    const jeans = await createGarment(t, {
+      name: 'Selvedge jeans',
+      category: 'bottoms',
+    });
+    const boots = await createGarment(t, {
+      name: 'Brown boots',
+      category: 'footwear',
+    });
+    for (const payload of [
+      { kind: 'never', a: 'pattern:stripes', b: 'color:blue' },
+      { kind: 'always', a: `garment:${jeans}`, b: 'category:footwear:boots' },
+    ]) {
+      const res = await post('/auth/profile/style/rules', payload);
+      expect(res.statusCode, res.body).toBe(303);
+    }
+    const ownerId = await userIdOf(t, OWNER_EMAIL);
+    expect(await avoidPair(t.db, ownerId, boots, jeans)).toBe('added');
+    expect(await tool(t, token, 'get_style_profile')).toMatchObject({
+      outfitRules: [
+        {
+          kind: 'never',
+          a: 'Stripes',
+          b: 'blue',
+          sentence: 'Never Stripes with blue',
+        },
+        {
+          kind: 'always',
+          a: 'Selvedge jeans',
+          b: 'Boots',
+          sentence: 'Always Boots with Selvedge jeans',
+        },
+      ],
+      avoidedPairs: [
+        {
+          a: { id: jeans, name: 'Selvedge jeans', category: 'bottoms' },
+          b: { id: boots, name: 'Brown boots', category: 'footwear' },
+        },
+      ],
+    });
+  });
+
   it('is the caller’s own: another user reads theirs, still empty', async () => {
     expect(await tool(t, strangerToken, 'get_style_profile')).toMatchObject({
       profile: null,
       week: { rhythm: [] },
+      outfitRules: [],
+      avoidedPairs: [],
     });
   });
 });

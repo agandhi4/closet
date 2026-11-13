@@ -17,7 +17,9 @@ import {
   categoryRole,
   GARMENT_ROLES,
   type GarmentRole,
+  type Warmth,
 } from '../../wardrobe/properties';
+import { type MatchGarment, matchGarment } from '../../weather/match';
 import type { GarmentStatus } from '../../wardrobe/status';
 import { inCapsule } from '../capsules/queries';
 import { offeredIntoSql, slotMayNameSql } from '../outfits/gone-garments';
@@ -248,20 +250,64 @@ export function rowGarmentsSql(
     select coalesce(json_agg(${rowGarmentJson}), '[]')
     from ${garment}
     left join ${file} on ${eq(file.id, garment.photoId)}
-    where ${and(
-      eq(garment.ownerId, ownerId),
-      inArray(garment.id, [...ids]),
-      slotMayNameSql({
-        outfitId: carry.editingOutfitId,
-        // Into an edited outfit, a pick only while nothing holds it: the
-        // writer's own condition, so a row never holds what Save refuses.
-        offered:
-          carry.picks &&
-          (carry.editingOutfitId === undefined ||
-            offeredIntoSql(carry.editingOutfitId)),
-      }),
-    )}
+    where ${rowsMayCarry(ownerId, ids, carry)}
   )`;
+}
+
+/** The one rule of what posted rows may carry: rowGarmentsSql's and rowWeatherSql's. */
+function rowsMayCarry(
+  ownerId: number,
+  ids: readonly number[],
+  carry: RowCarry,
+): SQL {
+  return and(
+    eq(garment.ownerId, ownerId),
+    inArray(garment.id, [...ids]),
+    slotMayNameSql({
+      outfitId: carry.editingOutfitId,
+      // Into an edited outfit, a pick only while nothing holds it: the
+      // writer's own condition, so a row never holds what Save refuses.
+      offered:
+        carry.picks &&
+        (carry.editingOutfitId === undefined ||
+          offeredIntoSql(carry.editingOutfitId)),
+    }),
+  )!;
+}
+
+/** A garment's columns the weather matching reads (matchGarment), as an array. */
+type RowWeatherJson = [
+  category: string,
+  type: string | null,
+  fabricWeight: number | null,
+  warmth: Warmth | null,
+  waterResistant: boolean,
+];
+
+/**
+ * The garments among `ids` the posted rows may carry (rowsMayCarry, as
+ * rowGarmentsSql), as the weather matching sees them: Styling's fit line
+ * (#468b) judges the outfit the rows hold, a garment once however many
+ * rows name it. A scalar subquery; read with readRowWeather.
+ */
+export function rowWeatherSql(
+  ownerId: number,
+  ids: readonly number[],
+  carry: RowCarry,
+): SQL<RowWeatherJson[]> {
+  return sql<RowWeatherJson[]>`(
+    select coalesce(json_agg(json_build_array(${garment.category}, ${garment.type}, ${garment.fabricWeight}, ${garment.warmth}, ${garment.waterResistant})), '[]')
+    from ${garment}
+    where ${rowsMayCarry(ownerId, ids, carry)}
+  )`;
+}
+
+export function readRowWeather(
+  rows: readonly RowWeatherJson[],
+): MatchGarment[] {
+  return rows.map(([category, type, fabricWeight, warmth, waterResistant]) =>
+    matchGarment({ category, type, fabricWeight, warmth, waterResistant }),
+  );
 }
 
 /** rowGarmentsSql's garments (or an outfit's), each with its role. */

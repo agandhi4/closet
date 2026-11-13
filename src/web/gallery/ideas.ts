@@ -1,3 +1,4 @@
+import type { SQL } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { seededRandom } from '../../random';
 import {
@@ -27,6 +28,7 @@ import {
   type WeatherSettings,
   weatherWithForecastSql,
   type WeatherWithForecast,
+  type WeatherWithForecastJson,
 } from '../weather/queries';
 import {
   type UserWeather,
@@ -212,9 +214,7 @@ export function ideasColumns(
       capsuleId: input.capsuleId,
     }),
     ...generatorMemorySql(ownerId),
-    weather: readsWeather(deps, input)
-      ? weatherWithForecastSql(ownerId, now)
-      : undefined,
+    weather: weatherColumn(deps, ownerId, input, now),
     capsules: input.capsuleMenu ? capsuleNamesSql(ownerId) : undefined,
   };
 }
@@ -230,17 +230,7 @@ export async function ideasFrom(
   now: Date,
 ): Promise<IdeasResult> {
   const { saved, avoid, rules } = readGeneratorMemory(row);
-  const weather = await dayWeather(
-    deps,
-    input,
-    row.weather === undefined
-      ? input.ownWeather && {
-          settings: input.ownWeather.settings,
-          forecast: null,
-        }
-      : readWeatherWithForecast(row.weather, now),
-    now,
-  );
+  const weather = await weatherFrom(deps, input, row.weather, now);
   const page = generateIdeas({
     seed: input.seed,
     pool: readPool(row.pool),
@@ -281,22 +271,52 @@ export async function ideasPage(
   return { ...result, more: result.more && page < MAX_IDEAS_PAGE };
 }
 
+/** What the aimed day's weather is read for: IdeasInput's day, occasion and place. */
+export type WeatherAsk = Pick<
+  IdeasInput,
+  'today' | 'day' | 'occasion' | 'place' | 'ownWeather'
+>;
+
 /**
- * Whether ideasFor reads the person's weather row (weatherWithForecastSql)
- * with the pool: when dayWeather could use it (the service on, a day from
- * today on) and the caller has not read it already (`ownWeather`). A trip
- * reads it too, for the offset and the unit; one past its forecast without
- * a destination reads it for nothing, a column in a statement it sends
- * anyway.
+ * The person's weather row (weatherWithForecastSql) as a statement's
+ * column, when weatherFrom could use it (the service on, a day from today
+ * on) and the caller has not read it already (`ownWeather`); undefined
+ * otherwise. A trip reads it too, for the offset and the unit; one past
+ * its forecast without a destination reads it for nothing, a column in a
+ * statement it sends anyway. ideasFor's own (ideasColumns), and Styling's
+ * fit line (#468b), which judges the rows' outfit against the same day.
  */
-function readsWeather(
+export function weatherColumn(
   deps: { weather: WeatherService | undefined },
-  input: IdeasInput,
-): boolean {
-  return (
+  ownerId: number,
+  ask: WeatherAsk,
+  now: Date,
+): SQL<WeatherWithForecastJson | null> | undefined {
+  const reads =
     deps.weather !== undefined &&
-    input.day >= input.today &&
-    input.ownWeather === undefined
+    ask.day >= ask.today &&
+    ask.ownWeather === undefined;
+  return reads ? weatherWithForecastSql(ownerId, now) : undefined;
+}
+
+/**
+ * The aimed day's weather from weatherColumn's value (undefined when it
+ * was not read): what ideasFor matches its ideas to, and what Styling's
+ * fit line judges the rows by, so both read one day the same way.
+ */
+export async function weatherFrom(
+  deps: { weather: WeatherService | undefined },
+  ask: WeatherAsk,
+  column: WeatherWithForecastJson | null | undefined,
+  now: Date,
+): Promise<IdeasWeather | null> {
+  return dayWeather(
+    deps,
+    ask,
+    column === undefined
+      ? ask.ownWeather && { settings: ask.ownWeather.settings, forecast: null }
+      : readWeatherWithForecast(column, now),
+    now,
   );
 }
 
@@ -308,12 +328,12 @@ function readsWeather(
  * same cache. Past the forecast, a trip's destination has its typical day
  * (climate normals, src/weather/normals.ts) and nothing else does: the
  * person's own days (the gallery, Today) stay forecast-only. `own` is the
- * person's weather row as ideasFor read it (readsWeather), or the settings
+ * person's weather row as ideasFor read it (weatherColumn), or the settings
  * of the caller's `ownWeather`; undefined when no weather applies.
  */
 async function dayWeather(
   deps: { weather: WeatherService | undefined },
-  input: IdeasInput,
+  input: WeatherAsk,
   own: WeatherWithForecast | undefined,
   now: Date,
 ): Promise<IdeasWeather | null> {
@@ -329,7 +349,7 @@ async function dayWeather(
 /** A day the forecast covers: the person's own location's, or the trip's. */
 async function forecastWeather(
   weather: WeatherService,
-  input: IdeasInput,
+  input: WeatherAsk,
   own: WeatherWithForecast,
   now: Date,
 ): Promise<IdeasWeather | null> {
@@ -350,7 +370,7 @@ async function forecastWeather(
 /** A trip day past the forecast: the destination's typical day for it. */
 async function typicalWeather(
   weather: WeatherService,
-  input: IdeasInput,
+  input: WeatherAsk,
   settings: WeatherSettings,
   place: Location,
 ): Promise<IdeasWeather | null> {

@@ -20,7 +20,8 @@
  *   it and sends it again with every rows answer, and between them a choice
  *   moves without a request, so each `snap-strip:chosen` copies the chosen
  *   item's look (its plinth's children) into its row's slot. It follows a
- *   swipe offline as choosing does.
+ *   swipe offline as choosing does. A changed slot asks the fit line
+ *   (#468b, GET /styling/fit) again while that line is shown.
  *
  * Evaluated once per document: the listeners below sit on the document and
  * serve every page's rows.
@@ -77,6 +78,19 @@ function mirror(row, item) {
   slot.replaceChildren(
     ...(plinth ? [...plinth.children].map((look) => look.cloneNode(true)) : []),
   );
+  askFit();
+}
+
+/**
+ * The fit line (#468b) asks again for the changed outfit (its hx-trigger
+ * debounces), only while it is shown: on a phone it is display:none
+ * (offsetParent null) and asks nothing.
+ */
+function askFit() {
+  const fit = document.getElementById('styling-fit-line');
+  if (fit?.offsetParent) {
+    fit.dispatchEvent(new CustomEvent('styling:outfit-changed'));
+  }
 }
 
 function rowOf(element) {
