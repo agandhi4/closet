@@ -20,6 +20,7 @@ const NOT_FOUND_MESSAGE = {
   capsule: 'refusal.notFound.capsule',
   garment: 'refusal.notFound.garment',
   outfit: 'refusal.notFound.outfit',
+  outfitRule: 'refusal.notFound.outfitRule',
   trip: 'refusal.notFound.trip',
   wardrobe: 'refusal.notFound.wardrobe',
 } as const satisfies Record<string, StringKey>;

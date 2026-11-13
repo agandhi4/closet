@@ -165,6 +165,7 @@ const ADDRESS: Fixture = {
   today: '2026-09-28',
   ownerToken: () => Promise.resolve(114),
   brandSizeId: 115,
+  outfitRuleId: 120,
   brand: 'Brand',
   repairId: 116,
   orderItemId: 117,

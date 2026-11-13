@@ -5,7 +5,7 @@ import { PostForm } from '../auth/form';
 import { profileSection, STYLE_SECTION_ID } from '../auth/urls';
 import { occasionLabel } from '../date-labels';
 import { ChipGroup } from '../form-field';
-import { t } from '../i18n';
+import { type StringKey, t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -13,13 +13,19 @@ import { SavedToast, StripFlags } from '../layout/parts';
 import type { ViewContext } from '../view-context';
 import { WEEK_SETTINGS_PATH } from '../week-plan/urls';
 import { budgetLabel, styleLabel } from './labels';
-import { STYLE_PROFILE_PATH, WEATHER_SETTINGS_PATH } from './urls';
+import { OutfitRulesSection, type OutfitRulesModel } from './outfit-rules';
+import {
+  STYLE_PROFILE_PATH,
+  STYLE_SAVED_FLAG,
+  type StyleSaved,
+  WEATHER_SETTINGS_PATH,
+} from './urls';
 import { STYLE_NOTES_MAX, type StyleProfileBody } from './validation';
 
 export interface StyleProfileModel {
   /** The form's values: the stored profile's (styleProfilePost). */
   values: StyleProfileBody;
-  saved?: boolean;
+  saved?: StyleSaved;
   /**
    * The week's rhythm, derived from the week template (#16, weeklyRhythm):
    * shown read-only, set in Profile › Your week, never stored here.
@@ -30,9 +36,16 @@ export interface StyleProfileModel {
    * Profile › Weather, never stored here. Undefined with the weather off.
    */
   home?: { name: string | null };
+  /** The Outfit rules section (#21b), below the profile's form. */
+  rules: OutfitRulesModel;
 }
 
-const FLAGS = ['saved'] as const;
+const SAVED_TOASTS = {
+  profile: 'style.SAVED',
+  'rule-added': 'style.RULE_ADDED',
+  'rule-removed': 'style.RULE_REMOVED',
+  'pair-allowed': 'style.PAIR_ALLOWED',
+} as const satisfies Record<StyleSaved, StringKey>;
 
 /**
  * GET /auth/profile/style: the signed-in user's style profile (#34, slice
@@ -41,7 +54,8 @@ const FLAGS = ['saved'] as const;
  * it is the week template's (#16, Profile › Your week), counted per
  * calendar occasion. Private: nobody else ever sees it. The home city
  * belongs to the weather (#14): shown here read-only too, linking to
- * Profile › Weather to change it.
+ * Profile › Weather to change it. Below the form, the owner's outfit
+ * rules (#21b, OutfitRulesSection), forms of their own.
  */
 export function StyleProfilePage(props: {
   ctx: ViewContext;
@@ -58,7 +72,7 @@ export function StyleProfilePage(props: {
         formPage
       />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto">
-        <p class="text-sm text-base-content/70 mb-4">{t('style.INTRO')}</p>
+        <p class="text-sm text-muted mb-4">{t('style.INTRO')}</p>
         {model.home && <HomeCity name={model.home.name} />}
         <PostForm action={STYLE_PROFILE_PATH} class="flex flex-col gap-5">
           <ChipGroup label={t('style.STYLES')}>
@@ -125,9 +139,12 @@ export function StyleProfilePage(props: {
             {t('SAVE')}
           </button>
         </PostForm>
+        <OutfitRulesSection model={model.rules} />
       </main>
-      {model.saved && <SavedToast id="style-toast" text={t('style.SAVED')} />}
-      <StripFlags names={FLAGS} />
+      {model.saved && (
+        <SavedToast id="style-toast" text={t(SAVED_TOASTS[model.saved])} />
+      )}
+      <StripFlags names={[STYLE_SAVED_FLAG]} />
       <Dock ctx={ctx} />
     </Layout>
   );

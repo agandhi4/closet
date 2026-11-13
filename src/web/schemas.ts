@@ -6,11 +6,14 @@ import { OCCASIONS } from '../wardrobe/occasions';
  * AGENTS.md, Web layer: Validation).
  */
 
+/** The largest row id: Postgres serials are 32-bit. Every id check's bound. */
+export const ROW_ID_MAX = 2_147_483_647;
+
 /**
- * A row id in a path or a form: Postgres serials are 32-bit, so anything
- * larger would fail in the query as a 500 instead of here as a 400.
+ * A row id in a path or a form: anything larger than ROW_ID_MAX would fail
+ * in the query as a 500 instead of here as a 400.
  */
-export const RowId = Type.Integer({ minimum: 1, maximum: 2_147_483_647 });
+export const RowId = Type.Integer({ minimum: 1, maximum: ROW_ID_MAX });
 
 /**
  * A calendar day, 'YYYY-MM-DD'. `format: 'date'` is ajv-formats' full-date

@@ -5,7 +5,7 @@ import {
   type Occasion,
 } from '../../wardrobe/occasions';
 import { type IsoDate, parseIsoDate } from '../../calendar-date';
-import { OccasionSchema, RowId } from '../schemas';
+import { OccasionSchema, ROW_ID_MAX, RowId } from '../schemas';
 
 /**
  * Where a new outfit goes once chosen, carried in URLs as
@@ -64,7 +64,6 @@ const TRIP_PREFIX = 'trip:';
 // A serial id (32-bit, as RowId), then optionally one of the trip's days.
 const TRIP_TARGET = /^trip:(\d{1,10})(?::(.+))?$/;
 const ENTRY_ID = /^[1-9]\d{0,9}$/;
-const MAX_ID = 2_147_483_647;
 
 export function parseDestination(query: {
   for?: string;
@@ -97,7 +96,7 @@ export function parseDestination(query: {
 function parseEntryId(value: string | number | undefined): number | undefined {
   if (value === undefined || !ENTRY_ID.test(String(value))) return undefined;
   const id = Number(value);
-  return id <= MAX_ID ? id : undefined;
+  return id <= ROW_ID_MAX ? id : undefined;
 }
 
 /** `trip:ID[:YYYY-MM-DD]`, or undefined when it is not one. */
@@ -107,7 +106,7 @@ function parseTripTarget(
 ): TripDestination | undefined {
   const trip = TRIP_TARGET.exec(target);
   const tripId = trip ? Number(trip[1]) : 0;
-  if (!trip || tripId < 1 || tripId > MAX_ID) return undefined;
+  if (!trip || tripId < 1 || tripId > ROW_ID_MAX) return undefined;
   const day = parseIsoDate(trip[2]);
   return {
     kind: 'trip',

@@ -1,7 +1,15 @@
 import { type Static, Type } from '@sinclair/typebox';
 import {
+  OUTFIT_RULE_KINDS,
+  type StoredMatcher,
+} from '../../wardrobe/outfit-rules';
+import {
   GARMENT_COLORS,
+  GARMENT_TYPES,
+  GarmentCategory,
   type GarmentColor,
+  type Pattern,
+  PATTERNS,
   storedSet,
 } from '../../wardrobe/properties';
 import {
@@ -10,13 +18,14 @@ import {
   type Style,
   STYLES,
 } from '../../wardrobe/style';
-import { choice, pick } from '../schemas';
+import { choice, pick, ROW_ID_MAX } from '../schemas';
+import { STYLE_SAVED_FLAG } from './urls';
 
 export const STYLE_NOTES_MAX = 2000;
 
-/** The style profile page's one-shot flag (the toast after a save). */
+/** The style page's one-shot flag (the toast after a write): navigation state, anything else shows none. */
 export const StyleProfileQuery = Type.Object({
-  saved: Type.Optional(Type.String({ maxLength: 5 })),
+  [STYLE_SAVED_FLAG]: Type.Optional(Type.String({ maxLength: 20 })),
 });
 
 /**
@@ -83,4 +92,78 @@ export function styleProfilePost(
     palette: profile.palette ?? [],
     notes: profile.notes ?? '',
   };
+}
+
+/**
+ * An outfit rule's side (#21b) as its select posts it, one option per
+ * matcher: `garment:<id>`, `category:<category>[:<type>]`, `color:<colour>`
+ * or `pattern:<pattern>`. The view spells its options with these and the
+ * schema accepts exactly them, so a type outside its category or a value
+ * outside its set is a 400 (a hand-made request; the form offers none).
+ */
+export const ruleSideValue = {
+  garment: (id: number) => `garment:${id}`,
+  category: (category: GarmentCategory, type: string | null = null) =>
+    type === null ? `category:${category}` : `category:${category}:${type}`,
+  color: (color: GarmentColor) => `color:${color}`,
+  pattern: (pattern: Pattern) => `pattern:${pattern}`,
+};
+
+const NO_MATCHER: StoredMatcher = {
+  garmentId: null,
+  category: null,
+  type: null,
+  color: null,
+  pattern: null,
+};
+
+/** Every property option, as posted, and the side it stores. */
+const PROPERTY_SIDES: ReadonlyMap<string, StoredMatcher> = new Map<
+  string,
+  StoredMatcher
+>([
+  ...Object.values(GarmentCategory).flatMap((category) =>
+    [null, ...GARMENT_TYPES[category].map(({ value }) => value)].map(
+      (type): [string, StoredMatcher] => [
+        ruleSideValue.category(category, type),
+        { ...NO_MATCHER, category, type },
+      ],
+    ),
+  ),
+  ...GARMENT_COLORS.map((color): [string, StoredMatcher] => [
+    ruleSideValue.color(color),
+    { ...NO_MATCHER, color },
+  ]),
+  ...PATTERNS.map((pattern): [string, StoredMatcher] => [
+    ruleSideValue.pattern(pattern),
+    { ...NO_MATCHER, pattern },
+  ]),
+]);
+
+const GARMENT_SIDE = /^garment:([1-9]\d{0,9})$/;
+
+const RuleSide = Type.Union([
+  ...[...PROPERTY_SIDES.keys()].map((value) => Type.Literal(value)),
+  Type.String({ pattern: GARMENT_SIDE.source }),
+]);
+
+/** The add form: the kind, then side A and side B. */
+export const OutfitRuleBody = Type.Object({
+  kind: Type.Union(OUTFIT_RULE_KINDS.map((kind) => Type.Literal(kind))),
+  a: RuleSide,
+  b: RuleSide,
+});
+export type OutfitRuleBody = Static<typeof OutfitRuleBody>;
+
+/**
+ * A side the schema let through, as stored; undefined for a garment id past
+ * ROW_ID_MAX, which its pattern cannot bound (the route's 400, like RowId's).
+ */
+export function readRuleSide(value: string): StoredMatcher | undefined {
+  const property = PROPERTY_SIDES.get(value);
+  if (property) return property;
+  const match = GARMENT_SIDE.exec(value);
+  if (!match) return undefined;
+  const garmentId = Number(match[1]);
+  return garmentId <= ROW_ID_MAX ? { ...NO_MATCHER, garmentId } : undefined;
 }

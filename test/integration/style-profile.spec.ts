@@ -1,10 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { styleProfile } from '../../src/db/schema';
+import { generatorAvoid, outfitRule, styleProfile } from '../../src/db/schema';
+import { avoidPair } from '../../src/web/gallery/queries';
 import { saveWeekTemplate } from '../../src/web/week-plan/template';
 import { findWeatherSettings, setHome } from '../../src/web/weather/queries';
 import { recordStatements } from '../support/query-recorder';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
+import { createGarment } from './garments';
 import { createTestApp, type TestApp, unescapeHtml, userIdOf } from './harness';
 import { expectFullPage } from './pages';
 
@@ -13,8 +15,9 @@ import { expectFullPage } from './pages';
  * HTTP: the form saves every part and shows it again, its sets only take
  * their own values, the week's rhythm and the home city are shown
  * read-only from where they live, and nobody else reads it. Moved whole
- * from the wardrobe plans' spec when plans went (#337). The matrix row is
- * authorization-account.spec.ts's.
+ * from the wardrobe plans' spec when plans went (#337). Its outfit rules
+ * (#21b): added, refused with a message, removed, and the avoided pairs'
+ * undo. The matrix rows are authorization-account.spec.ts's.
  */
 describe('the style profile', () => {
   let t: TestApp;
@@ -56,7 +59,7 @@ describe('the style profile', () => {
       'per-work': 'week',
     });
     expect(res.statusCode, res.body).toBe(303);
-    expect(res.headers.location).toBe('/auth/profile/style?saved=1');
+    expect(res.headers.location).toBe('/auth/profile/style?saved=profile');
     const [row] = await t.db
       .select()
       .from(styleProfile)
@@ -72,7 +75,7 @@ describe('the style profile', () => {
       `Style profile saved by user ${ownerId}: 2 styles, 3 colours`,
     );
 
-    const page = await get('/auth/profile/style?saved=1');
+    const page = await get('/auth/profile/style?saved=profile');
     expectFullPage(page);
     expect(page.body).toContain('Style profile saved');
     expect(page.body).toMatch(/value="smart-casual"[^>]*checked/);
@@ -144,17 +147,201 @@ describe('the style profile', () => {
   });
 
   // A round trip per statement in production (#156): the session, then
-  // the profile and the week template in one statement (#251; it was one
-  // each), and no weather read with the weather off.
+  // the profile, the week template and the outfit rules' parts in one
+  // statement (#251; it was one each), and no weather read with the
+  // weather off.
   it('reads the page in 2 statements', async () => {
     const { result, statements } = await recordStatements(() =>
       get('/auth/profile/style'),
     );
     expect(result.statusCode).toBe(200);
     expect(statements).toHaveLength(2); // 3 before #251
-    expect(statements[1].sql).toContain('"style_profile"');
-    expect(statements[1].sql).toContain('"week_template"');
+    for (const table of [
+      'style_profile',
+      'week_template',
+      'outfit_rule',
+      'garment',
+      'generator_avoid',
+    ]) {
+      expect(statements[1].sql).toContain(`"${table}"`);
+    }
     expect(statements[1].sql).not.toContain('"user_weather"');
+  });
+
+  describe('outfit rules (#21b)', () => {
+    const RULES = '/auth/profile/style/rules';
+    const ADDED = '/auth/profile/style?saved=rule-added#outfit-rules';
+    let jeans: number;
+    let boots: number;
+    let belt: number;
+
+    const rules = () =>
+      t.db
+        .select()
+        .from(outfitRule)
+        .where(eq(outfitRule.ownerId, ownerId))
+        .orderBy(outfitRule.id);
+    /** The page's rule sentences, in list order. */
+    const sentences = async () =>
+      [
+        ...unescapeHtml((await get('/auth/profile/style')).body).matchAll(
+          /<li [^>]*data-rule="\d+"><span>([^<]+)</g,
+        ),
+      ].map(([, sentence]) => sentence);
+
+    beforeAll(async () => {
+      jeans = await createGarment(t, {
+        name: 'Selvedge jeans',
+        category: 'bottoms',
+      });
+      boots = await createGarment(t, {
+        name: 'Brown boots',
+        category: 'footwear',
+      });
+      belt = await createGarment(t, {
+        name: 'Brown belt',
+        category: 'accessories',
+      });
+    });
+
+    afterAll(async () => {
+      await t.db.delete(outfitRule);
+    });
+
+    it('adds rules by property, type and garment, and lists them as sentences', async () => {
+      const empty = await get('/auth/profile/style');
+      expect(empty.body).toContain('No rules yet.');
+      // Every side's select offers the closet's garments; what the
+      // generator never draws is marked for the always-rule hint.
+      const form = unescapeHtml(empty.body);
+      expect(form).toContain(`<option value="garment:${jeans}">Selvedge jeans`);
+      expect(form).toContain(
+        `<option value="garment:${belt}" data-undrawn="">Brown belt`,
+      );
+      expect(form).toContain('<option value="category:tops">Tops, any type');
+      expect(form).toContain('id="rule-undrawn-hint"');
+
+      for (const payload of [
+        { kind: 'never', a: 'color:blue', b: 'color:black' },
+        {
+          kind: 'never',
+          a: 'category:footwear:sneakers',
+          b: 'category:outerwear',
+        },
+        { kind: 'always', a: `garment:${jeans}`, b: `garment:${boots}` },
+      ]) {
+        const res = await post(RULES, payload);
+        expect(res.statusCode, res.body).toBe(303);
+        expect(res.headers.location).toBe(ADDED);
+      }
+      expect(await rules()).toMatchObject([
+        // A never-rule is stored with its sides in one order (storedSides).
+        { kind: 'never', aColor: 'black', bColor: 'blue' },
+        {
+          kind: 'never',
+          aCategory: 'footwear',
+          aType: 'sneakers',
+          bCategory: 'outerwear',
+          bType: null,
+        },
+        { kind: 'always', aGarmentId: jeans, bGarmentId: boots },
+      ]);
+      expect(await sentences()).toEqual([
+        'Never black with blue',
+        'Never Sneakers with Outerwear',
+        'Always Brown boots with Selvedge jeans',
+      ]);
+      const [first] = await rules();
+      expect(t.logs.messages('info', 'Web')).toContainEqual(
+        `Outfit rule ${first.id} added by user ${ownerId}: never color:blue with color:black`,
+      );
+      expect((await get(ADDED)).body).toContain('Rule added');
+    });
+
+    it('refuses the same side twice and a rule it has, keeping the form', async () => {
+      const before = await rules();
+      const same = await post(RULES, {
+        kind: 'always',
+        a: `garment:${belt}`,
+        b: `garment:${belt}`,
+      });
+      expect(same.statusCode).toBe(400);
+      expectFullPage(same);
+      expect(same.body).toContain('Choose two different things.');
+      expect(unescapeHtml(same.body)).toMatch(
+        new RegExp(`<option value="garment:${belt}" selected`),
+      );
+      expect(same.body).toMatch(/value="always"[^>]*checked/);
+      // The same never-rule either way round: never is symmetric.
+      for (const payload of [
+        { kind: 'never', a: 'color:blue', b: 'color:black' },
+        { kind: 'never', a: 'color:black', b: 'color:blue' },
+        {
+          kind: 'never',
+          a: 'category:outerwear',
+          b: 'category:footwear:sneakers',
+        },
+      ]) {
+        const again = await post(RULES, payload);
+        expect(again.statusCode, JSON.stringify(payload)).toBe(400);
+        expect(again.body).toContain('You have this rule already.');
+      }
+      expect(await rules()).toEqual(before);
+    });
+
+    it("refuses a value outside its set, a type outside its category, and a garment not the owner's", async () => {
+      const before = await rules();
+      for (const payload of [
+        { kind: 'sometimes', a: 'color:blue', b: 'color:red' },
+        { kind: 'never', a: 'color:navy', b: 'color:red' },
+        // Jeans are bottoms: only a hand-made request pairs them with tops.
+        { kind: 'never', a: 'category:tops:jeans', b: 'color:red' },
+        { kind: 'never', a: 'garment:9999999999', b: 'color:red' },
+      ]) {
+        const res = await post(RULES, payload);
+        expect(res.statusCode, JSON.stringify(payload)).toBe(400);
+      }
+      const theirs = await post(
+        RULES,
+        { kind: 'never', a: `garment:${jeans}`, b: 'color:red' },
+        stranger,
+      );
+      expect(theirs.statusCode).toBe(404);
+      expect(theirs.body).not.toContain('Selvedge jeans');
+      expect(await rules()).toEqual(before);
+    });
+
+    it('removes a rule, once', async () => {
+      const [first] = await rules();
+      const removed = await post(`${RULES}/${first.id}/delete`, {});
+      expect(removed.statusCode).toBe(303);
+      expect(removed.headers.location).toBe(
+        '/auth/profile/style?saved=rule-removed#outfit-rules',
+      );
+      expect((await rules()).map(({ id }) => id)).not.toContain(first.id);
+      const again = await post(`${RULES}/${first.id}/delete`, {});
+      expect(again.statusCode).toBe(404);
+    });
+
+    it('lists the avoided pairs, and Allow again comes back here', async () => {
+      expect((await get('/auth/profile/style')).body).not.toContain(
+        'id="style-avoided"',
+      );
+      expect(await avoidPair(t.db, ownerId, boots, jeans)).toBe('added');
+      const page = unescapeHtml((await get('/auth/profile/style')).body);
+      expect(page).toMatch(
+        /id="style-avoided"[\s\S]*<span>Selvedge jeans and Brown boots<\/span>/,
+      );
+      const allowed = await post('/outfits/ideas/allow', {
+        garmentId: [String(jeans), String(boots)],
+        returnTo: '/auth/profile/style?saved=pair-allowed#outfit-rules',
+      });
+      expect(allowed.statusCode).toBe(303);
+      expect(allowed.headers.location).toBe(
+        '/auth/profile/style?saved=pair-allowed#outfit-rules',
+      );
+      expect(await t.db.$count(generatorAvoid)).toBe(0);
+    });
   });
 });
 

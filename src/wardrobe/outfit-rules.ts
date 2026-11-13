@@ -20,7 +20,7 @@ export const OUTFIT_RULE_KINDS = ['never', 'always'] as const;
 export type OutfitRuleKind = (typeof OUTFIT_RULE_KINDS)[number];
 
 /** One side of a rule: a garment, a category (and maybe its type), a colour or a pattern. */
-type RuleMatcher =
+export type RuleMatcher =
   | { by: 'garment'; garmentId: number }
   | { by: 'category'; category: GarmentCategory; type: string | null }
   | { by: 'color'; color: GarmentColor }
@@ -107,6 +107,31 @@ export function storedMatcher(side: StoredMatcher): RuleMatcher {
   if (side.pattern !== null) return { by: 'pattern', pattern: side.pattern };
   // outfit_rule_a_check and _b_check make this unreachable.
   throw new Error('An outfit_rule side has no matcher');
+}
+
+/**
+ * A rule's sides in the order it is stored (#21b). "Never A with B" is
+ * "never B with A" (compileRules checks a pair both ways round), so a
+ * never-rule's sides are put in one order and outfit_rule's unique index
+ * refuses the mirror as a duplicate; an always-rule is directional and
+ * keeps its order. The order compares the columns as the index does.
+ */
+export function storedSides<S extends StoredMatcher>(
+  kind: OutfitRuleKind,
+  a: S,
+  b: S,
+): [S, S] {
+  return kind === 'never' && compareSides(a, b) > 0 ? [b, a] : [a, b];
+}
+
+function compareSides(a: StoredMatcher, b: StoredMatcher): number {
+  const ids = (a.garmentId ?? 0) - (b.garmentId ?? 0);
+  if (ids !== 0) return ids;
+  for (const key of ['category', 'type', 'color', 'pattern'] as const) {
+    const [x, y] = [a[key] ?? '', b[key] ?? ''];
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
 }
 
 interface CompiledRule {

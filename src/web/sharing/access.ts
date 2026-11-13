@@ -4,6 +4,7 @@ import type { Db } from '../../db/client';
 import { type SharePermission, user, wardrobeShare } from '../../db/schema';
 import { sessionUserId } from '../auth/require-session';
 import { HttpError } from '../errors';
+import { ROW_ID_MAX } from '../schemas';
 
 /**
  * What the requesting user may do with the wardrobe a request addresses.
@@ -49,9 +50,6 @@ export interface ShareReadAhead {
 
 const sharesReadAhead = new WeakMap<FastifyRequest, ShareReadAhead>();
 
-// RowId's maximum (src/web/schemas.ts): ids are int4.
-const MAX_ROW_ID = 2_147_483_647;
-
 /**
  * The other user's wardrobe a request's `?ownerId=` names, whose share the
  * session statement reads in the same round trip (findSessionAccount,
@@ -69,7 +67,7 @@ export function shareToReadAhead(
   const raw = (request.query as Record<string, unknown> | undefined)?.ownerId;
   if (typeof raw !== 'string' || !/^[1-9]\d{0,9}$/.test(raw)) return undefined;
   const ownerId = Number(raw);
-  return ownerId <= MAX_ROW_ID && ownerId !== userId ? ownerId : undefined;
+  return ownerId <= ROW_ID_MAX && ownerId !== userId ? ownerId : undefined;
 }
 
 /**
