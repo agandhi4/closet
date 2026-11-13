@@ -199,6 +199,21 @@ describe('the api surface', () => {
     expect(mcp.statusCode).toBe(401);
   });
 
+  it('refuses a request without a token before reading its body: a 401, never a 400 or 413', async () => {
+    for (const payload of [
+      '{"broken":',
+      JSON.stringify({ x: 'x'.repeat(2 * 1024 * 1024) }),
+    ]) {
+      const res = await t.api(undefined, {
+        method: 'DELETE',
+        url: SIGN_IN_URL,
+        headers: { 'content-type': 'application/json' },
+        payload,
+      });
+      expectProblem(res, 401, 'unauthorized');
+    }
+  });
+
   it('reads Authorization deterministically: any case of the scheme, never two values', async () => {
     const email = 'header-shapes@example.com';
     await newAccount(email);
@@ -415,6 +430,28 @@ describe('POST /api/v1/auth/token (sign in a device)', () => {
       payload: JSON.stringify({ email: 'x'.repeat(2 * 1024 * 1024) }),
     });
     expectProblem(huge, 413, 'validation');
+  });
+
+  it('never echoes a broken body: no part of the password reaches the problem or a log line', async () => {
+    const fragment = 'Qx7-hunter2-Vb9';
+    t.logs.clear();
+    for (const payload of [
+      `{"email":"owner@example.com","password":"${fragment}`,
+      `{"email":"owner@example.com","password":${fragment}}`,
+    ]) {
+      const res = await t.api(undefined, {
+        method: 'POST',
+        url: SIGN_IN_URL,
+        headers: { ...uniqueClient(), 'content-type': 'application/json' },
+        payload,
+      });
+      const problem = expectProblem(res, 400, 'validation');
+      expect(problem.detail).toBe('The request could not be read');
+    }
+    const everything = JSON.stringify(t.logs.records);
+    for (const part of [fragment, 'Qx7', 'hunter2', 'Vb9']) {
+      expect(everything).not.toContain(part);
+    }
   });
 
   it('refuses a sign-in whose password changed under it, minting nothing', async () => {

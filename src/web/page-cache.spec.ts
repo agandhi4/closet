@@ -23,6 +23,7 @@ describe('bypassesWorker', () => {
     '/api',
     '/api/v1/me',
     '/api/v1/auth/token',
+    '/API/v1/me',
     '/wardrobe/export.csv',
     '/wardrobe/export.json',
   ])('leaves %s alone', (path) => {

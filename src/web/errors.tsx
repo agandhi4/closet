@@ -131,10 +131,31 @@ function validationFailures(
 }
 
 /**
+ * The message of a 4xx we did not write (body parsing, a plugin's refusal),
+ * by status. Never the error's own message: Fastify's and its plugins' are
+ * not ours to vouch for, and a body parser's can quote the request (a JSON
+ * SyntaxError names the bytes it choked on, a password's included), which
+ * would land in the page, the problem's `detail`, MCP's answer and the log.
+ */
+function requestRefusal(status: number): string {
+  if (status === 413) return t('refusal.request.tooLarge');
+  if (status === 415) return t('refusal.request.unsupportedType');
+  return t('refusal.request.unreadable');
+}
+
+/** What the log line names a foreign 4xx by: its code or class, never its message. */
+function errorKind(error: Error): string {
+  const { code } = error as Error & { code?: unknown };
+  return typeof code === 'string' ? code : error.name;
+}
+
+/**
  * Status and page message for anything a route or tool throws: an HttpError
- * keeps its status and message; a Fastify error (a failed body parse, a
- * schema validation, an oversized upload) its 4xx status and message;
- * everything else is an unexpected 500 without detail.
+ * keeps its status and message (we wrote them); a schema validation failure
+ * its 400 and ajv's message, which names the rule and the field, never the
+ * value; any other 4xx (a failed body parse, an oversized upload) its status
+ * and a fixed message (requestRefusal), its code in the log line; everything
+ * else is an unexpected 500 without detail.
  */
 export function describeError(error: unknown): ErrorAnswer {
   if (error instanceof HttpError) {
@@ -154,11 +175,13 @@ export function describeError(error: unknown): ErrorAnswer {
       statusCode >= 400 &&
       statusCode < 500
     ) {
+      const validation = validationFailures(error);
       return {
         status: statusCode,
-        message: error.message,
+        message: validation ? error.message : requestRefusal(statusCode),
         code: codeOfStatus(statusCode),
-        validation: validationFailures(error),
+        logDetail: validation ? undefined : errorKind(error),
+        validation,
         unexpected: false,
       };
     }

@@ -42,8 +42,8 @@ const SPEC_BODY = JSON.stringify(spec);
  * lets a request without Origin through, and every error is problem+json.
  * In this scope, for every route:
  *  - registration refuses a route without its contract (requireContract);
- *  - onRequest: a token in the query string is a 400;
- *  - preValidation: a device token, unless `config.public`;
+ *  - onRequest: a token in the query string is a 400, then a device token,
+ *    unless `config.public` (before the body is read);
  *  - preHandler: API_LIMIT per token, one budget for the whole API.
  * A feature's API routes live beside its pages (`src/web/<feature>/
  * api-routes.ts`) and register here.
@@ -57,10 +57,7 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
   app.addSchema(Problem);
   app.addHook('onRoute', requireContract);
   app.addHook('onRequest', refuseQueryToken);
-  app.addHook(
-    'preValidation',
-    createDeviceTokenHook({ db, logger: apiLogger }),
-  );
+  app.addHook('onRequest', createDeviceTokenHook({ db, logger: apiLogger }));
   const apiLimit = app.createRateLimit(API_LIMIT);
   app.addHook('preHandler', async (request: FastifyRequest) => {
     if (request.routeOptions.config.public === true) return;

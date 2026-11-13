@@ -30,11 +30,12 @@ export function signInAgain(): HttpError {
 }
 
 /**
- * The preValidation hook of every non-public API route: before the body is
- * validated, so an unauthenticated request is a 401, never told its body is
- * malformed. One indexed read (authenticateToken), plus the last-use write
- * once a minute. Logs the refusal's reason and the client address, never
- * the token.
+ * The onRequest hook of every non-public API route (after refuseQueryToken):
+ * before Fastify reads or parses the body, so an unauthenticated request is
+ * a 401 whatever it sent, never a 400 for malformed JSON or a 413 for a body
+ * past the limit, and a stranger's body is never read at all. One indexed
+ * read (authenticateToken), plus the last-use write once a minute. Logs the
+ * refusal's reason and the client address, never the token.
  */
 export function createDeviceTokenHook({
   db,

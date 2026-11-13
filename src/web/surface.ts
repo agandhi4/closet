@@ -1,4 +1,5 @@
 import type { FastifyRequest, RouteOptions } from 'fastify';
+import { isApiPath } from './api-path';
 
 /**
  * Which client a route serves (#190; docs/plans/2026-11-12-json-api.md
@@ -22,9 +23,6 @@ declare module 'fastify' {
 
 export const API_PREFIX = '/api/v1';
 
-/** Any spelling of /api, in any case, and what is under it. */
-const API_PATH = /^\/api(?:[/?#]|$)/i;
-
 /**
  * The surface a request is on: its route's, else `api` for any spelling of
  * /api (`/api`, `/API/v1/me`) and `page` for the rest. The fallback serves
@@ -40,7 +38,7 @@ export function surfaceOf(
 ): Surface {
   return (
     request.routeOptions.config.surface ??
-    (API_PATH.test(request.url) ? 'api' : 'page')
+    (isApiPath(request.url) ? 'api' : 'page')
   );
 }
 
@@ -66,7 +64,7 @@ export function assignSurface(route: RouteOptions): void {
     route.config = { ...route.config, surface: 'api' };
     return;
   }
-  if (API_PATH.test(route.url)) {
+  if (isApiPath(route.url)) {
     throw new Error(
       `${String(route.method)} ${route.url}: the API lives under ${API_PREFIX} only`,
     );

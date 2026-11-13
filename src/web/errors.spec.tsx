@@ -72,7 +72,18 @@ describe('createErrorHandler', () => {
     app.get('/too-large', () => {
       throw Object.assign(new Error('request file too large'), {
         statusCode: 413,
+        code: 'FST_REQ_FILE_TOO_LARGE',
       });
+    });
+    // A body parser's refusal that quotes the request, as JSON.parse's
+    // SyntaxError does.
+    app.get('/quoting', () => {
+      throw Object.assign(
+        new SyntaxError(
+          'Unexpected token, "{"password":"hunter2-sec" is not valid JSON',
+        ),
+        { statusCode: 400 },
+      );
     });
     app.post('/json', () => 'unreachable');
     // As a ported route declares its input (src/web/plugin.ts, Validation).
@@ -118,11 +129,24 @@ describe('createErrorHandler', () => {
     expect(logs.messages('warn')).toEqual(['GET /missing -> 404: Not Found']);
   });
 
-  it('keeps a Fastify 4xx thrown in the handler, with its message', async () => {
+  it('keeps a Fastify 4xx thrown in the handler, with a message of ours', async () => {
     const res = await app.inject({ method: 'GET', url: '/too-large' });
     expect(res.statusCode).toBe(413);
     expect(res.body).toMatch(/<h1\b[^>]*>Error 413<\/h1>/);
-    expect(res.body).toContain('<p>request file too large</p>');
+    expect(res.body).toContain('<p>The request is too large</p>');
+    expect(logs.messages('warn')).toEqual([
+      'GET /too-large -> 413: The request is too large (FST_REQ_FILE_TOO_LARGE)',
+    ]);
+  });
+
+  it('never shows or logs the message of a 4xx it did not write', async () => {
+    const res = await app.inject({ method: 'GET', url: '/quoting' });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain('<p>The request could not be read</p>');
+    expect(res.body).not.toContain('hunter2');
+    expect(logs.messages('warn')).toEqual([
+      'GET /quoting -> 400: The request could not be read (SyntaxError)',
+    ]);
   });
 
   // Body parsing runs before the root preValidation hook, so there is no page

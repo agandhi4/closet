@@ -288,6 +288,11 @@
       "trip": "Trip not found",
       "wardrobe": "Wardrobe not found",
       "wishlistItem": "Not on your wishlist"
+    },
+    "request": {
+      "tooLarge": "The request is too large",
+      "unsupportedType": "This kind of request body is not accepted here",
+      "unreadable": "The request could not be read"
     }
   },
   "WARDROBE_SHARING": "Wardrobe Sharing",

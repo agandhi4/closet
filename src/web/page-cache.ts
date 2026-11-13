@@ -8,6 +8,7 @@
  * from the worker (public/js/freshness.js), and says so.
  */
 
+import { isApiPath } from './api-path';
 import { LOGIN_PATH } from './auth/login-path';
 import { type Section, SECTION_HOME } from './layout/sections';
 
@@ -61,9 +62,6 @@ export function endedSession(headers: { has(name: string): boolean }): boolean {
 /** The MCP endpoint's path (src/web/mcp): an API for programs, never a page. */
 export const MCP_PATH = '/mcp';
 
-/** Everything under it is the native clients' JSON API (src/web/api), never a page. */
-const API_ROOT = '/api';
-
 /** The wardrobe export's downloads (src/web/wardrobe/export-routes.ts, #200). */
 export function wardrobeExportPath(format: 'csv' | 'json'): string {
   return `/wardrobe/export.${format}`;
@@ -76,7 +74,8 @@ const EXPORT_PATHS: ReadonlySet<string> = new Set([
 
 /**
  * Requests no worker route matches, so the worker neither answers nor
- * caches them: the MCP endpoint, the JSON API, and the wardrobe export.
+ * caches them: the MCP endpoint, the JSON API (isApiPath, the rule
+ * surfaceOf reads), and the wardrobe export.
  * Programs call MCP and the API, not the app (and they have no worker),
  * but a browser tab opened on either must reach the server as it is and
  * never land in the page cache. An
@@ -88,8 +87,7 @@ export function bypassesWorker(url: { pathname: string }): boolean {
   return (
     url.pathname === MCP_PATH ||
     url.pathname.startsWith(`${MCP_PATH}/`) ||
-    url.pathname === API_ROOT ||
-    url.pathname.startsWith(`${API_ROOT}/`) ||
+    isApiPath(url.pathname) ||
     EXPORT_PATHS.has(url.pathname)
   );
 }
