@@ -803,7 +803,7 @@
             },
             "in": "query",
             "name": "limit",
-            "required": true,
+            "required": false,
             "description": "How many a page holds: 48 unless asked, at most 100"
           }
         ],
@@ -7807,7 +7807,7 @@
             },
             "in": "query",
             "name": "limit",
-            "required": true,
+            "required": false,
             "description": "How many a page holds: 30 unless asked, at most 100"
           }
         ],
@@ -8125,8 +8125,9 @@
                     "type": "string"
                   },
                   "slots": {
+                    "minItems": 1,
                     "maxItems": 100,
-                    "description": "Its rows top to toe, replaced whole. A garment it cannot hold (another's, deleted, archived, or not bought yet while the outfit is planned) refuses the save, nothing written: a 404 when any is not yours, else a 409 naming them",
+                    "description": "Its rows top to toe, replaced whole. A garment it cannot hold (another's, deleted, archived, or not bought yet while the outfit is planned) refuses the save, nothing written: a 404 when any is not yours, else a 409 naming them. At least one row holds a garment (else a 400): an outfit with none could not be told from its retry",
                     "type": "array",
                     "items": {
                       "title": "OutfitSlot",

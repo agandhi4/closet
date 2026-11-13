@@ -209,7 +209,12 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       },
     },
     async (request) => {
-      const { ownerId, cursor, limit, ...search } = request.query;
+      const {
+        ownerId,
+        cursor,
+        limit = GRID_PAGE_SIZE,
+        ...search
+      } = request.query;
       const { total, garments, next } = await searchGarments(
         db,
         actorOf(request),

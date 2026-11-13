@@ -32,12 +32,14 @@ export function Nullable<T extends TSchema>(
 export const LIST_LIMIT_MAX = 100;
 
 export function ListLimit(byDefault: number) {
-  return Type.Integer({
-    minimum: 1,
-    maximum: LIST_LIMIT_MAX,
-    default: byDefault,
-    description: `How many a page holds: ${byDefault} unless asked, at most ${LIST_LIMIT_MAX}`,
-  });
+  return Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      maximum: LIST_LIMIT_MAX,
+      default: byDefault,
+      description: `How many a page holds: ${byDefault} unless asked, at most ${LIST_LIMIT_MAX}`,
+    }),
+  );
 }
 
 /** `?cursor=`: the previous page's `nextCursor`, as it was answered. */

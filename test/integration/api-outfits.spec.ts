@@ -113,6 +113,17 @@ describe('outfits', () => {
     ).toContain('client id 7f6c2a8e');
   });
 
+  it('refuses an outfit with no garment (a retried empty create would never dedup)', async () => {
+    const before = await t.db.$count(outfit);
+    expectProblem(await create({ slots: [] }), 400, 'validation');
+    expectProblem(
+      await create({ slots: [{ category: 'shirt' }, { category: 'jeans' }] }),
+      400,
+      'validation',
+    );
+    expect(await t.db.$count(outfit)).toBe(before);
+  });
+
   it("refuses another's garment whole (a 404 that names nothing), and a JSON id as a string", async () => {
     const [shirt] = await pair();
     const before = await t.db.$count(outfit);

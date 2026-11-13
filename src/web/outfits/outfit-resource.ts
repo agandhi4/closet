@@ -172,6 +172,18 @@ const Slots = Type.Array(OutfitSlot, {
     "Its rows top to toe, replaced whole. A garment it cannot hold (another's, deleted, archived, or not bought yet while the outfit is planned) refuses the save, nothing written: a 404 when any is not yours, else a 409 naming them",
 });
 
+/**
+ * A new outfit holds a garment: the page's form may save an empty one, but
+ * a retried empty create would never match "the same garments" and make a
+ * new outfit each time, so the API refuses it (the handler checks that one
+ * row holds a garment; `minItems` only the array).
+ */
+const NewSlots = Type.Array(OutfitSlot, {
+  minItems: 1,
+  maxItems: OUTFIT_SLOTS_MAX,
+  description: `${Slots.description ?? ''}. At least one row holds a garment (else a 400): an outfit with none could not be told from its retry`,
+});
+
 /** The rows as the outfit writers take them: an absent garment is an empty row. */
 export function slotsOf(slots: Static<typeof Slots>): SlotInput[] {
   return slots.map(({ category, garmentId }) => ({
@@ -185,7 +197,7 @@ export const NewOutfit = Type.Object(
   {
     name: Type.Optional(OutfitName),
     notes: Type.Optional(OutfitNotes),
-    slots: Slots,
+    slots: NewSlots,
     plan: Type.Optional(
       Type.Object(
         {

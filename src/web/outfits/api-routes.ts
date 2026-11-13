@@ -11,6 +11,8 @@ import {
   ListOf,
   readIdCursor,
 } from '../api/resource';
+import { HttpError } from '../errors';
+import { t } from '../i18n';
 import { actorOf } from '../sharing/access';
 import { API_PREFIX } from '../surface';
 import {
@@ -78,7 +80,7 @@ export const outfitApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       },
     },
     async (request) => {
-      const { cursor, limit } = request.query;
+      const { cursor, limit = OUTFIT_PAGE_SIZE } = request.query;
       const { outfits, next } = await listOutfitsPage(
         db,
         actorOf(request).userId,
@@ -137,6 +139,9 @@ export const outfitApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
     async (request, reply) => {
       const userId = actorOf(request).userId;
       const { name, notes, slots, plan, clientId } = request.body;
+      if (slots.every((slot) => slot.garmentId === undefined)) {
+        throw new HttpError(400, t('api.OUTFIT_NEEDS_GARMENT'));
+      }
       const saved = await createOutfit(db, userId, {
         name: outfitText(name) ?? null,
         notes: outfitText(notes) ?? null,
