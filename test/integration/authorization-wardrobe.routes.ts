@@ -91,6 +91,14 @@ export const ROUTES: Route[] = [
       viewer: 'forbidden',
       stranger: 'notFound',
     },
+    api: {
+      ok: 201,
+      request: (_, q) => ({
+        method: 'POST',
+        url: `/api/v1/garments${q}`,
+        payload: { name: 'Planted', category: 'shirt' },
+      }),
+    },
   },
   // Adding from a link (link-import/routes.tsx) is a write to the addressed
   // wardrobe. The two posts fetch a photo from the local shop and store it
@@ -280,6 +288,14 @@ export const ROUTES: Route[] = [
       viewer: 'forbidden',
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PATCH',
+        url: `/api/v1/garments${q}`,
+        payload: { ids: [f.garmentId], property: 'warmth', value: 4 },
+      }),
+    },
   },
 
   // Garment routes. Without ?ownerId a grantee addresses their own wardrobe,
@@ -362,6 +378,14 @@ export const ROUTES: Route[] = [
       viewer: ['notFound', 'ok'],
       stranger: 'notFound',
     },
+    api: {
+      ok: 201,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/garments/${f.garmentId}/clones${q}`,
+        payload: { name: 'Cloned', category: 'shirt' },
+      }),
+    },
   },
   {
     name: 'POST /wardrobe/:id',
@@ -380,6 +404,14 @@ export const ROUTES: Route[] = [
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PATCH',
+        url: `/api/v1/garments/${f.garmentId}${q}`,
+        payload: { name: 'Edited', category: 'pants' },
+      }),
+    },
   },
   {
     name: 'POST /wardrobe/:id/tag',
@@ -397,6 +429,14 @@ export const ROUTES: Route[] = [
       manager: ['notFound', 'ok'],
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PATCH',
+        url: `/api/v1/garments/${f.garmentId}/tags${q}`,
+        payload: { warmth: 3 },
+      }),
     },
   },
   {
@@ -682,6 +722,14 @@ export const ROUTES: Route[] = [
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/garments/${f.archivedId}/status${q}`,
+        payload: { status: 'closet' },
+      }),
+    },
   },
   {
     // Archive and delete are owner-only, even for a MANAGE grantee.
@@ -700,6 +748,14 @@ export const ROUTES: Route[] = [
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/garments/${f.garmentId}/status${q}`,
+        payload: { status: 'archived' },
+      }),
+    },
   },
   {
     name: 'DELETE /wardrobe/:id',
@@ -716,6 +772,13 @@ export const ROUTES: Route[] = [
       manager: ['notFound', 'forbidden'],
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
+    },
+    api: {
+      ok: 204,
+      request: (f, q) => ({
+        method: 'DELETE',
+        url: `/api/v1/garments/${f.garmentId}${q}`,
+      }),
     },
   },
 
@@ -801,6 +864,14 @@ export const ROUTES: Route[] = [
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/garments/${f.garmentId}/condition${q}`,
+        payload: { condition: 'needs_repair', conditionNote: 'Planted' },
+      }),
+    },
   },
   // The duplicate check (#20) is part of adding to the wardrobe, like
   // GET /wardrobe/new; "Add a copy" changes the quantity, a garment
@@ -837,6 +908,14 @@ export const ROUTES: Route[] = [
       manager: ['notFound', 'ok'],
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/garments/${f.garmentId}/copies${q}`,
+        payload: { copies: 1 },
+      }),
     },
   },
   // The order mail's review list (#25) is ORDER_MAIL_OWNER's alone: anyone

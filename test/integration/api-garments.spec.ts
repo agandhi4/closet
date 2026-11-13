@@ -1,14 +1,21 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { deviceToken, expectProblem } from './api';
-import { createGarment, jpegPhoto, uploadPhoto } from './garments';
+import {
+  createGarment,
+  createWishlistItem,
+  garmentRow,
+  jpegPhoto,
+  uploadPhoto,
+} from './garments';
 import { createTestApp, type TestApp } from './harness';
 
 /**
- * The wardrobe's reads on /api/v1 (#192a): GET /garments (the grid's
+ * The wardrobe on /api/v1. Reads (#192a): GET /garments (the grid's
  * filters, keyset paging behind an opaque cursor) and GET /garments/{id}
  * (the garment in full, its signed photo URLs, the owner's records only
- * for the owner). Who may read what is the authorization matrix's (its
- * GET /wardrobe and GET /wardrobe/:id cases replay on these twins,
+ * for the owner). Writes (#192b): each its page twin's writer with a JSON
+ * body, saved by the garment form's rules. Who may do what is the
+ * authorization matrix's (its wardrobe cases replay on these twins,
  * authorization-wardrobe.spec.ts); what each costs is api-statements'.
  */
 
@@ -236,5 +243,294 @@ describe('GET /api/v1/garments/{id}', () => {
       expect(problem.detail).toBe('Garment not found');
       expect(JSON.stringify(problem)).not.toContain('Api garment');
     }
+  });
+});
+
+describe('the garment writes', () => {
+  const send = (
+    method: 'POST' | 'PATCH' | 'PUT' | 'DELETE',
+    url: string,
+    payload?: object,
+    token = ownerToken,
+  ) => t.api(token, { method, url: `/api/v1${url}`, payload });
+
+  async function created(payload: object): Promise<number> {
+    const res = await send('POST', '/garments', payload);
+    expect(res.statusCode, res.body).toBe(201);
+    const { id } = res.json<{ id: number }>();
+    expect(res.headers.location).toBe(`/api/v1/garments/${id}`);
+    return id;
+  }
+
+  it("POST /garments saves by the form's rules: normalized, the type's presets, the wishlist", async () => {
+    const id = await created({
+      name: '  Writes tee ',
+      category: 'Tops',
+      size: 'xl',
+      price: '49.9',
+      colors: ['white'],
+      properties: { type: 't-shirt' },
+      careLabel: { notes: 'Cold wash' },
+      clientId: '7d1f3c2e-1b9a-4c8e-9f0a-2b3c4d5e6f70',
+    });
+    expect(await garmentRow(t, id)).toMatchObject({
+      ownerId: t.owner.id,
+      name: 'Writes tee',
+      category: 'tops',
+      size: 'X-Large',
+      price: '49.90',
+      colors: ['white'],
+      type: 't-shirt',
+      warmth: 2,
+      sleeve: 'short',
+      washingDetails: 'Cold wash',
+      status: 'closet',
+    });
+    const wish = await created({
+      category: 'tops',
+      destination: 'wishlist',
+      replacesGarmentId: id,
+    });
+    expect(await garmentRow(t, wish)).toMatchObject({
+      status: 'wishlist',
+      replacesGarmentId: id,
+    });
+  });
+
+  it('refuses what the form refuses as a 400 naming each field, and stores nothing', async () => {
+    const blank = expectProblem(
+      await send('POST', '/garments', {
+        category: ' ',
+        sourceUrl: 'javascript:alert(1)',
+      }),
+      400,
+      'validation',
+    );
+    expect(blank.errors?.map(({ path }) => path).sort()).toEqual([
+      'body/category',
+      'body/sourceUrl',
+    ]);
+    const replaces = expectProblem(
+      await send('POST', '/garments', {
+        category: 'tops',
+        replacesGarmentId: ids[0],
+      }),
+      400,
+      'validation',
+    );
+    expect(replaces.errors).toEqual([
+      { path: 'body/replacesGarmentId', message: replaces.detail },
+    ]);
+  });
+
+  it('PATCH /garments/{id} writes what was sent: null clears, a new role drops and names what it lacks', async () => {
+    const id = await created({
+      name: 'Patched',
+      category: 'tops',
+      brand: 'Kept',
+      notes: 'Old notes',
+      properties: { type: 't-shirt', fabricWeightGsm: 180 },
+    });
+    const res = await send('PATCH', `/garments/${id}`, {
+      notes: null,
+      category: 'footwear',
+      properties: { warmth: null },
+      care: { washAfterWears: 3 },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toEqual({
+      ignored: expect.arrayContaining(['properties.type', 'properties.sleeve']),
+    });
+    expect(await garmentRow(t, id)).toMatchObject({
+      name: 'Patched',
+      brand: 'Kept',
+      notes: null,
+      category: 'footwear',
+      type: null,
+      sleeve: null,
+      warmth: null,
+      washAfterWears: 3,
+    });
+    // Sent again: nothing differs, nothing is written.
+    const again = await send('PATCH', `/garments/${id}`, { notes: null });
+    expect(again.json()).toEqual({ ignored: [] });
+    expectProblem(
+      await send('PATCH', `/garments/${id}`, { acquiredOn: '2026-02-30' }),
+      400,
+      'validation',
+    );
+    expectProblem(
+      await send('PATCH', `/garments/${id}`, {
+        category: 'tops',
+        properties: { type: 'boot' },
+      }),
+      400,
+      'validation',
+    );
+  });
+
+  it('takes a JSON body as sent: a never-wash 0 stays 0, a string for a number is a 400', async () => {
+    // Fastify's ajv coerces by default, which once turned this 0 into null
+    // (the role's default) through Nullable's null branch (validator.ts).
+    const neverWash = { care: { washAfterWears: 0 } };
+    const id = await created({ category: 'tops', ...neverWash });
+    expect((await garmentRow(t, id))?.washAfterWears).toBe(0);
+    const patched = await created({
+      category: 'tops',
+      care: { washAfterWears: 3 },
+    });
+    expect(
+      (await send('PATCH', `/garments/${patched}`, neverWash)).statusCode,
+    ).toBe(200);
+    expect((await garmentRow(t, patched))?.washAfterWears).toBe(0);
+    const clone = await send('POST', `/garments/${patched}/clones`, {
+      name: 'Never washed',
+      ...neverWash,
+    });
+    expect(clone.statusCode, clone.body).toBe(201);
+    expect(
+      (await garmentRow(t, clone.json<{ id: number }>().id))?.washAfterWears,
+    ).toBe(0);
+    const coerced = expectProblem(
+      await send('PATCH', `/garments/${id}`, {
+        care: { washAfterWears: '3' },
+      }),
+      400,
+      'validation',
+    );
+    expect(coerced.errors?.[0]?.path).toMatch(/^body\/care/);
+    expect((await garmentRow(t, id))?.washAfterWears).toBe(0);
+  });
+
+  it('PUT /garments/{id}/status archives and restores, a repeat answered as it is', async () => {
+    const id = await created({ category: 'tops' });
+    const put = (status: string) =>
+      send('PUT', `/garments/${id}/status`, { status });
+    for (const status of ['archived', 'archived', 'closet', 'closet']) {
+      const res = await put(status);
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json()).toEqual({ status });
+      expect((await garmentRow(t, id))?.status).toBe(status);
+    }
+    const wish = await createWishlistItem(t, { name: 'Not bought' });
+    expectProblem(
+      await send('PUT', `/garments/${wish}/status`, { status: 'closet' }),
+      409,
+      'conflict',
+    );
+  });
+
+  it('PUT /garments/{id}/condition keeps the note only with a problem', async () => {
+    const id = await created({ category: 'tops' });
+    const set = async (body: object) =>
+      (await send('PUT', `/garments/${id}/condition`, body)).json<unknown>();
+    expect(
+      await set({ condition: 'needs_repair', conditionNote: ' Loose hem ' }),
+    ).toEqual({ condition: 'needs_repair', conditionNote: 'Loose hem' });
+    expect(await set({ condition: 'good', conditionNote: 'Gone' })).toEqual({
+      condition: 'good',
+    });
+    expect(await garmentRow(t, id)).toMatchObject({
+      condition: 'good',
+      conditionNote: null,
+    });
+  });
+
+  it("POST /garments/{id}/clones copies a garment a VIEW grantee sees into the grantee's own wardrobe", async () => {
+    const source = await created({
+      name: 'Source',
+      category: 'tops',
+      brand: 'Same',
+      care: { washAfterWears: 5 },
+    });
+    const res = await send(
+      'POST',
+      `/garments/${source}/clones?ownerId=${t.owner.id}`,
+      { size: 'm' },
+      viewerToken,
+    );
+    expect(res.statusCode, res.body).toBe(201);
+    const clone = await garmentRow(t, res.json<{ id: number }>().id);
+    expect(clone).toMatchObject({
+      name: 'Source (cloned)',
+      brand: 'Same',
+      size: 'Medium',
+      // The owner's wash limit is the owner's own record.
+      washAfterWears: null,
+    });
+    expect(clone?.ownerId).not.toBe(t.owner.id);
+    expect(res.headers.location).toBe(`/api/v1/garments/${clone?.id}`);
+    // No body: the source as it is.
+    const plain = await send('POST', `/garments/${source}/clones`);
+    expect(plain.statusCode, plain.body).toBe(201);
+  });
+
+  it('POST /garments/{id}/copies counts more copies, and refuses a wishlist item', async () => {
+    const id = await created({ category: 'tops' });
+    expect(
+      (await send('POST', `/garments/${id}/copies`, { copies: 2 })).json(),
+    ).toEqual({ quantity: 3 });
+    expect((await send('POST', `/garments/${id}/copies`)).json()).toEqual({
+      quantity: 4,
+    });
+    const wish = await createWishlistItem(t, { name: 'Wished' });
+    expectProblem(
+      await send('POST', `/garments/${wish}/copies`),
+      409,
+      'conflict',
+    );
+  });
+
+  it("PATCH /garments/{id}/tags writes what differs, a new type's presets included", async () => {
+    const id = await created({ category: 'tops' });
+    const tag = (body: object) => send('PATCH', `/garments/${id}/tags`, body);
+    const first = await tag({ type: 't-shirt', formality: 3 });
+    expect(first.statusCode, first.body).toBe(200);
+    expect(first.json<{ changed: string[] }>().changed.sort()).toEqual([
+      'formality',
+      'sleeve',
+      'type',
+      'warmth',
+    ]);
+    expect(await garmentRow(t, id)).toMatchObject({
+      type: 't-shirt',
+      warmth: 2,
+      formality: 3,
+    });
+    expect((await tag({ type: 't-shirt' })).json()).toEqual({ changed: [] });
+    expect((await tag({ warmth: null })).json()).toEqual({
+      changed: ['warmth'],
+    });
+    expectProblem(await tag({ type: 'boot' }), 400, 'validation');
+  });
+
+  it('PATCH /garments sets one property on the garments named, skipping what its role lacks', async () => {
+    const top = await created({ category: 'tops' });
+    const shoe = await created({ category: 'footwear' });
+    const res = await send('PATCH', '/garments', {
+      ids: [top, shoe],
+      property: 'sleeve',
+      value: 'long',
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json()).toEqual({ updated: 1, skipped: 1 });
+    expect((await garmentRow(t, top))?.sleeve).toBe('long');
+    expectProblem(
+      await send('PATCH', '/garments', {
+        ids: [top],
+        property: 'warmth',
+        value: 'silk',
+      }),
+      400,
+      'validation',
+    );
+  });
+
+  it('DELETE /garments/{id} is a 204, then the 404 a retry reads as done', async () => {
+    const id = await created({ category: 'tops' });
+    const res = await send('DELETE', `/garments/${id}`);
+    expect(res.statusCode, res.body).toBe(204);
+    expect(await garmentRow(t, id)).toBeUndefined();
+    expectProblem(await send('DELETE', `/garments/${id}`), 404, 'not_found');
   });
 });

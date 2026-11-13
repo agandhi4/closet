@@ -1,6 +1,7 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
 import { todayIn } from '../../calendar-date';
+import { QUANTITY_MAX } from '../../wardrobe/availability';
 import { CARE_WASH } from '../../wardrobe/care';
 import {
   FORMALITIES,
@@ -17,20 +18,65 @@ import {
   ListOf,
   literals,
   readIdCursor,
+  withoutNulls,
 } from '../api/resource';
+import { HttpError } from '../errors';
+import { t } from '../i18n';
 import { GarmentParams, ROW_ID_MAX, RowId } from '../schemas';
 import { actorOf } from '../sharing/access';
-import { garmentGuard, searchGarments } from './garment-access';
+import { API_PREFIX } from '../surface';
+import { destinationValues } from './destination';
+import { garmentAddress, garmentGuard, searchGarments } from './garment-access';
+import {
+  addGarmentCopies,
+  deleteOwnGarment,
+  editGarment,
+  putGarmentStatus,
+  setGarmentCondition,
+  tagGarment,
+} from './garment-actions';
+import {
+  BulkInput,
+  bulkChangeOf,
+  ConditionInput,
+  CopiesInput,
+  GarmentClone,
+  garmentChangesOf,
+  GarmentPatch,
+  ignoredPaths,
+  NewGarment,
+  refusedGarmentBody,
+  StatusInput,
+  tagBodyOf,
+  TagsInput,
+} from './garment-api-input';
+import { readGarmentEdit, readNewGarment } from './garment-changes';
 import { garmentContext } from './garment-context';
-import { CATEGORY_MAX, NAME_MAX, SIZE_MAX } from './garment-input';
+import { formAudience } from './garment-form';
+import {
+  CATEGORY_MAX,
+  NAME_MAX,
+  readCondition,
+  SIZE_MAX,
+  storedFormValues,
+} from './garment-input';
 import {
   Garment,
+  GarmentCondition,
   GarmentListItem,
+  GarmentQuantity,
+  GarmentRef,
+  GarmentsUpdated,
+  GarmentStatusAnswer,
+  GarmentTagged,
+  GarmentUpdated,
   toGarmentListItem,
   toGarmentResource,
 } from './garment-resource';
 import { searchFilters } from './garment-search';
 import { GRID_PAGE_SIZE } from './grid-page-size';
+import { bulkSetProperty } from './queries';
+import { cloneGarment, createGarment, type WardrobeDeps } from './writes';
 
 /** `?ownerId=`: a wardrobe shared with the caller; absent, their own. */
 const OwnerId = Type.Optional(
@@ -94,25 +140,39 @@ const GarmentList = ListOf(GarmentListItem, {
 
 const GarmentQuery = Type.Object({ ownerId: OwnerId });
 
+/** A garment's resource; its writes are paths under it. */
+const GARMENT_PATH = '/garments/:id';
+
 /**
- * The wardrobe's API routes (#192a; plan section 6), registered by
- * apiPlugin under /api/v1, each calling what the grid and the garment page
- * call. Reads only: the writes are #192b, the photo's #192c.
+ * The wardrobe's API routes (#192a reads, #192b writes; plan section 6),
+ * registered by apiPlugin under /api/v1, each calling what its page twin
+ * calls (operations.ts names the twin). The photo's are #192c.
  *  - GET /garments: the wardrobe's closet, filtered and paged as the grid
  *    (searchGarments, MCP's search_garments): one statement for the page
  *    and one for the count, after the token's.
  *  - GET /garments/{id}: the garment in full, as its page reads it
  *    (requireGarment, garmentContext): the owner's own records only for
  *    the owner.
- * A grantee's `?ownerId=` share rides in the token's read (#170), so
- * neither costs more than its page twin.
+ *  - The writes (garment-actions.ts, or the page's guard and writer): a
+ *    JSON body (garment-api-input.ts) saved by the garment form's rules,
+ *    answering what changed, never the garment read again.
+ * A grantee's `?ownerId=` share rides in the token's read (#170), so none
+ * costs more than its page twin but PATCH, which reads the garment it
+ * merges into (as update_garment does).
  */
 export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
   app,
-  { db, config },
+  options,
   done,
 ) => {
+  const { db, config, logger } = options;
   const authorize = garmentGuard(db);
+  const deps: WardrobeDeps = {
+    db,
+    photos: options.photos,
+    logger,
+    cutouts: options.cutouts,
+  };
 
   app.get(
     '/garments',
@@ -151,7 +211,7 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
   );
 
   app.get(
-    '/garments/:id',
+    GARMENT_PATH,
     {
       schema: {
         operationId: 'getGarment',
@@ -176,5 +236,330 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
     },
   );
 
+  app.post(
+    '/garments',
+    {
+      schema: {
+        operationId: 'createGarment',
+        tags: ['garments'],
+        summary: 'Adds a garment, without its photo',
+        description:
+          "To your wardrobe or one shared with you to MANAGE (VIEW is a 403). Saved by the garment form's rules: a blank category or a bad date is a 400 naming the field. The photo is its own upload.",
+        querystring: GarmentQuery,
+        body: NewGarment,
+        response: apiResponses({ 201: GarmentRef }),
+      },
+    },
+    async (request, reply) => {
+      const { access, viewOwner } = await authorize(request, 'manage');
+      const {
+        destination = 'closet',
+        replacesGarmentId,
+        clientId,
+        ...body
+      } = request.body;
+      if (replacesGarmentId !== undefined && destination !== 'wishlist') {
+        const message = t('api.REPLACES_ON_WISHLIST_ONLY');
+        throw new HttpError(400, message, {
+          validation: [{ path: 'body/replacesGarmentId', message }],
+        });
+      }
+      const form = readNewGarment(
+        destinationValues(
+          { to: destination, replaces: replacesGarmentId },
+          undefined,
+        ),
+        null,
+        garmentChangesOf(body),
+        formAudience({ kind: 'new' }, viewOwner),
+      );
+      if (!form.ok) throw refusedGarmentBody(form.errors);
+      const id = await createGarment(
+        deps,
+        access.ownerId,
+        form.fields,
+        destination,
+      );
+      logger.info(
+        `Garment ${id} created (${destination}) by user ${actorOf(request).userId} in wardrobe ${access.ownerId} (API)${
+          clientId ? `, client id ${clientId.slice(0, 8)}` : ''
+        }`,
+      );
+      return reply
+        .status(201)
+        .header('Location', apiGarmentUrl(id, viewOwner))
+        .send({ id });
+    },
+  );
+
+  app.patch(
+    GARMENT_PATH,
+    {
+      schema: {
+        operationId: 'updateGarment',
+        tags: ['garments'],
+        summary:
+          "Changes a garment's fields, properties, care label and condition",
+        description:
+          "Only the fields sent: absent leaves one as stored, null clears it. Saved by the garment form's rules (a new type brings its presets, a new category drops what its role lacks: `ignored` names them). Your own wardrobe or a MANAGE share; the wash limit is the owner's alone.",
+        params: GarmentParams,
+        querystring: GarmentQuery,
+        body: GarmentPatch,
+        response: apiResponses({ 200: GarmentUpdated }),
+      },
+    },
+    async (request) => {
+      const changes = garmentChangesOf(request.body);
+      // The merge needs the stored garment, as update_garment's does: the
+      // one statement more than the form's save, which posts every field.
+      const { edit } = await editGarment(
+        db,
+        actorOf(request),
+        garmentAddress(request),
+        (stored) => {
+          const read = readGarmentEdit(stored.garment, changes, {
+            owner: stored.access.isOwner,
+          });
+          if (!read.ok) throw refusedGarmentBody(read.errors);
+          return read;
+        },
+      );
+      const changed = Object.keys(edit.fields);
+      logger.info(
+        `Garment ${request.params.id} updated by user ${actorOf(request).userId} (API): ${
+          changed.length > 0 ? changed.join(', ') : 'nothing changed'
+        }`,
+      );
+      return { ignored: ignoredPaths(edit.ignored) };
+    },
+  );
+
+  app.delete(
+    GARMENT_PATH,
+    {
+      schema: {
+        operationId: 'deleteGarment',
+        tags: ['garments'],
+        summary: 'Deletes a garment and its photo',
+        description:
+          'The owner only: a share, MANAGE included, is a 403. A garment already gone is a 404, which a retry may read as done. A Muse suggestion is a 409: it is set aside, never deleted.',
+        params: GarmentParams,
+        querystring: GarmentQuery,
+        response: apiResponses({ 204: Type.Null({ description: 'Deleted' }) }),
+      },
+    },
+    async (request, reply) => {
+      const { access, status } = await deleteOwnGarment(
+        deps,
+        actorOf(request),
+        garmentAddress(request),
+      );
+      logger.info(
+        `Garment ${request.params.id} (${status}) deleted by user ${access.ownerId} (API)`,
+      );
+      return reply.status(204).send(null);
+    },
+  );
+
+  app.put(
+    `${GARMENT_PATH}/status`,
+    {
+      schema: {
+        operationId: 'setGarmentStatus',
+        tags: ['garments'],
+        summary: 'Archives or restores a garment',
+        description:
+          'The owner only. `archived` takes a closet garment out of the closet, `closet` brings an archived one back; one already there is answered as it is. Anything else (a wishlist item) is a 409: "Bought it" is the wishlist\'s.',
+        params: GarmentParams,
+        querystring: GarmentQuery,
+        body: StatusInput,
+        response: apiResponses({ 200: GarmentStatusAnswer }),
+      },
+    },
+    async (request) => {
+      const { access, from, to } = await putGarmentStatus(
+        db,
+        actorOf(request),
+        garmentAddress(request),
+        request.body.status,
+      );
+      logger.info(
+        `Garment ${request.params.id} put in ${to} (${from} -> ${to}) by user ${access.ownerId} (API)`,
+      );
+      return { status: to };
+    },
+  );
+
+  app.put(
+    `${GARMENT_PATH}/condition`,
+    {
+      schema: {
+        operationId: 'setGarmentCondition',
+        tags: ['garments'],
+        summary: "Sets a garment's condition",
+        description:
+          'Your own wardrobe or a MANAGE share. The note is kept only while the condition is not good.',
+        params: GarmentParams,
+        querystring: GarmentQuery,
+        body: ConditionInput,
+        response: apiResponses({ 200: GarmentCondition }),
+      },
+    },
+    async (request) => {
+      const { condition, conditionNote } = request.body;
+      const fields = readCondition({
+        condition,
+        conditionNote: conditionNote ?? undefined,
+      });
+      await setGarmentCondition(
+        db,
+        actorOf(request),
+        garmentAddress(request),
+        fields,
+      );
+      logger.info(
+        `Garment ${request.params.id} condition ${fields.condition}${fields.conditionNote ? ' (with a note)' : ''} set by user ${actorOf(request).userId} (API)`,
+      );
+      return withoutNulls(fields);
+    },
+  );
+
+  app.post(
+    `${GARMENT_PATH}/clones`,
+    {
+      schema: {
+        operationId: 'cloneGarment',
+        tags: ['garments'],
+        summary: 'Copies a garment into your own wardrobe',
+        description:
+          'Any garment you can see, a VIEW share included: the copy is yours, with its photo. The body changes what differs from the source (absent, the name is "<name> (cloned)"). The source\'s owner-only wash limit is not copied from a share.',
+        params: GarmentParams,
+        querystring: GarmentQuery,
+        body: GarmentClone,
+        response: apiResponses({ 201: GarmentRef }),
+      },
+    },
+    async (request, reply) => {
+      const {
+        access,
+        viewOwner,
+        garment: source,
+      } = await authorize.garment(request, 'view');
+      const userId = actorOf(request).userId;
+      const values = storedFormValues(source, { owner: access.isOwner });
+      const form = readNewGarment(
+        {
+          ...values,
+          name: source.name ? t('CLONE_NAME', { name: source.name }) : '',
+        },
+        source.fabricWeight,
+        garmentChangesOf(request.body ?? {}),
+        // The clone is the requester's own garment, whoever owns the source.
+        formAudience({ kind: 'clone' }, viewOwner),
+      );
+      if (!form.ok) throw refusedGarmentBody(form.errors);
+      const id = await cloneGarment(deps, source, userId, form.fields);
+      logger.info(
+        `Garment ${id} cloned from ${source.id} by user ${userId} (API)`,
+      );
+      return reply
+        .status(201)
+        .header('Location', apiGarmentUrl(id, undefined))
+        .send({ id });
+    },
+  );
+
+  app.post(
+    `${GARMENT_PATH}/copies`,
+    {
+      schema: {
+        operationId: 'addGarmentCopies',
+        tags: ['garments'],
+        summary: 'Counts more identical copies of a closet garment',
+        description: `Its quantity, instead of a new garment (at most ${QUANTITY_MAX}). Your own wardrobe or a MANAGE share. A wishlist item, an archived garment or one past the cap is a 409. Not idempotent: each call adds.`,
+        params: GarmentParams,
+        querystring: GarmentQuery,
+        body: CopiesInput,
+        response: apiResponses({ 200: GarmentQuantity }),
+      },
+    },
+    async (request) => {
+      const { access, from, to } = await addGarmentCopies(
+        db,
+        actorOf(request),
+        garmentAddress(request),
+        request.body?.copies ?? 1,
+      );
+      logger.info(
+        `Garment ${request.params.id} copies added by user ${actorOf(request).userId} in wardrobe ${access.ownerId} (API): quantity ${from} -> ${to}`,
+      );
+      return { quantity: to };
+    },
+  );
+
+  app.patch(
+    `${GARMENT_PATH}/tags`,
+    {
+      schema: {
+        operationId: 'tagGarment',
+        tags: ['garments'],
+        summary: "Tags a garment's type, warmth and formality",
+        description:
+          "The tagging queue's tap (GET /garments?needsTagging=true lists it): only what differs is written, and a new type fills its presets where nothing was set or still at the old type's. A type not of the category is a 400. Your own wardrobe or a MANAGE share.",
+        params: GarmentParams,
+        querystring: GarmentQuery,
+        body: TagsInput,
+        response: apiResponses({ 200: GarmentTagged }),
+      },
+    },
+    async (request) => {
+      const { changed } = await tagGarment(
+        db,
+        actorOf(request),
+        garmentAddress(request),
+        tagBodyOf(request.body),
+      );
+      if (changed.length > 0) {
+        logger.info(
+          `Garment ${request.params.id} tagged by user ${actorOf(request).userId} (API): ${changed.join(', ')}`,
+        );
+      }
+      return { changed };
+    },
+  );
+
+  app.patch(
+    '/garments',
+    {
+      schema: {
+        operationId: 'bulkUpdateGarments',
+        tags: ['garments'],
+        summary: 'Sets one property on many garments',
+        description:
+          'Select mode\'s "Set…": every garment named whose role has the property; the rest are counted as skipped. Your own wardrobe or a MANAGE share.',
+        querystring: GarmentQuery,
+        body: BulkInput,
+        response: apiResponses({ 200: GarmentsUpdated }),
+      },
+    },
+    async (request) => {
+      const { access } = await authorize(request, 'manage');
+      const { ids, change } = bulkChangeOf(request.body);
+      const result =
+        ids.length > 0
+          ? await bulkSetProperty(db, access.ownerId, ids, change)
+          : { updated: 0, skipped: 0 };
+      logger.info(
+        `Bulk ${change.property} by user ${actorOf(request).userId} in wardrobe ${access.ownerId} (API): ${result.updated} set, ${result.skipped} skipped, ${ids.length} named`,
+      );
+      return result;
+    },
+  );
+
   done();
 };
+
+/** A garment's API URL, in the wardrobe it was addressed in. */
+function apiGarmentUrl(id: number, viewOwner: number | undefined): string {
+  return `${API_PREFIX}/garments/${id}${viewOwner === undefined ? '' : `?ownerId=${viewOwner}`}`;
+}
