@@ -42,16 +42,20 @@ export async function blockedBehind(
  * Resolves once at least `count` backends are blocked behind `holderPid`
  * (blockedBehind), so an unrelated wait (a bcrypt hash, a third writer's
  * lock) never ends it early. No deadline of its own: a wait that never ends
- * is the test's timeout. The one way to sequence a race on a lock
+ * is the test's timeout. Aborting `signal` ends the poll (it resolves, never
+ * rejects), checked before each query, so a caller that stops caring leaves
+ * no query running. The one way to sequence a race on a lock
  * (test/AGENTS.md).
  */
 export async function waitForBlockedOn(
   db: Queryable,
   holderPid: number,
   count = 1,
+  signal?: AbortSignal,
 ): Promise<void> {
-  while ((await blockedBehind(db, holderPid)) < count) {
-    await sleep(LOOK_EVERY_MS);
+  while (!signal?.aborted && (await blockedBehind(db, holderPid)) < count) {
+    // An abort wakes the sleep early; it resolves, never rejects.
+    await sleep(LOOK_EVERY_MS, undefined, { signal }).catch(() => undefined);
   }
 }
 
@@ -93,9 +97,11 @@ export async function interleave<A, B>(
     (value) => ({ value }),
     (error: unknown) => ({ error }),
   );
+  const stopPolling = new AbortController();
+  const polling = waitForBlockedOn(db, holderPid, 1, stopPolling.signal);
   try {
     const outcome = await Promise.race([
-      waitForBlockedOn(db, holderPid).then(() => null),
+      polling.then(() => null),
       secondSettled,
     ]);
     if (outcome) {
@@ -109,6 +115,9 @@ export async function interleave<A, B>(
     }
     await meanwhile?.();
   } finally {
+    // The losing poll must end before the caller's pool can close.
+    stopPolling.abort();
+    await polling;
     release();
     // The holder's transaction ends (and its connection returns to the pool)
     // even when the wait failed; its own failure is not this call's to hide.

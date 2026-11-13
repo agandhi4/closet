@@ -96,3 +96,17 @@ it('fails fast when the second write takes no lock, and frees the holder', async
   );
   expect(rows[0].held).toBe(0);
 });
+
+it('an aborted wait resolves without running another query', async () => {
+  let queries = 0;
+  const counting = new Proxy(t.db, {
+    get(target, key, receiver) {
+      if (key === 'execute') queries += 1;
+      return Reflect.get(target, key, receiver) as unknown;
+    },
+  });
+  const stop = new AbortController();
+  stop.abort();
+  await waitForBlockedOn(counting, 0, 1, stop.signal);
+  expect(queries).toBe(0);
+});
