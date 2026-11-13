@@ -32,7 +32,7 @@ import {
 import { imageUrl } from '../../src/web/files/image-url';
 import { readPhotoRef } from '../../src/web/files/queries';
 import { createGarment, jpegPhoto, uploadPhoto } from './garments';
-import { createTestApp, type TestApp, userIdOf } from './harness';
+import { createTestApp, type TestApp, userIdOf, asFixture } from './harness';
 
 /**
  * The wardrobe export (#200; docs/plans/2026-09-28-multi-add-and-export.md):
@@ -141,73 +141,79 @@ describe('the wardrobe export', () => {
       })
       .returning({ id: optionGroup.id });
     // Every column set: the round trip below proves each one.
-    await t.db
-      .update(garment)
-      .set({
-        name: '=HYPERLINK("https://evil.example","click")',
-        category: 'tops',
-        brand: '@Brand, "quoted"',
-        size: '-M',
-        notes: 'Line one\nLine two, with a comma',
-        colors: ['black', 'white'],
-        acquiredOn: '2025-03-14',
-        washingDetails: '+cold wash',
-        status: 'closet',
-        replacesGarmentId: plainId,
-        type: ALL_GARMENT_TYPES[0],
-        warmth: 3,
-        formality: 2,
-        materials: [MATERIALS[0], MATERIALS[1]],
-        pattern: PATTERNS[1],
-        fit: FITS[0],
-        sleeve: SLEEVES[0],
-        length: LENGTHS[0],
-        fabricWeight: 203,
-        waterResistant: true,
-        sourceUrl: 'https://shop.example/tee?a=1&b=2',
-        price: '24.90',
-        quantity: 3,
-        washAfterWears: 2,
-        lastWashedOn: '2026-09-01',
-        away: AWAY_REASONS[0],
-        awayNote: 'With Sam',
-        condition: CONDITIONS[1],
-        conditionNote: 'Frayed hem',
-        careWash: CARE_WASH[0],
-        careBleach: CARE_BLEACH[2],
-        careDry: CARE_DRY[0],
-        careIron: CARE_IRON[3],
-        careDryClean: CARE_DRY_CLEAN[1],
-        // A suggestion bought, then returned (#333).
-        suggestedAt: new Date('2026-10-01T09:30:00.000Z'),
-        suggestionGroupId: needId,
-        suggestionNote: 'Goes with the raw jeans',
-        suggestionRank: 2,
-        dismissedAt: new Date('2026-10-04T18:00:00.000Z'),
-        dismissedReason: 'returned',
-        dismissedNote: 'Too short',
-        boughtAt: new Date('2026-10-03T12:00:00.000Z'),
-      })
-      .where(eq(garment.id, fullId));
-    const [photo] = await t.db
-      .update(file)
-      .set({ cutoutStatus: 'none' })
-      .from(garment)
-      .where(and(eq(garment.id, fullId), eq(file.id, garment.photoId)))
-      .returning({
-        fileName: file.fileName,
-        version: file.version,
-        variantKey: file.variantKey,
-      });
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(garment)
+        .set({
+          name: '=HYPERLINK("https://evil.example","click")',
+          category: 'tops',
+          brand: '@Brand, "quoted"',
+          size: '-M',
+          notes: 'Line one\nLine two, with a comma',
+          colors: ['black', 'white'],
+          acquiredOn: '2025-03-14',
+          washingDetails: '+cold wash',
+          status: 'closet',
+          replacesGarmentId: plainId,
+          type: ALL_GARMENT_TYPES[0],
+          warmth: 3,
+          formality: 2,
+          materials: [MATERIALS[0], MATERIALS[1]],
+          pattern: PATTERNS[1],
+          fit: FITS[0],
+          sleeve: SLEEVES[0],
+          length: LENGTHS[0],
+          fabricWeight: 203,
+          waterResistant: true,
+          sourceUrl: 'https://shop.example/tee?a=1&b=2',
+          price: '24.90',
+          quantity: 3,
+          washAfterWears: 2,
+          lastWashedOn: '2026-09-01',
+          away: AWAY_REASONS[0],
+          awayNote: 'With Sam',
+          condition: CONDITIONS[1],
+          conditionNote: 'Frayed hem',
+          careWash: CARE_WASH[0],
+          careBleach: CARE_BLEACH[2],
+          careDry: CARE_DRY[0],
+          careIron: CARE_IRON[3],
+          careDryClean: CARE_DRY_CLEAN[1],
+          // A suggestion bought, then returned (#333).
+          suggestedAt: new Date('2026-10-01T09:30:00.000Z'),
+          suggestionGroupId: needId,
+          suggestionNote: 'Goes with the raw jeans',
+          suggestionRank: 2,
+          dismissedAt: new Date('2026-10-04T18:00:00.000Z'),
+          dismissedReason: 'returned',
+          dismissedNote: 'Too short',
+          boughtAt: new Date('2026-10-03T12:00:00.000Z'),
+        })
+        .where(eq(garment.id, fullId)),
+    );
+    const [photo] = await asFixture(t.db, (tx) =>
+      tx
+        .update(file)
+        .set({ cutoutStatus: 'none' })
+        .from(garment)
+        .where(and(eq(garment.id, fullId), eq(file.id, garment.photoId)))
+        .returning({
+          fileName: file.fileName,
+          version: file.version,
+          variantKey: file.variantKey,
+        }),
+    );
     fullPhoto = photo!;
     // An owner-only record that is no garment field: never exported.
-    await t.db.insert(garmentRepair).values({
-      garmentId: fullId,
-      day: '2026-08-01',
-      kind: 'repair',
-      note: 'Mended',
-      cost: '77.77',
-    });
+    await asFixture(t.db, (tx) =>
+      tx.insert(garmentRepair).values({
+        garmentId: fullId,
+        day: '2026-08-01',
+        kind: 'repair',
+        note: 'Mended',
+        cost: '77.77',
+      }),
+    );
   });
 
   afterAll(() => t?.cleanup());
@@ -339,14 +345,17 @@ describe('the wardrobe export', () => {
     const cookie = await t.register('big-closet@example.com');
     const ownerId = await userIdOf(t, 'big-closet@example.com');
     const count = EXPORT_PAGE_SIZE * 2 + 5;
-    await t.db.insert(garment).values(
-      Array.from({ length: count }, (_, index) => ({
-        shareableId: randomUUID(),
-        ownerId,
-        category: 'tops',
-        name: `Tee ${index}`,
-        status: index % 10 === 0 ? ('wishlist' as const) : ('closet' as const),
-      })),
+    await asFixture(t.db, (tx) =>
+      tx.insert(garment).values(
+        Array.from({ length: count }, (_, index) => ({
+          shareableId: randomUUID(),
+          ownerId,
+          category: 'tops',
+          name: `Tee ${index}`,
+          status:
+            index % 10 === 0 ? ('wishlist' as const) : ('closet' as const),
+        })),
+      ),
     );
     const ids = (await rowsOf(ownerId)).map((row) => row.id);
 

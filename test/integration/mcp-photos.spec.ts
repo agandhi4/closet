@@ -13,7 +13,7 @@ import {
   photoFileName,
   uploadPhoto,
 } from './garments';
-import { createTestApp, type TestApp, userIdOf } from './harness';
+import { createTestApp, type TestApp, userIdOf, asFixture } from './harness';
 import { callTool, createAccessToken, mcpRequest, tool } from './mcp';
 import { planEntry, takeSelfie } from './selfies';
 
@@ -176,10 +176,12 @@ describe('MCP garment photos and tagging', () => {
 
       // A garment row wrongly pointing at the selfie's file is still refused
       // (publicPhoto), as the public /file routes refuse its name.
-      await t.db
-        .update(garment)
-        .set({ photoId: row.photoId })
-        .where(eq(garment.id, tee));
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(garment)
+          .set({ photoId: row.photoId })
+          .where(eq(garment.id, tee)),
+      );
       try {
         expect(
           await callTool(t, token, 'get_garment_photo', { id: tee }),
@@ -188,10 +190,9 @@ describe('MCP garment photos and tagging', () => {
           `Refused a selfie as garment ${tee}'s photo in wardrobe ${t.owner.id}`,
         );
       } finally {
-        await t.db
-          .update(garment)
-          .set({ photoId: null })
-          .where(eq(garment.id, tee));
+        await asFixture(t.db, (tx) =>
+          tx.update(garment).set({ photoId: null }).where(eq(garment.id, tee)),
+        );
       }
     });
 

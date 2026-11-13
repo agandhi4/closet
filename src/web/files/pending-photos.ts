@@ -323,7 +323,7 @@ function draftOf(row: Omit<PendingPhotoJson, 'inScope'>): Draft | undefined {
  * batch's drafts still waiting after it went, #200); undefined when there
  * was none (someone else's, a draft of another wardrobe, claimed,
  * discarded, evicted or reconciled; with `draftsOnly`, not a draft).
- * Inside the claim's or the discard's transaction, after lockPhotoName:
+ * Inside the claim's or the discard's transaction, after lockOwnerAndPhotoName:
  * the row lock orders it against any other taker, so exactly one wins,
  * and this statement's snapshot, taken after the name's lock, sees any
  * `file` row a claimant committed meanwhile. One statement (#161): the

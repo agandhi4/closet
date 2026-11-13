@@ -52,8 +52,8 @@ export function dbConfig(config: Config): DbConfig {
  * The session timeouts a connection opens with (startup parameters, so they
  * cost no round trip). A stalled transaction holds its row locks, the owner
  * lock included (src/web/auth/queries.ts), until one of these ends it.
- * `lock_timeout` is not here: ownerTransaction sets it for its own
- * transaction (OWNER_LOCK_TIMEOUT_MS).
+ * `lock_timeout` is not here: every owner lock sets it for its own
+ * transaction (OWNER_LOCK_TIMEOUT_MS, src/db/owner-lock.ts).
  */
 export interface DbTimeouts {
   /** statement_timeout: the longest any one statement may run. */

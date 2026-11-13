@@ -8,6 +8,7 @@ import {
   type TestApp,
   unescapeHtml,
   userIdOf,
+  asFixture,
 } from './harness';
 import { expectFullPage, expectNoScriptNavigation } from './pages';
 
@@ -87,9 +88,11 @@ describe('year in review', () => {
   }
 
   async function wear(garmentId: number, days: string[], owner = ownerId) {
-    await t.db
-      .insert(garmentWear)
-      .values(days.map((day) => ({ garmentId, ownerId: owner, day })));
+    await asFixture(t.db, (tx) =>
+      tx
+        .insert(garmentWear)
+        .values(days.map((day) => ({ garmentId, ownerId: owner, day }))),
+    );
   }
 
   const page = async (query = '', cookie?: string) => {

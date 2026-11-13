@@ -21,7 +21,7 @@ import {
 import type { Photos, QuarterTurn } from '../files/photos';
 import {
   insertPhotoRow,
-  lockPhotoName,
+  lockOwnerAndPhotoName,
   type NewPhotoRow,
 } from '../files/queries';
 import type { Logger } from '../../logger';
@@ -332,7 +332,10 @@ export async function createGarmentWithPendingPhoto(
   const claimed =
     photo &&
     (await db.transaction(async (tx): Promise<ClaimedGarment | undefined> => {
-      await lockPhotoName(tx, fileName);
+      // The owner first (lockOwnerAndPhotoName says why), then the take.
+      if (!(await lockOwnerAndPhotoName(tx, ownerId, fileName))) {
+        return undefined;
+      }
       const taken = await takePendingPhoto(tx, fileName, { userId, ownerId });
       if (!taken) return undefined;
       const photoId = await insertPhotoRow(tx, {
@@ -364,7 +367,9 @@ export async function createGarmentWithPendingPhoto(
  * the user's own, a draft only from its batch's wardrobe) with no `file`
  * row: only a photo of theirs that no garment was saved with goes. Under
  * the name's lock, so a save claiming it at the same moment either wins
- * (nothing is deleted) or finds it gone. The bytes go after the commit.
+ * (nothing is deleted) or finds it gone. The owner locked is the
+ * uploader's, whose account deletion deletes the row (lockOwnerAndPhotoName).
+ * The bytes go after the commit.
  */
 export async function discardPendingPhoto(
   { db, photos, logger }: WardrobeDeps,
@@ -373,10 +378,11 @@ export async function discardPendingPhoto(
   options: { draftsOnly?: boolean } = {},
 ): Promise<PendingPhoto | undefined> {
   if (parseStoredName(fileName)?.variant !== 'original') return undefined;
-  const discarded = await db.transaction(async (tx) => {
-    await lockPhotoName(tx, fileName);
-    return takePendingPhoto(tx, fileName, scope, options);
-  });
+  const discarded = await db.transaction(async (tx) =>
+    (await lockOwnerAndPhotoName(tx, scope.userId, fileName))
+      ? takePendingPhoto(tx, fileName, scope, options)
+      : undefined,
+  );
   if (!discarded) {
     logger.warn(
       `Pending photo ${fileName} not discarded: not pending for user ${scope.userId} in wardrobe ${scope.ownerId}`,

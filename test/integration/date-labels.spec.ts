@@ -10,7 +10,12 @@ import {
 import { addDays, type IsoDate } from '../../src/calendar-date';
 import { dateLabel } from '../../src/web/date-labels';
 import { createGarment } from './garments';
-import { createTestApp, type TestApp, unescapeHtml } from './harness';
+import {
+  createTestApp,
+  type TestApp,
+  unescapeHtml,
+  asFixture,
+} from './harness';
 
 /**
  * Every date a user reads is a word, never `2026-08-14` (#356): the pages
@@ -47,22 +52,28 @@ describe('date labels', () => {
     const ownerId = t.owner.id;
     const { cookie } = t.owner;
     garmentId = await createGarment(t, { name: 'Old coat', cookie });
-    await t.db
-      .update(garment)
-      .set({ acquiredOn: daysAgo(500), lastWashedOn: daysAgo(20) })
-      .where(eq(garment.id, garmentId));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(garment)
+        .set({ acquiredOn: daysAgo(500), lastWashedOn: daysAgo(20) })
+        .where(eq(garment.id, garmentId)),
+    );
     // Worn long ago (Insights' least worn and not-worn-for lists) and this
     // week on the calendar.
-    await t.db
-      .insert(garmentWear)
-      .values({ garmentId, ownerId, day: daysAgo(400) });
-    const [made] = await t.db
-      .insert(outfit)
-      .values({ shareableId: randomUUID(), ownerId, name: 'Coat day' })
-      .returning({ id: outfit.id });
-    await t.db
-      .insert(outfitCalendar)
-      .values({ ownerId, outfitId: made.id, day: t.today() });
+    await asFixture(t.db, (tx) =>
+      tx.insert(garmentWear).values({ garmentId, ownerId, day: daysAgo(400) }),
+    );
+    const [made] = await asFixture(t.db, (tx) =>
+      tx
+        .insert(outfit)
+        .values({ shareableId: randomUUID(), ownerId, name: 'Coat day' })
+        .returning({ id: outfit.id }),
+    );
+    await asFixture(t.db, (tx) =>
+      tx
+        .insert(outfitCalendar)
+        .values({ ownerId, outfitId: made.id, day: t.today() }),
+    );
     const res = await t.inject({
       method: 'POST',
       url: '/trips',

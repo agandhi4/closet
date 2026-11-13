@@ -3,6 +3,7 @@ import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { Client } from 'pg';
 import pino from 'pino';
 import { MIGRATIONS_FOLDER, runMigrations } from '../../src/db/migrate';
+import { SYNC_GUARD_SQL } from './sync-guard';
 
 /**
  * A throwaway Postgres database for one test run, created on the server named
@@ -119,8 +120,9 @@ const EMPTY_DATABASE = `template template0 locale_provider libc lc_collate 'C' l
 const TEMPLATE_LOCK_KEY = 'closet:scratch-template';
 
 /**
- * `closet_tpl_<12 hex>`: the hash of every file in drizzle/, so a new or
- * changed migration names a new template and the old one is swept.
+ * `closet_tpl_<12 hex>`: the hash of every file in drizzle/ and of the sync
+ * guard, so a new or changed migration or guard names a new template and the
+ * old one is swept.
  */
 export function migratedTemplateName(): string {
   const digest = createHash('sha256');
@@ -129,6 +131,7 @@ export function migratedTemplateName(): string {
   })) {
     digest.update(`${migration.folderMillis}:${migration.hash}\n`);
   }
+  digest.update(SYNC_GUARD_SQL);
   return `closet_tpl_${digest.digest('hex').slice(0, 12)}`;
 }
 
@@ -169,9 +172,21 @@ export async function migratedTemplate(): Promise<string> {
       },
       pino({ level: 'silent' }),
     );
+    await installSyncGuard(new URL(`/${building}`, url));
     await client.query(`alter database "${building}" rename to "${name}"`);
   });
   return name;
+}
+
+/** The test-only sync guard (sync-guard.ts) on the template, so on every clone. */
+async function installSyncGuard(database: URL): Promise<void> {
+  const client = new Client({ connectionString: database.toString() });
+  await client.connect();
+  try {
+    await client.query(SYNC_GUARD_SQL);
+  } finally {
+    await client.end();
+  }
 }
 
 /**

@@ -20,7 +20,7 @@ import {
   pngCutout,
   uploadPhoto,
 } from './garments';
-import { createTestApp, multipart, type TestApp } from './harness';
+import { createTestApp, multipart, type TestApp, asFixture } from './harness';
 import { silentLogger } from './logger';
 
 /**
@@ -100,12 +100,14 @@ describe('cutout queue', () => {
 
   /** Ages the row's lease past CUTOUT_LEASE_MS: its holder is presumed dead. */
   async function lapseLease(fileName: string) {
-    await t.db
-      .update(file)
-      .set({
-        cutoutStartedAt: sql`now() - make_interval(secs => ${CUTOUT_LEASE_MS / 1000 + 1})`,
-      })
-      .where(eq(file.fileName, fileName));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(file)
+        .set({
+          cutoutStartedAt: sql`now() - make_interval(secs => ${CUTOUT_LEASE_MS / 1000 + 1})`,
+        })
+        .where(eq(file.fileName, fileName)),
+    );
   }
 
   afterAll(() => t?.cleanup());
@@ -200,10 +202,12 @@ describe('cutout queue', () => {
     const { fileName } = await queuedPhoto('Changing shirt');
     const runner = fakeRunner(async (call) => {
       if (call === 1) {
-        await t.db
-          .update(file)
-          .set({ version: sql`${file.version} + 1` })
-          .where(eq(file.fileName, fileName));
+        await asFixture(t.db, (tx) =>
+          tx
+            .update(file)
+            .set({ version: sql`${file.version} + 1` })
+            .where(eq(file.fileName, fileName)),
+        );
       }
       return halfMask();
     });
@@ -294,15 +298,17 @@ describe('cutout queue', () => {
     await uploadPhoto(t, garmentId, await jpegPhoto());
     const fileName = await photoFileName(t, garmentId);
     // As a server killed mid-job leaves it: started, still pending.
-    await t.db
-      .update(file)
-      .set({
-        cutoutStatus: 'pending',
-        cutoutAttempts: 1,
-        cutoutJobVersion: 1,
-        cutoutRequestedAt: new Date(Date.now() - 60_000),
-      })
-      .where(eq(file.fileName, fileName));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(file)
+        .set({
+          cutoutStatus: 'pending',
+          cutoutAttempts: 1,
+          cutoutJobVersion: 1,
+          cutoutRequestedAt: new Date(Date.now() - 60_000),
+        })
+        .where(eq(file.fileName, fileName)),
+    );
 
     t.cutouts.start(fakeRunner());
     await t.cutouts.whenIdle();
@@ -359,15 +365,17 @@ describe('cutout queue', () => {
 
   /** A pending row as another server's job leaves it: started, leased `ageMs` ago. */
   async function leasedElsewhere(fileName: string, ageMs: number) {
-    await t.db
-      .update(file)
-      .set({
-        cutoutAttempts: 1,
-        cutoutJobVersion: 1,
-        cutoutWorker: 'other-box:1:0badf00d',
-        cutoutStartedAt: sql`now() - make_interval(secs => ${ageMs / 1000})`,
-      })
-      .where(eq(file.fileName, fileName));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(file)
+        .set({
+          cutoutAttempts: 1,
+          cutoutJobVersion: 1,
+          cutoutWorker: 'other-box:1:0badf00d',
+          cutoutStartedAt: sql`now() - make_interval(secs => ${ageMs / 1000})`,
+        })
+        .where(eq(file.fileName, fileName)),
+    );
   }
 
   it("never runs a photo another server's live job holds", async () => {
@@ -392,10 +400,12 @@ describe('cutout queue', () => {
 
   it('never claims or leases an unwanted photo (an outfit selfie)', async () => {
     const { fileName } = await queuedPhoto('Selfie-like shirt');
-    await t.db
-      .update(file)
-      .set({ cutoutStatus: 'unwanted', cutoutRequestedAt: null })
-      .where(eq(file.fileName, fileName));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(file)
+        .set({ cutoutStatus: 'unwanted', cutoutRequestedAt: null })
+        .where(eq(file.fileName, fileName)),
+    );
     const runner = fakeRunner();
 
     t.cutouts.start(runner);
@@ -497,10 +507,12 @@ describe('cutout queue', () => {
       [retried, 2],
       [exhausted, 3],
     ] as const) {
-      await t.db
-        .update(file)
-        .set({ cutoutStatus: 'failed', cutoutAttempts: attempts })
-        .where(eq(file.fileName, fileName));
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(file)
+          .set({ cutoutStatus: 'failed', cutoutAttempts: attempts })
+          .where(eq(file.fileName, fileName)),
+      );
     }
 
     await expect(retryFailedCutouts(t.db, silentLogger)).resolves.toBe(1);
@@ -730,10 +742,12 @@ describe('cutout queue', () => {
       const { fileName } = await queuedPhoto('Changed failing shirt');
       const runner = fakeRunner(async (call) => {
         if (call === 1) {
-          await t.db
-            .update(file)
-            .set({ version: sql`${file.version} + 1` })
-            .where(eq(file.fileName, fileName));
+          await asFixture(t.db, (tx) =>
+            tx
+              .update(file)
+              .set({ version: sql`${file.version} + 1` })
+              .where(eq(file.fileName, fileName)),
+          );
           throw new Error('model exploded');
         }
         return halfMask();

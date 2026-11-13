@@ -18,7 +18,12 @@ import {
   createWeekPlan,
   recordAutoEntry,
 } from '../../src/web/week-plan/queries';
-import { createTestApp, type TestApp, unescapeHtml } from './harness';
+import {
+  createTestApp,
+  type TestApp,
+  unescapeHtml,
+  asFixture,
+} from './harness';
 import { callTool, createAccessToken, tool } from './mcp';
 import {
   expectFullPage,
@@ -146,7 +151,7 @@ describe('changing a planned outfit in place', () => {
     day: IsoDate,
     occasion: Occasion,
   ) =>
-    t.db.transaction(async (tx) => {
+    asFixture(t.db, async (tx) => {
       const weekPlanId = await createWeekPlan(tx, t.owner.id);
       const picked = await pickIdea(tx, t.owner.id, {
         garmentIds,
@@ -174,8 +179,8 @@ describe('changing a planned outfit in place', () => {
   // Every test starts without outfits or entries (a plain delete is fine:
   // nothing here is worn history another test needs).
   const clear = async () => {
-    await t.db.delete(outfit);
-    await t.db.delete(weekPlan);
+    await asFixture(t.db, (tx) => tx.delete(outfit));
+    await asFixture(t.db, (tx) => tx.delete(weekPlan));
   };
 
   beforeAll(async () => {
@@ -510,10 +515,12 @@ describe('changing a planned outfit in place', () => {
         'evening',
       );
       // Editing the outfit makes the entry the person's (#16).
-      await t.db
-        .update(outfitCalendar)
-        .set({ plannedBy: 'user' })
-        .where(eq(outfitCalendar.id, takenOver.entryId));
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(outfitCalendar)
+          .set({ plannedBy: 'user' })
+          .where(eq(outfitCalendar.id, takenOver.entryId)),
+      );
       const chosen = [
         await outfitOf([tops[2], bottoms[0], shoes[1]]),
         await outfitOf([tops[2], bottoms[1], shoes[0]]),

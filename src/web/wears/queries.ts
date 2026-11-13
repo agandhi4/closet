@@ -1,5 +1,11 @@
 import { and, desc, eq, inArray, isNull, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
+import {
+  OWNER_LOCKED,
+  ownerLockCte,
+  ownerLocked,
+  ownerLockSql,
+} from '../../db/owner-lock';
 import { selectScalars } from '../../db/select-scalars';
 import {
   file,
@@ -486,7 +492,7 @@ export async function detachOutfitWears(
  * either; 'unchanged' when it already was so (a replayed tap, #178).
  * `day` is today, or a queued tap's own day. One statement: the lookup is
  * a CTE the write reads, so the garment page's tap costs one round trip,
- * not two (#160).
+ * not two (#160), the owner lock its first CTE (src/db/owner-lock.ts).
  */
 export async function setWoreToday(
   db: Queryable,
@@ -509,11 +515,13 @@ export async function setWoreToday(
     wishlist: boolean;
     changed: boolean;
   }>(sql`
-    with owned as (
+    with ${ownerLockSql(db, input.ownerId)},
+    owned as (
       select ${garment.id} as id, ${garment.ownerId} as owner_id,
         ${onWishlist()} as wishlist
       from ${garment}
       where ${and(eq(garment.id, input.garmentId), eq(garment.ownerId, input.ownerId))}
+        and ${OWNER_LOCKED}
     ),
     written as (${write})
     select wishlist, exists (select 1 from written) as changed from owned`);
@@ -539,7 +547,9 @@ export async function markWashed(
   day: IsoDate,
 ): Promise<{ id: number; changed: boolean }[]> {
   if (ids.length === 0) return [];
+  const lock = ownerLockCte(db, ownerId);
   return db
+    .with(lock)
     .update(garment)
     .set({ lastWashedOn: sql`greatest(${garment.lastWashedOn}, ${day}::date)` })
     .where(
@@ -547,6 +557,7 @@ export async function markWashed(
         eq(garment.ownerId, ownerId),
         inArray(garment.id, ids),
         ownedGarment(),
+        ownerLocked(db, lock),
       ),
     )
     .returning({
@@ -567,7 +578,9 @@ export async function setAway(
   garmentId: number,
   away: { reason: AwayReason; note: string | null } | null,
 ): Promise<boolean> {
+  const lock = ownerLockCte(db, ownerId);
   const updated = await db
+    .with(lock)
     .update(garment)
     .set({ away: away?.reason ?? null, awayNote: away?.note ?? null })
     .where(
@@ -575,6 +588,7 @@ export async function setAway(
         eq(garment.id, garmentId),
         eq(garment.ownerId, ownerId),
         ownedGarment(),
+        ownerLocked(db, lock),
       ),
     )
     .returning({ id: garment.id });

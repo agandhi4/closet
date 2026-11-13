@@ -17,6 +17,7 @@ import {
   shownMarkup,
   type TestApp,
   unescapeHtml,
+  asFixture,
 } from './harness';
 import { createAccessToken, tool } from './mcp';
 import {
@@ -131,7 +132,9 @@ describe('Today', () => {
   };
 
   const clearToday = () =>
-    t.db.delete(outfitCalendar).where(eq(outfitCalendar.day, t.today()));
+    asFixture(t.db, (tx) =>
+      tx.delete(outfitCalendar).where(eq(outfitCalendar.day, t.today())),
+    );
 
   beforeAll(async () => {
     t = await createTestApp();
@@ -276,16 +279,18 @@ describe('Today', () => {
           .insert(optionGroup)
           .values({ ownerId: t.owner.id, name, suggestedByTokenId: tokenId })
           .returning({ id: optionGroup.id });
-        const [garmentRow] = await t.db
-          .insert(garment)
-          .values({
-            shareableId: randomUUID(),
-            ownerId: t.owner.id,
-            name: `${name} option`,
-            category: 'tops',
-            status: 'wishlist',
-          })
-          .returning({ id: garment.id });
+        const [garmentRow] = await asFixture(t.db, (tx) =>
+          tx
+            .insert(garment)
+            .values({
+              shareableId: randomUUID(),
+              ownerId: t.owner.id,
+              name: `${name} option`,
+              category: 'tops',
+              status: 'wishlist',
+            })
+            .returning({ id: garment.id }),
+        );
         expect(
           await markSuggestion(t.db, t.owner.id, garmentRow.id, {
             tokenId,
@@ -323,8 +328,10 @@ describe('Today', () => {
         note: null,
       });
       expect((await get('/')).body).not.toContain('data-muse-needs');
-      await t.db.delete(optionGroup);
-      await t.db.delete(garment).where(inArray(garment.id, picks));
+      await asFixture(t.db, (tx) => tx.delete(optionGroup));
+      await asFixture(t.db, (tx) =>
+        tx.delete(garment).where(inArray(garment.id, picks)),
+      );
     });
 
     it('an empty closet says what ideas need', async () => {

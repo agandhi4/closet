@@ -61,6 +61,7 @@ import {
   subscribeAs,
   type TestApp,
   unescapeHtml,
+  asFixture,
 } from './harness';
 import { callTool, createAccessToken, tool } from './mcp';
 import {
@@ -206,8 +207,8 @@ describe('the weekly auto-plan', () => {
   // (a plain delete is fine here: the wears it cascades are the last
   // test's too).
   const clearWeek = async () => {
-    await t.db.delete(outfit);
-    await t.db.delete(weekPlan);
+    await asFixture(t.db, (tx) => tx.delete(outfit));
+    await asFixture(t.db, (tx) => tx.delete(weekPlan));
     await t.db.delete(weekReplan);
   };
 
@@ -462,8 +463,8 @@ describe('the weekly auto-plan', () => {
       await post('/calendar/plan-week');
       const planned = await weekEntries();
       // The outfits stay, saved; the entries go.
-      await t.db.delete(outfitCalendar);
-      await t.db.delete(weekPlan);
+      await asFixture(t.db, (tx) => tx.delete(outfitCalendar));
+      await asFixture(t.db, (tx) => tx.delete(weekPlan));
       // The person's own all-day outfit on Wednesday, planned for work.
       const theirs = planned.find((e) => e.day === '2026-10-07')!.outfitId;
       await post('/calendar', {
@@ -728,7 +729,9 @@ describe('the weekly auto-plan', () => {
       const planId = Number(
         /planned=(\d+)/.exec(String(res.headers.location))![1],
       );
-      await t.db.update(outfitCalendar).set({ plannedBy: 'user' });
+      await asFixture(t.db, (tx) =>
+        tx.update(outfitCalendar).set({ plannedBy: 'user' }),
+      );
       const outfitsBefore = await t.db.$count(outfit);
       const undo = await post(`/calendar/plan-week/${planId}/undo`);
       expect(undo.statusCode).toBe(303);
@@ -968,12 +971,14 @@ describe('the weekly auto-plan', () => {
       await planWarm();
       const entries = await weekEntries();
       // Thursday's is theirs now (worn is only for today; an edit does it).
-      await t.db
-        .update(outfitCalendar)
-        .set({ plannedBy: 'user' })
-        .where(
-          eq(outfitCalendar.id, entries.find((e) => e.day === WEEK[3])!.id),
-        );
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(outfitCalendar)
+          .set({ plannedBy: 'user' })
+          .where(
+            eq(outfitCalendar.id, entries.find((e) => e.day === WEEK[3])!.id),
+          ),
+      );
       forecastDays = weekAt(() => -2);
       const first = await replanWeeks(deps, at(TODAY, 7));
       expect(first.claimed).toBe(1);
@@ -1032,23 +1037,29 @@ describe('the weekly auto-plan', () => {
       ] as const) {
         const utcHour = REPLAN_HOUR + utcOffset;
         // An evening the planner left there, recorded in its batch.
-        const [entry] = await t.db
-          .insert(outfitCalendar)
-          .values({
-            ownerId: t.owner.id,
-            outfitId: (
-              await t.db.select({ id: outfit.id }).from(outfit).limit(1)
-            )[0].id,
-            day,
-            occasion: 'evening',
-            plannedBy: 'auto',
-          })
-          .returning({ id: outfitCalendar.id });
-        await t.db.insert(weekPlanEntry).values({
-          entryId: entry.id,
-          weekPlanId: weekPlanId!,
-          outfitCreated: false,
-        });
+        const [anyOutfit] = await t.db
+          .select({ id: outfit.id })
+          .from(outfit)
+          .limit(1);
+        const [entry] = await asFixture(t.db, (tx) =>
+          tx
+            .insert(outfitCalendar)
+            .values({
+              ownerId: t.owner.id,
+              outfitId: anyOutfit.id,
+              day,
+              occasion: 'evening',
+              plannedBy: 'auto',
+            })
+            .returning({ id: outfitCalendar.id }),
+        );
+        await asFixture(t.db, (tx) =>
+          tx.insert(weekPlanEntry).values({
+            entryId: entry.id,
+            weekPlanId: weekPlanId!,
+            outfitCreated: false,
+          }),
+        );
         const early = new Date(
           `${day}T${String(utcHour - 1).padStart(2, '0')}:30:00Z`,
         );
@@ -1210,15 +1221,17 @@ describe('the weekly auto-plan', () => {
         const mondayName = await garmentName(monday.garmentId);
         // Worn the three days before: every copy of each tee is dirty.
         onTestFinished(async () => {
-          await t.db.delete(garmentWear);
+          await asFixture(t.db, (tx) => tx.delete(garmentWear));
         });
         for (const garmentId of new Set([monday.garmentId, later.garmentId])) {
           for (const back of [1, 2, 3]) {
-            await t.db.insert(garmentWear).values({
-              garmentId,
-              ownerId: t.owner.id,
-              day: addDays(TODAY, -back),
-            });
+            await asFixture(t.db, (tx) =>
+              tx.insert(garmentWear).values({
+                garmentId,
+                ownerId: t.owner.id,
+                day: addDays(TODAY, -back),
+              }),
+            );
           }
         }
         const before = await weekEntries();

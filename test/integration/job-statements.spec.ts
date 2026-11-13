@@ -49,6 +49,7 @@ import {
   subscribeAs,
   type TestApp,
   userIdOf,
+  asFixture,
 } from './harness';
 
 /**
@@ -336,12 +337,14 @@ describe('background jobs: statements per run (#173)', () => {
       const worn = people.map(
         (p) => garmentIds.find((g) => g.ownerId === p.id)!,
       );
-      await t.db.insert(garmentWear).values(
-        worn.map((g) => ({
-          garmentId: g.id,
-          ownerId: g.ownerId,
-          day: TODAY,
-        })),
+      await asFixture(t.db, (tx) =>
+        tx.insert(garmentWear).values(
+          worn.map((g) => ({
+            garmentId: g.id,
+            ownerId: g.ownerId,
+            day: TODAY,
+          })),
+        ),
       );
       try {
         let run: Awaited<ReturnType<typeof sendDueReminders>> | undefined;
@@ -356,10 +359,12 @@ describe('background jobs: statements per run (#173)', () => {
         expect(recorded.statements).toBe(3);
         expect(webpush.sendNotification).not.toHaveBeenCalled();
       } finally {
-        await t.db.delete(garmentWear).where(
-          inArray(
-            garmentWear.garmentId,
-            worn.map((g) => g.id),
+        await asFixture(t.db, (tx) =>
+          tx.delete(garmentWear).where(
+            inArray(
+              garmentWear.garmentId,
+              worn.map((g) => g.id),
+            ),
           ),
         );
       }
@@ -394,19 +399,21 @@ describe('background jobs: statements per run (#173)', () => {
     const failed = async (count: number) =>
       count === 0
         ? []
-        : t.db
-            .insert(file)
-            .values(
-              Array.from({ length: count }, () => ({
-                shareableId: randomUUID(),
-                fileName: `${randomUUID()}.jpg`,
-                createdOn: new Date().toISOString(),
-                createdById: people[0].id,
-                cutoutStatus: 'failed' as const,
-                cutoutAttempts: 1,
-              })),
-            )
-            .returning({ id: file.id });
+        : asFixture(t.db, (tx) =>
+            tx
+              .insert(file)
+              .values(
+                Array.from({ length: count }, () => ({
+                  shareableId: randomUUID(),
+                  fileName: `${randomUUID()}.jpg`,
+                  createdOn: new Date().toISOString(),
+                  createdById: people[0].id,
+                  cutoutStatus: 'failed' as const,
+                  cutoutAttempts: 1,
+                })),
+              )
+              .returning({ id: file.id }),
+          );
 
     // Nothing failed (the usual night): the look alone. Else the look,
     // then one transaction whatever the count: begin, the rows locked, the
@@ -440,10 +447,12 @@ describe('background jobs: statements per run (#173)', () => {
           }
         } finally {
           if (rows.length > 0) {
-            await t.db.delete(file).where(
-              inArray(
-                file.id,
-                rows.map((r) => r.id),
+            await asFixture(t.db, (tx) =>
+              tx.delete(file).where(
+                inArray(
+                  file.id,
+                  rows.map((r) => r.id),
+                ),
               ),
             );
           }

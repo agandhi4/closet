@@ -21,7 +21,7 @@ import type { OutfitRule } from '../../wardrobe/outfit-rules';
 import { takePendingPhoto } from '../files/pending-photos';
 import {
   insertPhotoRow,
-  lockPhotoName,
+  lockOwnerAndPhotoName,
   type NewPhotoRow,
 } from '../files/queries';
 import { HttpError } from '../errors';
@@ -266,7 +266,7 @@ export function saveInspiration(
 /**
  * A new look with the pending photo `fileName` the owner just stored (a
  * pasted link's, importLink), in one transaction: the pending row taken
- * under the name's lock (as a garment's save claims one, so a discard, an
+ * under the owner's and the name's lock (as a garment's save claims one, so a discard, an
  * eviction or reconciliation either went first or finds it gone), then the
  * `file` row and the look. `photo` is its row as Photos built it, after
  * checking its bytes outside the transaction (#141). Undefined, writing
@@ -280,7 +280,10 @@ export function saveInspirationWithPendingPhoto(
   fields: NewInspiration,
 ): Promise<number | undefined> {
   return db.transaction(async (tx) => {
-    await lockPhotoName(tx, photo.fileName);
+    // The owner first (lockOwnerAndPhotoName says why), then the take.
+    if (!(await lockOwnerAndPhotoName(tx, ownerId, photo.fileName))) {
+      return undefined;
+    }
     const scope = { userId: ownerId, ownerId };
     if (!(await takePendingPhoto(tx, photo.fileName, scope))) return undefined;
     return insertInspiration(tx, ownerId, photo, fields);

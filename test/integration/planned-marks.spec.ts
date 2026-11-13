@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { garment, garmentWear, outfitCalendar } from '../../src/db/schema';
 import { dayColumns } from './calendar-page';
 import { createGarment } from './garments';
-import { createTestApp, type TestApp } from './harness';
+import { createTestApp, type TestApp, asFixture } from './harness';
 
 /**
  * A planned outfit warns about a piece it cannot be worn with (#358;
@@ -92,12 +92,14 @@ describe('planned outfits: unavailable pieces', () => {
     await plan(lentOutfit, 'work');
     await plan(archivedOutfit, 'evening');
     // Yesterday's plan of the same outfit: a past entry is a record.
-    await t.db.insert(outfitCalendar).values({
-      day: addDays(t.today(), -1),
-      outfitId: lentOutfit,
-      ownerId: t.owner.id,
-      occasion: 'work',
-    });
+    await asFixture(t.db, (tx) =>
+      tx.insert(outfitCalendar).values({
+        day: addDays(t.today(), -1),
+        outfitId: lentOutfit,
+        ownerId: t.owner.id,
+        occasion: 'work',
+      }),
+    );
     const lent = await t.inject({
       method: 'POST',
       url: `/wardrobe/${jacket}/away`,
@@ -353,19 +355,23 @@ describe('planned outfits: the wash mark counts copies', () => {
   };
 
   const wearOn = async (daysAgo: number[]) => {
-    await t.db.insert(garmentWear).values(
-      daysAgo.map((n) => ({
-        garmentId: tee,
-        ownerId: t.owner.id,
-        day: addDays(t.today(), -n),
-      })),
+    await asFixture(t.db, (tx) =>
+      tx.insert(garmentWear).values(
+        daysAgo.map((n) => ({
+          garmentId: tee,
+          ownerId: t.owner.id,
+          day: addDays(t.today(), -n),
+        })),
+      ),
     );
   };
 
   beforeAll(async () => {
     t = await createTestApp();
     tee = await createGarment(t, { name: 'Triple tee', category: 'tops' });
-    await t.db.update(garment).set({ quantity: 3 }).where(eq(garment.id, tee));
+    await asFixture(t.db, (tx) =>
+      tx.update(garment).set({ quantity: 3 }).where(eq(garment.id, tee)),
+    );
     const created = await t.inject({
       method: 'POST',
       url: '/outfits',

@@ -16,6 +16,7 @@ import {
   type TestApp,
   unescapeHtml,
   userIdOf,
+  asFixture,
 } from './harness';
 import { callTool, createAccessToken, tool } from './mcp';
 import { expectFullPage, expectNoScriptNavigation } from './pages';
@@ -111,29 +112,35 @@ describe('insights', () => {
     entryId: number | null = null,
     owner = ownerId,
   ) {
-    await t.db.insert(garmentWear).values({
-      garmentId,
-      ownerId: owner,
-      day: daysAgo(days),
-      outfitCalendarId: entryId,
-    });
+    await asFixture(t.db, (tx) =>
+      tx.insert(garmentWear).values({
+        garmentId,
+        ownerId: owner,
+        day: daysAgo(days),
+        outfitCalendarId: entryId,
+      }),
+    );
   }
 
   /** A worn calendar entry of a new outfit, `days` ago. */
   async function wornEntry(days: number): Promise<number> {
-    const [made] = await t.db
-      .insert(outfit)
-      .values({ shareableId: randomUUID(), ownerId, name: `Day ${days}` })
-      .returning({ id: outfit.id });
-    const [entry] = await t.db
-      .insert(outfitCalendar)
-      .values({
-        day: daysAgo(days),
-        outfitId: made.id,
-        ownerId,
-        wornAt: new Date(),
-      })
-      .returning({ id: outfitCalendar.id });
+    const [made] = await asFixture(t.db, (tx) =>
+      tx
+        .insert(outfit)
+        .values({ shareableId: randomUUID(), ownerId, name: `Day ${days}` })
+        .returning({ id: outfit.id }),
+    );
+    const [entry] = await asFixture(t.db, (tx) =>
+      tx
+        .insert(outfitCalendar)
+        .values({
+          day: daysAgo(days),
+          outfitId: made.id,
+          ownerId,
+          wornAt: new Date(),
+        })
+        .returning({ id: outfitCalendar.id }),
+    );
     return entry.id;
   }
 
