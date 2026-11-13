@@ -303,6 +303,82 @@ describe('POST /wardrobe/:id/photo/rotate', () => {
     await expectNoOrphans();
   });
 
+  it('turns a photo whose cutout landed while it was turned, and requeues it (#248)', async () => {
+    const id = await createGarment(t, { name: 'Double tap shirt' });
+    await uploadPhoto(t, id, await twoTone());
+    const before = await photoFileName(t, id);
+    expect(await photoRow(t, before)).toMatchObject({
+      cutoutStatus: 'pending',
+    });
+
+    // The cutout job finishes between the rotate's read and its swap, as
+    // a second tap during a pending cutout meets it.
+    const rotateStored = t.photos.rotateStored.bind(t.photos);
+    const spy = vi
+      .spyOn(t.photos, 'rotateStored')
+      .mockImplementation(async (...args) => {
+        const result = await rotateStored(...args);
+        t.cutouts.start(fakeRunner());
+        await t.cutouts.whenIdle();
+        await t.cutouts.stop();
+        expect(await photoRow(t, before)).toMatchObject({
+          cutoutStatus: 'ready',
+        });
+        return result;
+      });
+    try {
+      const res = await rotate(id, 'right');
+      expect(res.statusCode).toBe(303);
+    } finally {
+      spy.mockRestore();
+    }
+
+    // The turned photo replaced it, queued for its own cutout; the old
+    // photo's set went, the cutout that just landed included.
+    const after = await photoFileName(t, id);
+    expect(after).not.toBe(before);
+    expect(await photoRow(t, before)).toBeUndefined();
+    expect(await photoRow(t, after)).toMatchObject({
+      cutoutStatus: 'pending',
+      variantKey: null,
+    });
+    expect(await dimensions(original(after))).toEqual([720, 1080]);
+    await expectNoOrphans();
+  });
+
+  it('refuses with a 409 when a mask is saved while an unedited photo is turned, and keeps the mask', async () => {
+    const id = await createGarment(t, { name: 'Late mask shirt' });
+    await uploadPhoto(t, id, await twoTone());
+    const fileName = await photoFileName(t, id);
+
+    const rotateStored = t.photos.rotateStored.bind(t.photos);
+    let turned: string | undefined;
+    const spy = vi
+      .spyOn(t.photos, 'rotateStored')
+      .mockImplementation(async (...args) => {
+        const result = await rotateStored(...args);
+        turned = result.row.fileName;
+        expect(result.cutoutKept).toBe(false);
+        await saveMask(id, 500, 400);
+        return result;
+      });
+    try {
+      const res = await rotate(id, 'right');
+      expect(res.statusCode).toBe(409);
+    } finally {
+      spy.mockRestore();
+    }
+
+    // The mask is the photo's; the turned copy, which lacked it, is gone.
+    expect(await photoFileName(t, id)).toBe(fileName);
+    expect(await photoRow(t, fileName)).toMatchObject({
+      cutoutStatus: 'edited',
+    });
+    expect(turned).toBeDefined();
+    expect(await photoRow(t, turned!)).toBeUndefined();
+    await expectNoOrphans();
+  });
+
   it('turns once per tap that lands: two at once never turn a stale photo, and leave nothing behind', async () => {
     const id = await createGarment(t, { name: 'Double tap shirt' });
     await uploadPhoto(t, id, await twoTone());

@@ -1,5 +1,5 @@
 import type { MultipartFile } from '@fastify/multipart';
-import { lockCutoutRow } from '../../cutout/queries';
+import { type CutoutRow, lockCutoutRow } from '../../cutout/queries';
 import {
   type InitialCutoutColumns,
   initialCutoutState,
@@ -446,15 +446,36 @@ const ROTATIONS = {
 export type RotateDirection = keyof typeof ROTATIONS;
 
 /**
+ * Whether a turned copy made from `source` may still replace the photo,
+ * whose row is now `current` (the same file: the caller checks that). The
+ * copy is the original's bytes, plus the mask when `maskKept`, so only a
+ * mask it would drop refuses it: with the mask, any new version (a second
+ * mask saved); without, a mask saved since. A job's result or a retry is
+ * not: the rotate queues the turned photo's own cutout (#248, where a
+ * double tap during a pending cutout was a 409 error page). An unchanged
+ * version always is, even `edited` with the mask's file gone (rotateStored
+ * then turns the photo alone).
+ */
+function rotateStillValid(
+  source: Pick<GarmentPhoto, 'version'>,
+  current: Pick<CutoutRow, 'status' | 'version'>,
+  maskKept: boolean,
+): boolean {
+  if (current.version === source.version) return true;
+  return !maskKept && current.status !== 'edited';
+}
+
+/**
  * POST /wardrobe/:id/photo/rotate: the garment's photo turned a quarter as
  * a new photo (Photos.rotateStored; the original is never modified) that
  * replaces it as an upload does (swapPhoto). An edited cutout (a mask)
  * turns with it and stays edited; any other is queued again for the
- * turned photo, as a new upload's is. A 409 when the photo changed after
- * it was read (another rotate or upload landed first, or its cutout moved:
- * a mask saved, a job's result; the row's version says which): the turned
- * copy is deleted and nothing else is written, so two quick taps never
- * turn a stale photo over a newer one and no saved mask is lost.
+ * turned photo, as a new upload's is. A 409 when the turned copy would lose
+ * something that landed after the photo was read (rotateStillValid): the
+ * turned copy is deleted and nothing else is written, so two quick taps
+ * never turn a stale photo over a newer one and no saved mask is lost. A
+ * cutout job finishing meanwhile is no reason (#248): the rotate requeues
+ * the cutout anyway.
  */
 export async function rotateGarmentPhoto(
   deps: WardrobeDeps,
@@ -492,14 +513,11 @@ export async function rotateGarmentPhoto(
     row,
     cutoutKept ? 'edited' : 'pending',
     async (tx, currentPhotoId) => {
-      // After the garment's lock, as every garment write takes them. The
-      // version, not the status: every new cutout bumps it, so a second
-      // mask saved while this one was turned (still `edited`) is caught
-      // here instead of deleted with the row this swap replaces.
+      // After the garment's lock, as every garment write takes them.
       const current = await lockCutoutRow(tx, source.fileName);
       if (
         current?.id !== currentPhotoId ||
-        current.version !== source.version
+        !rotateStillValid(source, current, cutoutKept)
       ) {
         throw photoChanged();
       }
