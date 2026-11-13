@@ -23,6 +23,7 @@ import {
   userIdOf,
 } from './harness';
 import { mintToken } from './mcp';
+import { interleave } from './interleave';
 
 /**
  * What each auth, account and push request costs in statements (#171):
@@ -83,32 +84,7 @@ describe('auth, account and push statements (#171)', () => {
     hold: (tx: Queryable) => Promise<unknown>,
     request: () => Promise<LightMyRequestResponse>,
   ): Promise<LightMyRequestResponse> {
-    let wrote!: () => void;
-    const written = new Promise<void>((resolve) => (wrote = resolve));
-    let release!: () => void;
-    const released = new Promise<void>((resolve) => (release = resolve));
-    const held = t.db.transaction(async (tx) => {
-      await hold(tx);
-      wrote();
-      await released;
-    });
-    await Promise.race([written, held]);
-    const answer = request();
-    await expect
-      .poll(
-        async () => {
-          const { rows } = await t.db.execute<{ waiting: number }>(
-            sql`select count(*)::int as waiting from pg_stat_activity
-                where datname = current_database() and wait_event_type = 'Lock'`,
-          );
-          return rows[0].waiting;
-        },
-        // The request hashes its password (bcrypt) before it writes.
-        { timeout: 10_000 },
-      )
-      .toBe(1);
-    release();
-    await held;
+    const [, answer] = await interleave(t.db, hold, request);
     return answer;
   }
 

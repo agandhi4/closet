@@ -10,6 +10,7 @@ import { createDb, type Db, type DbConfig } from '../../src/db/client';
 import { file } from '../../src/db/schema';
 import { insertPhotoRow } from '../../src/web/files/queries';
 import { eventually, fakeRunner, halfMask } from './cutouts';
+import { waitForBlockedOn } from './interleave';
 import { jpegPhoto, photoRow } from './garments';
 import { createTestApp, type TestApp } from './harness';
 import { silentLogger } from './logger';
@@ -32,15 +33,6 @@ async function listenerBackends(t: TestApp): Promise<number[]> {
            and application_name = ${LISTENER_APPLICATION_NAME}`,
   );
   return rows.map((row) => row.pid);
-}
-
-/** Backends of the spec's database waiting on a lock (pg_stat_activity). */
-async function lockWaiters(t: TestApp): Promise<number> {
-  const { rows } = await t.db.execute<{ waiting: number }>(
-    sql`select count(*)::int as waiting from pg_stat_activity
-         where datname = current_database() and wait_event_type = 'Lock'`,
-  );
-  return rows[0].waiting;
 }
 
 /**
@@ -255,12 +247,12 @@ describe('cutout queue: notifications from another process', () => {
     const holder = await other.$client.connect();
     try {
       await holder.query('begin');
+      const holderPid = (
+        await holder.query<{ pid: number }>('select pg_backend_pid() as pid')
+      ).rows[0].pid;
       await holder.query('lock table file in exclusive mode');
       t.cutouts.wake();
-      await eventually(
-        'the claim to wait on the lock',
-        async () => (await lockWaiters(t)) > 0,
-      );
+      await waitForBlockedOn(t.db, holderPid);
       const stopped = t.cutouts.stop();
       await holder.query('rollback');
 

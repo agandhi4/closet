@@ -20,13 +20,8 @@ import {
 } from '../../src/web/files/image-variant';
 import { lockOwnerQuery } from '../../src/web/auth/queries';
 import { removeGarment } from '../../src/web/wardrobe/writes';
-import {
-  eventually,
-  halfMask,
-  MASK_SIZE,
-  storedCutout,
-  variantPath,
-} from './cutouts';
+import { halfMask, MASK_SIZE, storedCutout, variantPath } from './cutouts';
+import { waitForBlockedOn } from './interleave';
 import {
   createGarment,
   jpegPhoto,
@@ -335,6 +330,9 @@ describe('cutout writes outside the row lock', () => {
       // The swap, as writeCutout's transaction makes it, not yet committed:
       // the owner's lock first (lockCutoutRow), then the row.
       await swap.query('begin');
+      const swapPid = (
+        await swap.query<{ pid: number }>('select pg_backend_pid() as pid')
+      ).rows[0].pid;
       const ownerLock = lockOwnerQuery(t.db, t.owner.id).toSQL();
       await swap.query(ownerLock.sql, ownerLock.params);
       await swap.query(
@@ -346,12 +344,7 @@ describe('cutout writes outside the row lock', () => {
         garmentId,
         t.owner.id,
       );
-      await eventually('the deletion to wait for the swap', async () => {
-        const { rows } = await swap.query<{ waiting: number }>(
-          `select count(*)::int as waiting from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
-        );
-        return rows[0].waiting > 0;
-      });
+      await waitForBlockedOn(t.db, swapPid);
       await swap.query('commit');
       // Deleted: removeGarment answers the status it had.
       await expect(removed).resolves.toMatchObject({

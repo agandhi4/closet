@@ -76,7 +76,11 @@ import { setWoreToday } from '../../src/web/wears/queries';
 import { saveWeekTemplate } from '../../src/web/week-plan/template';
 import { createGarment, garmentRow, jpegPhoto } from './garments';
 import { createTestApp, type TestApp, asFixture, userIdOf } from './harness';
-import { interleave as interleaveOn } from './interleave';
+import {
+  backendPid,
+  interleave as interleaveOn,
+  waitForBlockedOn,
+} from './interleave';
 import { silentLogger } from './logger';
 
 /**
@@ -237,15 +241,6 @@ describe('the owner lock', () => {
     return Number(
       /^\/wardrobe\/(\d+)\?/.exec(String(res.headers.location))![1],
     );
-  };
-
-  /** Backends of the spec's database waiting on a lock (pg_stat_activity). */
-  const lockWaiters = async (): Promise<number> => {
-    const { rows } = await t.db.execute<{ waiting: number }>(
-      sql`select count(*)::int as waiting from pg_stat_activity
-          where datname = current_database() and wait_event_type = 'Lock'`,
-    );
-    return rows[0].waiting;
   };
 
   /** Holds `first` open while `second` waits on it (interleave.ts). */
@@ -876,19 +871,22 @@ describe('the owner lock', () => {
         },
       };
 
-      /** A third transaction holding what `work` locked until `release`. */
+      /** A third transaction (backend `pid`) holding what `work` locked until `release`. */
       const holdOpen = async (work: (tx: Queryable) => Promise<unknown>) => {
         let held!: () => void;
         const holding = new Promise<void>((resolve) => (held = resolve));
         let release!: () => void;
         const released = new Promise<void>((resolve) => (release = resolve));
+        let pid!: number;
         const holder = t.db.transaction(async (tx) => {
           await work(tx);
+          pid = await backendPid(tx);
           held();
           await released;
         });
         await Promise.race([holding, holder]);
         return {
+          pid,
           release: () => {
             release();
             return holder;
@@ -944,9 +942,9 @@ describe('the owner lock', () => {
           );
           const row = await holdPendingRow(fileName);
           const taken = take(saver, fileName);
-          await expect.poll(lockWaiters).toBe(1);
+          await waitForBlockedOn(t.db, row.pid);
           const deletion = deleteAccountOf(saver);
-          await expect.poll(lockWaiters).toBe(2);
+          await waitForBlockedOn(t.db, row.pid, 2);
           await row.release();
           const [answer] = await Promise.all([taken, deletion]);
           expect(answer).toBeDefined();
@@ -973,8 +971,10 @@ describe('the owner lock', () => {
           const ownerHeld = new Promise<void>((resolve) => (locked = resolve));
           let proceed!: () => void;
           const go = new Promise<void>((resolve) => (proceed = resolve));
+          let deletionPid!: number;
           const deletion = t.db.transaction(async (tx) => {
             await lockOwner(tx, saver);
+            deletionPid = await backendPid(tx);
             locked();
             await go;
             return tx
@@ -984,7 +984,7 @@ describe('the owner lock', () => {
           });
           await Promise.race([ownerHeld, deletion]);
           const taken = take(saver, fileName);
-          await expect.poll(lockWaiters).toBe(1);
+          await waitForBlockedOn(t.db, deletionPid);
           proceed();
           const [deleted, answer] = await Promise.all([deletion, taken]);
           expect(deleted).toEqual([{ fileName }]);
@@ -1032,9 +1032,9 @@ describe('the owner lock', () => {
           const { grantee, owner, fileName } = await accounts('uploader-later');
           const name = await holdName(fileName);
           const saved = save(owner, grantee, fileName);
-          await expect.poll(lockWaiters).toBe(1);
+          await waitForBlockedOn(t.db, name.pid);
           const deletion = deleteAccountOf(grantee);
-          await expect.poll(lockWaiters).toBe(2);
+          await waitForBlockedOn(t.db, name.pid, 2);
           await name.release();
           const [claimed, photos] = await Promise.all([saved, deletion]);
           expect(photos).toBe(0);
@@ -1052,9 +1052,9 @@ describe('the owner lock', () => {
           const { grantee, owner, fileName } = await accounts('uploader-first');
           const row = await holdPhotoRowOf(grantee);
           const deletion = deleteAccountOf(grantee);
-          await expect.poll(lockWaiters).toBe(1);
+          await waitForBlockedOn(t.db, row.pid);
           const saved = save(owner, grantee, fileName);
-          await expect.poll(lockWaiters).toBe(2);
+          await waitForBlockedOn(t.db, row.pid, 2);
           await row.release();
           const [photos, claimed] = await Promise.all([deletion, saved]);
           expect(claimed).toBeUndefined();
@@ -1071,9 +1071,9 @@ describe('the owner lock', () => {
           const { grantee, owner, fileName } = await accounts('owner-later');
           const name = await holdName(fileName);
           const saved = save(owner, grantee, fileName);
-          await expect.poll(lockWaiters).toBe(1);
+          await waitForBlockedOn(t.db, name.pid);
           const deletion = deleteAccountOf(owner);
-          await expect.poll(lockWaiters).toBe(2);
+          await waitForBlockedOn(t.db, name.pid, 2);
           await name.release();
           const [claimed, photos] = await Promise.all([saved, deletion]);
           expect(claimed).toBeDefined();
@@ -1089,9 +1089,9 @@ describe('the owner lock', () => {
           const { grantee, owner, fileName } = await accounts('owner-first');
           const row = await holdPhotoRowOf(owner);
           const deletion = deleteAccountOf(owner);
-          await expect.poll(lockWaiters).toBe(1);
+          await waitForBlockedOn(t.db, row.pid);
           const saved = save(owner, grantee, fileName);
-          await expect.poll(lockWaiters).toBe(2);
+          await waitForBlockedOn(t.db, row.pid, 2);
           await row.release();
           const [photos, claimed] = await Promise.all([deletion, saved]);
           expect(photos).toBe(1);
@@ -1153,9 +1153,9 @@ describe('the owner lock', () => {
                   )
                 : await holdPhotoRowOf(owner);
             const deletion = deleteAccountOf(held);
-            await expect.poll(lockWaiters).toBe(1);
+            await waitForBlockedOn(t.db, row.pid);
             const other = deleteAccountOf(second);
-            await expect.poll(lockWaiters).toBe(2);
+            await waitForBlockedOn(t.db, row.pid, 2);
             await row.release();
             await Promise.all([deletion, other]);
             expect(

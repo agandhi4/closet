@@ -9,7 +9,7 @@ import {
   wardrobeShare,
 } from '../../src/db/schema';
 import { deviceToken, expectProblem } from './api';
-import { eventually } from './cutouts';
+import { waitForBlockedOn } from './interleave';
 import { createGarment } from './garments';
 import {
   createTestApp,
@@ -283,6 +283,9 @@ describe('POST /outfit-rules', () => {
       // The first add, as addOutfitRule's insert leaves it, not committed
       // (a never-rule's sides in stored order: blue before green).
       await first.query('begin');
+      const firstPid = (
+        await first.query<{ pid: number }>('select pg_backend_pid() as pid')
+      ).rows[0].pid;
       await first.query(
         `insert into outfit_rule (owner_id, kind, a_color, b_color) values ($1, 'never', 'blue', 'green')`,
         [ownerId],
@@ -293,12 +296,7 @@ describe('POST /outfit-rules', () => {
         { kind: 'never', a: { color: 'blue' }, b: { color: 'green' } },
         accounts.viewer.token,
       );
-      await eventually('the second add to wait for the first', async () => {
-        const { rows } = await first.query<{ waiting: number }>(
-          `select count(*)::int as waiting from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
-        );
-        return rows[0].waiting > 0;
-      });
+      await waitForBlockedOn(t.db, firstPid);
       await first.query('commit');
       const res = await second;
       expect(res.statusCode, res.body).toBe(200);
