@@ -215,8 +215,8 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // The photo sheet's ↺ and ↻: a native post (PostForm), 303 back to the
   // garment with ?photoRotated=1, which opens the sheet again so the next
   // quarter turn is one tap. The photo is replaced by a turned copy as an
-  // upload replaces it (rotateGarmentPhoto); a photo that changed
-  // meanwhile is a 409.
+  // upload replaces it (rotateGarmentPhoto); a photo replaced or a mask
+  // saved meanwhile is a 409 (a cutout finishing is not, #248).
   app.post(
     '/wardrobe/:id/photo/rotate',
     {
