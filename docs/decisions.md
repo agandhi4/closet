@@ -494,6 +494,12 @@ Consequence: interactive sessions here lose the artifact publish flow and the qu
 **Decision:** `authorizeWardrobe(db, actor, ownerId, need, unseen: Resource)` throws `NotFound(unseen)` / `Forbidden()`; the read ahead rides on `actorOf(request)`, so statement counts hold. `requireGarment(db, actor, { id, ownerId }, need)` reads an unseen wardrobe as "Garment not found" (a page's garment URL); MCP names the wardrobe, so it keeps "Wardrobe not found" via `wardrobeFor` then `garmentIn(db, access, id)`, which takes only an authorized `WardrobeAccess`. `garmentGuard(db)` gains `authorize.garment(request, need)`, so the wears plugin and every `authorize(request, need)` call stay as they were. `Forbidden` takes a `reason` from its own table (search_garments' needs-wash keeps its explanatory message). The wishlist inbox's unseen wardrobe is now "Wardrobe not found" (it was "Not found"; status unchanged).
 **Consequence:** search_garments parses before it authorizes, as a page's schema does: a malformed type is a 400 even on a wardrobe the caller cannot see. The garment write paths still call `garmentNotFound()` themselves until 188b-2.
 
+## 2026-11-13 — Metrics are a cleanup-round report; devkit's friction cuts synced
+
+**Why:** the owner: a per-PR ratchet is overkill; refactor/cleanup rounds can read it instead (devkit#497, devkit#498, devkit decisions 2026-11-13). Tighten commits and the `metrics-rebaseline` label cost turns and caught no defect.
+**Decision:** devkit synced to 1ee0e26. `make ci-metrics` prints WORSE/BETTER and exits 0; `GATE_JOBS_METRICS` and `TIER_BUDGET_ENFORCE` wording are gone, docs caps and tier budgets only warn. Floors only warn now too, so a lost test glob shows as a FLOOR warning in the tier output rather than a failure: read the warnings.
+**Consequence:** no per-PR `make metrics-tighten` or label; a cleanup round runs `make ci-metrics` and tightens. Earlier entries naming the label are history.
+
 ## 2026-11-13 — Device tokens: one credential table, a kind per surface, a password change behind the row lock (#189)
 
 **Why:** plan `docs/plans/2026-11-12-json-api.md` section 3: native clients need bearer tokens that `/mcp` refuses, and the plan check found that a password change could miss a token minted concurrently, and that a mint could outlive a password changed after it was checked.

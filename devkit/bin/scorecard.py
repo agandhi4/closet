@@ -7,21 +7,14 @@
          glossary, restore drill, Actions billing) in the "owner" list, neither counted.
   TREND  is it improving: per key of docs/metrics/ratchet.json and report-only.json, the value
          at the start of the last 7 and 30 days (git history) against HEAD, direction-aware:
-         `a↓ b= c↑(l labelled)`. A worsen is labelled when every commit that worsened the key
-         carries a `Metrics-Rebaseline: <key>=…` trailer naming it: `make merge` writes one per
-         loosened bound into a metrics-rebaseline PR's squash body (pr_merge.sh), the label's
-         only record in git. A commit with no such trailer (history before devkit #168, a repo
-         not yet synced, a merge outside make merge) falls back to the older signals: a
-         docs/decisions.md line it adds names the key or its unambiguous short form
-         (short_names), its message names `metrics-rebaseline`, or, asked of GitHub last, the
-         PR its squash subject names held that label at its merge (merged_labels). The TREND
-         table says which matched. Bounds and signals print apart, in the text and the JSON
-         (`moved`, `signals`): an unlabelled worsen of a bound (ratchet.json) is an enforcement
-         failure and says so; a report-only key (report-only.json, or report-only by name,
-         metrics_ratchet.is_report_only: vuln.*, meta.*, fan_in_max, max_lines, jscpd_percent;
-         fan_out_max and cycles stay bounds) is a signal by owner decision 2026-10-18,
-         its move printed with no label and no verdict (kitchen's excluded_files 9 -> 107 under
-         a glob read as "the ratchet is leaking", 2026-11-05), and the one-line counts are the
+         `a↓ b= c↑`. Metrics are a cleanup-round report (owner 2026-11-13), so a worsen is a
+         move to read, never a verdict: there is no label, trailer or enforcement failure to
+         match it against. Bounds and signals print apart, in the text and the JSON
+         (`moved`, `signals`): a key of ratchet.json is a bound; a report-only key
+         (report-only.json, or report-only by name, metrics_ratchet.is_report_only: vuln.*,
+         meta.*, fan_in_max, max_lines, jscpd_percent; fan_out_max and cycles stay bounds) is a
+         signal by owner decision 2026-10-18, its move printed with no verdict (kitchen's
+         excluded_files 9 -> 107 under a glob, 2026-11-05), and the one-line counts are the
          bounds'. A window that reaches a `devkit new` root commit starts at its values,
          measured over the template: the next commit's change to a key is its adoption,
          `adopted` (the window measured from the adopted value), never a worsen (instalite-relay,
@@ -90,14 +83,11 @@ checks (hooks ledger live, gh shim, the sessions' fixed context) and fleet-scope
 without a code change, and a gate on another host would fail on them, so `--mode` does not run
 the fleet ones. Run from a consumer's vendored devkit/, those two read GitHub through `gh api`
 (repos.json cached 7 days in <state>/devkit/scorecard/), so they measure there too. `check`
-holds the checks to the PR's file and that file to main's copy (the metrics ratchet's semantics:
-the metrics-rebaseline label admits a check main records wired going unrecorded or unwired in
-the PR's file, never a measured loss against the PR's own file), and, as the metrics ratchet
-does since gains lock in, fails a recorded unwired check now wired until `make metrics-tighten`
-commits it. An older file (the v1
-per-track schema, or the share-only one before 2026-10-22) records no check by name: it reads
-as first adoption on either side and its scorecard_file check fails until tightened. Exit 0 when
-it ran (1 for a ratchet failure in --mode), 2 on usage.
+is a report (2026-11-13: metrics are a cleanup-round readout, not a gate): it prints each recorded
+check that is now unwired (WORSE) or newly wired (BETTER) and exits 0; `tighten` records the gains
+and `rebaseline` rewrites the file. An older file (the v1 per-track schema, or the share-only one
+before 2026-10-22) records no check by name, and its scorecard_file check fails until tightened.
+Exit 0 when it ran, 2 on usage.
 
 Every WIRED check prints `wired <id> <scope> PASS|FAIL|D|UNMEASURED|NA <evidence>`; D is a
 `scorecard: <id>` line under the AGENTS.md `## Convention deltas` (counts as wired), a
@@ -107,10 +97,8 @@ Every WIRED check prints `wired <id> <scope> PASS|FAIL|D|UNMEASURED|NA <evidence
 from __future__ import annotations
 
 import argparse
-import functools
 import importlib.util
 import json
-import os
 import re
 import shlex
 import subprocess
@@ -1507,8 +1495,7 @@ class KeyTrend:
     first: float
     last: float
     status: str  # BETTER SAME WORSE (metrics_ratchet.classify), from `first`
-    labelled: str = ""  # a WORSE bound's: "trailer", "decisions", "message", "pr-label", ""
-    signal: bool = False  # a report-only key: no label, no verdict
+    signal: bool = False  # a report-only key: printed apart from the bounds
     adopted_from: float | None = None  # the root commit's value; `first` is the key's adoption
 
     @property
@@ -1535,91 +1522,13 @@ class Trend:
         """Bounds only: a signal's move is no improvement or regression of enforcement."""
         return sum(1 for k in self.bounds if k.status == status)
 
-    def labelled(self) -> int:
-        return sum(1 for k in self.bounds if k.status == "WORSE" and k.labelled)
-
     def summary(self) -> str:
         better, same, worse = self.count("BETTER"), self.count("SAME"), self.count("WORSE")
-        return f"{better}↓ {same}= {worse}↑({self.labelled()} labelled)"
+        return f"{better}↓ {same}= {worse}↑"
 
 
 SCAFFOLD_SUBJECT = re.compile(r"Create \S+ with devkit new \(")  # devkit-new.sh's root commit
-TRAILER = "Metrics-Rebaseline:"  # pr_merge.sh writes `Metrics-Rebaseline: <key>=<old>→<new>`
-REBASELINE_LABEL = "metrics-rebaseline"
 SQUASH_PR = re.compile(r"\(#(\d+)\)$")  # GitHub's squash subject: `<title> (#<n>)`
-
-
-def trailer_keys(message: str) -> set[str]:
-    """The keys a squash body's Metrics-Rebaseline trailers name."""
-    return {
-        line[len(TRAILER):].strip().split("=", 1)[0]
-        for line in message.splitlines()
-        if line.startswith(TRAILER)
-    }
-
-
-def short_names(keys: set[str]) -> dict[str, str]:
-    """key -> its short form, the last segment split on `.`, `:` and `/`, for the keys whose
-    short form no other key shares. A decisions line written by hand names a key the way a
-    reader says it (rollcall #33: "statements unshareEventAction 12 → 13" for
-    `statements.POST:/action/unshareEventAction`); a short form two keys share
-    (`size.web.max_lines`, `size.api.max_lines`) names neither, so it labels neither."""
-    short = {key: re.split(r"[.:/]", key)[-1] for key in keys}
-    owners: dict[str, int] = {}
-    for name in short.values():
-        owners[name] = owners.get(name, 0) + 1
-    return {key: name for key, name in short.items() if owners[name] == 1 and name != key}
-
-
-LABEL_EVENTS = (  # one `<event>\t<label>` line per label change and the merge, oldest first
-    '.[] | select(.event == "labeled" or .event == "unlabeled" or .event == "merged")'
-    ' | "\\(.event)\\t\\(.label.name // "")"'
-)
-
-
-@functools.cache
-def merged_labels(slug: str, number: str) -> frozenset[str]:
-    """The labels PR <number> of <slug> held when it merged, replayed from its issue events: a
-    label added after the merge (triage rights suffice) sanctions nothing, and one removed later
-    unsanctions nothing. Empty when gh cannot say (no gh, no network) or the PR never merged, so
-    the commit reads as unlabelled, the verdict it had before GitHub was asked."""
-    out, _why = gh_api(f"repos/{slug}/issues/{number}/events", "--paginate", "--jq", LABEL_EVENTS)
-    held: set[str] = set()
-    for line in (out or "").splitlines():
-        event, _, name = line.partition("\t")
-        if event == "merged":
-            return frozenset(held)
-        if event == "labeled":
-            held.add(name)
-        else:
-            held.discard(name)
-    return frozenset()
-
-
-def commit_label(root: Path, sha: str, key: str, short: str = "", slug: str = "") -> str:
-    """Why a commit that worsened `key` counts as labelled (module docstring): its trailer
-    names the key; or, for a commit with no trailer at all, a decisions line it adds names the
-    key or its unambiguous `short` form (short_names) as a whole word, or its message names
-    metrics-rebaseline, or the PR its squash subject names held the label when it merged (asked
-    only when `slug`, origin's, is known and git holds no sign). A trailer that names other
-    keys only is a labelled PR that did not loosen this one, so no fallback rescues it."""
-    message = git(root, "log", "-1", "--format=%B", sha)
-    trailed = trailer_keys(message)
-    if trailed:
-        return "trailer" if key in trailed else ""
-    added = git(root, "show", "--format=", sha, "--", "docs/decisions.md").splitlines()
-    names = re.compile("|".join(rf"(?<![\w.:/]){re.escape(n)}(?![\w])" for n in (key, short) if n))
-    if any(line.startswith("+") and names.search(line) for line in added):
-        return "decisions"
-    if REBASELINE_LABEL in message:
-        return "message"
-    # instalite #29 (2026-10-18): labelled and merged by make merge a day before #168's
-    # trailer, its decisions entry explaining the change without naming fan_out_max. The label
-    # was the sanction; GitHub is its only record.
-    pr = SQUASH_PR.search(message.partition("\n")[0])
-    if slug and pr and REBASELINE_LABEL in merged_labels(slug, pr.group(1)):
-        return "pr-label"
-    return ""
 
 
 def trend(root: Path, days: int, now: datetime) -> Trend:
@@ -1649,9 +1558,8 @@ def trend(root: Path, days: int, now: datetime) -> Trend:
         SCAFFOLD_SUBJECT.match(git(root, "log", "-1", "--format=%s", oldest))
     )
     adopted: dict[str, float] = {}
-    # Walk oldest -> newest so each worsening commit is found once, against its predecessor. A
-    # key adopted inside the window starts at its first committed value.
-    worsened_by: dict[str, list[str]] = {}
+    # Walk oldest -> newest, each commit against its predecessor. A key adopted inside the window
+    # starts at its first committed value.
     prev = first
     for sha in reversed(shas):
         cur = revision_values(root, sha)
@@ -1661,24 +1569,14 @@ def trend(root: Path, days: int, now: datetime) -> Trend:
             if adopting and was and m.value != was.value:
                 adopted[key] = was.value
                 first[key] = m
-            elif was and ratchet_mod.classify(m.value, was.value, m.direction) == "WORSE":
-                worsened_by.setdefault(key, []).append(sha)
         adopting = adopting and sha == oldest
         prev = cur
-    shorts = short_names(set(first) | set(last))
-    slug = identity.origin_slug(root)
     for key in sorted(set(first) & set(last)):
         a, b = first[key].value, last[key]
         kt = KeyTrend(
             key, a, b.value, ratchet_mod.classify(b.value, a, b.direction),
             signal=b.signal, adopted_from=adopted.get(key),
         )  # fmt: skip
-        if kt.status == "WORSE" and not kt.signal:
-            labels = [
-                commit_label(root, sha, key, shorts.get(key, ""), slug)
-                for sha in worsened_by.get(key, [])
-            ]
-            kt.labelled = labels[0] if labels and all(labels) else ""
         t.keys.append(kt)
     return t
 
@@ -2078,9 +1976,8 @@ def repo_doc(
                 "better": t.count("BETTER"),
                 "same": t.count("SAME"),
                 "worse": t.count("WORSE"),
-                "labelled": t.labelled(),
                 "note": t.note,
-                # Bounds only: an unlabelled WORSE here is an enforcement failure.
+                # Bounds: the keys of ratchet.json.
                 "moved": [k.__dict__ for k in t.bounds if k.moved],
                 # Report-only keys: printed, no verdict (owner 2026-10-18, metrics are signals).
                 "signals": [k.__dict__ for k in t.signals if k.moved],
@@ -2102,7 +1999,7 @@ def trend_part(doc: dict, days: int) -> str:
     t = doc["trend"][str(days)]
     signals = len(t.get("signals", []))
     return (
-        f"{days}d: {t['better']}↓ {t['same']}= {t['worse']}↑({t['labelled']} labelled), "
+        f"{days}d: {t['better']}↓ {t['same']}= {t['worse']}↑, "
         f"{signals} signal{'' if signals == 1 else 's'} moved"
     )
 
@@ -2115,7 +2012,7 @@ def bite_part(bite: dict) -> str:
 
 
 def summary_line(doc: dict) -> str:
-    """`wired n/m · 7d: a↓ b= c↑(l labelled), s signals moved · 30d: … · vuln c critical, h high
+    """`wired n/m · 7d: a↓ b= c↑, s signals moved · 30d: … · vuln c critical, h high
     (or `vuln unmeasured (<why>)`) · hooks h, fails f · output product n/m (p%)`"""
     w = doc["wired"]
     parts = [
@@ -2135,19 +2032,15 @@ def _table(header: tuple[str, ...], rows: list[tuple[str, ...]]) -> list[str]:
 
 
 def trend_cell(k: dict) -> str:
-    """One key's move in one window: `a->b ↓`, `a->b ↑ labelled(how)`, `a->b ↑ UNLABELLED —
-    enforcement failure`, `a->b ↑ signal`; `s->a adopted` for a key the window saw leave its
-    scaffold value s (trend()), and `(adopted from s)` after a move since."""
+    """One key's move in one window: `a->b ↓`, `a->b ↑`, `a->b ↑ signal`; `s->a adopted` for a
+    key the window saw leave its scaffold value s (trend()), and `(adopted from s)` after a move
+    since."""
     if k["status"] == "SAME":  # moved, so adopted: a flat key is listed only then
         return f"{k['adopted_from']:g}->{k['first']:g} adopted"
     arrow = "↓" if k["status"] == "BETTER" else "↑"
     if k["status"] == "WORSE":
         if k.get("signal"):
             arrow += " signal"
-        elif k["labelled"]:
-            arrow += f" labelled({k['labelled']})"
-        else:
-            arrow += " UNLABELLED — enforcement failure"
     cell = f"{k['first']:g}->{k['last']:g} {arrow}"
     if k.get("adopted_from") is not None:
         cell += f" (adopted from {k['adopted_from']:g})"
@@ -2183,7 +2076,7 @@ def repo_lines(doc: dict) -> list[str]:
     ]
     lines += ["", "owner (not in n/m)", *([f"- {o}" for o in [*doc["owner"], *FLEET_OWNER_ITEMS]])]
     lines += ["", f"TREND ({doc['trend_keys']} keys in {BOUNDS_FILE} + {REPORT_ONLY_FILE})"]
-    lines += [f"bounds ({BOUNDS_FILE}: an unlabelled worsen is an enforcement failure)"]
+    lines += [f"bounds ({BOUNDS_FILE}: a move to read in a cleanup round, no verdict)"]
     lines += trend_table(doc, "moved")
     lines += [f"signals ({REPORT_ONLY_FILE}: printed, no verdict)"]
     lines += trend_table(doc, "signals")
@@ -2246,7 +2139,7 @@ def fleet_markdown(docs: list[dict], signal: float, expected: list[str] | None) 
         for cid, rs in sorted(missing.items(), key=lambda kv: (-len(kv[1]), kv[0]))
     ] or ["- none"]
     month = str(max(TREND_WINDOWS))
-    lines += ["", f"## TREND: worsened bounds ({month} d; unlabelled: enforcement failure)", ""]
+    lines += ["", f"## TREND: worsened bounds ({month} d; a cleanup round's reading list)", ""]
     lines += [
         f"- {d['repo']} {k['key']} {trend_cell(k)}"
         for d in docs
@@ -2354,39 +2247,10 @@ def measured(now: dict[str, Check]) -> dict[str, bool]:
     return {cid: c.status in WIRED_STATUSES for cid, c in now.items() if c.status != "NA"}
 
 
-def base_bounds(
-    repo: Repo, bounds_file: Path, base_ref: str, base_file: Path | None
-) -> tuple[Committed | None, str] | None:
-    """MAIN's copy (the branch's own is under test, closet #402 review). (None, label) is first
-    adoption; the whole result None is a usage error, already printed."""
-    if base_file is not None:
-        if not base_file.is_file():
-            return None, str(base_file)
-        parsed = read_bounds(base_file.read_text(), str(base_file))
-        return (parsed, str(base_file)) if parsed is not None else None
-    rel = bounds_file.resolve().relative_to(repo.root).as_posix()
-    if not git(repo.root, "rev-parse", "--verify", "--quiet", f"{base_ref}^{{commit}}"):
-        # Fail closed: an unfetched main must never read as "nothing to compare against".
-        print(
-            f"scorecard-ratchet: base ref {base_ref} does not resolve; "
-            "fetch it (git fetch origin main) or pass --base-bounds",
-            file=sys.stderr,
-        )
-        return None
-    shown = git(repo.root, "show", f"{base_ref}:{rel}")
-    if not shown:
-        return None, f"{base_ref}:{rel}"
-    parsed = read_bounds(shown, f"{base_ref}:{rel}")
-    return (parsed, f"{base_ref}:{rel}") if parsed is not None else None
-
-
-def hold_checks(
-    now: dict[str, Check], held: dict[str, bool], bounds_file: Path, rebaseline_ok: bool
-) -> int:
-    """Today's checks against the PR's file: a recorded wired check now unwired is WORSE, a
-    recorded unwired one now wired is BETTER (gains lock in, as in the metrics ratchet); both
-    fail. A check the file does not record is new devkit backlog and passes either way."""
-    rc = 0
+def hold_checks(now: dict[str, Check], held: dict[str, bool], bounds_file: Path) -> None:
+    """Print today's checks against the recorded file: a recorded wired check now unwired is
+    WORSE, a recorded unwired one now wired is BETTER. A check the file does not record is new
+    devkit backlog."""
     new_wired = []
     for cid, check in sorted(now.items()):
         wired = check.status in WIRED_STATUSES
@@ -2401,18 +2265,10 @@ def hold_checks(
                     f"({check.evidence})"
                 )
         elif held[cid] and not wired:
-            rc = EXIT_RATCHET
             print(f"scorecard-ratchet {cid} wired -> {check.status} WORSE: {check.evidence}")
-            if rebaseline_ok:
-                print(
-                    f"metrics-rebaseline: {cid} is unwired; record it in {bounds_file} "
-                    "(scorecard.py . --mode rebaseline) or wire the mechanism back"
-                )
         elif wired and not held[cid]:
-            rc = EXIT_RATCHET
             print(
-                f"scorecard-ratchet {cid} unwired -> wired BETTER — run make metrics-tighten "
-                f"and commit {bounds_file}"
+                f"scorecard-ratchet {cid} unwired -> wired BETTER — make metrics-tighten records it"
             )
         elif not wired and check.status != "NA":
             print(f"scorecard-ratchet {cid} unwired, held: {check.evidence}")
@@ -2421,69 +2277,33 @@ def hold_checks(
             f"scorecard-ratchet new, wired: {', '.join(new_wired)} (make metrics-tighten records "
             "them)"
         )
-    return rc
 
 
-def ratchet_check(
-    now: dict[str, Check],
-    bounds_file: Path,
-    rebaseline_ok: bool,
-    base: tuple[Committed | None, str] | None,
-) -> int:
-    if base is None:
-        return EXIT_USAGE
-    main, label = base
-    adoption = " (none: first adoption)"
-    if main is not None and main.checks is None:
-        adoption, main = f" ({main.legacy}: first adoption of per-check bounds)", None
-    if bounds_file.is_file():
-        committed = read_bounds(bounds_file.read_text(), str(bounds_file))
-        if committed is None:
-            return EXIT_USAGE
-    elif main is None:
+def ratchet_check(now: dict[str, Check], bounds_file: Path) -> int:
+    """The report: every recorded check against today's; exit 0 unless the file is unreadable."""
+    if not bounds_file.is_file():
         print(
-            f"scorecard-ratchet: no bounds at {bounds_file} or {label}; run --mode rebaseline once "
-            "and commit it (first adoption)"
+            f"scorecard-ratchet: no bounds at {bounds_file}; run --mode rebaseline once to "
+            "record each check"
         )
         return 0
-    else:
-        committed = Committed({})
-    print(f"scorecard-ratchet base {label}" + (adoption if main is None else ""))
+    committed = read_bounds(bounds_file.read_text(), str(bounds_file))
+    if committed is None:
+        return EXIT_USAGE
     if committed.checks is None:
         print(
             f"scorecard-ratchet: {bounds_file} is the {committed.legacy} and bounds no check; "
-            f"run make metrics-tighten and commit {bounds_file} to record each one"
+            f"run make metrics-tighten to record each one"
         )
-    held = committed.checks or {}
-    recorded = main.checks if main is not None and main.checks is not None else {}
-    loosened = [cid for cid, w in sorted(recorded.items()) if w and not held.get(cid, False)]
-    for cid in loosened:
-        was = "unwired" if cid in held else "absent"
-        print(f"scorecard-ratchet-bound {cid} wired -> {was} LOOSENED")
-    rc = EXIT_RATCHET if loosened and not rebaseline_ok else 0
-    rc = max(rc, hold_checks(now, held, bounds_file, rebaseline_ok))
-    if rc:
-        print(
-            "scorecard-ratchet FAIL: wire the mechanism back, commit the gain with make "
-            "metrics-tighten, or, when a tool change moved it, commit the lower file (--mode "
-            "rebaseline) and label the PR metrics-rebaseline"
-        )
-    else:
-        print(
-            "scorecard-ratchet ok: every recorded wired check held"
-            + ("; rebaseline accepted: lowered from main" if loosened else "")
-        )
-    return rc
+    hold_checks(now, committed.checks or {}, bounds_file)
+    print("scorecard-ratchet report only: nothing fails on a WORSE check")
+    return 0
 
 
 def ratchet(
     repo: Repo,
     bounds_file: Path,
     mode: str,
-    rebaseline_ok: bool,
-    *,
-    base_ref: str = "origin/main",
-    base_file: Path | None = None,
 ) -> int:
     now = ratcheted_checks(repo.checks)
     current = measured(now)
@@ -2494,9 +2314,7 @@ def ratchet(
         "reported; the ratchet holds each check)"
     )
     if mode == "check":
-        return ratchet_check(
-            now, bounds_file, rebaseline_ok, base_bounds(repo, bounds_file, base_ref, base_file)
-        )
+        return ratchet_check(now, bounds_file)
     held: dict[str, bool] = {}
     if bounds_file.is_file():
         committed = read_bounds(bounds_file.read_text(), str(bounds_file))
@@ -2591,22 +2409,6 @@ def main() -> int:
     ap.add_argument(
         "--bounds-file", default="docs/metrics/scorecard.json", help="repo-relative bounds file"
     )
-    ap.add_argument(
-        "--rebaseline-ok",
-        action="store_true",
-        help="with --mode check: a check main holds wired may go unwired or unrecorded "
-        "(metrics-rebaseline)",
-    )
-    ap.add_argument(
-        "--base-ref",
-        default="origin/main",
-        help="with --mode check: the ref whose copy of --bounds-file is the bound",
-    )
-    ap.add_argument(
-        "--base-bounds",
-        default=None,
-        help="with --mode check: compare against this file instead of --base-ref's copy",
-    )
     args = ap.parse_args()
     conf = load_conf(Path(args.conf))
     state_home = Path(args.state_home) if args.state_home else identity.state_home()
@@ -2631,9 +2433,6 @@ def main() -> int:
             repo,
             repo.root / args.bounds_file,
             args.mode,
-            args.rebaseline_ok or os.environ.get("METRICS_REBASELINE") == "1",
-            base_ref=args.base_ref,
-            base_file=Path(args.base_bounds) if args.base_bounds else None,
         )
     if not args.fleet and len(args.roots) != 1:
         ap.error("one repo root without --fleet")

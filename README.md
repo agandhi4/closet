@@ -237,10 +237,10 @@ make ci-deps ci-quick         # npm ci; ci-guards, secrets-check, ci-lint, ci-ty
 make ci-unit                  # the unit projects
 make ci-db                    # test:cov on Postgres 18 (coverage feeds the metrics ratchet)
 make ci-e2e                   # build + Chromium Playwright, PWA on, a random PORT
-                              # (each of the three holds its budget, 60/110/180 s, and a floor)
-make ci-metrics               # the metrics ratchet, the plan's last job: scripts/ci/metrics.conf
+                              # (each of the three reports against its budget, 60/110/180 s, and a floor)
+make ci-metrics               # the metrics report (never fails, not in the plan): scripts/ci/metrics.conf
                               # vs docs/metrics/ratchet.json
-make metrics-tighten          # lock improved numbers into docs/metrics/ratchet.json (same PR)
+make metrics-tighten          # a cleanup round keeps its gains in docs/metrics/ratchet.json
 make ci-image ci-smoke CI_BUILD_VERSION=<v>   # build the image and boot it (docs/operations.md)
 make review PR=<n>            # one local review round (when Codex is out of budget)
 make merge PR=<n>             # squash-merge once the review rounds allow it

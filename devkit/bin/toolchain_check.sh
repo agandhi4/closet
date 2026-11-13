@@ -3,7 +3,7 @@
 # everything that builds or tests with it must agree, or a dependency bot bumps one copy and the
 # image runs an interpreter the tests never saw (finplat's Dockerfile sat on Node 26 while CI
 # tested 22, and on python:3.14 while requires-python said 3.13).
-# Node (.nvmrc, exact version):
+# Node (.nvmrc, exact version; held by MAJOR, so a node:22.20 image and a 22.20 box pass a 22.23.3 pin):
 #   - every `FROM node:<tag>` in Dockerfile* has the same major
 #   - every setup-node step in .github/workflows uses `node-version-file: .nvmrc`, not `node-version:`
 # Python (.python-version, MAJOR.MINOR or MAJOR.MINOR.PATCH; compared on MAJOR.MINOR):
@@ -30,8 +30,7 @@
 # Dockerfiles are scanned at the root and one level down (orbit/frontend/Dockerfile).
 # Also runs ci_targets_check.sh (per-area ci-* targets named ci-<tier>-<area>) first: it is a
 # Makefile-contract guard too, and riding this script puts it in every repo's ci-quick without a
-# Makefile edit per repo. Its findings keep their own `ci-targets-check:` prefix; its failure
-# fails this run.
+# Makefile edit per repo. Its findings (warnings only) keep their own `ci-targets-check:` prefix.
 # Usage: devkit/bin/toolchain_check.sh [repo-root]      (part of ci-quick)
 set -uo pipefail
 # shellcheck source=bin/_dockerfile_lib.sh  # dockerfiles

@@ -21,18 +21,21 @@
 # merge is checked as its PR would have been. Fail closed: a gh error or no GATE_SLUG means no
 # label (one line on stderr), and the check runs strict.
 #
-# What fails the check, and what only reports (owner 2026-11-02: "ratchets should file issues,
-# not block deploys"):
+# What fails the check, and what only reports:
 #   - A failed job is run once more. Passing on the retry, it counts as a pass and files one
-#     `flaky` issue titled `flaky: <job>: <first failing test line of the first run>`.
-#   - The plan's GATE_JOBS_METRICS jobs (the ratchet) never fail it: a failure prints REPORTED
-#     and files one `ratchet` issue per job. They run with METRICS_BETTER_OK=1, as on any main.
-#   - Time budgets never fail it (tier_guard.sh reports OVERBUDGET; TIER_BUDGET_ENFORCE is
-#     unset here). A hung job does: each run of a job is stopped after CHECK_JOB_SECONDS (default
+#     `flaky` issue titled `flaky: <job>: <first failing test line of the first run>`, unless the
+#     first run's log shows a box cause (ENV_CAUSES: a network failure is the network's, not a
+#     flaky test's): a `CHECK note:` says so instead. A later run on which that job passes first
+#     try closes its open flaky issues with a comment naming the commit (owner 2026-11-13: the
+#     issues that catch nothing close themselves; a main-red one closes in publish.sh and
+#     main_check.sh the same way).
+#   - The metrics ratchet is not a job here (owner 2026-11-13): it is a report a cleanup round
+#     runs by hand, so nothing on main runs it, fails on it or files a `ratchet` issue.
+#   - Time budgets never fail it (tier_guard.sh reports OVERBUDGET and passes). A hung job does: each run of a job is stopped after CHECK_JOB_SECONDS (default
 #     1800, whole seconds), with every process under it, and is a FAIL naming it, not retried (devkit
 #     decisions 2026-11-02).
 #   - The box, not the commit: a job failing its run and its retry with a cause in ENV_CAUSES
-#     (no disk, no network, no docker daemon, a build script's host tool such as cmake) stops the check with exit 2 and no verdict, as a
+#     (no disk, no network (DNS to osv.dev, ghcr, github), no docker daemon, a build script's host tool such as cmake) stops the check with exit 2 and no verdict, as a
 #     plan's require_docker does before its first Docker job, so publish.sh never calls it red.
 #   Issues go to the plan's GATE_SLUG through _issue_lib.sh (deduplicated by title); a gh error
 #   is a `CHECK note:` and never changes the verdict.
@@ -46,7 +49,6 @@
 #   CHECK <job> PASS (<n>s)
 #   CHECK <job> PASS on retry (<n>s; first run's log: <path>)     then the flaky issue's line
 #   CHECK <job> FAIL ([[retry ]timed out after <n>s; ]<n>s; log: <path>)  then its last 15 lines
-#   CHECK <job> REPORTED (<n>s; log: <path>)                      a ratchet job's failure
 #   CHECK plan FAIL (<why>)                                       the commit's plan is broken
 #   CHECK toolchain FAIL (<why>)    the commit's own toolchain pin is invalid (toolchain_path's 3)
 #   CHECK <job> SKIPPED (<reason>), CHECK note: <text>, CHECK areas: <areas>
@@ -54,8 +56,6 @@
 #                                           publish.sh never calls the commit red for it
 #   CHECK <job> ERROR (<cause>, the box, not the commit; log: <path>)  likewise, ENV_CAUSES
 #   CHECK VERDICT PASS|FAIL head=<sha>[ failed=<job>,<job>]
-# Job seconds go to $WT/build/metrics/gate.json (`gate.<job>.seconds`), rewritten after every
-# job, for a plan's `job:<name>` metrics collector (bin/metrics_collect.sh).
 # Exit: 0 pass, 1 fail (a job, or the commit's plan: none, no gate_plan(), a bad job name:
 # `CHECK plan FAIL (<why>)`; or its toolchain pin: `CHECK toolchain FAIL (<why>)`), 2 usage or environment (no such commit, a missing tool, no Docker
 # for a plan that needs it, a toolchain the box cannot provide, an ENV_CAUSES failure).
@@ -73,7 +73,7 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 2
 . "$HERE/_load_lib.sh"
 # shellcheck source=bin/_gate_env.sh  # gate_plan_literal
 . "$HERE/_gate_env.sh"
-# shellcheck source=bin/_issue_lib.sh  # devkit_issue_file
+# shellcheck source=bin/_issue_lib.sh  # devkit_flaky_file, devkit_flaky_title, devkit_flaky_heal
 . "$HERE/_issue_lib.sh"
 # shellcheck source=bin/_slot_lib.sh  # slot_pool_init, slot_cost, slot_acquire, slot_release
 . "$HERE/_slot_lib.sh"
@@ -113,7 +113,9 @@ readonly CLEANUP_SECS=${GATE_CLEANUP_SECONDS:-120} JOB_SECS=${CHECK_JOB_SECONDS:
 mkdir -p "$LOGDIR" || die "cannot create $LOGDIR"
 rm -f "$LOGDIR"/*.log
 # The jobs run as from a clean shell: a caller's make would leak its variables through MAKEFLAGS.
-unset MAKEFLAGS MFLAGS MAKELEVEL TIER_BUDGET_ENFORCE GATE_BUDGET_ENFORCE
+unset MAKEFLAGS MFLAGS MAKELEVEL
+# Older checked trees' tier guards still exit 1 over budget, so a caller's enforce flags never reach them.
+unset TIER_BUDGET_ENFORCE GATE_BUDGET_ENFORCE
 
 # A clean tree: the worktree's own dir, never the checkout (its edits, its build/ outputs).
 SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/check_tree.XXXXXX") || die "mktemp failed"
@@ -130,6 +132,7 @@ git -C "$REPO" worktree add -q --detach "$WT" "$HEAD_SHA" 2>"$SCRATCH/wt.err" \
 devkit_preflight git make gh pkill -- "$WT" || die "$DEVKIT_PREFLIGHT_ERROR"
 
 verdict() { # <PASS|FAIL>; ends the run
+  [ "$1" != PASS ] || heal_flaky
   echo "CHECK VERDICT $1 head=$HEAD_SHA${FAILED_JOBS:+ failed=$FAILED_JOBS}"
   if [ "$1" = PASS ]; then exit 0; else exit 1; fi
 }
@@ -142,24 +145,24 @@ SLUG=$(gate_plan_literal "$PLAN" GATE_SLUG)
 # shellcheck disable=SC2034  # $PR, $ROOT, $MAIN_SHA and $CHANGED are the plan's (header)
 PR=check-$$ ROOT=$WT MAIN_SHA=$HEAD_SHA
 CHANGED=$(git -C "$WT" ls-files) || exit 2
-FAILED_JOBS='' JOB_SECONDS='' REPORT_ONLY=''
-export METRICS_BETTER_OK=1
+FAILED_JOBS=''
 
-write_gate_metrics() { # names were validated by job(), so no JSON escaping applies
-  local name secs sep='' body=''
-  while read -r name secs; do
-    [ -n "$name" ] || continue
-    body="$body$sep  \"gate.$name.seconds\": $secs"
-    sep=$',\n'
-  done <<<"$JOB_SECONDS"
-  mkdir -p "$WT/build/metrics" && printf '{\n%s\n}\n' "$body" >"$WT/build/metrics/gate.json"
+file_flaky() { # <job> <title> <body>
+  local said
+  if [ -z "$SLUG" ]; then note "no literal GATE_SLUG in the plan; no flaky issue filed: $2"; return; fi
+  said=$(devkit_flaky_file "$SLUG" "$@") || said="gh failed (above); not filed: $2"
+  note "flaky issue: $said"
 }
 
-file_issue() { # <label> <title> <body>
+# heal_flaky: the jobs that passed first try (CLEAN_JOBS) are green again, so their open flaky
+# issues are over. A gh error is a note, never the verdict.
+CLEAN_JOBS=()
+heal_flaky() {
   local said
-  if [ -z "$SLUG" ]; then note "no literal GATE_SLUG in the plan; no $1 issue filed: $2"; return; fi
-  said=$(devkit_issue_file "$SLUG" "$1" "$2" "$3") || said="gh failed (above); not filed: $2"
-  note "$1 issue: $said"
+  [ -n "$SLUG" ] && [ "${#CLEAN_JOBS[@]}" -gt 0 ] || return 0
+  said=$(devkit_flaky_heal "$SLUG" "check_tree.sh: ${HEAD_SHA:0:7} passes ${CLEAN_JOBS[*]} on the first run, so the flake is not recurring; closing. It reopens if it flakes again." "${CLEAN_JOBS[@]}") \
+    || said="gh failed (above); none closed"
+  [ "$said" = "closed none" ] || note "flaky issues: $said"
 }
 
 # run_make <log> <target> [VAR=val...]: one attempt, 124 when stopped at JOB_SECS: make and every
@@ -182,13 +185,18 @@ run_make() { devkit_with_timeout "$JOB_SECS" _make_once "$@"; }
 readonly ENV_CAUSES='disk full: No space left on device|Disk quota exceeded
 a host build tool missing: [Ii]s `[^`]+` (not )?installed\?|[Ff]ailed to find tool|Unable to find libclang|The pkg-config command could not be found|This error likely indicates that you need to install
 docker unreachable: Cannot connect to the Docker daemon|error during connect:|docker daemon is not reachable|docker daemon did not answer
-no network: Could not resolve host|Temporary failure in name resolution|Network is unreachable|getaddrinfo (ENOTFOUND|EAI_AGAIN)'
+no network: Could not resolve host|Temporary failure in name resolution|Network is unreachable|getaddrinfo (ENOTFOUND|EAI_AGAIN)|urlopen error \[Errno (-3|101)\]'
+# A name that does not exist (NXDOMAIN) is as often a commit's typo'd host as a dead resolver, so it
+# is the box's only while a known-good host also fails to resolve right now (dns_down).
+readonly DNS_ABSENT='Name or service not known|urlopen error \[Errno -2\]'
+dns_down() { ! devkit_with_timeout 5 python3 -I -c 'import socket, sys; socket.getaddrinfo(sys.argv[1], 443)' "${DEVKIT_DNS_SENTINEL:-github.com}" >/dev/null 2>&1; }
 env_cause() { # <log>: prints the cause and exits 0 when the log shows one
   local cause ere
   while IFS= read -r cause; do
     ere=${cause#*: }
     grep -qE -- "$ere" "$1" && { echo "${cause%%: *}"; return 0; }
   done <<<"$ENV_CAUSES"
+  if grep -qE -- "$DNS_ABSENT" "$1" && dns_down; then echo "no network"; return 0; fi
   return 1
 }
 
@@ -202,25 +210,17 @@ first_failure() {
 job() { # <name> <make target> [VAR=val...]
   local name=$1 t0 log=$LOGDIR/$1.log test cause rc=0
   shift
-  [[ "$name" =~ ^[A-Za-z0-9_-]+$ ]] && [ "$name" != total ] \
-    || bad_plan "job name '$name' must match [A-Za-z0-9_-]+ and not be 'total' (it becomes the key gate.<name>.seconds)"
+  [[ "$name" =~ ^[A-Za-z0-9_-]+$ ]] \
+    || bad_plan "job name '$name' must match [A-Za-z0-9_-]+ (it names its log file)"
   admit "$name" "$1"
   t0=$(devkit_now)
   run_make "$log" "$@" || rc=$?
   if [ "$rc" = 0 ]; then
     echo "CHECK $name PASS ($(($(devkit_now) - t0))s)"
+    CLEAN_JOBS+=("$name")
   elif [ "$rc" = 124 ]; then
-    # Before REPORT_ONLY: a hung ratchet is a hang, not a metric (devkit #355). Not retried: a
-    # second hang would hold the publisher another JOB_SECS.
+    # Not retried: a second hang would hold the publisher another JOB_SECS.
     job_failed "$name" "$t0" "$log" "timed out after ${JOB_SECS}s; "
-  elif case " $REPORT_ONLY " in *" $name "*) true ;; *) false ;; esac; then
-    # A ratchet is not retried: a metric does not flake, and the issue is the whole outcome.
-    echo "CHECK $name REPORTED ($(($(devkit_now) - t0))s; log: $log)"
-    file_issue ratchet "ratchet: $name fails on main" "check_tree.sh at ${HEAD_SHA:0:7}: \`make $*\` failed. A ratchet reports on main and never blocks a deploy (devkit decisions 2026-11-02); fix the regression or rebaseline.
-
-\`\`\`
-$(tail -n 30 "$log")
-\`\`\`"
   else
     mv "$log" "$LOGDIR/$name.first.log"
     rc=0
@@ -228,11 +228,15 @@ $(tail -n 30 "$log")
     if [ "$rc" = 0 ]; then
       test=$(first_failure "$LOGDIR/$name.first.log")
       echo "CHECK $name PASS on retry ($(($(devkit_now) - t0))s; first run's log: $LOGDIR/$name.first.log)"
-      file_issue flaky "flaky: $name: ${test:-no test named in its log}" "check_tree.sh at ${HEAD_SHA:0:7}: \`make $*\` failed, then passed when rerun; counted as a pass.
+      if cause=$(env_cause "$LOGDIR/$name.first.log"); then
+        note "no flaky issue for $name: its first run failed on the box ($cause), not on a test"
+      else
+        file_flaky "$name" "$(devkit_flaky_title "$name" "${test:-no test named in its log}")" "check_tree.sh at ${HEAD_SHA:0:7}: \`make $*\` failed, then passed when rerun; counted as a pass.
 
 \`\`\`
 $(tail -n 30 "$LOGDIR/$name.first.log")
 \`\`\`"
+      fi
     elif [ "$rc" != 124 ] && cause=$(env_cause "$log"); then
       echo "CHECK $name ERROR ($cause, the box, not the commit; log: $log)"
       tail -n 15 "$log" | sed 's/^/    /'
@@ -242,8 +246,6 @@ $(tail -n 30 "$LOGDIR/$name.first.log")
     fi
   fi
   slot_release
-  JOB_SECONDS=$(grep -v "^$name " <<<"$JOB_SECONDS"; echo "$name $(($(devkit_now) - t0))")
-  write_gate_metrics
 }
 # admit <name> <target>: the job's units, before its clock starts (header, Capacity).
 admit() {
@@ -301,13 +303,11 @@ provide_toolchain() {
 provide_toolchain
 # shellcheck disable=SC2034  # read by _paths_lib.sh; the plan's alone, never the environment's
 GATE_CODE_PATHS=
-unset GATE_DOCKER_GROUPS GATE_JOBS_METRICS
+unset GATE_DOCKER_GROUPS
 # shellcheck source=/dev/null  # the commit's plan; its contract is in the header
 . "$PLAN"
 declare -F gate_plan >/dev/null || bad_plan "scripts/ci/gate_plan.sh must define gate_plan()"
 declare -F gate_cleanup >/dev/null || gate_cleanup() { :; }
-# The ratchet's job names, before the default plan appends METRICS_REBASELINE (never, here).
-REPORT_ONLY=$(tr '|' '\n' <<<"${GATE_JOBS_METRICS:-}" | awk 'NF { print $1 }' | paste -sd ' ' -)
 cleanup() {
   # A TERM to this process alone (not its group) leaves the running job: stop it first.
   devkit_timeout_stop

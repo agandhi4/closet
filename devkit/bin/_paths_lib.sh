@@ -30,17 +30,10 @@
 # A devkit/bin file is tooling only when it is listed in DEVKIT_TOOLING_BIN or DEVKIT_IMAGE_BIN;
 # DEVKIT_JOB_BIN names the files a gate job executes beyond ci-quick (other, so they run
 # everything). An unlisted file is other until someone decides: tests/paths_contract.bats fails
-# when a bin/ file is in none of the three lists. devkit/metrics/* (the shared collectors the
-# metrics job runs) is other by the default case, like DEVKIT_JOB_BIN.
+# when a bin/ file is in none of the three lists. devkit/metrics/* (the shared collectors, run on
+# demand: no gate job runs them) is other by the default case, like DEVKIT_JOB_BIN.
 
 DEVKIT_AREA_ORDER="docs backend frontend native tooling other"
-
-# The METRICS group's areas come from the repo's metrics.conf (metrics_conf_areas). Guarded:
-# metrics_collect.sh sources both libs, and its plan probe sources this one again. Not followed
-# by shellcheck (/dev/null): inlined into that probe's subshell, the parse's arrays would read
-# as modified there (SC2031) in every sourcer; the lib is linted on its own.
-# shellcheck source=/dev/null
-declare -F metrics_conf_parse >/dev/null || . "$(dirname "${BASH_SOURCE[0]}")/_metrics_conf_lib.sh"
 
 # Never run from the merged tree by a job: the gate and hook machinery (run from the invoking
 # checkout, main's copy), the guards ci-quick runs (devkit-check, docs/toolchain/workflows/
@@ -97,16 +90,9 @@ _devkit_area() {
   case "$1" in
     # Read by docs-check alone (finplat, Orbit, locus, rollcall).
     scripts/ci/docs_oversize.txt) DEVKIT_AREA=docs ;;
-    # The metrics ratchet's inputs: both bounds files (under docs/, but a loosened bound must run
-    # the METRICS group and face the label, not pass as docs-only; locus #121 slipped through with
-    # scorecard.json before it was listed) and the collectors file. Other, which runs every
-    # group: the collectors need the tiers' output.
-    docs/metrics/ratchet.json|docs/metrics/scorecard.json|scripts/ci/metrics.conf) DEVKIT_AREA=other ;;
-    # The rule files of the two structure guards: ci-quick reads them, and so do the metrics
-    # job's `layers` and `guards` collectors (a new `known` line moves a ratcheted key). Other,
-    # never tooling, so the METRICS group runs and faces the label. The shared guard rules
-    # every section runs (bin/guard_check.py "Shared rules") move the same key, so they are not
-    # devkit/lint/*'s tooling.
+    # The rule files of the two structure guards: ci-quick reads them. Other, never tooling,
+    # so the quick group runs. The shared guard rules every section runs (bin/guard_check.py
+    # "Shared rules") are not devkit/lint/*'s tooling.
     scripts/ci/layers.conf|scripts/ci/guards.conf|devkit/lint/guards.shared.conf) DEVKIT_AREA=other ;;
     # Fixtures under docs/ that tests read (locus): rule-fixtures by pytest and vitest,
     # sync-wire-fixtures by pytest. Above docs/* so they are not mistaken for prose.
@@ -275,34 +261,23 @@ devkit_gate_areas() {
 #                                             too: its vitest tiers are frontend paths, and a
 #                                             default that skipped them never shifted a UI-only
 #                                             change (kitchen #10 Codex). Order is
-#                                             not what keeps METRICS on the real-clock run:
-#                                             tier_guard.sh puts back every metrics.conf input
-#                                             a shifted run wrote ("Clock shift"), so a unit
-#                                             tier in QUICK (rollcall #81) is safe too
+#                                             not what keeps the metrics
+#                                             inputs on the real-clock run: tier_guard.sh puts
+#                                             back every metrics.conf input a shifted run wrote
+#                                             ("Clock shift"), so a unit tier in QUICK
+#                                             (rollcall #81) is safe too
 #   BACKEND   backend other
 #   FRONTEND  frontend other
 #   IMAGE     backend frontend other          fixed; minus .dockerignore and GATE_IMAGE_EXCLUDE_PATHS, plus
 #                                             GATE_IMAGE_PATHS and the DEVKIT_IMAGE_BIN scripts
 #   E2E       backend frontend other          fixed
-#   METRICS   backend frontend other, plus    optional; always last (after gate_plan_extra), so
-#             every area a metrics.conf       (one source of truth: kitchen's `dup backend,native`
-#             collector names but tooling     reads ios/, so an ios/-only change runs it; a
-#                                             tooling collector widens nothing, as in
-#                                             metrics_collect.sh)
-#                                             its ci-metrics merges every earlier job's gate.*
-#                                             seconds and the tier-*.json the tiers wrote, and
-#                                             metrics_collect.sh reads gate.json for its
-#                                             `job:<name>` collectors. Not tooling: devkit's
-#                                             collectors and ratchet are other (below), so a
-#                                             tooling-only diff cannot move a metric. With
-#                                             the PR labelled metrics-rebaseline (pr_has_label,
-#                                             fail-closed: no gh answer means no label) each
-#                                             job gets METRICS_REBASELINE=1 appended, which
-#                                             metrics_collect.sh turns into --rebaseline-ok.
 #
+# There is no METRICS group (2026-11-13): the metrics ratchet is a report a cleanup round runs
+# by hand (`make ci-metrics`), so no plan job, label or area runs it. A plan that still sets
+# GATE_JOBS_METRICS has it ignored; delete the line.
 # So docs-only runs DOCS; tooling(+docs)-only runs QUICK, plus IMAGE when boot_image.sh or
 # contract_probe.sh changed; native-only (or an empty diff) is nothing_to_run unless a group
-# runs for native (a GATE_AREAS_<GROUP> naming it, or a native metrics collector); backend and
+# runs for native (a GATE_AREAS_<GROUP> naming it); backend and
 # frontend run their own group, IMAGE and E2E; any other path runs every group. A group not
 # run prints one SKIPPED line per job, naming the areas changed.
 
@@ -334,7 +309,6 @@ devkit_default_gate_plan() {
     fi
   done
   _devkit_clock_jobs
-  _devkit_metrics_areas
   [ -n "$GATE_AREAS" ] || nothing_to_run "No changed paths"
   [ "$GATE_AREAS" != native ] || _devkit_native_runs \
     || nothing_to_run "Only native paths changed (ios/, OrbitAgent/, *.xcodeproj/); build and test them on the Mac"
@@ -352,7 +326,6 @@ devkit_default_gate_plan() {
   _devkit_group IMAGE
   _devkit_group E2E
   if declare -F gate_plan_extra >/dev/null; then gate_plan_extra; fi
-  _devkit_metrics_group
 }
 
 # Before the first group: when a GATE_DOCKER_GROUPS group (header table) will run, the daemon must
@@ -360,7 +333,7 @@ devkit_default_gate_plan() {
 # OrbStack stopped, quick and unit ran ~135 s, then the image job failed and the PR re-gated in
 # full). A harness that runs a plan without the skeleton has no require_docker and probes nothing.
 _devkit_docker_preflight() {
-  local group need="" groups="QUICK DOCS CLOCK BACKEND FRONTEND IMAGE E2E METRICS"
+  local group need="" groups="QUICK DOCS CLOCK BACKEND FRONTEND IMAGE E2E"
   for group in ${GATE_DOCKER_GROUPS-IMAGE E2E}; do
     case " $groups " in
       *" $group "*) ;;
@@ -384,8 +357,7 @@ _devkit_group_will_run() {
 
 # The QUICK jobs, with MIGRATION_EDIT_OK=1 appended under the `migration-contract` label
 # (pr_has_label, fail-closed; read only when the group will run), which bin/migration_check.py
-# reads as "shipped-migration edits are deliberate in this PR" (data.md 12). Same shape as the
-# metrics-rebaseline label below.
+# reads as "shipped-migration edits are deliberate in this PR" (data.md 12).
 _devkit_quick_jobs() {
   local jobs=${GATE_JOBS_QUICK:-}
   if [ -n "$jobs" ] && _devkit_group_runs QUICK \
@@ -395,41 +367,12 @@ _devkit_quick_jobs() {
   printf '%s' "$jobs"
 }
 
-# The METRICS group (header table). The label is read only when the group will run: a
-# docs-only PR asks gh nothing. pr_has_label is the plan runner's; a harness that
-# runs a plan without it (tests/new_contract.bats) gets no label, the fail-closed answer.
-_devkit_metrics_group() {
-  local jobs=${GATE_JOBS_METRICS:-}
-  [ -n "$jobs" ] || return 0
-  if _devkit_group_runs METRICS && declare -F pr_has_label >/dev/null \
-      && pr_has_label metrics-rebaseline; then
-    jobs=$(sed -e 's/|/ METRICS_REBASELINE=1|/g' -e 's/$/ METRICS_REBASELINE=1/' <<<"$jobs")
-  fi
-  _devkit_group METRICS "$jobs"
-}
-
-# DEVKIT_METRICS_AREAS: the METRICS group's areas (header table), from the merged tree's
-# metrics.conf ($WT, as _devkit_image_areas reads; the repo root without the skeleton). A
-# malformed conf is exit 2 here, before any job, as the metrics job would fail on it.
-_devkit_metrics_areas() {
-  local named area
-  named=$(
-    # shellcheck disable=SC2329  # metrics_conf_parse calls its caller's die
-    die() { echo "devkit_default_gate_plan: $*" >&2; exit 2; }
-    metrics_conf_areas "${WT:-.}/scripts/ci/metrics.conf"
-  ) || exit 2
-  DEVKIT_METRICS_AREAS="backend frontend other"
-  for area in $named; do
-    case " $DEVKIT_METRICS_AREAS tooling " in *" $area "*) ;; *) DEVKIT_METRICS_AREAS+=" $area" ;; esac
-  done
-}
-
 # True when a group with jobs runs for a native-only change: QUICK, DOCS, CLOCK, BACKEND or
-# FRONTEND through a GATE_AREAS_<GROUP> naming native, or METRICS through a native collector.
+# FRONTEND through a GATE_AREAS_<GROUP> naming native.
 # IMAGE and E2E never do (fixed areas).
 _devkit_native_runs() {
   local group jobs_var
-  for group in QUICK DOCS CLOCK BACKEND FRONTEND METRICS; do
+  for group in QUICK DOCS CLOCK BACKEND FRONTEND; do
     jobs_var=GATE_JOBS_$group
     [ "$group" != CLOCK ] || jobs_var=DEVKIT_CLOCK_JOBS
     [ -n "${!jobs_var:-}" ] || continue
@@ -446,7 +389,6 @@ _devkit_default_areas() {
     BACKEND) echo "backend other" ;;
     FRONTEND) echo "frontend other" ;;
     CLOCK | IMAGE | E2E) echo "backend frontend other" ;;
-    METRICS) echo "$DEVKIT_METRICS_AREAS" ;;
   esac
 }
 

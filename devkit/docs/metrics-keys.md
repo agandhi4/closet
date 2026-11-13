@@ -13,7 +13,7 @@ snapshot, `build/metrics.json`, and refuses a key that two collectors both emit:
 ```
 
 `sources` names the collector (the file's stem) behind each key; `skipped` lists the collectors
-`metrics_collect.sh` did not run for this PR. `check`, `tighten` and `rebaseline` also read a
+`metrics_collect.sh` did not run. `check`, `tighten` and `rebaseline` also read a
 schema 1 envelope (finplat's `make metrics`) and a bare flat file, which carry neither.
 
 ## Rules
@@ -55,27 +55,20 @@ schema 1 envelope (finplat's `make metrics`) and a bare flat file, which carry n
 | `tier` | lower | `tier.unit.seconds`, `tier.db.seconds` (wall-clock seconds of the guarded command) |
 | `tests` | higher | `tests.unit.pytest`, `tests.e2e.playwright` (tests that ran, per tier and runner) |
 
-**Gate seconds** come from the plan runner, not a repo collector: after every job it rewrites
-`build/metrics/gate.json` in its worktree with `gate.<job>.seconds` for the jobs run so
-far, and adds `gate.total.seconds` after the last one. A
-metrics job the plan runs last therefore merges every earlier job's seconds, but never its own
-or the total. They are the one timing domain allowed into a snapshot (owner directive
-2026-10-13: job seconds only ever get faster); the hard limits are the gate's budgets
-(`GATE_JOB_BUDGET_MINUTES`, `GATE_BUDGET_MINUTES`). Wall-clock seconds are noisy and the
-ratchet has no tolerance, so a repo that tracks a `gate.*` key sets its bound with headroom by
-hand rather than with `tighten`. The worktree's `build/` must be git-ignored, as it already is
-for every other collector.
+**Gate seconds** (`gate.<job>.seconds`) are no longer written: check_tree.sh stopped writing
+`build/metrics/gate.json` when the ratchet left the plan (2026-11-13), so a bound that still
+tracks a `gate.*` key reads MISSING; drop it.
 
 **Tier seconds and test counts** come from `tier_guard.sh` (README), one file per tier:
 `build/metrics/tier-<tier>.json` at the git top level (whatever directory the tier ran from) holds `tier.<tier>.seconds` and `tests.<tier>.<runner>` for each
 floored runner, written after a command that passed (an over-budget or under-floor run still
 writes them). Two domains because the directions differ: a tier only gets faster, and the count
-of tests that ran only goes down in the PR that removes tests, which is what a `higher` bound
-plus the rebaseline label already enforce. The seconds are as noisy as `gate.*`, so a tracked
+of tests that ran only goes down when tests are removed. The seconds are noisy, so a tracked
 bound gets headroom by hand. The counts are the tiers' floors (`metrics_ratchet.py`, Floors):
 `tighten` seeds each one without `SEED=1` (`check` prints an unseeded one `UNSEEDED` and passes)
-and raises it once the count beats it by more than 5% (`check` fails until then), tier_guard
-reads it less 5% as the runner's floor (the gate's `check` holds it exactly), and a floor whose tier did not run in this gate is SKIPPED.
+and raises it once the count beats it by more than 5%, tier_guard reads it less 5% as the
+runner's floor and reports a count under it (`TIER <tier> FLOOR ...`, exit 0), and a floor whose
+tier did not run is SKIPPED.
 
 ## Shared collectors (`devkit/metrics/`)
 
@@ -137,9 +130,9 @@ path order.
 **Bundle keys and the label (2026-10-17).** `bundle.*` keys stay at tolerance 0: every KiB
 the first screen loads is a bound. Extracting a component or helper adds a sub-KiB rise the
 code did not earn as weight, because names survive minification (an export, a component name,
-an import specifier). That rise is the sanctioned use of `metrics-rebaseline`: run
+an import specifier). That rise is what `rebaseline --keys` is for: run
 `make metrics-rebaseline KEYS=bundle.frontend.kb_total` (the moved key or keys, comma-separated;
-nothing else moves), commit `docs/metrics/ratchet.json`, label the PR `metrics-rebaseline`, and
+nothing else moves), commit `docs/metrics/ratchet.json`, and
 add a line to the repo's decisions.md naming the extraction and the KiB. Never hand-edit the
 bounds file. Anything past a KiB, or a rise with no extraction, is a regression to fix.
 Precedents: finplat #663, orbit #84, instalite #22, locus #127.
@@ -147,8 +140,7 @@ Precedents: finplat #663, orbit #84, instalite #22, locus #127.
 **Vue components counted (2026-10-17).** Before, ts.mjs saw no `.vue` file, so a Vue repo's
 `complexity.<s>.*` and `coupling.<s>.*` measured its `.ts` alone. At the first sync after this
 change those keys RISE with no code change (orbit: `cognitive_max` 31 to 37, `fan_out_max` 10
-to 23; `fan_in_max`, report-only, 22 to 45). That sync PR carries the `metrics-rebaseline`
-label legitimately: the bound moves because the measurement widened, not because code got worse.
+to 23; `fan_in_max`, report-only, 22 to 45). The bound moves because the measurement widened, not because code got worse.
 
 **Coverage determinism.** vitest's V8 coverage remaps branches per worker unless
 `coverage.experimentalAstAwareRemapping: true` is set in the vitest config: locus saw 12 vs 13
@@ -174,8 +166,7 @@ conf; the `devkit new` stacks declare it as their `layers` collector.
 
 `bin/guard_check.py --metrics-out <file>` reports the same way: `guards.<section>.known`, the
 violations of `scripts/ci/guards.conf`'s rules in that section (its `known` lines once the
-check passes), so paying debt down is ratcheted and adding a `known` line needs the
-metrics-rebaseline label. The `devkit new` stacks declare it as their `guards` collector.
+check passes), so paying debt down shows in the metrics report. The `devkit new` stacks declare it as their `guards` collector.
 
 ## Bounds file
 
@@ -204,45 +195,37 @@ holds it to the table below). Keys in the snapshot but not in the bounds are rep
 untracked by `check` and never fail; remove a seeded key from the bounds to leave it so.
 
 **Every key is a signal** (owner, 2026-10-18): it says where to look, and an agent judges
-whether to act or to record an exception. A bound holds a floor against drift; the
-`metrics-rebaseline` label is the exception path. A key whose movement says nothing about the
+whether to act or to record an exception. A bound records where a cleanup round left a number. A key whose movement says nothing about the
 code without that judgement is report-only: size, because size alone never justifies a split
 (decisions 2026-10-17, T2 file size).
 
 **Report-only keys** (`vuln.*`, `coupling.<s>.fan_in_max`, `duplication.<s>.jscpd_percent`,
 `size.<s>.max_lines`, `size.<s>.over_600`, `images.<s>.refs`, `images.<s>.unpinned`; `is_report_only` in `bin/metrics_ratchet.py`) are
-never gated, even when the bounds file holds one: `check` prints
+never compared, even when the bounds file holds one: `check` prints
 `ratchet <key> <value>|- vs <bound> REPORT-ONLY (...)` and counts it as `report_only=` in the
-summary, the comparison with main ignores it (dropping or moving its bound needs no label), and
-`tighten` and `rebaseline` drop it and seed none. A consumer whose bounds still hold one passes
-`check` after its next devkit sync; `make metrics-tighten` drops the entries, and the PR commits
-both files.
+summary, and
+`tighten` and `rebaseline` drop it and seed none. `make metrics-tighten` drops a leftover entry.
 
 **`docs/metrics/report-only.json`** is the committed copy of the report-only keys:
 `metrics_collect.sh tighten` and `rebaseline` write it beside the bounds (a schema 2 snapshot,
 `--report-only` of the ratchet; a key whose collector was skipped keeps its committed value), and
-the author commits it with the bounds. `check` never writes or reads it, so it gates nothing. It
+the author commits it with the bounds. `check` never writes or reads it, so it is only a record. It
 exists because the bounds never hold these keys and `build/metrics.json` is untracked: without
 it a fresh clone's scorecard graded `sec.audit` UNMEASURED in every repo, vuln collector or not
 (devkit #76). The scorecard reads the bounds, then this file, then a fresh `build/metrics.json`.
 
-**Gains lock in.** `check` fails a BETTER key with `ratchet <key> <value> vs <bound> BETTER —
-run make metrics-tighten and commit docs/metrics/ratchet.json`: integer keys on any gain, float
-keys (coverage, bundle KiB) on a gain over 0.05; a smaller float gain prints `BETTER (within
-tolerance 0.05; not a failure)`. The `metrics-rebaseline` label does not exempt it; the fix is
-always `make metrics-tighten` and the bounds commit.
+**Gains.** `check` prints a BETTER key as `ratchet <key> <value> vs <bound> BETTER — make
+metrics-tighten locks it in`: integer keys on any gain, float keys (coverage, bundle KiB) on a
+gain over 0.05; a smaller float gain prints `BETTER (within tolerance 0.05)`. Nothing fails on it.
 
-**`tighten` prints what the gate will refuse.** Every WORSE and MISSING key gets check's
-`ratchet <key> ...` line; the BETTER bounds are written, then the run exits 1 with a last
-`ratchet FAIL:` line naming the fixes. `metrics_collect.sh tighten` still runs the scorecard's
-tighten before passing the 1 on.
+**`check` and `tighten` report; they never fail on a number.** Every WORSE and MISSING key gets
+a `ratchet <key> ...` line and the run ends with `ratchet report only: <n> worse and <m> missing
+...`, exit 0. `metrics_collect.sh tighten` writes the BETTER bounds and also runs the scorecard's
+tighten. Only an unreadable file, a collector that fails, or a missing tier input is a nonzero exit.
 
-**Skipped collectors.** In the gate, `metrics_collect.sh` runs a collector only when a changed
-path is in its area (`other` runs everything, `tooling` widens nothing, `repo` collectors
-always run; a `job:<name>` collector, which reads a gate job's report, only when
-`build/metrics/gate.json` records that job) and passes the rest to `merge --skipped`. `check` then reports a tracked key that is absent from
-the snapshot as `SKIPPED (collector <name> did not run)`, and does not fail, exactly when the
-bound's `source` is in the snapshot's `skipped`. A key with no `source` (bounds written before
-schema 2: run `rebaseline` once to add them), or whose collector ran and emitted nothing, is
-MISSING and fails even with `--rebaseline-ok`. `tighten` and `rebaseline` leave a skipped key's
-bound as it is.
+**Skipped collectors.** `merge --skipped` marks a collector as not run; `check` then reports a
+tracked key absent from the snapshot as `SKIPPED (collector <name> did not run)`, exactly when the
+bound's `source` is in the snapshot's `skipped`. `metrics_collect.sh` runs every collector, so
+only a `tier-<tier>` source (a tier that did not run) reads SKIPPED in practice. A key with no
+`source` (bounds written before schema 2: run `rebaseline` once to add them), or whose collector
+ran and emitted nothing, is MISSING. `tighten` and `rebaseline` leave a skipped key's bound as it is.

@@ -7,7 +7,7 @@
 #       problem one issue (a job and test, a commit). Prints `filed <url>` or `open already:
 #       <title>`; exit 1 when gh fails (a caller reports it and goes on: a missed issue never
 #       changes a verdict).
-#       Used by: check_tree.sh (flaky, ratchet) and publish.sh (main-red).
+#       Used by: check_tree.sh (flaky) and publish.sh (main-red).
 #   devkit_issue_upsert <slug> <label> <title> <body>
 #       devkit_issue_file, except that an open issue with <title> gets <body> as its new body.
 #       Prints `filed <url>` or `updated #<n>`. Used by: publisher_deadman.sh.
@@ -25,6 +25,17 @@
 #       passing lines, last 40. Prints and exits as devkit_issue_file.
 #   devkit_main_red_heal <slug> <comment> [<keep title>] [<where>]
 #       Close <where>'s open main-red issues but <keep title>. Used by: publish.sh, main_check.sh.
+#   devkit_flaky_title <job> <test line>
+#       `flaky: <job>: <test line>`, check_tree's flaky issue title (dedup key).
+#   devkit_flaky_file <slug> <job> <title> <body>
+#       File a flaky issue for <job>: an open one with <title> is left (`open already: <title>`);
+#       else the job's most recently closed flaky issue is reopened, retitled <title>, with <body>
+#       as its comment (`reopened #<n>`), so a recurring flake keeps its history and rate in one
+#       issue; else a new one (devkit_issue_file). Exit 1 when gh fails. Used by: check_tree.sh.
+#   devkit_flaky_heal <slug> <comment> <job>...
+#       Close every open flaky issue whose job is one of <job>, with <comment>; the caller passes
+#       the jobs that just passed first try. Prints `closed #<n> ...` or `closed none`; exit 1
+#       when gh fails. Used by: check_tree.sh.
 # The labels are in github/labels.json; the `gh label create` covers a repo not yet synced to it
 # (it fails, harmlessly, when the label exists).
 
@@ -77,4 +88,36 @@ $(grep -vE '^CHECK (.* PASS|.* SKIPPED|areas:|tree:)' "$3" | tail -n 40)
 
 devkit_main_red_heal() { # <slug> <comment> [<keep title>] [<where>]
   devkit_issue_close "$1" main-red "$2" "${3:-}" "$(_devkit_main_red_prefix "${4:-}")"
+}
+
+devkit_flaky_title() { echo "flaky: $1: $2"; }
+
+devkit_flaky_heal() { # <slug> <comment> <job>...
+  local slug=$1 comment=$2 rows n title job closed=''
+  shift 2
+  [ $# -gt 0 ] || { echo "closed none"; return 0; }
+  rows=$(_devkit_open_issues "$slug" flaky) || return 1
+  while IFS=$'\t' read -r n title; do
+    [ -n "$n" ] || continue
+    for job in "$@"; do
+      [[ "$title" == "$(devkit_flaky_title "$job" '')"* ]] || continue
+      gh issue close "$n" --repo "$slug" --comment "$comment" >/dev/null || return 1
+      closed="$closed #$n"
+      break
+    done
+  done <<<"$rows"
+  echo "closed${closed:- none}"
+}
+
+devkit_flaky_file() { # <slug> <job> <title> <body>
+  local slug=$1 job=$2 title=$3 body=$4 rows n titles
+  titles=$(gh issue list --repo "$slug" --label flaky --state open --limit 200 --json title --jq '.[].title') || return 1
+  if grep -qxF -- "$title" <<<"$titles"; then echo "open already: $title"; return 0; fi
+  rows=$(gh issue list --repo "$slug" --label flaky --state closed --limit 200 --json number,title,closedAt \
+    --jq '.[] | "\(.closedAt)\t\(.number)\t\(.title)"') || return 1
+  n=$(sort -r <<<"$rows" | awk -F '\t' -v p="$(devkit_flaky_title "$job" '')" 'index($3, p) == 1 { print $2; exit }')
+  [ -n "$n" ] || { devkit_issue_file "$slug" flaky "$title" "$body"; return; }
+  gh issue reopen "$n" --repo "$slug" --comment "$body" >/dev/null || return 1
+  gh issue edit "$n" --repo "$slug" --title "$title" >/dev/null || return 1
+  echo "reopened #$n"
 }

@@ -33,7 +33,7 @@
 #   5. the stack's lock command (uv lock, npm install --package-lock-only), so the frozen
 #      install in ci-quick has a lockfile to be frozen to; none for a stack without one
 #   6. make metrics-rebaseline: the collectors scripts/ci/metrics.conf declares fill
-#      docs/metrics/ratchet.json, so `make ci-metrics` holds from the first commit
+#      docs/metrics/ratchet.json, so `make ci-metrics` reads them from the first commit
 #   7. scorecard.py --mode rebaseline: docs/metrics/scorecard.json, the WIRED checks' first record
 #   8. core.hooksPath=.githooks, then ONE commit with everything. pre-commit runs
 #      `make ci-quick` on the scaffold: devkit-check (index tree), toolchain-check, docs-check,
@@ -226,7 +226,7 @@ if [ -n "$STACK_LOCK_CMD" ]; then
 fi
 
 # The bounds for the first commit: metrics.conf's collectors (whatever the stack declares) run
-# once and fill docs/metrics/ratchet.json, so `make ci-metrics` holds on this tree. On the
+# once and fill docs/metrics/ratchet.json, so `make ci-metrics` reads them on this tree. On the
 # pins, as the lock step: a collector may need the stack's node. The stack's own make target,
 # not the script: a prerequisite there installs what the collectors run (a real `devkit new
 # --stack rust` failed "jscpd is not installed" when this called metrics_collect.sh directly,
@@ -244,7 +244,7 @@ echo "devkit-new: make metrics-rebaseline"
 git config core.hooksPath .githooks
 git add -A
 # The WIRED ratchet's first bound, over the staged tree (scorecard.py reads the index), so the
-# scorecard_file check passes and ci-metrics holds every check from the first gate on. A new
+# scorecard_file check passes and ci-metrics reports every check from the first commit on. A new
 # project must read wired n/n; each check it records wired is one a later PR may not unwire.
 echo "devkit-new: devkit/bin/scorecard.py . --mode rebaseline"
 devkit/bin/python.sh -I devkit/bin/scorecard.py . --mode rebaseline || die "scorecard.py --mode rebaseline failed"

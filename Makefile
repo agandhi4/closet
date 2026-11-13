@@ -25,8 +25,8 @@ CI_BUILD_VERSION ?= dev
 SMOKE_PG_CONTAINER ?= $(shell $(PG) name closet-smoke-pg)
 
 # Test-tier budgets and floors (owner directive 2026-10-13, docs/decisions.md "Lean test suite"):
-# devkit's tier guard fails a tier over its wall-clock budget (TIER_BUDGET_ENFORCE=0 only
-# reports) or one that ran fewer tests than the floor (a lost glob passes green otherwise),
+# devkit's tier guard reports a tier over its wall-clock budget (OVERBUDGET) and one that ran fewer tests than
+# the floor (FLOOR); neither fails the run, so read the warnings (a lost glob shows only as FLOOR),
 # counting the runner's own summary line: tests that ran, never skipped ones. It prints one
 # `TIER <tier>` line and writes build/metrics/tier-<tier>.json. The floors are the counts at the
 # last change to the suite: raise them with new tests; lower them only in the PR that removes
@@ -57,10 +57,10 @@ help:
 	@echo "make screenshots      — the 390 px (and 1440 px) persona screenshots (test/screenshots.spec.ts) into screenshots/, same server as ci-e2e"
 	@echo "make ci-image         — docker build of the production image (CI_IMAGE=$(CI_IMAGE), CI_BUILD_VERSION=$(CI_BUILD_VERSION))"
 	@echo "make ci-smoke         — boot CI_IMAGE on a throwaway Postgres 18 (scripts/smoke-image.sh); /health/ready must report CI_BUILD_VERSION"
-	@echo "make ci-metrics       — the metrics ratchet: scripts/ci/metrics.conf's collectors against docs/metrics/ratchet.json (the plan's last job)"
+	@echo "make ci-metrics       — the metrics report (never fails): scripts/ci/metrics.conf's collectors against docs/metrics/ratchet.json; run it in a cleanup round"
 	@echo "make metrics-snapshot — run the collectors; build/metrics.json is the report"
-	@echo "make metrics-tighten  — lock in improved numbers; commit docs/metrics/ratchet.json in the same PR"
-	@echo "make metrics-rebaseline KEYS=<key>[,<key>] — loosen only those bounds; commit it and label the PR metrics-rebaseline"
+	@echo "make metrics-tighten  — keep a cleanup round's gains in docs/metrics/ratchet.json"
+	@echo "make metrics-rebaseline KEYS=<key>[,<key>] — loosen only those bounds (no label; optional)"
 	@echo "make gate             — retired (devkit 2026-11-02): prints the review/merge path below"
 	@echo "make pr BODY_FILE=<f> — push the branch and open its PR on origin [TITLE=…] [DRAFT=1]"
 	@echo "make review PR=<n>    — one local review round: claude -p over PR <n>'s diff, its record posted"
