@@ -1,5 +1,9 @@
 import { AjvCompiler } from '@fastify/ajv-compiler';
-import type { FastifyInstance, FastifySchemaCompiler } from 'fastify';
+import type {
+  FastifyInstance,
+  FastifySchemaCompiler,
+  RouteOptions,
+} from 'fastify';
 
 /**
  * The /api/v1 scope's validator compiler (apiPlugin): a JSON body is
@@ -8,6 +12,13 @@ import type { FastifyInstance, FastifySchemaCompiler } from 'fastify';
  * single row as scalars) but which corrupts JSON: a `0`, `""` or `false`
  * meets `{ type: 'null' }` as null and `"3"` passes as 3. Querystring and
  * params arrive as strings, so they keep the coercing compiler (`?limit=20`).
+ *
+ * A querystring is also closed: a parameter the route does not declare is a
+ * 400 naming it (#577), never silently ignored (a client's misspelled
+ * `?categroy=` would answer the unfiltered list). The one place, so a route
+ * added later is strict without work; a parameter a route accepts must be
+ * declared. `removeAdditional` is off for it: with `additionalProperties:
+ * false`, ajv's default would strip the key instead of failing.
  *
  * Both are @fastify/ajv-compiler, the factory Fastify itself builds its
  * compiler with, with the root's options (app.ts sets none), so formats,
@@ -20,7 +31,7 @@ export function jsonApiValidator(
   scope: FastifyInstance,
 ): FastifySchemaCompiler<unknown> {
   const build = AjvCompiler();
-  let compilers: { body: Compile; other: Compile } | undefined;
+  let compilers: { body: Compile; other: Compile; query: Compile } | undefined;
   return (route) => {
     if (!compilers) {
       // Fastify types its schema bucket as unknown values; they are the
@@ -29,14 +40,36 @@ export function jsonApiValidator(
       compilers = {
         body: build(shared, { customOptions: { coerceTypes: false } }),
         other: build(shared, { customOptions: {} }),
+        query: build(shared, {
+          customOptions: { removeAdditional: false },
+        }),
       };
     }
     // The factory's compiler takes the route definition (it reads
     // `.schema`), though its types name only a schema.
-    return (route.httpPart === 'body' ? compilers.body : compilers.other)(
-      route,
-    );
+    switch (route.httpPart) {
+      case 'body':
+        return compilers.body(route);
+      case 'querystring':
+        return compilers.query({
+          ...route,
+          schema: { ...(route.schema as object), additionalProperties: false },
+        });
+      default:
+        return compilers.other(route);
+    }
   };
 }
 
 type Compile = ReturnType<ReturnType<typeof AjvCompiler>>;
+
+/**
+ * apiPlugin's onRoute hook: a route that declares no querystring gets an
+ * empty one, so the closed-querystring rule (above) holds for it too: Fastify
+ * compiles a schema only for a part the route declares. Adds nothing to the
+ * OpenAPI document (no properties, no parameters).
+ */
+export function declareQuerystring(route: RouteOptions): void {
+  route.schema ??= {};
+  route.schema.querystring ??= { type: 'object', properties: {} };
+}

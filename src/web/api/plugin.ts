@@ -30,7 +30,7 @@ import type { LinkImportLimit } from '../wardrobe/link-import/import';
 import { apiResponses, requireContract } from './contract';
 import spec from './openapi.json';
 import { createDeviceTokenHook, refuseQueryToken } from './token-auth';
-import { jsonApiValidator } from './validator';
+import { declareQuerystring, jsonApiValidator } from './validator';
 
 export type ApiOptions = WebOptions &
   SignInLimit &
@@ -84,6 +84,7 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
   app.addSchema(Problem);
   app.setValidatorCompiler(jsonApiValidator(app));
   app.addHook('onRoute', requireContract);
+  app.addHook('onRoute', declareQuerystring);
   app.addHook('onRequest', refuseQueryToken);
   app.addHook('onRequest', createDeviceTokenHook({ db, logger: apiLogger }));
   const apiLimit = app.createRateLimit(API_LIMIT);
