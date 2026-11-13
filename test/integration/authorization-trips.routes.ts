@@ -443,5 +443,17 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    // A trip's pick is the trip's own write, with the idea's garments.
+    api: {
+      ok: 201,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/trips/${f.tripId}/outfits${q}`,
+        payload: {
+          garmentIds: [f.garmentId],
+          day: addDays(f.today, 1),
+        },
+      }),
+    },
   },
 ];

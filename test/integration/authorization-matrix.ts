@@ -359,6 +359,8 @@ const TABLES = [
   // Saved looks (#22).
   'inspiration',
   'inspiration_piece',
+  // An Ideas card's "Clashes" (#193c's matrix case).
+  'generator_avoid',
 ];
 
 /** The page, or the route's /api/v1 twin (Route.api) with a device token. */

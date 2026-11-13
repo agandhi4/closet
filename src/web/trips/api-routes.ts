@@ -11,8 +11,7 @@ import {
   offsetCursor,
   readOffsetCursor,
 } from '../api/resource';
-import { HttpError } from '../errors';
-import { t } from '../i18n';
+import { outfitOrGarments } from '../outfits/outfit-resource';
 import { RowId } from '../schemas';
 import { type Actor, actorOf } from '../sharing/access';
 import { API_PREFIX } from '../surface';
@@ -82,14 +81,6 @@ const TRIP_OUTFIT_PATH = `${TRIP_PATH}/outfits/:tripOutfitId`;
 const TRIP_ITEM_PATH = `${TRIP_PATH}/items/:itemId`;
 
 const deleted = { 204: Type.Null({ description: 'Deleted' }) };
-
-/** POST /trips/{id}/outfits names neither an outfit nor garments, or both. */
-function outfitOrGarments(): HttpError {
-  const message = t('api.TRIP_OUTFIT_ONE_OF');
-  return new HttpError(400, message, {
-    validation: [{ path: 'body/outfitId', message }],
-  });
-}
 
 /**
  * Trips and packing on /api/v1 (#194a; plan section 6), registered by

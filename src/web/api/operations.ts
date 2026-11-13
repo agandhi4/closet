@@ -94,6 +94,15 @@ export const OPERATIONS = [
   'deleteCapsule',
   'changeCapsuleMembers',
   'changeGarmentCapsules',
+  // #193c: ideas (the Ideas tab and Styling's Shuffle), the pick, clashes,
+  // the temperature feedback and outfit selfies.
+  'listIdeas',
+  'pickOutfit',
+  'avoidGarmentPair',
+  'allowGarmentPair',
+  'sendTemperatureFeedback',
+  'setCalendarEntrySelfie',
+  'deleteSelfie',
 ] as const;
 export type OperationId = (typeof OPERATIONS)[number];
 
@@ -247,11 +256,26 @@ export const PAGE_WRITES: Readonly<
   'POST /outfits/:id/love': { api: 'reactToOutfit' },
   'POST /outfits/:id/dismiss': { api: 'reactToOutfit' },
   'POST /outfits/:id/undo': { api: 'reactToOutfit' },
-  'POST /styling': { pending: '#193' },
-  'POST /outfits/ideas/pick': { pending: '#193' },
-  'POST /outfits/ideas/avoid': { pending: '#193' },
-  'POST /outfits/ideas/allow': { pending: '#193' },
-  'POST /outfits/ideas/feedback': { pending: '#193' },
+  // A pick goes where its destination says (pickTo): saved or planned, an
+  // entry's place (`replace`), a trip (POST /trips/{id}/outfits with the
+  // garments). Styling's Save is a pick too, or with Include picks on a
+  // slot write (createOutfit), or an edit (the outfit's PATCH); its
+  // Shuffle and "Add row" are GETs (GET /ideas).
+  'POST /styling': {
+    api: [
+      'pickOutfit',
+      'replaceCalendarEntryOutfit',
+      'addTripOutfit',
+      'createOutfit',
+      'updateOutfit',
+    ],
+  },
+  'POST /outfits/ideas/pick': {
+    api: ['pickOutfit', 'replaceCalendarEntryOutfit', 'addTripOutfit'],
+  },
+  'POST /outfits/ideas/avoid': { api: 'avoidGarmentPair' },
+  'POST /outfits/ideas/allow': { api: 'allowGarmentPair' },
+  'POST /outfits/ideas/feedback': { api: 'sendTemperatureFeedback' },
 
   // Saved looks (#22): outfits' inspiration, so outfits' endpoint issue.
   'POST /inspiration': { pending: '#193' },
@@ -275,8 +299,8 @@ export const PAGE_WRITES: Readonly<
   },
   'POST /calendar/:id/delete': { api: 'deleteCalendarEntry' },
   'POST /calendar/:id/worn': { api: 'setCalendarEntryWorn' },
-  'POST /calendar/:id/selfie': { pending: '#193' },
-  'POST /selfies/:id/delete': { pending: '#193' },
+  'POST /calendar/:id/selfie': { api: 'setCalendarEntrySelfie' },
+  'POST /selfies/:id/delete': { api: 'deleteSelfie' },
   'POST /calendar/plan-week': { api: 'planWeek' },
   'POST /calendar/plan-week/:id/undo': { api: 'undoWeekPlan' },
   'POST /auth/profile/week': { api: 'saveWeekTemplate' },
@@ -331,7 +355,7 @@ export const PAGE_WRITES: Readonly<
   'POST /weather/here': { pending: '#195' },
   'POST /weather/here/clear': { pending: '#195' },
   'POST /weather/unit': { pending: '#195' },
-  'POST /weather/feedback': { pending: '#195' },
+  'POST /weather/feedback': { api: 'sendTemperatureFeedback' },
   'POST /weather/offset/reset': { pending: '#195' },
 
   // Sharing admin.
@@ -364,7 +388,7 @@ export const MCP_WRITES: Readonly<Record<string, ToolParity>> = {
   schedule_outfit: {
     api: ['createCalendarEntry', 'replaceCalendarEntryOutfit'],
   },
-  pick_outfit: { pending: '#193' },
+  pick_outfit: { api: 'pickOutfit' },
   mark_worn: { api: ['setCalendarEntryWorn', 'wearGarment'] },
   mark_washed: { api: 'washGarments' },
   plan_week: { api: 'planWeek' },

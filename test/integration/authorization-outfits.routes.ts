@@ -180,6 +180,47 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    // A new outfit's Save is a pick; the garment is the fixture outfit's,
+    // which it reuses (200) and plans.
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/outfit-picks${q}`,
+        payload: {
+          garmentIds: [f.garmentId],
+          plan: { day: addDays(f.today, 2) },
+        },
+      }),
+    },
+  },
+  {
+    // "Clashes" on an Ideas card: the requester's own garments only.
+    name: 'POST /outfits/ideas/avoid',
+    kind: 'write',
+    ok: 303,
+    secret: garmentName,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/outfits/ideas/avoid${q}`,
+      payload: {
+        garmentId: [String(f.garmentId), String(f.inspirationTeeId)],
+      },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/garments/${f.garmentId}/clashes/${f.inspirationTeeId}${q}`,
+      }),
+    },
   },
   {
     name: 'GET /outfits/:id',
@@ -261,6 +302,17 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PATCH',
+        url: `/api/v1/outfits/${f.outfitId}${q}`,
+        payload: {
+          name: 'Styled again',
+          slots: [{ category: 'shirt', garmentId: f.garmentId }],
+        },
+      }),
     },
   },
   {
@@ -639,6 +691,23 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: async (f, q) => ({
+        method: 'PUT',
+        url: `/api/v1/calendar-entries/${f.entryId}/selfie${q}`,
+        ...(await multipart(
+          {},
+          {
+            photo: {
+              data: f.photo,
+              filename: 'selfie.jpg',
+              contentType: 'image/jpeg',
+            },
+          },
+        )),
+      }),
+    },
   },
   {
     name: 'POST /selfies/:id/delete',
@@ -655,6 +724,13 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 204,
+      request: (f, q) => ({
+        method: 'DELETE',
+        url: `/api/v1/selfies/${f.selfieId}${q}`,
+      }),
     },
   },
   // The images: the owner's session only, never by name alone.

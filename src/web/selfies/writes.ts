@@ -32,6 +32,15 @@ export interface SelfieDeps {
   logger: Logger;
 }
 
+/** A selfie taken: whether it replaced the entry's last, and the entry's worn mark. */
+export interface AttachedSelfie {
+  selfieId: number;
+  /** The entry's day. */
+  day: IsoDate;
+  replaced: boolean;
+  worn: Exclude<SelfieOutcome, string>['worn'];
+}
+
 function notYetWorn(): HttpError {
   return new HttpError(409, 'A planned day cannot be marked worn yet');
 }
@@ -43,7 +52,9 @@ function notYetWorn(): HttpError {
  * user's entry is a 404 (ids reveal nothing), a day after today a 409
  * (it cannot be worn yet). HEIC and every other format go through Photos'
  * one pipeline; the selfie keeps its background (no cutout is queued).
- * Answers the entry's day, for the redirect.
+ * Answers what it did: the page redirects to the entry's day, the API
+ * (PUT /calendar-entries/{id}/selfie, whose `via` marks the log line)
+ * answers it.
  */
 export async function attachSelfie(
   { db, photos, logger }: SelfieDeps,
@@ -52,8 +63,9 @@ export async function attachSelfie(
     entryId: number;
     parts: AsyncIterable<MultipartFile>;
     today: IsoDate;
+    via?: string;
   },
-): Promise<IsoDate> {
+): Promise<AttachedSelfie> {
   const { entryId, today } = input;
   const ownerId = actor.userId;
   const day = await ownEntryDay(db, entryId, ownerId);
@@ -69,10 +81,10 @@ export async function attachSelfie(
     ? `entry marked worn (${worn.wears} wears logged)`
     : 'entry already worn';
   logger.info(
-    `Selfie ${selfieId} of calendar entry ${entryId} ${replaced ? 'replaced' : 'taken'} by user ${ownerId}: ${photo.fileName}; ${wornNote}`,
+    `Selfie ${selfieId} of calendar entry ${entryId} ${replaced ? 'replaced' : 'taken'} by user ${ownerId}${input.via ?? ''}: ${photo.fileName}; ${wornNote}`,
   );
   if (replaced) await photos.deleteVariants(unkeyedPhoto(replaced));
-  return outcome.day;
+  return { selfieId, day: outcome.day, replaced: replaced !== null, worn };
 }
 
 /**
@@ -109,6 +121,7 @@ export async function removeSelfie(
   { db, photos, logger }: SelfieDeps,
   actor: Actor,
   selfieId: number,
+  via = '',
 ): Promise<void> {
   const fileName = await deleteSelfie(db, selfieId, actor.userId);
   if (fileName === undefined) {
@@ -119,6 +132,6 @@ export async function removeSelfie(
   // Only after commit: an unlink cannot be rolled back.
   await photos.deleteVariants(unkeyedPhoto(fileName));
   logger.info(
-    `Selfie ${selfieId} removed by user ${actor.userId}: ${fileName}`,
+    `Selfie ${selfieId} removed by user ${actor.userId}${via}: ${fileName}`,
   );
 }

@@ -12,8 +12,7 @@ import {
   MAX_IDEAS_PAGE,
   MAX_SEED,
 } from '../../gallery/ideas';
-import { garmentsGoneError } from '../../outfits/gone-garments';
-import { pickIdea } from '../../outfits/pick';
+import { pickGarments } from '../../gallery/pick';
 import { OUTFIT_NAME_MAX } from '../../outfits/queries';
 import { brokenRuleLabels } from '../../style/labels';
 import { actorOf, defineTool } from '../tool';
@@ -204,16 +203,13 @@ export const galleryTools = [
     idempotent: true,
     async run({ garmentIds, date, occasion = DEFAULT_OCCASION, name }, ctx) {
       const plan = date ? { day: date, occasion } : undefined;
-      const picked = await pickIdea(ctx.db, ctx.userId, {
+      // The gallery's and the API's pick, which refuses and logs it.
+      const { outfit: picked } = await pickGarments(
+        { db: ctx.db, logger: ctx.webLogger },
+        actorOf(ctx),
+        plan ? { kind: 'day', ...plan } : { kind: 'none' },
         garmentIds,
-        plan,
-        name,
-      });
-      if (picked === 'not-found') {
-        throw await garmentsGoneError(ctx.db, ctx.userId, garmentIds, 'closet');
-      }
-      ctx.webLogger.info(
-        `Idea picked by user ${ctx.userId} (MCP): ${picked.alreadySaved ? `already outfit ${picked.id}, nothing created` : `outfit ${picked.id}`} of garments ${garmentIds.join(', ')}${plan ? `, ${picked.schedule} ${plan.day} (${plan.occasion})` : ''}${picked.adopted ? '; taken over from the week planner' : ''}`,
+        { source: 'idea', name, via: ' (MCP)' },
       );
       return {
         id: picked.id,

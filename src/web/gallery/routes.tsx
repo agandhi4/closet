@@ -26,7 +26,7 @@ import {
   parseSeed,
 } from './ideas';
 import { IdeaCards, IdeasPage, type SeededState } from './ideas-page';
-import { pickTo, postedDestination } from './pick';
+import { MAX_PICKED, pickTo, postedDestination } from './pick';
 import { allowPair, avoidPair } from './queries';
 import {
   type GalleryState,
@@ -73,9 +73,6 @@ const StateFields = {
   with: Type.Optional(RowId),
   seed: Type.Optional(Type.String()),
 };
-
-/** The most garments a card holds: a template, a layer and a locked piece or two. */
-const MAX_PICKED = 8;
 
 const PickBody = Type.Object({
   garmentId: Type.Array(RowId, { minItems: 1, maxItems: MAX_PICKED }),

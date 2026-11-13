@@ -7,7 +7,9 @@ import { GARMENT_STATUSES } from '../../wardrobe/status';
 import { OUTFIT_DISMISS_REASONS } from '../../wardrobe/suggestions';
 import { literals, Nullable, withoutNulls } from '../api/resource';
 import type { ScheduleOutcome } from '../calendar/queries';
+import { HttpError } from '../errors';
 import { imageUrl } from '../files/image-url';
+import { t } from '../i18n';
 import { IsoDateSchema, RowId } from '../schemas';
 import type { OutfitContext } from './page-context';
 import {
@@ -297,3 +299,16 @@ export const OutfitReacted = Type.Object(
   },
   { title: 'OutfitReacted' },
 );
+
+/**
+ * A body naming an outfit two ways, a saved one (`outfitId`) or an idea's
+ * garments (`garmentIds`), sent neither or both: the trip's
+ * (POST /trips/{id}/outfits) and the calendar entry's
+ * (PUT /calendar-entries/{id}/outfit) one refusal.
+ */
+export function outfitOrGarments(): HttpError {
+  const message = t('api.OUTFIT_ONE_OF');
+  return new HttpError(400, message, {
+    validation: [{ path: 'body/outfitId', message }],
+  });
+}
