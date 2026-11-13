@@ -134,9 +134,10 @@ export function replaceEntryOutfit(
           logDetail: refused('the outfit is not theirs'),
         });
       }
-      // Named in the refused transaction (its own logDetail names them).
+      // Named in the refused transaction, with the entry's context.
       throw garmentsGoneRefusal(
         await goneGarments(tx, ownerId, choice.garmentIds, 'closet'),
+        refused('the garments are not in their closet'),
       );
     }
     const result = {

@@ -6,6 +6,7 @@ import {
   selfie,
   tripOutfit,
   weekPlan,
+  weekPlanEntry,
 } from '../../src/db/schema';
 import type { Occasion } from '../../src/wardrobe/occasions';
 import { addDays, type IsoDate } from '../../src/calendar-date';
@@ -244,6 +245,39 @@ describe('changing a planned outfit in place', () => {
       );
       expect(await entriesFor(day, 'daytime')).toMatchObject([
         { id: entryId, outfitId: lunch },
+      ]);
+    });
+
+    it('rolls back a pick’s takeover of a planner outfit when the outfit is already on the day', async () => {
+      const day = addDays(t.today(), 3);
+      const entry = await planAuto(
+        [tops[0], bottoms[0], shoes[0]],
+        day,
+        'work',
+      );
+      const other = await planAuto(
+        [tops[1], bottoms[1], shoes[1]],
+        day,
+        'evening',
+      );
+      const created = () =>
+        t.db
+          .select({ outfitCreated: weekPlanEntry.outfitCreated })
+          .from(weekPlanEntry)
+          .where(eq(weekPlanEntry.entryId, other.entryId));
+      expect(await created()).toEqual([{ outfitCreated: true }]);
+
+      // The pick reuses the evening's planner outfit (taking it over), which is already on the day.
+      const res = await post('/outfits/ideas/pick', {
+        garmentId: [tops[1], bottoms[1], shoes[1]].map(String),
+        for: `day:${day}`,
+        occasion: 'work',
+        replace: String(entry.entryId),
+      });
+      expect(res.statusCode).toBe(409);
+      expect(await created()).toEqual([{ outfitCreated: true }]);
+      expect(await entriesFor(day, 'work')).toMatchObject([
+        { id: entry.entryId, outfitId: entry.outfitId },
       ]);
     });
 
@@ -646,6 +680,28 @@ describe('changing a planned outfit in place', () => {
   });
 
   describe('MCP: schedule_outfit with replaceEntryId', () => {
+    it('logs a refused replace with the tool and the refusal’s detail', async () => {
+      const token = await createAccessToken(t);
+      const day = addDays(t.today(), 2);
+      const lunch = await outfitOf([tops[0], bottoms[0], shoes[0]]);
+      const dinner = await outfitOf([tops[1], bottoms[1], shoes[1]]);
+      const entryId = await plan(lunch, day, 'daytime');
+      await plan(dinner, day, 'evening');
+
+      t.logs.clear();
+      const refused = await callTool(t, token, 'schedule_outfit', {
+        outfitId: dinner,
+        date: day,
+        replaceEntryId: entryId,
+      });
+      expect(refused.isError).toBe(true);
+      expect(t.logs.messages('warn', 'Mcp')).toContainEqual(
+        expect.stringContaining(
+          `MCP schedule_outfit -> 409: ${'That outfit is already planned on this day (Evening).'} (Calendar entry ${entryId}`,
+        ),
+      );
+    });
+
     it('changes the entry, refuses a worn one, and is a 404 for another’s', async () => {
       const token = await createAccessToken(t);
       const day = t.today();
