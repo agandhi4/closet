@@ -801,3 +801,9 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 **Why:** a native client needs insights, the year in review and Profile › Sizes; the pages treat `?unworn=`/`?year=` as navigation state (anything falls back) and the measurements form posts strings in the unit shown, keeping a stored length posted as shown (`readMeasurementsForm`).
 **Decision:** `GET /insights?unwornDays=` and `GET /insights/recap?year=` (`readInsights`; `readRecap`, now the page's too), owner-only like the pages, so no `ownerId`; an unknown window, or a year after this one, is a 400. `GET /sizes`, `PUT /sizes/measurements` (every length in cm, replaced whole, rounded to the column's two decimals), `PUT /sizes/unit`, `GET /sizes/brands[?brand=]` (the hint), `POST`/`PUT`/`DELETE /sizes/brands[/{id}]` (`readBrandSizeForm`; a brand noted already is a 400 under `body/brand`, as the form). The recap's "Save image" is drawn on the device: web-only, in the plan's list.
 **Consequence:** every twin costs its page's statements but `PUT /sizes/measurements`, one fewer (no stored lengths to keep). Measurements never reach a share on any surface. #195 has no pending line left.
+
+## 2026-11-13 — 0051 gets its lock_timeout in place, under the migration-contract label (#601)
+
+**Why:** 0051's ~30 `ALTER TABLE`s on root tables ran before 0052's `SET LOCAL lock_timeout`, so behind a long reader (a backup's `pg_dump`) the boot could wait without limit instead of failing and retrying. A new migration cannot help: the timeout must be in force while 0051 runs.
+**Decision:** edit 0051 (a leading `SET LOCAL lock_timeout = '5s'`) before production ever ran it (last ship 96b3ebc predates #566), under the `migration-contract` label. No schema changes; a database that already applied 0051 (dev, worktrees) is unaffected since Drizzle never re-checks hashes.
+**Consequence:** once a migration has shipped to production this hatch is closed; fix forward then.
