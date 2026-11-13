@@ -104,7 +104,7 @@ export const IdeaGarment = Type.Object(
   { title: 'IdeaGarment' },
 );
 
-const IdeaResource = Type.Object(
+export const IdeaResource = Type.Object(
   {
     name: Type.String({
       description: 'Its garments named top to toe: the name a pick saves',
@@ -133,7 +133,7 @@ const IdeaResource = Type.Object(
 );
 type IdeaResource = Static<typeof IdeaResource>;
 
-const IdeaWeather = Type.Object(
+export const IdeaWeather = Type.Object(
   {
     feelsLikeC: Type.Object(
       { min: Type.Number(), max: Type.Number() },

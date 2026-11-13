@@ -16,6 +16,7 @@ import {
   API_LIMIT,
   API_PHOTO_LIMIT,
   enforceLimit,
+  type WeatherLimits,
 } from '../security/rate-limit';
 import { API_PREFIX } from '../surface';
 import { todayApiRoutes } from '../today/api-routes';
@@ -34,7 +35,8 @@ import { declareQuerystring, jsonApiValidator } from './validator';
 export type ApiOptions = WebOptions &
   SignInLimit &
   LinkImportLimit &
-  InspirationLinkLimit;
+  InspirationLinkLimit &
+  WeatherLimits;
 
 /**
  * Registers apiPlugin under API_PREFIX (webPlugin, scripts/api-spec.ts).
@@ -134,5 +136,6 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
   await app.register(selfieApiRoutes, options);
   await app.register(lookApiRoutes, options);
   // Only with WEATHER_ENABLED, as /weather/* (webPlugin).
-  if (options.weather) await app.register(weatherApiRoutes, options);
+  const { weather } = options;
+  if (weather) await app.register(weatherApiRoutes, { ...options, weather });
 };

@@ -30,6 +30,7 @@ import {
   unescapeHtml,
   asFixture,
 } from './harness';
+import { deviceToken, expectProblem } from './api';
 import { callTool, createAccessToken, mcpRequest, tool } from './mcp';
 import { expectFragment, expectFullPage, HX_FRAGMENT } from './pages';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
@@ -962,7 +963,7 @@ describe('weather', () => {
     }
     expect(statuses.slice(0, 10)).toEqual(Array(10).fill(200));
     expect(statuses[10]).toBe(429);
-    expect(t.logs.messages('warn', 'RateLimit')).toContainEqual(
+    expect(t.logs.messages('warn', 'Web')).toContainEqual(
       expect.stringMatching(
         /^Rate limit reached: POST \/weather\/here for user \d+$/,
       ),
@@ -1062,6 +1063,29 @@ describe('weather off (WEATHER_ENABLED=false)', () => {
     }
     const token = await createAccessToken(t);
     expect(await toolNamesOf(t, token)).not.toContain('get_weather');
+    // Nor does the API's weather exist (#195a): the problem 404.
+    const device = (await deviceToken(t)).token;
+    for (const [method, url, payload] of [
+      ['GET', '/api/v1/weather', undefined],
+      ['GET', '/api/v1/weather/places?q=Brooklyn', undefined],
+      [
+        'PUT',
+        '/api/v1/weather/home',
+        { name: 'Brooklyn', latitude: 40.65, longitude: -73.95 },
+      ],
+      ['PUT', '/api/v1/weather/here', { latitude: 40.65, longitude: -73.95 }],
+      ['GET', '/api/v1/trips/1/weather', undefined],
+    ] as const) {
+      expectProblem(
+        await t.api(device, { method, url, payload }),
+        404,
+        'not_found',
+      );
+    }
+    // Today is there, without weather.
+    const today = await t.api(device, { method: 'GET', url: '/api/v1/today' });
+    expect(today.statusCode).toBe(200);
+    expect(today.json()).not.toHaveProperty('weather');
 
     expect(stub.hits).toEqual([]);
     expect(await t.db.select().from(userWeather)).toEqual([]);

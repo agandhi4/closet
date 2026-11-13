@@ -14,7 +14,7 @@ import {
 } from '../../trips/trip-actions';
 import { actorOf, defineTool, type ToolContext } from '../tool';
 import { isoDate, occasionInput, rowId } from './common';
-import { dayWeather, typicalDayWeather } from './weather';
+import { dayWeather, typicalDayWeather } from '../../weather/weather-resource';
 
 /**
  * Trips (#10): the same model the trip page renders (tripModel: its days

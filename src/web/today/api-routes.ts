@@ -11,6 +11,8 @@ import { garmentsGoneError } from '../outfits/gone-garments';
 import { IsoDateSchema, RowId } from '../schemas';
 import { actorOf } from '../sharing/access';
 import { MAX_WORN_GARMENTS, wearIdea } from './queries';
+import { todayFor } from './today';
+import { TodayResource, toTodayResource } from './today-resource';
 
 const OutfitWearInput = Type.Object(
   {
@@ -54,17 +56,46 @@ const OutfitWorn = Type.Object(
 );
 
 /**
- * Today's write on /api/v1 (#193b; plan section 6): "Wear this", the page's
- * wearIdea in one owner transaction (pickIdea, then wearOutfitOn). Today's
- * read is GET /today (#195). The token's user's own closet, like the page:
- * there is no `?ownerId=`. The day is sent, as every API wear's is (plan
- * section 2), and judged by the queued taps' window.
+ * Today on /api/v1 (plan section 6): GET /today (#195a), the page's model
+ * (todayFor) in the page's statements, and "Wear this" (#193b), the page's
+ * wearIdea in one owner transaction (pickIdea, then wearOutfitOn). Its
+ * Refresh is GET /ideas with the row's cursor, the same seeded read; "Wore
+ * it" and Change are the calendar entry's routes. The token's user's own
+ * day, like the page: there is no `?ownerId=`. A wear's day is sent, as
+ * every API wear's is (plan section 2), and judged by the queued taps'
+ * window.
  */
 export const todayApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
   app,
-  { db, config, logger },
+  { db, config, logger, weather },
   done,
 ) => {
+  const deps = { db, weather, timeZone: config.timeZone };
+
+  app.get(
+    '/today',
+    {
+      schema: {
+        operationId: 'getToday',
+        tags: ['calendar'],
+        summary: 'Today, as the home screen shows it',
+        description:
+          "The household's day (GET /me's `today`): your weather, Muse's card, and a row per part of the day. A row per occasion planned today with its entries (Wore it: PUT /calendar-entries/{id}/worn; Change: PUT /calendar-entries/{id}/outfit); while nothing that dresses the day (all day, work, daytime) is planned, an all-day row of ideas first. No ETag: it moves with the day and the forecast.",
+        response: apiResponses({ 200: TodayResource }),
+      },
+    },
+    async (request) => {
+      const ownerId = actorOf(request).userId;
+      const started = performance.now();
+      const model = await todayFor(deps, ownerId, new Date(), {
+        needs: true,
+      });
+      logger.debug(
+        `Today for user ${ownerId} (${model.today}) (API): ${model.rows.length} row(s) in ${Math.round(performance.now() - started)} ms`,
+      );
+      return toTodayResource(model);
+    },
+  );
   app.post(
     '/outfit-wears',
     {

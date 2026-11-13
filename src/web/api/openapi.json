@@ -10002,6 +10002,988 @@
         }
       }
     },
+    "/api/v1/today": {
+      "get": {
+        "operationId": "getToday",
+        "summary": "Today, as the home screen shows it",
+        "tags": [
+          "calendar"
+        ],
+        "description": "The household's day (GET /me's `today`): your weather, Muse's card, and a row per part of the day. A row per occasion planned today with its entries (Wore it: PUT /calendar-entries/{id}/worn; Change: PUT /calendar-entries/{id}/outfit); while nothing that dresses the day (all day, work, daytime) is planned, an all-day row of ideas first. No ETag: it moves with the day and the forecast.",
+        "responses": {
+          "200": {
+            "description": "The home screen: the household's day, your weather today (its `days` today's alone; absent with the weather off), Muse's card while one waits, and a row per part of the day",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Today",
+                  "description": "The home screen: the household's day, your weather today (its `days` today's alone; absent with the weather off), Muse's card while one waits, and a row per part of the day",
+                  "type": "object",
+                  "required": [
+                    "today",
+                    "rows"
+                  ],
+                  "properties": {
+                    "today": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "weather": {
+                      "title": "Weather",
+                      "description": "Your weather settings and the forecast where you are: the home city, or the phone while its location is fresh",
+                      "type": "object",
+                      "required": [
+                        "unit",
+                        "temperatureOffset",
+                        "days"
+                      ],
+                      "properties": {
+                        "unit": {
+                          "description": "How you read temperatures: only display, everything here is °C",
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "celsius"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "fahrenheit"
+                              ]
+                            }
+                          ]
+                        },
+                        "temperatureOffset": {
+                          "minimum": -5,
+                          "maximum": 5,
+                          "description": "°C added to every feels-like before ideas are matched to it (the temperature feedback's)",
+                          "type": "number"
+                        },
+                        "home": {
+                          "title": "KeptPlace",
+                          "description": "A place picked from the search, as kept: the name trimmed, the coordinates rounded",
+                          "type": "object",
+                          "required": [
+                            "name",
+                            "latitude",
+                            "longitude"
+                          ],
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "latitude": {
+                              "description": "Rounded to 2 decimals (~1 km)",
+                              "type": "number"
+                            },
+                            "longitude": {
+                              "description": "Rounded to 2 decimals (~1 km)",
+                              "type": "number"
+                            }
+                          }
+                        },
+                        "here": {
+                          "title": "WeatherHere",
+                          "description": "The phone's position as kept (rounded) and when it was sent: it stands in for home for 12 hours",
+                          "type": "object",
+                          "required": [
+                            "latitude",
+                            "longitude",
+                            "locatedAt"
+                          ],
+                          "properties": {
+                            "latitude": {
+                              "description": "Rounded to 2 decimals (~1 km)",
+                              "type": "number"
+                            },
+                            "longitude": {
+                              "description": "Rounded to 2 decimals (~1 km)",
+                              "type": "number"
+                            },
+                            "locatedAt": {
+                              "format": "date-time",
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "source": {
+                          "description": "Which location the forecast is for; absent without one (set a home with PUT /weather/home)",
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "home"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "here"
+                              ]
+                            }
+                          ]
+                        },
+                        "fetchedAt": {
+                          "format": "date-time",
+                          "description": "When the forecast was fetched: its \"as of\". Absent with no forecast for the location yet",
+                          "type": "string"
+                        },
+                        "days": {
+                          "description": "The forecast days asked for that it reaches (16 from today), in order; empty without a location or a forecast",
+                          "type": "array",
+                          "items": {
+                            "title": "DayWeather",
+                            "description": "A forecast day, temperatures in °C",
+                            "type": "object",
+                            "required": [
+                              "day",
+                              "condition",
+                              "highC",
+                              "lowC",
+                              "precipitationChance"
+                            ],
+                            "properties": {
+                              "day": {
+                                "format": "date",
+                                "type": "string"
+                              },
+                              "condition": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "clear"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "partly-cloudy"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "cloudy"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "fog"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "drizzle"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "rain"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "snow"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "thunderstorm"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "highC": {
+                                "type": "number"
+                              },
+                              "lowC": {
+                                "type": "number"
+                              },
+                              "precipitationChance": {
+                                "minimum": 0,
+                                "maximum": 100,
+                                "description": "The day's highest chance of precipitation, %",
+                                "type": "integer"
+                              },
+                              "rainFromHour": {
+                                "minimum": 0,
+                                "maximum": 23,
+                                "description": "The first hour of the day with rain likely; absent for a dry day",
+                                "type": "integer"
+                              },
+                              "outfit": {
+                                "title": "OutfitWeatherNeeds",
+                                "description": "What the day asks of an outfit for the occasion",
+                                "type": "object",
+                                "required": [
+                                  "occasion",
+                                  "hours",
+                                  "feelsLikeC",
+                                  "torsoWarmth",
+                                  "torsoWarmthWithoutLayer",
+                                  "legsAndFeetWarmth",
+                                  "needsLayer",
+                                  "needsWaterResistance"
+                                ],
+                                "properties": {
+                                  "occasion": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "all-day"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "workout"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "work"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "daytime"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "evening"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "night-out"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "hours": {
+                                    "title": "OccasionHours",
+                                    "description": "The occasion's hours in the household's zone, `to` exclusive",
+                                    "type": "object",
+                                    "required": [
+                                      "from",
+                                      "to"
+                                    ],
+                                    "properties": {
+                                      "from": {
+                                        "minimum": 0,
+                                        "maximum": 23,
+                                        "type": "integer"
+                                      },
+                                      "to": {
+                                        "minimum": 1,
+                                        "maximum": 24,
+                                        "type": "integer"
+                                      }
+                                    }
+                                  },
+                                  "feelsLikeC": {
+                                    "title": "FeelsLikeRange",
+                                    "description": "°C, your temperature offset included",
+                                    "type": "object",
+                                    "required": [
+                                      "min",
+                                      "max"
+                                    ],
+                                    "properties": {
+                                      "min": {
+                                        "type": "number"
+                                      },
+                                      "max": {
+                                        "type": "number"
+                                      }
+                                    }
+                                  },
+                                  "torsoWarmth": {
+                                    "minimum": 1,
+                                    "maximum": 9,
+                                    "description": "Top (or one-piece) plus layer combined, for the coolest hours when a layer is needed: a garment's warmth is 1-5, a tee 2, a sweater 4, a parka 5",
+                                    "type": "integer"
+                                  },
+                                  "torsoWarmthWithoutLayer": {
+                                    "minimum": 1,
+                                    "maximum": 9,
+                                    "description": "The same without the layer, for the warmest hours",
+                                    "type": "integer"
+                                  },
+                                  "legsAndFeetWarmth": {
+                                    "minimum": 1,
+                                    "maximum": 5,
+                                    "type": "integer"
+                                  },
+                                  "needsLayer": {
+                                    "description": "The hours swing enough to want a layer that comes off",
+                                    "type": "boolean"
+                                  },
+                                  "needsWaterResistance": {
+                                    "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                    "type": "boolean"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "muse": {
+                      "title": "TodayMuse",
+                      "description": "Today's one Muse card, counted live: it shrinks as you decide and goes at zero",
+                      "type": "object",
+                      "required": [
+                        "kind"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "description": "`round`: Muse's latest round while any of it waits; `needs`: else its needs with an option to choose (GET /wishlist)",
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "round"
+                              ]
+                            },
+                            {
+                              "type": "string",
+                              "enum": [
+                                "needs"
+                              ]
+                            }
+                          ]
+                        },
+                        "agent": {
+                          "description": "The agent's token name; absent once gone",
+                          "type": "string"
+                        },
+                        "roundId": {
+                          "type": "integer"
+                        },
+                        "summary": {
+                          "type": "string"
+                        },
+                        "outfits": {
+                          "minimum": 0,
+                          "description": "Its outfits not decided yet",
+                          "type": "integer"
+                        },
+                        "pieces": {
+                          "minimum": 0,
+                          "description": "Its options of needs still open (GET /wishlist)",
+                          "type": "integer"
+                        },
+                        "needs": {
+                          "minimum": 1,
+                          "description": "Needs waiting on your choice",
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "rows": {
+                      "type": "array",
+                      "items": {
+                        "title": "TodayRow",
+                        "description": "A part of the day: what is planned for an occasion, or (while nothing that dresses the day is planned) an all-day row of ideas, first",
+                        "type": "object",
+                        "required": [
+                          "kind",
+                          "occasion"
+                        ],
+                        "properties": {
+                          "kind": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "planned"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "ideas"
+                                ]
+                              }
+                            ]
+                          },
+                          "occasion": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "all-day"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "workout"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "work"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "daytime"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "evening"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "night-out"
+                                ]
+                              }
+                            ]
+                          },
+                          "entries": {
+                            "description": "`planned`: the occasion's entries today",
+                            "type": "array",
+                            "items": {
+                              "title": "CalendarEntry",
+                              "description": "An outfit planned on a day for an occasion (a part of the day). A day holds several, one per outfit",
+                              "type": "object",
+                              "required": [
+                                "id",
+                                "day",
+                                "occasion",
+                                "worn",
+                                "plannedBy",
+                                "outfit"
+                              ],
+                              "properties": {
+                                "id": {
+                                  "type": "integer"
+                                },
+                                "day": {
+                                  "format": "date",
+                                  "type": "string"
+                                },
+                                "occasion": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "all-day"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "workout"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "work"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "daytime"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "evening"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "night-out"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "worn": {
+                                  "type": "boolean"
+                                },
+                                "plannedBy": {
+                                  "description": "`auto`: Plan my week's pick, which its daily re-plan may swap until you change, wear or plan it yourself; `user`: yours",
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "user"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "auto"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "selfieId": {
+                                  "description": "The outfit selfie taken of it",
+                                  "type": "integer"
+                                },
+                                "selfiePhoto": {
+                                  "title": "SelfiePhoto",
+                                  "description": "An outfit selfie's photo: private, served only to its owner's device token (GET /api/v1/selfie-photos/{fileName}), relative to the server and immutable (a replacement selfie is another photo, so other URLs). Never build or edit one",
+                                  "type": "object",
+                                  "required": [
+                                    "version",
+                                    "originalUrl",
+                                    "thumbUrl"
+                                  ],
+                                  "properties": {
+                                    "version": {
+                                      "type": "integer"
+                                    },
+                                    "originalUrl": {
+                                      "type": "string"
+                                    },
+                                    "thumbUrl": {
+                                      "description": "400 px",
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "outfit": {
+                                  "title": "CalendarEntryOutfit",
+                                  "type": "object",
+                                  "required": [
+                                    "id",
+                                    "garments"
+                                  ],
+                                  "properties": {
+                                    "id": {
+                                      "type": "integer"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "garments": {
+                                      "type": "array",
+                                      "items": {
+                                        "title": "OutfitGarment",
+                                        "description": "A garment the outfit holds, as its collage shows it, in the order it was built (an empty row is left out): GET /garments/{id} has the rest",
+                                        "type": "object",
+                                        "required": [
+                                          "id",
+                                          "category",
+                                          "role",
+                                          "status"
+                                        ],
+                                        "properties": {
+                                          "id": {
+                                            "type": "integer"
+                                          },
+                                          "name": {
+                                            "type": "string"
+                                          },
+                                          "category": {
+                                            "type": "string"
+                                          },
+                                          "role": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "top"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "bottom"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "one-piece"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "layer"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "footwear"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "accessory"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "bag"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "none"
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          "status": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "wishlist"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "closet"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "archived"
+                                                ]
+                                              }
+                                            ]
+                                          },
+                                          "thumbUrl": {
+                                            "type": "string"
+                                          },
+                                          "away": {
+                                            "anyOf": [
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "lent"
+                                                ]
+                                              },
+                                              {
+                                                "type": "string",
+                                                "enum": [
+                                                  "repair"
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "ideas": {
+                            "description": "`ideas`: a page of 3 for today, the day's seed (Wear this: POST /outfit-wears)",
+                            "type": "array",
+                            "items": {
+                              "title": "Idea",
+                              "description": "A whole outfit from your closet: clean, at home, at most two colours beyond the neutrals and one pattern, never a pair you said clashes nor one of your saved outfits",
+                              "type": "object",
+                              "required": [
+                                "name",
+                                "garments",
+                                "fits",
+                                "problems",
+                                "brokenRules",
+                                "rested"
+                              ],
+                              "properties": {
+                                "name": {
+                                  "description": "Its garments named top to toe: the name a pick saves",
+                                  "type": "string"
+                                },
+                                "garments": {
+                                  "description": "Top to toe",
+                                  "type": "array",
+                                  "items": {
+                                    "title": "IdeaGarment",
+                                    "type": "object",
+                                    "required": [
+                                      "id",
+                                      "category",
+                                      "role"
+                                    ],
+                                    "properties": {
+                                      "id": {
+                                        "type": "integer"
+                                      },
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "category": {
+                                        "type": "string"
+                                      },
+                                      "role": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "top"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "bottom"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "one-piece"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "layer"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "footwear"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "accessory"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "bag"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "none"
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "thumbUrl": {
+                                        "description": "Signed, relative, immutable: from the cutout when it shows",
+                                        "type": "string"
+                                      },
+                                      "daysUnworn": {
+                                        "minimum": 0,
+                                        "description": "Days since it was last worn; absent when never",
+                                        "type": "integer"
+                                      }
+                                    }
+                                  }
+                                },
+                                "fits": {
+                                  "description": "No problem: it meets the weather and the occasion",
+                                  "type": "boolean"
+                                },
+                                "problems": {
+                                  "description": "What is off, the weather against its warmth and the occasion against its formality; `breaks-rule` when the garments sent in `with` break one of your outfit rules between them",
+                                  "type": "array",
+                                  "items": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "too-cold"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "too-warm"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "needs-layer"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "legs-too-cold"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "legs-too-warm"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "feet-too-cold"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "feet-too-warm"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "needs-water-resistance"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "too-casual"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "too-dressy"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "breaks-rule"
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                },
+                                "brokenRules": {
+                                  "description": "Each outfit rule it breaks, in the app's words",
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "rested": {
+                                  "description": "Its garments unworn the longest, which the rotation brought back",
+                                  "type": "array",
+                                  "items": {
+                                    "type": "integer"
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "weather": {
+                            "title": "IdeaWeather",
+                            "description": "The weather the ideas were matched to. Absent: no forecast that day (weather off, no location, a past day or one past the forecast)",
+                            "type": "object",
+                            "required": [
+                              "feelsLikeC",
+                              "needsLayer",
+                              "needsWaterResistance",
+                              "typical"
+                            ],
+                            "properties": {
+                              "feelsLikeC": {
+                                "title": "IdeaFeelsLike",
+                                "description": "The occasion's hours, °C, your temperature offset included",
+                                "type": "object",
+                                "required": [
+                                  "min",
+                                  "max"
+                                ],
+                                "properties": {
+                                  "min": {
+                                    "type": "number"
+                                  },
+                                  "max": {
+                                    "type": "number"
+                                  }
+                                }
+                              },
+                              "needsLayer": {
+                                "type": "boolean"
+                              },
+                              "needsWaterResistance": {
+                                "type": "boolean"
+                              },
+                              "typical": {
+                                "description": "A typical day's, not a forecast",
+                                "type": "boolean"
+                              }
+                            }
+                          },
+                          "nextCursor": {
+                            "description": "`ideas`: Refresh, the next 3: GET /ideas?limit=3&cursor=<this>; absent after the last",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/outfit-wears": {
       "post": {
         "operationId": "wearOutfit",
@@ -12925,6 +13907,641 @@
                       "minimum": 0,
                       "description": "Extras added: labels the trip has already are skipped, so a retry adds none",
                       "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/trips/{id}/weather": {
+      "get": {
+        "operationId": "getTripWeather",
+        "summary": "The destination's weather for the trip's days",
+        "tags": [
+          "trips"
+        ],
+        "description": "The trip page's forecast: the located destination's forecast for the trip's days from today within the 16-day forecast, each with what it asks of an all-day outfit (your offset included), and the typical weather of the days past it. Nothing is fetched for a trip not located or over. No ETag: it moves with the day and the forecast.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The destination's weather for the trip's days: the forecast for those within its 16 days of today, the typical weather past them",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "TripWeather",
+                  "description": "The destination's weather for the trip's days: the forecast for those within its 16 days of today, the typical weather past them",
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "days",
+                    "typicalDays"
+                  ],
+                  "properties": {
+                    "status": {
+                      "description": "`no-location`: the destination is not located (PUT /trips/{id}/destination); `over`: the trip has ended. Neither fetches anything",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "forecast"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no-location"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "over"
+                          ]
+                        }
+                      ]
+                    },
+                    "unit": {
+                      "description": "How you read temperatures: display only",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "celsius"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "fahrenheit"
+                          ]
+                        }
+                      ]
+                    },
+                    "temperatureOffset": {
+                      "description": "°C, in each day's `outfit` already",
+                      "type": "number"
+                    },
+                    "fetchedAt": {
+                      "format": "date-time",
+                      "description": "When the forecast was fetched; absent when no day is within it",
+                      "type": "string"
+                    },
+                    "forecastUnavailable": {
+                      "description": "Some trip days are within the forecast, but there is none for the place right now (`days` is empty)",
+                      "type": "boolean"
+                    },
+                    "days": {
+                      "description": "The trip's days from today the forecast reaches, each with what it asks of an all-day outfit",
+                      "type": "array",
+                      "items": {
+                        "title": "DayWeather",
+                        "description": "A forecast day, temperatures in °C",
+                        "type": "object",
+                        "required": [
+                          "day",
+                          "condition",
+                          "highC",
+                          "lowC",
+                          "precipitationChance"
+                        ],
+                        "properties": {
+                          "day": {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          "condition": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "clear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "partly-cloudy"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "cloudy"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "fog"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "drizzle"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "rain"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "snow"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "thunderstorm"
+                                ]
+                              }
+                            ]
+                          },
+                          "highC": {
+                            "type": "number"
+                          },
+                          "lowC": {
+                            "type": "number"
+                          },
+                          "precipitationChance": {
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "The day's highest chance of precipitation, %",
+                            "type": "integer"
+                          },
+                          "rainFromHour": {
+                            "minimum": 0,
+                            "maximum": 23,
+                            "description": "The first hour of the day with rain likely; absent for a dry day",
+                            "type": "integer"
+                          },
+                          "outfit": {
+                            "title": "OutfitWeatherNeeds",
+                            "description": "What the day asks of an outfit for the occasion",
+                            "type": "object",
+                            "required": [
+                              "occasion",
+                              "hours",
+                              "feelsLikeC",
+                              "torsoWarmth",
+                              "torsoWarmthWithoutLayer",
+                              "legsAndFeetWarmth",
+                              "needsLayer",
+                              "needsWaterResistance"
+                            ],
+                            "properties": {
+                              "occasion": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "all-day"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "workout"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "work"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "daytime"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "evening"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "night-out"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "hours": {
+                                "title": "OccasionHours",
+                                "description": "The occasion's hours in the household's zone, `to` exclusive",
+                                "type": "object",
+                                "required": [
+                                  "from",
+                                  "to"
+                                ],
+                                "properties": {
+                                  "from": {
+                                    "minimum": 0,
+                                    "maximum": 23,
+                                    "type": "integer"
+                                  },
+                                  "to": {
+                                    "minimum": 1,
+                                    "maximum": 24,
+                                    "type": "integer"
+                                  }
+                                }
+                              },
+                              "feelsLikeC": {
+                                "title": "FeelsLikeRange",
+                                "description": "°C, your temperature offset included",
+                                "type": "object",
+                                "required": [
+                                  "min",
+                                  "max"
+                                ],
+                                "properties": {
+                                  "min": {
+                                    "type": "number"
+                                  },
+                                  "max": {
+                                    "type": "number"
+                                  }
+                                }
+                              },
+                              "torsoWarmth": {
+                                "minimum": 1,
+                                "maximum": 9,
+                                "description": "Top (or one-piece) plus layer combined, for the coolest hours when a layer is needed: a garment's warmth is 1-5, a tee 2, a sweater 4, a parka 5",
+                                "type": "integer"
+                              },
+                              "torsoWarmthWithoutLayer": {
+                                "minimum": 1,
+                                "maximum": 9,
+                                "description": "The same without the layer, for the warmest hours",
+                                "type": "integer"
+                              },
+                              "legsAndFeetWarmth": {
+                                "minimum": 1,
+                                "maximum": 5,
+                                "type": "integer"
+                              },
+                              "needsLayer": {
+                                "description": "The hours swing enough to want a layer that comes off",
+                                "type": "boolean"
+                              },
+                              "needsWaterResistance": {
+                                "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                "type": "boolean"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "later": {
+                      "title": "TripLaterDays",
+                      "type": "object",
+                      "required": [
+                        "from",
+                        "forecastArrives"
+                      ],
+                      "properties": {
+                        "from": {
+                          "description": "The first trip day past the forecast",
+                          "format": "date",
+                          "type": "string"
+                        },
+                        "forecastArrives": {
+                          "description": "The day that day's forecast arrives: ask again then",
+                          "format": "date",
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "typicalDays": {
+                      "description": "The days past the forecast, with the place's typical weather (never a forecast)",
+                      "type": "array",
+                      "items": {
+                        "title": "TypicalDayWeather",
+                        "description": "What the place is usually like on that day (the last ten years' average around the date), never a forecast: for a trip's days past the forecast",
+                        "type": "object",
+                        "required": [
+                          "day",
+                          "typical",
+                          "highC",
+                          "lowC",
+                          "feelsLikeC",
+                          "rainChance"
+                        ],
+                        "properties": {
+                          "day": {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          "typical": {
+                            "type": "boolean",
+                            "enum": [
+                              true
+                            ]
+                          },
+                          "highC": {
+                            "type": "number"
+                          },
+                          "lowC": {
+                            "type": "number"
+                          },
+                          "feelsLikeC": {
+                            "description": "°C, your temperature offset included",
+                            "title": "FeelsLikeRange",
+                            "type": "object",
+                            "required": [
+                              "min",
+                              "max"
+                            ],
+                            "properties": {
+                              "min": {
+                                "type": "number"
+                              },
+                              "max": {
+                                "type": "number"
+                              }
+                            }
+                          },
+                          "rainChance": {
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "The share of those days that were wet, %",
+                            "type": "integer"
+                          },
+                          "outfit": {
+                            "title": "OutfitWeatherNeeds",
+                            "description": "What the day asks of an outfit for the occasion",
+                            "type": "object",
+                            "required": [
+                              "occasion",
+                              "hours",
+                              "feelsLikeC",
+                              "torsoWarmth",
+                              "torsoWarmthWithoutLayer",
+                              "legsAndFeetWarmth",
+                              "needsLayer",
+                              "needsWaterResistance"
+                            ],
+                            "properties": {
+                              "occasion": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "all-day"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "workout"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "work"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "daytime"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "evening"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "night-out"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "hours": {
+                                "title": "OccasionHours",
+                                "description": "The occasion's hours in the household's zone, `to` exclusive",
+                                "type": "object",
+                                "required": [
+                                  "from",
+                                  "to"
+                                ],
+                                "properties": {
+                                  "from": {
+                                    "minimum": 0,
+                                    "maximum": 23,
+                                    "type": "integer"
+                                  },
+                                  "to": {
+                                    "minimum": 1,
+                                    "maximum": 24,
+                                    "type": "integer"
+                                  }
+                                }
+                              },
+                              "feelsLikeC": {
+                                "title": "FeelsLikeRange",
+                                "description": "°C, your temperature offset included",
+                                "type": "object",
+                                "required": [
+                                  "min",
+                                  "max"
+                                ],
+                                "properties": {
+                                  "min": {
+                                    "type": "number"
+                                  },
+                                  "max": {
+                                    "type": "number"
+                                  }
+                                }
+                              },
+                              "torsoWarmth": {
+                                "minimum": 1,
+                                "maximum": 9,
+                                "description": "Top (or one-piece) plus layer combined, for the coolest hours when a layer is needed: a garment's warmth is 1-5, a tee 2, a sweater 4, a parka 5",
+                                "type": "integer"
+                              },
+                              "torsoWarmthWithoutLayer": {
+                                "minimum": 1,
+                                "maximum": 9,
+                                "description": "The same without the layer, for the warmest hours",
+                                "type": "integer"
+                              },
+                              "legsAndFeetWarmth": {
+                                "minimum": 1,
+                                "maximum": 5,
+                                "type": "integer"
+                              },
+                              "needsLayer": {
+                                "description": "The hours swing enough to want a layer that comes off",
+                                "type": "boolean"
+                              },
+                              "needsWaterResistance": {
+                                "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                "type": "boolean"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/trips/{id}/destination": {
+      "put": {
+        "operationId": "setTripDestination",
+        "summary": "Locates the trip's destination",
+        "tags": [
+          "trips"
+        ],
+        "description": "A place from GET /weather/places becomes the destination (its name too), so the trip gets the place's weather. Set-state. 10 a minute per user (each new place is a forecast to fetch).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "PlaceInput",
+                "description": "A place from GET /weather/places: its label as the name, and its coordinates (rounded to ~1 km before they are kept)",
+                "type": "object",
+                "required": [
+                  "name",
+                  "latitude",
+                  "longitude"
+                ],
+                "properties": {
+                  "name": {
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "type": "string"
+                  },
+                  "latitude": {
+                    "minimum": -90,
+                    "maximum": 90,
+                    "type": "number"
+                  },
+                  "longitude": {
+                    "minimum": -180,
+                    "maximum": 180,
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          },
+          "description": "A place from GET /weather/places: its label as the name, and its coordinates (rounded to ~1 km before they are kept)"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A place picked from the search, as kept: the name trimmed, the coordinates rounded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "KeptPlace",
+                  "description": "A place picked from the search, as kept: the name trimmed, the coordinates rounded",
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "latitude",
+                    "longitude"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "latitude": {
+                      "description": "Rounded to 2 decimals (~1 km)",
+                      "type": "number"
+                    },
+                    "longitude": {
+                      "description": "Rounded to 2 decimals (~1 km)",
+                      "type": "number"
                     }
                   }
                 }
@@ -21091,6 +22708,868 @@
         }
       }
     },
+    "/api/v1/weather": {
+      "get": {
+        "operationId": "getWeather",
+        "summary": "Your weather settings and forecast",
+        "tags": [
+          "weather"
+        ],
+        "description": "The header line's weather and the calendar's day chips: where you are (the home, or the phone while fresh), your unit and offset, and each forecast day asked for with what it asks of an outfit. Seven days unless both ends are sent: from today without dates, from `from` with it alone, up to `to` with it alone. At most 42 days, else a 400; days the forecast does not reach are left out. Fetches the forecast only when none is kept for the place (else serves it, refreshing it behind once stale).",
+        "parameters": [
+          {
+            "schema": {
+              "format": "date",
+              "type": "string"
+            },
+            "in": "query",
+            "name": "from",
+            "required": false
+          },
+          {
+            "schema": {
+              "format": "date",
+              "type": "string"
+            },
+            "in": "query",
+            "name": "to",
+            "required": false
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "all-day"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "workout"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "work"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "daytime"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "evening"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "night-out"
+                  ]
+                }
+              ]
+            },
+            "in": "query",
+            "name": "occasion",
+            "required": false,
+            "description": "What each day asks of an outfit is for it: all day unless given"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Your weather settings and the forecast where you are: the home city, or the phone while its location is fresh",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Weather",
+                  "description": "Your weather settings and the forecast where you are: the home city, or the phone while its location is fresh",
+                  "type": "object",
+                  "required": [
+                    "unit",
+                    "temperatureOffset",
+                    "days"
+                  ],
+                  "properties": {
+                    "unit": {
+                      "description": "How you read temperatures: only display, everything here is °C",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "celsius"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "fahrenheit"
+                          ]
+                        }
+                      ]
+                    },
+                    "temperatureOffset": {
+                      "minimum": -5,
+                      "maximum": 5,
+                      "description": "°C added to every feels-like before ideas are matched to it (the temperature feedback's)",
+                      "type": "number"
+                    },
+                    "home": {
+                      "title": "KeptPlace",
+                      "description": "A place picked from the search, as kept: the name trimmed, the coordinates rounded",
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "latitude",
+                        "longitude"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "latitude": {
+                          "description": "Rounded to 2 decimals (~1 km)",
+                          "type": "number"
+                        },
+                        "longitude": {
+                          "description": "Rounded to 2 decimals (~1 km)",
+                          "type": "number"
+                        }
+                      }
+                    },
+                    "here": {
+                      "title": "WeatherHere",
+                      "description": "The phone's position as kept (rounded) and when it was sent: it stands in for home for 12 hours",
+                      "type": "object",
+                      "required": [
+                        "latitude",
+                        "longitude",
+                        "locatedAt"
+                      ],
+                      "properties": {
+                        "latitude": {
+                          "description": "Rounded to 2 decimals (~1 km)",
+                          "type": "number"
+                        },
+                        "longitude": {
+                          "description": "Rounded to 2 decimals (~1 km)",
+                          "type": "number"
+                        },
+                        "locatedAt": {
+                          "format": "date-time",
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "source": {
+                      "description": "Which location the forecast is for; absent without one (set a home with PUT /weather/home)",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "home"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "here"
+                          ]
+                        }
+                      ]
+                    },
+                    "fetchedAt": {
+                      "format": "date-time",
+                      "description": "When the forecast was fetched: its \"as of\". Absent with no forecast for the location yet",
+                      "type": "string"
+                    },
+                    "days": {
+                      "description": "The forecast days asked for that it reaches (16 from today), in order; empty without a location or a forecast",
+                      "type": "array",
+                      "items": {
+                        "title": "DayWeather",
+                        "description": "A forecast day, temperatures in °C",
+                        "type": "object",
+                        "required": [
+                          "day",
+                          "condition",
+                          "highC",
+                          "lowC",
+                          "precipitationChance"
+                        ],
+                        "properties": {
+                          "day": {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          "condition": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "clear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "partly-cloudy"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "cloudy"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "fog"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "drizzle"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "rain"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "snow"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "thunderstorm"
+                                ]
+                              }
+                            ]
+                          },
+                          "highC": {
+                            "type": "number"
+                          },
+                          "lowC": {
+                            "type": "number"
+                          },
+                          "precipitationChance": {
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "The day's highest chance of precipitation, %",
+                            "type": "integer"
+                          },
+                          "rainFromHour": {
+                            "minimum": 0,
+                            "maximum": 23,
+                            "description": "The first hour of the day with rain likely; absent for a dry day",
+                            "type": "integer"
+                          },
+                          "outfit": {
+                            "title": "OutfitWeatherNeeds",
+                            "description": "What the day asks of an outfit for the occasion",
+                            "type": "object",
+                            "required": [
+                              "occasion",
+                              "hours",
+                              "feelsLikeC",
+                              "torsoWarmth",
+                              "torsoWarmthWithoutLayer",
+                              "legsAndFeetWarmth",
+                              "needsLayer",
+                              "needsWaterResistance"
+                            ],
+                            "properties": {
+                              "occasion": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "all-day"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "workout"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "work"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "daytime"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "evening"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "night-out"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "hours": {
+                                "title": "OccasionHours",
+                                "description": "The occasion's hours in the household's zone, `to` exclusive",
+                                "type": "object",
+                                "required": [
+                                  "from",
+                                  "to"
+                                ],
+                                "properties": {
+                                  "from": {
+                                    "minimum": 0,
+                                    "maximum": 23,
+                                    "type": "integer"
+                                  },
+                                  "to": {
+                                    "minimum": 1,
+                                    "maximum": 24,
+                                    "type": "integer"
+                                  }
+                                }
+                              },
+                              "feelsLikeC": {
+                                "title": "FeelsLikeRange",
+                                "description": "°C, your temperature offset included",
+                                "type": "object",
+                                "required": [
+                                  "min",
+                                  "max"
+                                ],
+                                "properties": {
+                                  "min": {
+                                    "type": "number"
+                                  },
+                                  "max": {
+                                    "type": "number"
+                                  }
+                                }
+                              },
+                              "torsoWarmth": {
+                                "minimum": 1,
+                                "maximum": 9,
+                                "description": "Top (or one-piece) plus layer combined, for the coolest hours when a layer is needed: a garment's warmth is 1-5, a tee 2, a sweater 4, a parka 5",
+                                "type": "integer"
+                              },
+                              "torsoWarmthWithoutLayer": {
+                                "minimum": 1,
+                                "maximum": 9,
+                                "description": "The same without the layer, for the warmest hours",
+                                "type": "integer"
+                              },
+                              "legsAndFeetWarmth": {
+                                "minimum": 1,
+                                "maximum": 5,
+                                "type": "integer"
+                              },
+                              "needsLayer": {
+                                "description": "The hours swing enough to want a layer that comes off",
+                                "type": "boolean"
+                              },
+                              "needsWaterResistance": {
+                                "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                "type": "boolean"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/weather/places": {
+      "get": {
+        "operationId": "searchPlaces",
+        "summary": "Finds places by name",
+        "tags": [
+          "weather"
+        ],
+        "description": "The profile's and a trip's city search (Open-Meteo's geocoding, through the server): pick one for PUT /weather/home or PUT /trips/{id}/destination. 20 a minute per user; a 503 when the search did not answer, worth a retry.",
+        "parameters": [
+          {
+            "schema": {
+              "minLength": 2,
+              "maxLength": 100,
+              "type": "string"
+            },
+            "in": "query",
+            "name": "q",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The geocoding search's places for the name: a handful, never paged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "PlaceList",
+                  "description": "The geocoding search's places for the name: a handful, never paged",
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "description": "Best match first",
+                      "type": "array",
+                      "items": {
+                        "title": "Place",
+                        "description": "A place the search found",
+                        "type": "object",
+                        "required": [
+                          "label",
+                          "latitude",
+                          "longitude"
+                        ],
+                        "properties": {
+                          "label": {
+                            "description": "Its full name, \"Brooklyn, New York, United States\": send it as the `name` you set",
+                            "type": "string"
+                          },
+                          "latitude": {
+                            "description": "Rounded to 2 decimals (~1 km)",
+                            "type": "number"
+                          },
+                          "longitude": {
+                            "description": "Rounded to 2 decimals (~1 km)",
+                            "type": "number"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/weather/home": {
+      "put": {
+        "operationId": "setWeatherHome",
+        "summary": "Sets your home city",
+        "tags": [
+          "weather"
+        ],
+        "description": "The profile's pick from the place search: the forecast is for it whenever the phone's location is not fresh. Set-state. 10 a minute per user (each new place is a forecast to fetch).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "PlaceInput",
+                "description": "A place from GET /weather/places: its label as the name, and its coordinates (rounded to ~1 km before they are kept)",
+                "type": "object",
+                "required": [
+                  "name",
+                  "latitude",
+                  "longitude"
+                ],
+                "properties": {
+                  "name": {
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "type": "string"
+                  },
+                  "latitude": {
+                    "minimum": -90,
+                    "maximum": 90,
+                    "type": "number"
+                  },
+                  "longitude": {
+                    "minimum": -180,
+                    "maximum": 180,
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          },
+          "description": "A place from GET /weather/places: its label as the name, and its coordinates (rounded to ~1 km before they are kept)"
+        },
+        "responses": {
+          "200": {
+            "description": "A place picked from the search, as kept: the name trimmed, the coordinates rounded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "KeptPlace",
+                  "description": "A place picked from the search, as kept: the name trimmed, the coordinates rounded",
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "latitude",
+                    "longitude"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "latitude": {
+                      "description": "Rounded to 2 decimals (~1 km)",
+                      "type": "number"
+                    },
+                    "longitude": {
+                      "description": "Rounded to 2 decimals (~1 km)",
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "clearWeatherHome",
+        "summary": "Forgets your home city",
+        "tags": [
+          "weather"
+        ],
+        "responses": {
+          "204": {
+            "description": "Cleared"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/weather/here": {
+      "put": {
+        "operationId": "setWeatherHere",
+        "summary": "Sets the phone's location",
+        "tags": [
+          "weather"
+        ],
+        "description": "\"Use my location\": the forecast is for it, standing in for home while fresh; send it again to keep it fresh. Round it on the phone too: a precise position need never leave it. 10 a minute per user.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "LocationInput",
+                "description": "The phone's position, rounded to ~1 km before it is kept or sent anywhere",
+                "type": "object",
+                "required": [
+                  "latitude",
+                  "longitude"
+                ],
+                "properties": {
+                  "latitude": {
+                    "minimum": -90,
+                    "maximum": 90,
+                    "type": "number"
+                  },
+                  "longitude": {
+                    "minimum": -180,
+                    "maximum": 180,
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          },
+          "description": "The phone's position, rounded to ~1 km before it is kept or sent anywhere"
+        },
+        "responses": {
+          "200": {
+            "description": "The phone's position as kept (rounded) and when it was sent: it stands in for home for 12 hours",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "WeatherHere",
+                  "description": "The phone's position as kept (rounded) and when it was sent: it stands in for home for 12 hours",
+                  "type": "object",
+                  "required": [
+                    "latitude",
+                    "longitude",
+                    "locatedAt"
+                  ],
+                  "properties": {
+                    "latitude": {
+                      "description": "Rounded to 2 decimals (~1 km)",
+                      "type": "number"
+                    },
+                    "longitude": {
+                      "description": "Rounded to 2 decimals (~1 km)",
+                      "type": "number"
+                    },
+                    "locatedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "clearWeatherHere",
+        "summary": "Forgets the phone's location",
+        "tags": [
+          "weather"
+        ],
+        "description": "Stop: the forecast is for the home again, if one is set.",
+        "responses": {
+          "204": {
+            "description": "Cleared"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/weather/unit": {
+      "put": {
+        "operationId": "setTemperatureUnit",
+        "summary": "Sets how you read temperatures",
+        "tags": [
+          "weather"
+        ],
+        "description": "Display only: every temperature here stays °C. Set-state.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "TemperatureUnitInput",
+                "type": "object",
+                "required": [
+                  "unit"
+                ],
+                "properties": {
+                  "unit": {
+                    "description": "How you read temperatures: only display, everything here is °C",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "celsius"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "fahrenheit"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "TemperatureUnitInput",
+                  "type": "object",
+                  "required": [
+                    "unit"
+                  ],
+                  "properties": {
+                    "unit": {
+                      "description": "How you read temperatures: only display, everything here is °C",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "celsius"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "fahrenheit"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/weather/feedback": {
       "post": {
         "operationId": "sendTemperatureFeedback",
@@ -21154,6 +23633,41 @@
                 }
               }
             }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/weather/offset": {
+      "delete": {
+        "operationId": "resetTemperatureOffset",
+        "summary": "Resets your temperature offset to 0",
+        "tags": [
+          "weather"
+        ],
+        "description": "The profile's Reset: the feedback's steps are forgotten, and ideas are matched to the forecast as it reads.",
+        "responses": {
+          "204": {
+            "description": "Cleared"
           },
           "4XX": {
             "description": "A problem (RFC 9457): switch on `code`",
