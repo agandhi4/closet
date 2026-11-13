@@ -19,7 +19,7 @@
  * Evaluated once per document: the listeners below sit on the document and
  * serve every page's rows.
  */
-import { centre, initSnapStrips } from 'snap-strip';
+import { centre, initSnapStrips, syncSteps } from 'snap-strip';
 
 export function initStyling(root) {
   initSnapStrips(root);
@@ -57,13 +57,15 @@ function rowLocked(row) {
 /**
  * A locked row's neighbours are inert, its chosen item is not; unlocked,
  * none is. The `inert` property reflects to its attribute, so htmx's
- * history snapshot (innerHTML) keeps it.
+ * history snapshot (innerHTML) keeps it. The strip's steps follow: none
+ * goes to an inert item.
  */
 function syncLock(row) {
   const locked = rowLocked(row);
   for (const item of row.querySelectorAll('.styling-item')) {
     item.inert = locked && !item.hasAttribute('data-selected');
   }
+  syncSteps(row.querySelector('.styling-strip'));
 }
 
 /**
