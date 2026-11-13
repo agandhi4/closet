@@ -36,6 +36,33 @@ export interface CliOptions {
 /** The exit status of a stoppable command stopped by a signal: 128 + SIGINT, the shell's convention. */
 export const STOPPED_STATUS = 130;
 
+const STOP_SIGNALS = ['SIGINT', 'SIGTERM'] as const;
+
+/**
+ * A command's `stop` (runCli passes `process` as `signals`): never aborted
+ * unless `stoppable`, then aborted by the first SIGINT or SIGTERM, with a
+ * warn line. That signal takes both handlers away, so a second one, either
+ * of them, finds none and ends the process as Node does.
+ */
+export function commandStop(
+  { stoppable = false }: CliOptions,
+  signals: Pick<NodeJS.EventEmitter, 'on' | 'removeListener'>,
+  logger: Logger,
+): AbortSignal {
+  const stop = new AbortController();
+  if (!stoppable) return stop.signal;
+  // Node calls a signal's listeners with the signal's name.
+  const onSignal = (signal: NodeJS.Signals) => {
+    for (const each of STOP_SIGNALS) signals.removeListener(each, onSignal);
+    logger.warn(
+      `${signal}: finishing the work in flight, then stopping (again to kill)`,
+    );
+    stop.abort();
+  };
+  for (const signal of STOP_SIGNALS) signals.on(signal, onSignal);
+  return stop.signal;
+}
+
 /**
  * The frame of a maintenance command (reconcile.cli.ts,
  * set-password.cli.ts, revoke-push.cli.ts, retrim-thumbs.cli.ts): the
@@ -72,7 +99,7 @@ export function runCli(
 async function run(
   name: string,
   command: (context: CliContext) => Promise<number>,
-  { stoppable = false }: CliOptions,
+  options: CliOptions,
 ): Promise<number> {
   const config = loadConfig();
   const logger = createLogger(config);
@@ -87,24 +114,12 @@ async function run(
     MAINTENANCE_TIMEOUTS,
   );
   const commandLogger = logger.child({ logger: name });
-  const stop = new AbortController();
-  if (stoppable) {
-    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-      // once: a second signal finds no handler and ends the process.
-      process.once(signal, () => {
-        commandLogger.warn(
-          `${signal}: finishing the work in flight, then stopping (again to kill)`,
-        );
-        stop.abort();
-      });
-    }
-  }
   try {
     return await command({
       config,
       logger: commandLogger,
       db,
-      stop: stop.signal,
+      stop: commandStop(options, process, commandLogger),
     });
   } finally {
     await db.$client.end();

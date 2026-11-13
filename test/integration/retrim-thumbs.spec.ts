@@ -1,4 +1,4 @@
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -16,29 +16,37 @@ import {
   uploadPhoto,
 } from './garments';
 import { createTestApp, multipart, TestApp } from './harness';
-import { silentLogger } from './logger';
 
 /**
  * The #373 backfill against the real app: a cutout's thumb from before the
  * trim is replaced under a new variant key (so a new URL), the set it
  * replaced is gone, a dry run changes nothing, a second run finds the thumb
- * current, and a stop lands between photos, never inside one.
+ * current, a stop lands between photos, never inside one, and one photo's
+ * trouble (failed, missing its cutout, refused) is its own.
  */
 describe('maintenance:retrim-thumbs', () => {
   let t: TestApp;
   const retrim = (options: RetrimOptions = {}, photos: Photos = t.photos) =>
-    retrimCutoutThumbs({ db: t.db, photos, logger: silentLogger }, options);
+    retrimCutoutThumbs(
+      { db: t.db, photos, logger: t.logger.child({ logger: 'ThumbRetrim' }) },
+      options,
+    );
+  /** Photos whose rederiveCutoutThumb runs `before` first, as a stand-in for what happens meanwhile. */
+  const photosWith = (before: (fileName: string) => Promise<void>) =>
+    new Proxy(t.photos, {
+      get: (target, key, receiver) =>
+        key === 'rederiveCutoutThumb'
+          ? async (...args: Parameters<Photos['rederiveCutoutThumb']>) => {
+              await before(args[0].fileName);
+              return target.rederiveCutoutThumb(...args);
+            }
+          : (Reflect.get(target, key, receiver) as unknown),
+    });
   const storedFiles = async () =>
     (await readdir(t.dataPath)).filter((name) => name.endsWith('.webp')).sort();
 
-  /**
-   * A garment whose mask edit left it small in a corner of the frame, with
-   * the thumb as it was made before #373 (the whole frame). Its file name.
-   */
-  const editedWithOldThumb = async (name: string) => {
-    const garmentId = await createGarment(t, { name });
-    await uploadPhoto(t, garmentId, await jpegPhoto());
-    const fileName = await photoFileName(t, garmentId);
+  /** A mask edit (POST /wardrobe/:id/nobg) leaving the garment small in a corner of the frame. */
+  const editMask = async (garmentId: number) => {
     const mask = await sharp({
       create: {
         width: 800,
@@ -80,12 +88,23 @@ describe('maintenance:retrim-thumbs', () => {
       headers: body.headers,
     });
     expect(edit.statusCode).toBeLessThan(300);
+  };
+
+  /**
+   * A garment whose mask edit left it small in a corner of the frame, with
+   * the thumb as it was made before #373 (the whole frame).
+   */
+  const editedWithOldThumb = async (name: string) => {
+    const garmentId = await createGarment(t, { name });
+    await uploadPhoto(t, garmentId, await jpegPhoto());
+    const fileName = await photoFileName(t, garmentId);
+    await editMask(garmentId);
     const cutout = await readFile(await variantPath(t, fileName, 'nobg'));
     await writeFile(
       await variantPath(t, fileName, 'thumb'),
       await sharp(cutout).resize(400, 400, { fit: 'inside' }).webp().toBuffer(),
     );
-    return fileName;
+    return { garmentId, fileName };
   };
 
   beforeAll(async () => {
@@ -101,7 +120,7 @@ describe('maintenance:retrim-thumbs', () => {
       await createGarment(t, { name: 'Queued' }),
       await jpegPhoto(),
     );
-    const fileName = await editedWithOldThumb('Framed wide');
+    const { fileName } = await editedWithOldThumb('Framed wide');
     const cutout = await readFile(await variantPath(t, fileName, 'nobg'));
     const before = await photoRow(t, fileName);
     const filesBefore = await storedFiles();
@@ -163,21 +182,16 @@ describe('maintenance:retrim-thumbs', () => {
   });
 
   it('stops between photos: the one in flight is finished, none is left half-swapped', async () => {
-    const second = await editedWithOldThumb('Second');
-    const third = await editedWithOldThumb('Third');
+    const { fileName: second } = await editedWithOldThumb('Second');
+    const { fileName: third } = await editedWithOldThumb('Third');
     const thirdBefore = await photoRow(t, third);
 
     // The signal lands while the second photo (after the first test's,
     // current) is being retrimmed, as a Ctrl-C would.
     const stop = new AbortController();
-    const photos = new Proxy(t.photos, {
-      get: (target, key, receiver) =>
-        key === 'rederiveCutoutThumb'
-          ? (...args: Parameters<Photos['rederiveCutoutThumb']>) => {
-              if (args[0].fileName === second) stop.abort();
-              return target.rederiveCutoutThumb(...args);
-            }
-          : (Reflect.get(target, key, receiver) as unknown),
+    const photos = photosWith((fileName) => {
+      if (fileName === second) stop.abort();
+      return Promise.resolve();
     });
     expect(await retrim({ stop: stop.signal }, photos)).toMatchObject({
       stopped: true,
@@ -213,5 +227,68 @@ describe('maintenance:retrim-thumbs', () => {
       current: 2,
       retrimmed: 1,
     });
+  });
+
+  it("counts and logs one photo's trouble as its own, and the next photo still retrims", async () => {
+    // Each trouble is real, none a stubbed outcome: bytes no decoder reads,
+    // a cutout file gone, an edit landing mid-run.
+    const broken = await editedWithOldThumb('Unreadable cutout');
+    await writeFile(
+      await variantPath(t, broken.fileName, 'nobg'),
+      'not an image',
+    );
+    const missing = await editedWithOldThumb('Cutout gone');
+    await unlink(await variantPath(t, missing.fileName, 'nobg'));
+    const raced = await editedWithOldThumb('Edited meanwhile');
+    const { fileName: last } = await editedWithOldThumb('After them');
+    const rows = await Promise.all(
+      [broken, missing].map(
+        async ({ fileName }) => (await photoRow(t, fileName))!,
+      ),
+    );
+    // The owner edits the mask after the run read the photo's key: the run
+    // holds a key the row no longer points at.
+    const photos = photosWith((fileName) =>
+      fileName === raced.fileName
+        ? editMask(raced.garmentId)
+        : Promise.resolve(),
+    );
+    const racedEdit = await photoRow(t, raced.fileName);
+    const lastBefore = await photoRow(t, last);
+    t.logs.clear();
+
+    // The three photos the tests before left current, then these four.
+    expect(await retrim({}, photos)).toMatchObject({
+      photos: 7,
+      current: 3,
+      failed: 1,
+      missingCutouts: 1,
+      refused: 1,
+      retrimmed: 1,
+    });
+    const named = (row: { id: number; fileName: string }) =>
+      `Photo ${row.id} (${row.fileName})`;
+    expect(t.logs.messages('warn', 'ThumbRetrim')).toEqual([
+      `${named(rows[0])}: thumb retrim failed`,
+      `${named(rows[1])}: its cutout (key ${rows[1].variantKey}) is not in storage; thumb left`,
+    ]);
+    // The failure names its cause through `err`, never in the line.
+    expect(
+      t.logs.records.find(
+        (record) => record.msg === `${named(rows[0])}: thumb retrim failed`,
+      )?.err?.message,
+    ).toBeTruthy();
+    expect(t.logs.messages('info', 'ThumbRetrim')).toContain(
+      `${named(racedEdit!)}: retrim refused (stale): the photo changed meanwhile, its new cutout with its own thumb`,
+    );
+    // Neither troubled photo's row moved; the raced one keeps its edit's.
+    expect(await photoRow(t, broken.fileName)).toEqual(rows[0]);
+    expect(await photoRow(t, missing.fileName)).toEqual(rows[1]);
+    expect((await photoRow(t, raced.fileName))!.version).toBe(
+      racedEdit!.version + 1,
+    );
+    expect((await photoRow(t, last))!.variantKey).not.toBe(
+      lastBefore!.variantKey,
+    );
   });
 });
