@@ -30,9 +30,12 @@ import {
   type CreateResult,
   OUTFIT_NAME_MAX,
   OUTFIT_NOTES_MAX,
+  OUTFIT_SLOTS_MAX,
   type OutfitInput,
+  outfitText,
   type SaveResult,
 } from './queries';
+import { DECLINE_NOTE_MAX, OutfitParams, SlotCategory } from './schemas';
 import { OutfitPage } from './show-page';
 import type { OutfitReaction } from './reactions';
 import { OUTFIT_DISMISS_REASONS } from '../../wardrobe/suggestions';
@@ -64,16 +67,8 @@ import { withParams } from '../wardrobe/urls';
  *   unworn entry there picks one more outfit. POST /calendar checks again.
  */
 
-const OutfitParams = Type.Object({ id: RowId });
-
 /** One outfit's route: its page, its save and its delete. */
 const OUTFIT_ROUTE = '/outfits/:id';
-
-/** Rows in one outfit: position is a smallint, and no form needs more. */
-const MAX_ROWS = 100;
-
-// What an outfit row's category may be.
-const Category = Type.String({ minLength: 1, maxLength: 255, pattern: '\\S' });
 
 // A date input left empty posts ''.
 const OptionalDay = Type.Union([Type.Literal(''), IsoDateSchema]);
@@ -117,7 +112,7 @@ const DeclineBody = Type.Object({
   reason: Type.Union(
     OUTFIT_DISMISS_REASONS.map((reason) => Type.Literal(reason)),
   ),
-  note: Type.Optional(Type.String({ maxLength: 500 })),
+  note: Type.Optional(Type.String({ maxLength: DECLINE_NOTE_MAX })),
 });
 
 // The form posts one category + garmentId pair per row, in row order (a
@@ -128,9 +123,13 @@ const DeclineBody = Type.Object({
 const OutfitBody = Type.Object({
   name: Type.Optional(Type.String({ maxLength: OUTFIT_NAME_MAX })),
   notes: Type.Optional(Type.String({ maxLength: OUTFIT_NOTES_MAX })),
-  category: Type.Optional(Type.Array(Category, { maxItems: MAX_ROWS })),
+  category: Type.Optional(
+    Type.Array(SlotCategory, { maxItems: OUTFIT_SLOTS_MAX }),
+  ),
   garmentId: Type.Optional(
-    Type.Array(Type.Union([Type.Literal(''), RowId]), { maxItems: MAX_ROWS }),
+    Type.Array(Type.Union([Type.Literal(''), RowId]), {
+      maxItems: OUTFIT_SLOTS_MAX,
+    }),
   ),
   scheduleDate: Type.Optional(OptionalDay),
   scheduleOccasion: Type.Optional(OccasionSchema),
@@ -139,11 +138,6 @@ const OutfitBody = Type.Object({
 });
 
 type OutfitForm = Static<typeof OutfitBody>;
-
-/** A text field as stored: trimmed, and null when blank; undefined when not posted. */
-function textField(value: string | undefined): string | null | undefined {
-  return value === undefined ? undefined : value.trim() || null;
-}
 
 function outfitInput(body: OutfitForm): OutfitInput {
   const categories = body.category ?? [];
@@ -155,8 +149,8 @@ function outfitInput(body: OutfitForm): OutfitInput {
     );
   }
   return {
-    name: textField(body.name),
-    notes: textField(body.notes),
+    name: outfitText(body.name),
+    notes: outfitText(body.notes),
     slots: categories.map((category, i) => ({
       category,
       garmentId: garmentIds[i] === '' ? null : garmentIds[i],

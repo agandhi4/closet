@@ -306,6 +306,7 @@
   "api": {
     "SIGN_IN_AGAIN": "Sign in again: this device's token is missing, revoked or not valid here",
     "TOKEN_IN_QUERY": "Send the token in the Authorization header, never in the URL",
+    "OUTFIT_NEEDS_GARMENT": "An outfit needs at least one garment: send a row with a garmentId",
     "BAD_CURSOR": "This cursor is not one a list answered: start from the first page",
     "REPLACES_ON_WISHLIST_ONLY": "Only a wishlist item replaces a garment: send destination wishlist"
   },

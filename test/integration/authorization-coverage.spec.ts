@@ -47,6 +47,8 @@ const EXEMPT: Record<RouteKey, string> = {
     'a redirect to the Wishlist inbox that reads nothing (#337, plans removed); covered by plans-removed.spec.ts',
   'GET /wardrobe/:id/plan-items':
     "a redirect to the garment's page that reads nothing (#337, plans removed): the page then authorizes; covered by plans-removed.spec.ts",
+  'DELETE /api/v1/garments/:id/wears/:day':
+    'the undo of PUT …/wears/:day (#193a), whose matrix case needs a wear to undo, which the shared fixture must not have (insights lists its garment unworn); covered by authorization-wardrobe.spec.ts "DELETE /api/v1/garments/:id/wears/:day refuses as its PUT does"',
 };
 
 interface AppRoute {
