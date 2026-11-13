@@ -116,6 +116,31 @@ describe('weather matching', () => {
     });
   });
 
+  describe('a layer judged against the top under it', () => {
+    it('does not blame the spread when no top or one-piece is worn yet', () => {
+      const cold = needs(APRIL, 'all-day');
+      const fit = assessOutfit(cold, [PARKA]);
+      expect(fit.problems).not.toContain('too-cold');
+      expect(fit.problems).not.toContain('too-warm');
+      expect(fit.score).toBe(0);
+    });
+
+    it('still calls a parka over a warmth-1 top too cold, softly', () => {
+      const fit = assessOutfit(needs(APRIL, 'all-day'), [TANK, PARKA]);
+      expect(fit.problems).toContain('too-cold');
+      expect(fit.score).toBeGreaterThan(0);
+    });
+
+    it('judges a one-piece under a layer like a top', () => {
+      const slip = g('one-piece', 1);
+      const cold = needs(APRIL, 'all-day');
+      expect(assessOutfit(cold, [slip, PARKA]).problems).toContain('too-cold');
+      expect(assessOutfit(cold, [DRESS, PARKA]).problems).not.toContain(
+        'too-cold',
+      );
+    });
+  });
+
   describe('summer (July, 25 to 33 °C)', () => {
     it('asks for a tee and shorts, and no layer for a swing inside the heat', () => {
       const allDay = needs(JULY, 'all-day');
