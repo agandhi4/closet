@@ -199,9 +199,8 @@ export const GarmentQuery = Type.Object({ ownerId: OwnerId });
 
 /**
  * POST /garments: a new garment without a photo (the photo is its own
- * upload). `clientId` is accepted for the offline create (plan section 2)
- * and logged, but not yet stored (#196a adds the column), so a retry is
- * not yet answered with the first row.
+ * upload). `clientId` is the offline create's (plan section 2), stored on
+ * the row (createGarmentOnce): a retry answers the first row.
  */
 export const NewGarment = Type.Object(
   {
@@ -221,7 +220,7 @@ export const NewGarment = Type.Object(
       Type.String({
         format: 'uuid',
         description:
-          'Your id for this create, for retrying it offline: accepted, not yet deduplicated',
+          'Your id for this create, for retrying it offline: a retry answers the first garment of that id (200), the id of one deleted since is a 410',
       }),
     ),
   },

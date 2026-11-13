@@ -1252,7 +1252,7 @@
         "tags": [
           "garments"
         ],
-        "description": "To your wardrobe or one shared with you to MANAGE (VIEW is a 403). Saved by the garment form's rules: a blank category or a bad date is a 400 naming the field. The photo is its own upload.",
+        "description": "To your wardrobe or one shared with you to MANAGE (VIEW is a 403). Saved by the garment form's rules: a blank category or a bad date is a 400 naming the field. The photo is its own upload. With a `clientId`, a retry answers the first garment of that id (200, its `Location`) and creates nothing; the id of a garment deleted since is a 410 `gone`.",
         "requestBody": {
           "required": true,
           "content": {
@@ -2177,7 +2177,7 @@
                   },
                   "clientId": {
                     "format": "uuid",
-                    "description": "Your id for this create, for retrying it offline: accepted, not yet deduplicated",
+                    "description": "Your id for this create, for retrying it offline: a retry answers the first garment of that id (200), the id of one deleted since is a 410",
                     "type": "string"
                   }
                 }
@@ -2200,6 +2200,26 @@
           }
         ],
         "responses": {
+          "200": {
+            "description": "An earlier create with this clientId: its garment, `Location` its URL; nothing was created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "GarmentRetried",
+                  "description": "An earlier create with this clientId: its garment, `Location` its URL; nothing was created",
+                  "type": "object",
+                  "required": [
+                    "id"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "201": {
             "description": "The new garment: `Location` is its URL",
             "content": {
