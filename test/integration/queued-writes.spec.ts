@@ -15,7 +15,9 @@ import {
   queuedTarget,
 } from '../../src/offline-writes';
 import { PAGE_ACCOUNT_HEADER } from '../../src/web/page-cache';
+import { setWoreToday } from '../../src/web/wears/queries';
 import { createGarment } from './garments';
+import { interleave } from './interleave';
 import {
   createTestApp,
   recordQueries,
@@ -194,6 +196,76 @@ describe('queued writes', () => {
       'changed',
     ]);
     expect(await wearDays(shirt)).toEqual([]);
+    // The wear came and went: a late retry of it brings nothing back
+    // (its tombstone, #196a), and the outbox takes the 410 for saved.
+    expect((await replay(url, wear)).statusCode).toBe(410);
+    expect(await wearDays(shirt)).toEqual([]);
+  });
+
+  describe('a queued wear’s client id (#196a)', () => {
+    const clientIdsOf = async (garmentId: number) =>
+      (
+        await t.db
+          .select({ clientId: garmentWear.clientId })
+          .from(garmentWear)
+          .where(eq(garmentWear.garmentId, garmentId))
+      ).map((row) => row.clientId);
+    const ID = (n: number) =>
+      `1a2b3c4d-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+    it('is stored; a wear already there keeps its own; another garment’s is a 409', async () => {
+      const day = daysAgo(2);
+      const worn = await createGarment(t, { name: 'Client id jeans' });
+      const url = `/wardrobe/${worn}/wear`;
+      expect(
+        outcome(await replay(url, { worn: '1', day, clientId: ID(10) })),
+      ).toEqual([204, 'changed']);
+      // Another device's tap for the same garment and day: a no-op that
+      // never rewrites the stored id.
+      expect(
+        outcome(await replay(url, { worn: '1', day, clientId: ID(11) })),
+      ).toEqual([204, 'unchanged']);
+      expect(await clientIdsOf(worn)).toEqual([ID(10)]);
+      // A page tap (no client id) on another day stores none.
+      expect((await post(url, { worn: '1' })).statusCode).toBe(303);
+      expect((await clientIdsOf(worn)).sort()).toEqual([ID(10), null].sort());
+      // The same id for another garment: refused, nothing written.
+      const res = await replay(`/wardrobe/${shirt}/wear`, {
+        worn: '1',
+        day,
+        clientId: ID(10),
+      });
+      expect(res.statusCode).toBe(409);
+      expect(await clientIdsOf(shirt)).toEqual([]);
+      expect(t.logs.messages('info', 'Web')).toContain(
+        `Garment ${shirt} wear on ${day} by user ${t.owner.id} refused: client id 1a2b3c4d names another wear (replayed, key 1a2b3c4d)`,
+      );
+    });
+
+    // The undo commits while the retry waits on the owner lock: the retry's
+    // statement took its snapshot before the wait, so only the trigger's
+    // own read (a fresh snapshot) sees the tombstone. A check in the
+    // writer's statement would bring the wear back.
+    it('is refused as gone when its wear was deleted while the retry waited', async () => {
+      const day = daysAgo(1);
+      const garmentId = await createGarment(t, { name: 'Raced shirt' });
+      const url = `/wardrobe/${garmentId}/wear`;
+      const wear = { worn: '1', day, clientId: ID(20) };
+      expect(outcome(await replay(url, wear))).toEqual([204, 'changed']);
+      const [, retried] = await interleave(
+        t.db,
+        (tx) =>
+          setWoreToday(tx, {
+            garmentId,
+            ownerId: t.owner.id,
+            day,
+            worn: false,
+          }),
+        () => replay(url, wear),
+      );
+      expect(retried.statusCode).toBe(410);
+      expect(await wearDays(garmentId)).toEqual([]);
+    });
   });
 
   it('refuses a day outside the window, 409 with its reason, nothing written', async () => {

@@ -431,13 +431,12 @@ export async function createTestApp(
   } satisfies TestApp;
 }
 
-/** The id of the account registered with `email`. */
 /**
- * A fixture's write to synced tables (garments, outfits, trips, ...; the
- * list is test/support/sync-guard.ts's), made holding the owner locks as
- * every writer holds its own (src/db/owner-lock.ts): every account's, in
- * id order, since a fixture may write any of them (a cleanup deletes every
- * outfit). The sync guard on every spec's database refuses a write
+ * A fixture's write to synced tables (garments, outfits, trips, ...;
+ * src/db/sync-tables.ts), made holding the owner locks as every writer
+ * holds its own (src/db/owner-lock.ts): every account's, in id order,
+ * since a fixture may write any of them (a cleanup deletes every outfit).
+ * The sync triggers (drizzle/0052_sync-triggers.sql) refuse a write
  * without its owner's lock.
  */
 export function asFixture<T>(
@@ -451,6 +450,7 @@ export function asFixture<T>(
   });
 }
 
+/** The id of the account registered with `email`. */
 export async function userIdOf(t: TestApp, email: string): Promise<number> {
   const [row] = await t.db
     .select({ id: user.id })

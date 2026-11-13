@@ -167,30 +167,48 @@ describe('the owner lock', () => {
 
   /**
    * A folded owner lock (src/db/owner-lock.ts) comes before `relation`'s
-   * row lock: the `owner_lock` CTE locks the user row, and `relation`'s
-   * LockRows reads a scan gated on it (a one-time filter, evaluated before
-   * the scan returns a row) or computing it in its own output (below the
-   * LockRows, so before the row is locked): as an InitPlan, or as a
-   * SubPlan reading the CTE per row (lockCutoutRows' `max` over it reads
-   * every owner on the first row).
+   * row lock: the `owner_lock` CTE locks the user rows, and is read only
+   * by an aggregate over all of it (ownerLocked's count, lockCutoutRows'
+   * `max`), run as an InitPlan or SubPlan that a node below `relation`'s
+   * LockRows evaluates (its one-time filter, before the scan returns a
+   * row, or its own output, before the row is locked). A CTE read any
+   * other way (a join input, `exists`, a `limit`) is read lazily and could
+   * lock only some owners before the first row lock (#556).
    */
   const expectOwnerLockFirst = async (query: SQL, relation: string) => {
     const plan = await planOf(query);
-    const cte = nodesOf(plan).find(
-      (node) => node['Subplan Name'] === 'CTE owner_lock',
-    );
+    const nodes = nodesOf(plan);
+    const cte = nodes.find((node) => node['Subplan Name'] === 'CTE owner_lock');
     expect(cte, 'the owner_lock CTE').toBeDefined();
     lockRowsOn(cte!, 'user');
+    const readers = nodes.filter((node) =>
+      (node.Plans ?? []).some(
+        (child) =>
+          child['Node Type'] === 'CTE Scan' &&
+          child['CTE Name'] === 'owner_lock',
+      ),
+    );
+    expect(readers.length, JSON.stringify(plan)).toBeGreaterThan(0);
+    for (const reader of readers) {
+      expect(reader['Node Type'], JSON.stringify(plan)).toBe('Aggregate');
+    }
+    const gates = nodes
+      .filter(
+        (node) =>
+          node['Subplan Name'] !== undefined &&
+          nodesOf(node).some((inner) => readers.includes(inner)),
+      )
+      .map((node) => new RegExp(`\\b${node['Subplan Name']}\\b`));
     const below = nodesOf(lockRowsOn(plan, relation)).filter(
       (node) => !nodesOf(cte!).includes(node),
     );
     expect(
-      below.some(
-        (node) =>
-          node['One-Time Filter']?.includes('InitPlan') ||
-          outputOf(node).includes('InitPlan') ||
-          outputOf(node).includes('owner_lock') ||
-          node['CTE Name'] === 'owner_lock',
+      below.some((node) =>
+        gates.some(
+          (gate) =>
+            gate.test(node['One-Time Filter'] ?? '') ||
+            gate.test(outputOf(node)),
+        ),
       ),
       JSON.stringify(plan),
     ).toBe(true);
@@ -584,7 +602,7 @@ describe('the owner lock', () => {
   describe('the lock timeout (#134, #158)', () => {
     // lockOwner sets lock_timeout in the lock's own statement: it bounds the
     // wait only while set_config is computed in the scan below LockRows. The
-    // mark the sync guard reads (#196a) is the opposite: set above LockRows,
+    // mark the sync triggers read (#196a) is the opposite: set above LockRows,
     // over the row it locked, so a wait that failed leaves no mark.
     it('is set below LockRows, and the mark above it, in the same statement as the lock', async () => {
       const plan = await planOf(lockOwnerQuery(t.db, t.owner.id).getSQL());
@@ -764,7 +782,7 @@ describe('the owner lock', () => {
     // photo the account uploaded (as a MANAGE grantee): the delete empties
     // their photo_id. The uploader has the lower id, so a lock that read
     // only the set's first row would leave the other owner unlocked, and
-    // the sync guard would refuse the cascade.
+    // the sync triggers would refuse the cascade.
     it('an account deletion locks every owner of a garment showing its photo, not only the first', async () => {
       await t.register('lock-uploader@example.com');
       const uploader = await userIdOf(t, 'lock-uploader@example.com');
@@ -1151,7 +1169,7 @@ describe('the owner lock', () => {
       // under the locks, read the set again, find an owner they did not
       // lock, and the deletion locks again with it. Folded into the lock's
       // statement, the delete never saw the row, and the cascade emptied
-      // that owner's photo_id unlocked: the sync guard refused it.
+      // that owner's photo_id unlocked: the sync triggers refused it.
       it('an account deletion locks again for an owner whose garment came to show its photo while it waited', async () => {
         await t.register('grew-uploader@example.com');
         const uploader = await userIdOf(t, 'grew-uploader@example.com');
@@ -1190,7 +1208,7 @@ describe('the owner lock', () => {
     });
   });
 
-  describe('the sync guard (test/support/sync-guard.ts)', () => {
+  describe('the sync triggers refuse an unlocked write (drizzle/0052_sync-triggers.sql)', () => {
     it('refuses a write to a synced table without its owner lock', async () => {
       await expect(
         t.db
@@ -1198,13 +1216,19 @@ describe('the owner lock', () => {
           .set({ notes: 'unlocked' })
           .where(eq(garment.id, tops[0])),
       ).rejects.toMatchObject({
-        cause: { code: 'P0001', message: expect.stringMatching(/sync guard/) },
+        cause: {
+          code: 'P0001',
+          message: expect.stringMatching(
+            /^owner lock not held: a write to garment/,
+          ),
+        },
       });
     });
 
     // The cascades of a garment's, an outfit's and an account's deletion
     // write their children with the deleting writer's owner lock held, or
-    // with the owner already gone: no guard refusal, no foreign key error.
+    // with the owner already gone: no refusal, no foreign key error (an
+    // account's cascade writes no tombstone).
     it('lets every cascade through: a garment, an outfit and an account deleted with their children', async () => {
       const day = addDays(t.today(), 4);
       const doomed = await garmentIn('Doomed shirt', 'tops', 'red');

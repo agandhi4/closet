@@ -4,6 +4,12 @@ import type { UniqueConstraint } from './schema';
 const UNIQUE_VIOLATION = '23505';
 /** lock_not_available: a lock wait ran past lock_timeout (or NOWAIT). */
 const LOCK_NOT_AVAILABLE = '55P03';
+/**
+ * The sync triggers' own SQLSTATE (closet_sync_stamp,
+ * drizzle/0052_sync-triggers.sql): an insert whose client id has a
+ * tombstone, a replayed create of a row since deleted.
+ */
+const DELETED_CLIENT_ID = 'CL410';
 
 interface PgError {
   code?: unknown;
@@ -44,4 +50,14 @@ export function isUniqueViolation(
 /** Whether `error` is a lock wait that ran past the transaction's lock_timeout. */
 export function isLockTimeout(error: unknown): boolean {
   return driverError(error)?.code === LOCK_NOT_AVAILABLE;
+}
+
+/**
+ * Whether `error` is the sync triggers refusing a replayed create: its
+ * client id names a row of the same table that was deleted
+ * (sync_tombstone). The writer answers it as gone (a 410), never by
+ * creating the row again.
+ */
+export function isDeletedClientId(error: unknown): boolean {
+  return driverError(error)?.code === DELETED_CLIENT_ID;
 }

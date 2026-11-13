@@ -258,9 +258,21 @@ function isRefusal(outcome: string | null): outcome is ReplayRefusal {
   return outcome === 'too-old' || outcome === 'future' || outcome === 'account';
 }
 
+/** replayVerdict's answers that the status alone decides. */
+const VERDICT_OF_STATUS: Readonly<Partial<Record<number, ReplayVerdict>>> = {
+  0: { verdict: 'signed-out' },
+  401: { verdict: 'signed-out' },
+  404: { verdict: 'failed', reason: 'gone' },
+  408: { verdict: 'retry' },
+  410: { verdict: 'saved', changed: false },
+  429: { verdict: 'retry' },
+};
+
 /**
  * A replay's answer (src/web/offline-writes.ts): 204 saved, 401 signed out,
- * 404 gone (a deleted garment, entry or trip), a 409 refused for the reason
+ * 404 gone (a deleted garment, entry or trip), 410 saved (a queued wear's
+ * client id names a wear that landed and was deleted since, #196a: the tap
+ * was saved once and a later write undid it), a 409 refused for the reason
  * in `X-Closet-Outcome` (a wishlist item has none), a server error or rate
  * limit retried. A redirect (status 0: the outbox fetches with `redirect:
  * 'manual'`, so it is opaque) is kept like a 401: the only one a queueable
@@ -274,15 +286,11 @@ export function replayVerdict(
 ): ReplayVerdict {
   if (status === 204)
     return { verdict: 'saved', changed: outcome === 'changed' };
-  if (status === 401 || status === 0) return { verdict: 'signed-out' };
-  if (status === 404) return { verdict: 'failed', reason: 'gone' };
   if (status === 409 && isRefusal(outcome)) {
     return { verdict: 'failed', reason: outcome };
   }
-  if (status >= 500 || status === 408 || status === 429) {
-    return { verdict: 'retry' };
-  }
-  return { verdict: 'failed', reason: 'refused' };
+  if (status >= 500) return { verdict: 'retry' };
+  return VERDICT_OF_STATUS[status] ?? { verdict: 'failed', reason: 'refused' };
 }
 
 /**

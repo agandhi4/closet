@@ -6,6 +6,7 @@ import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
 import { todayIn } from '../../calendar-date';
 import { HttpError } from '../errors';
+import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import {
@@ -38,9 +39,9 @@ const NOT_OWNED_YET = 'On the wishlist: not bought yet';
 const WoreTodayBody = Type.Object({
   worn: Type.Union([Type.Literal('1'), Type.Literal('0')]),
   day: Type.Optional(IsoDateSchema),
-  // The queued create's id (the outbox record's). Accepted and unused
-  // until garment_wear.client_id lands with #196a-2; the (garment, day)
-  // unique index already makes a retried wear a no-op.
+  // A queued wear's id (the outbox record's), stored on the wear it
+  // creates (setWoreToday): a replay of a wear deleted since is a 410,
+  // the id on another wear a 409. Ignored with worn=0.
   clientId: Type.Optional(Type.String({ format: 'uuid' })),
 });
 
@@ -154,14 +155,24 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const ownerId = await ownWardrobe(request);
       const worn = request.body.worn === '1';
       const day = requestedDay(reply, request.body.day, today());
+      const { clientId } = request.body;
       const outcome = await setWoreToday(db, {
         garmentId: id,
         ownerId,
         day,
         worn,
+        clientId: worn ? clientId : undefined,
       });
       if (outcome === 'not-found' || outcome === 'wishlist') {
         throw refusal(outcome);
+      }
+      if (outcome === 'gone' || outcome === 'client-id-taken') {
+        logger.info(
+          `Garment ${id} wear on ${day} by user ${ownerId} refused: client id ${clientId!.slice(0, 8)} ${outcome === 'gone' ? 'was deleted' : 'names another wear'}${replayNote(request)}`,
+        );
+        throw outcome === 'gone'
+          ? new HttpError(410, t('WEAR_DELETED'))
+          : new HttpError(409, t('WEAR_CLIENT_ID_TAKEN'));
       }
       const changed = outcome === 'changed';
       logger.info(

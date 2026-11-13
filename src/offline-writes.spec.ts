@@ -218,6 +218,9 @@ describe('replayVerdict', () => {
     // sign-in, never failed.
     [0, null, { verdict: 'signed-out' }],
     [404, null, { verdict: 'failed', reason: 'gone' }],
+    // A wear whose client id was saved, then deleted since: done, nothing
+    // to bring back.
+    [410, null, { verdict: 'saved', changed: false }],
     [409, 'too-old', { verdict: 'failed', reason: 'too-old' }],
     [409, 'future', { verdict: 'failed', reason: 'future' }],
     [409, 'account', { verdict: 'failed', reason: 'account' }],

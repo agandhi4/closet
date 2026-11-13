@@ -8,7 +8,7 @@ import { user } from './schema';
  * marked as holding it. Every write to a synced table (docs/plans/
  * 2026-11-12-json-api.md section 7: the roots, their children, a garment's
  * photo row) takes it before any other row lock, so the sync triggers'
- * revision bump (#196a-2), an UPDATE of that same row, re-takes a lock
+ * revision bump, an UPDATE of that same row, re-takes a lock
  * its transaction already holds and never waits mid-transaction.
  *
  * Used by lockOwner (src/web/auth/queries.ts, ownerTransaction's first
@@ -27,9 +27,9 @@ import { user } from './schema';
  *
  * The mark (`closet.locked_owners`, SET LOCAL: ",<id>," per lock, gone at
  * the transaction's end, reverted with a savepoint rolled back) is read by
- * the sync guard (test/support/sync-guard.ts now, the sync triggers in
- * #196a-2). It catches a writer that forgot the lock, not one that sets
- * the mark by hand: forgetfulness, not malice.
+ * the sync triggers (closet_sync_revision, drizzle/0052_sync-triggers.sql),
+ * which refuse a synced write without it. They catch a writer that forgot
+ * the lock, not one that sets the mark by hand: forgetfulness, not malice.
  */
 export const LOCKED_OWNERS_SETTING = 'closet.locked_owners';
 
