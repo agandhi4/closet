@@ -364,25 +364,61 @@ export class Photos {
    * starts (startPipeline): a rejection while later parts are still being
    * read would otherwise be an unhandled rejection that kills the process.
    * The real error still surfaces from the caller's await.
+   *
+   * A body refused after the photo's pipeline started (its file cut at the
+   * route's `fileSize`, which the parser reports only once the stream has
+   * ended, so a JPEG whose image data came first still decodes; a file past
+   * `files`) throws from the loop with the pipeline still running: it is
+   * awaited and its bytes deleted before the refusal goes on, or they would
+   * be stored with no row (an orphan for reconciliation).
    */
   async storeUploadParts(
     parts: AsyncIterable<MultipartFile>,
     userId: number,
   ): Promise<NewPhotoRow | undefined> {
     let photo: Promise<NewPhotoRow> | undefined;
-    for await (const part of parts) {
-      if (part.fieldname === 'photo' && !photo) {
-        photo = startPipeline(this.storeUpload(part, userId));
-        continue;
+    try {
+      for await (const part of parts) {
+        if (part.fieldname === 'photo' && !photo) {
+          photo = startPipeline(this.storeUpload(part, userId));
+          continue;
+        }
+        if (part.fieldname === 'nobgPhoto') {
+          this.logger.info(
+            `Upload by user ${userId}: ignored the browser's cutout (a page cached before server-side removal)`,
+          );
+        }
+        part.file.resume();
       }
-      if (part.fieldname === 'nobgPhoto') {
-        this.logger.info(
-          `Upload by user ${userId}: ignored the browser's cutout (a page cached before server-side removal)`,
-        );
-      }
-      part.file.resume();
+    } catch (error) {
+      await this.discardStartedUpload(photo, userId);
+      throw error;
     }
     return photo;
+  }
+
+  // The pipeline's own failure already left nothing (storeImage); only a
+  // stored photo is deleted here. Never throws: the caller rethrows the
+  // refusal (a 413 stays a 413), and bytes a failed delete leaves are
+  // reconciliation's orphan.
+  private async discardStartedUpload(
+    photo: Promise<NewPhotoRow> | undefined,
+    userId: number,
+  ): Promise<void> {
+    const stored = await photo?.catch(() => undefined);
+    if (!stored) return;
+    try {
+      await this.deleteVariants(unkeyedPhoto(stored.fileName));
+    } catch (error) {
+      this.logger.error(
+        { err: error },
+        `Upload by user ${userId} refused after its photo was stored: could not delete ${stored.fileName}`,
+      );
+      return;
+    }
+    this.logger.info(
+      `Upload by user ${userId} refused after its photo was stored: deleted ${stored.fileName}`,
+    );
   }
 
   /**
