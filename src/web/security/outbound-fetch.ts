@@ -7,6 +7,7 @@ import {
 } from 'node:http';
 import type {
   ClientHttp2Session,
+  ClientHttp2Stream,
   IncomingHttpHeaders as Http2Headers,
   IncomingHttpStatusHeader,
 } from 'node:http2';
@@ -498,10 +499,11 @@ function sendHttp1(
 
 /**
  * The request over HTTP/2 on `session`, which `dial` built on the socket it
- * connected: one stream, then the session is destroyed (readResponse, or
- * the redirect), never reused. `:authority` is the checked URL's host, like
- * HTTP/1.1's Host. A 1xx is a `headers` event and trailers a `trailers`
- * one, neither listened to, so both are ignored as over HTTP/1.1.
+ * connected: one stream, then the session is destroyed (readResponse, the
+ * redirect, or here on any failure before a response), never reused.
+ * `:authority` is the checked URL's host, like HTTP/1.1's Host. A 1xx is a
+ * `headers` event and trailers a `trailers` one, neither listened to, so
+ * both are ignored as over HTTP/1.1.
  */
 function sendHttp2(
   session: ClientHttp2Session,
@@ -515,36 +517,50 @@ function sendHttp2(
   // hit, a compression bomb).
   const destroy = () => session.destroy();
   return new Promise((resolve, reject) => {
+    // Every way a request fails before its response (the session's error,
+    // the stream's, a refused or dropped stream, request() throwing) ends
+    // here: no Answer exists yet whose destroy() a caller could reach, so
+    // the session is destroyed now rather than lingering to the timeout.
+    // Rejected first, so the first cause wins over the close it triggers.
+    let answered = false;
+    const fail = (error: Error) => {
+      reject(error);
+      if (!answered) destroy();
+    };
     if (signal.aborted) {
-      destroy();
-      reject(signal.reason as Error);
+      fail(signal.reason as Error);
       return;
     }
     signal.addEventListener('abort', destroy, { once: true });
     session.once('close', () => signal.removeEventListener('abort', destroy));
-    session.on('error', reject);
-    const stream = session.request(
-      {
-        ':method': body === undefined ? 'GET' : 'POST',
-        ':scheme': 'https',
-        ':authority': url.host,
-        ':path': `${url.pathname}${url.search}`,
-        ...requestHeaders(request, body),
-      },
-      { endStream: body === undefined },
-    );
-    // `on`, not `once`, as over HTTP/1.1. A stream reset before its
+    session.on('error', fail);
+    let stream: ClientHttp2Stream;
+    try {
+      stream = session.request(
+        {
+          ':method': body === undefined ? 'GET' : 'POST',
+          ':scheme': 'https',
+          ':authority': url.host,
+          ':path': `${url.pathname}${url.search}`,
+          ...requestHeaders(request, body),
+        },
+        { endStream: body === undefined },
+      );
+    } catch (error) {
+      fail(error as Error);
+      return;
+    }
+    // `on`, not `once`, as over HTTP/1.1. A stream refused before its
     // response with NO_ERROR, or dropped by a GOAWAY, closes with no error.
-    stream.on('error', reject);
-    stream.once('close', () =>
-      reject(new IncompleteAnswer('H2_STREAM_CLOSED')),
-    );
+    stream.on('error', fail);
+    stream.once('close', () => fail(new IncompleteAnswer('H2_STREAM_CLOSED')));
     stream.once('response', (headers) => {
+      answered = true;
       resolve({
         protocol: 'h2',
         status: headers[':status'] ?? 0,
         headers: withoutPseudoHeaders(headers),
-        body: wholeBody(stream, headers, session),
+        body: wholeBody(stream, headers),
         destroy,
       });
     });
@@ -597,22 +613,31 @@ class IncompleteAnswer extends Error {
   }
 }
 
+/** RFC 9113 section 7. */
+const H2_NO_ERROR = 0;
+
 /**
  * The h2 stream's bytes, refused unless they arrived whole. Node ends a
  * client stream quietly, as if complete, when its session dies mid-body
- * (the socket closed, a GOAWAY then the close), so a stream that ends with
- * its session destroyed was cut. nghttp2 resets a stream whose DATA passes
- * its content-length or, at END_STREAM, falls short of it; a reset with
- * NO_ERROR before END_STREAM ends it quietly too, so the bytes received
- * (as sent, before decoding) are held to a declared length here. Without
- * one, that reset still reads as the end: where the answer stops is then
- * the server's own choice, like an early END_STREAM (docs/decisions.md
- * 2026-11-13, #496b).
+ * (the socket closed, a GOAWAY then the close), so the end alone proves
+ * nothing. Whole is: (a) a declared content-length, and exactly that many
+ * bytes received (as sent, before decoding); or (b) none declared, and the
+ * stream not closed by its session's death. (b) reads `rstCode`, which
+ * Node sets on the wire's schedule, never the reader's: NO_ERROR when
+ * nghttp2 closed the stream (END_STREAM both ways, which then outlives the
+ * session's close: a server that ends its answer and hangs up at once is
+ * whole however far behind decoding the reader is), CANCEL when the
+ * session's destruction closed it first (the cut), and still unset while a
+ * live session's stream ends. A RST_STREAM(NO_ERROR) before END_STREAM
+ * also closes it NO_ERROR, so without a length that reset reads as the end:
+ * Node shows no difference, and where the answer stops is then the
+ * server's own choice, like an early END_STREAM (docs/decisions.md
+ * 2026-11-13, #496b). nghttp2 itself resets a stream whose DATA passes its
+ * content-length or, at END_STREAM, falls short of it.
  */
 function wholeBody(
-  stream: Readable,
+  stream: ClientHttp2Stream,
   headers: IncomingHttpStatusHeader & Http2Headers,
-  session: ClientHttp2Session,
 ): Readable {
   const length = headers['content-length'];
   const declared = length === undefined ? undefined : Number(length);
@@ -623,10 +648,17 @@ function wholeBody(
       done(null, chunk);
     },
     flush(done) {
-      if (session.destroyed) {
+      if (declared !== undefined) {
+        done(
+          received === declared
+            ? undefined
+            : new IncompleteAnswer('H2_LENGTH_MISMATCH'),
+        );
+      } else if (
+        stream.rstCode !== undefined &&
+        stream.rstCode !== H2_NO_ERROR
+      ) {
         done(new IncompleteAnswer('H2_BODY_CUT_SHORT'));
-      } else if (declared !== undefined && received !== declared) {
-        done(new IncompleteAnswer('H2_LENGTH_MISMATCH'));
       } else {
         done();
       }

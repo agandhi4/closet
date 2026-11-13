@@ -25,6 +25,7 @@ export const END_HEADERS = 0x4;
 const ACK = 0x1;
 export const NO_ERROR = 0x0;
 export const INTERNAL_ERROR = 0x2;
+export const REFUSED_STREAM = 0x7;
 
 const PREFACE_LENGTH = 24; // "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 const FRAME_HEADER_LENGTH = 9;

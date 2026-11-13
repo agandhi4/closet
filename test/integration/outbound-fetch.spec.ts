@@ -48,6 +48,7 @@ import {
   INTERNAL_ERROR,
   listenHostileH2,
   NO_ERROR,
+  REFUSED_STREAM,
   responseHeaders,
   STATUS_200,
 } from '../support/h2-wire';
@@ -1496,6 +1497,24 @@ describe('outbound fetch (SSRF guard)', () => {
       await expect.poll(() => shop.openSessions).toBe(0);
     });
 
+    it('refuses a refused stream at once, and closes the connection then, not at the timeout', async () => {
+      const shop = await serveHostile(({ streamId, send }) => {
+        const reason = Buffer.alloc(4);
+        reason.writeUInt32BE(REFUSED_STREAM);
+        send(frame(FRAME.RST_STREAM, 0, streamId, reason));
+      });
+      const { fetcher } = fetcherFor(5_000);
+
+      const started = Date.now();
+      await expectRefused(
+        fetcher.fetch(`https://shop.test:${shop.port}/`, { accept: ['html'] }),
+        'network',
+      );
+      expect(Date.now() - started).toBeLessThan(1_000);
+      // The session is the client's to destroy: the server keeps its end.
+      await expect.poll(() => shop.open, { timeout: 1_000 }).toBe(0);
+    });
+
     // A header list past 16 KB or 100 pairs is reset by Node (ENHANCE_YOUR_CALM),
     // and nghttp2 caps the CONTINUATION frames of one block (CVE-2024-27983).
     it.each([
@@ -1575,6 +1594,12 @@ describe('outbound fetch (SSRF guard)', () => {
       ],
       ['a GOAWAY, then the close', 'goaway', {}, 'H2_BODY_CUT_SHORT'],
       ['the connection closing', 'close', {}, 'H2_BODY_CUT_SHORT'],
+      [
+        'the connection closing short of its content-length',
+        'close',
+        { 'content-length': '1024' },
+        'H2_LENGTH_MISMATCH',
+      ],
     ] as const)(
       'refuses a body cut by %s, never a short page',
       async (_label, cut, headers, code) => {
@@ -1617,6 +1642,58 @@ describe('outbound fetch (SSRF guard)', () => {
             ),
           ),
         ]);
+      },
+    );
+
+    // END_STREAM, then the server hangs up in the same write: whole, by its
+    // length or by the stream's clean close (wholeBody). Within the 64 KB
+    // window the reader's buffers hold the body, so this cannot set the
+    // reader far behind the session's death; docs/decisions.md 2026-11-13.
+    it.each([
+      ['a GOAWAY and the close', 'goaway', false],
+      ['a GOAWAY and the close, with its content-length', 'goaway', true],
+      ['the close', 'close', false],
+      ['the close, with its content-length', 'close', true],
+    ] as const)(
+      'accepts a whole h2 body followed at once by %s',
+      async (_label, hangUp, withLength) => {
+        // Past one 16 KB frame, inside the window the server does not track.
+        const page = Buffer.from(
+          `<title>Tee</title>${'<p>cotton</p>'.repeat(4_000)}`,
+        );
+        const shop = await serveHostile(({ streamId, send, socket }) => {
+          const frames = [
+            responseHeaders(streamId, {
+              'content-type': 'text/html',
+              ...(withLength && { 'content-length': String(page.length) }),
+            }),
+          ];
+          for (let at = 0; at < page.length; at += 16_000) {
+            const last = at + 16_000 >= page.length;
+            frames.push(
+              frame(
+                FRAME.DATA,
+                last ? END_STREAM : 0,
+                streamId,
+                page.subarray(at, at + 16_000),
+              ),
+            );
+          }
+          if (hangUp === 'goaway') {
+            const goaway = Buffer.alloc(8);
+            goaway.writeUInt32BE(streamId);
+            frames.push(frame(FRAME.GOAWAY, 0, 0, goaway));
+          }
+          send(...frames);
+          socket.end();
+        });
+        const { fetcher } = fetcherFor(5_000);
+
+        const fetched = await fetcher.fetch(`https://shop.test:${shop.port}/`, {
+          accept: ['html'],
+        });
+        expect(fetched.body.equals(page)).toBe(true);
+        expect(fetched.truncated).toBe(false);
       },
     );
 
