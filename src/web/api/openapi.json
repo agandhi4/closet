@@ -2201,12 +2201,12 @@
         ],
         "responses": {
           "200": {
-            "description": "The new garment: `Location` is its URL",
+            "description": "An earlier create with this clientId: its garment, `Location` its URL; nothing was created",
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "GarmentRef",
-                  "description": "The new garment: `Location` is its URL",
+                  "title": "GarmentRetried",
+                  "description": "An earlier create with this clientId: its garment, `Location` its URL; nothing was created",
                   "type": "object",
                   "required": [
                     "id"

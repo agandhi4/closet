@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garment, optionGroup } from '../../src/db/schema';
@@ -379,6 +380,29 @@ describe('Bought it', () => {
       'not_found',
     );
     expect(await t.db.$count(garment)).toBe(before);
+  });
+
+  it('answers a retry of a create that settled a need with the first row, settling nothing again', async () => {
+    const groupId = await need('A bag');
+    await pick('Tote bag', groupId);
+    const body = {
+      category: 'bags',
+      name: 'Canvas bag',
+      boughtForNeedId: groupId,
+      clientId: randomUUID(),
+    };
+    const first = await api('POST', '/garments', body);
+    expect(first.statusCode, first.body).toBe(201);
+    const { id } = first.json<{ id: number }>();
+    const before = await t.db.$count(garment);
+    const retry = await api('POST', '/garments', body);
+    expect(retry.statusCode, retry.body).toBe(200);
+    expect(retry.json()).toEqual({ id });
+    expect(await t.db.$count(garment)).toBe(before);
+    expect(await groupRow(groupId)).toMatchObject({
+      status: 'resolved',
+      resolvedGarmentId: id,
+    });
   });
 
   it("refuses a MANAGE share settling the owner's need, storing nothing", async () => {

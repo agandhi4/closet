@@ -801,3 +801,9 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 **Why:** a native client needs insights, the year in review and Profile › Sizes; the pages treat `?unworn=`/`?year=` as navigation state (anything falls back) and the measurements form posts strings in the unit shown, keeping a stored length posted as shown (`readMeasurementsForm`).
 **Decision:** `GET /insights?unwornDays=` and `GET /insights/recap?year=` (`readInsights`; `readRecap`, now the page's too), owner-only like the pages, so no `ownerId`; an unknown window, or a year after this one, is a 400. `GET /sizes`, `PUT /sizes/measurements` (every length in cm, replaced whole, rounded to the column's two decimals), `PUT /sizes/unit`, `GET /sizes/brands[?brand=]` (the hint), `POST`/`PUT`/`DELETE /sizes/brands[/{id}]` (`readBrandSizeForm`; a brand noted already is a 400 under `body/brand`, as the form). The recap's "Save image" is drawn on the device: web-only, in the plan's list.
 **Consequence:** every twin costs its page's statements but `PUT /sizes/measurements`, one fewer (no stored lengths to keep). Measurements never reach a share on any surface. #195 has no pending line left.
+
+## 2026-11-13 — No 409 for an API garment clientId on "different content" (#563)
+
+**Why:** a garment has no natural key, so a repeated `clientId` is always a retry of its create, and a retry after the client's own edit legitimately differs.
+**Decision:** `POST /garments` answers the first row, 200, for any repeat of the id (a deleted one's is 410); content is never compared. A need the create settled is resolved only after the insert proves it new (`createGarmentOnce`), so its retry is not refused with the need's 404.
+**Consequence:** the id alone identifies the create; a client reusing one for another garment gets the first garment back.

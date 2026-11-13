@@ -114,12 +114,19 @@ export function createGarment(
 /**
  * createGarment for a create that carries the client's own id (the API's,
  * #563): a retry finds the owner's row of that id and answers it
- * (`created: false`, nothing else written, `withGarment` not run again).
- * A client id whose garment was deleted since (its tombstone, the sync
- * triggers' CL410, or the row gone between the insert and the lookup) is a
- * 410: never created again. The id is not compared with the row's content:
- * a retry may follow the client's own later edits, and the id names the
- * create.
+ * (`created: false`, nothing else written). A client id whose garment was
+ * deleted since (its tombstone, the sync triggers' CL410, or the row gone
+ * between the insert and the lookup) is a 410: never created again. The id
+ * is not compared with the row's content: a retry may follow the client's
+ * own later edits, and the id names the create.
+ *
+ * `settle` resolves what rides with a new garment (a Muse need it was
+ * bought for, postedDestination), and runs only after the insert has
+ * proved the create new, in the insert's transaction holding the owner
+ * lock: a retry of a create that settled its need answers the first row
+ * instead of the need's refusal, and no concurrent first create can settle
+ * the need between the check and the write. Its refusal rolls the garment
+ * back.
  */
 export async function createGarmentOnce(
   { db }: WardrobeDeps,
@@ -127,17 +134,18 @@ export async function createGarmentOnce(
   fields: GarmentFields,
   status: EntryStatus,
   clientId: string,
-  withGarment?: WithGarment,
+  settle?: () => Promise<WithGarment | undefined>,
 ): Promise<{ id: number; created: boolean }> {
   try {
     const write = async (tx: Queryable) => {
       const id = await insertGarmentOnce(tx, ownerId, fields, status, clientId);
       if (id === null) return null;
+      const withGarment = await settle?.();
       await withGarment?.(tx, id);
       return id;
     };
     // A transaction only when rows ride with the insert, as createGarment.
-    const id = withGarment ? await db.transaction(write) : await write(db);
+    const id = settle ? await db.transaction(write) : await write(db);
     if (id !== null) return { id, created: true };
     const first = await garmentIdByClientId(db, ownerId, clientId);
     if (first !== null) return { id: first, created: false };

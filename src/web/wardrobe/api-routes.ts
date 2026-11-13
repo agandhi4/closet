@@ -88,6 +88,7 @@ import {
   GarmentPhotoSaved,
   GarmentQuantity,
   GarmentRef,
+  GarmentRetried,
   GarmentsUpdated,
   GarmentStatusAnswer,
   GarmentTagged,
@@ -279,7 +280,7 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
           "To your wardrobe or one shared with you to MANAGE (VIEW is a 403). Saved by the garment form's rules: a blank category or a bad date is a 400 naming the field. The photo is its own upload. With a `clientId`, a retry answers the first garment of that id (200, its `Location`) and creates nothing; the id of a garment deleted since is a 410 `gone`.",
         querystring: GarmentQuery,
         body: NewGarment,
-        response: apiResponses({ 200: GarmentRef, 201: GarmentRef }),
+        response: apiResponses({ 200: GarmentRetried, 201: GarmentRef }),
       },
     },
     async (request, reply) => {
@@ -305,30 +306,37 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       if (!form.ok) throw refusedGarmentBody(form.errors);
       // "Bought a different one": the page's own check of the need before
       // anything is stored, and its settling in the garment's transaction.
-      const { withGarment } = await postedDestination(
-        db,
-        { to: destination, forNeed: boughtForNeedId },
-        access,
-      );
-      const { id, created } = clientId
-        ? await createGarmentOnce(
-            deps,
-            access.ownerId,
-            form.fields,
-            destination,
-            clientId,
-            withGarment,
-          )
-        : {
-            id: await createGarment(
-              deps,
-              access.ownerId,
-              form.fields,
-              destination,
-              withGarment,
-            ),
-            created: true,
-          };
+      // A create with a clientId checks inside createGarmentOnce, after
+      // the insert proves it is not a retry of one that settled the need.
+      const posted = () =>
+        postedDestination(
+          db,
+          { to: destination, forNeed: boughtForNeedId },
+          access,
+        );
+      const settle = boughtForNeedId
+        ? async () => (await posted()).withGarment
+        : undefined;
+      let created = true;
+      let id: number;
+      if (clientId) {
+        ({ id, created } = await createGarmentOnce(
+          deps,
+          access.ownerId,
+          form.fields,
+          destination,
+          clientId,
+          settle,
+        ));
+      } else {
+        id = await createGarment(
+          deps,
+          access.ownerId,
+          form.fields,
+          destination,
+          (await posted()).withGarment,
+        );
+      }
       logger.info(
         `Garment ${id} ${created ? `created (${destination})` : 'already created, retry answered'} by user ${actorOf(request).userId} in wardrobe ${access.ownerId} (API)${
           boughtForNeedId && created
