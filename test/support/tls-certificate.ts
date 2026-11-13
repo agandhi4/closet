@@ -1,10 +1,10 @@
 import { generateKeyPairSync, randomBytes, sign } from 'node:crypto';
 
 /**
- * A throwaway self-signed certificate (ECDSA P-256, one hour back to one
- * day ahead) for the fake sites' TLS servers, built in-process so no key is
- * committed and no spec shells out to an `openssl` whose flags differ by
- * platform. The fetcher trusts one only through its specs-only `tls.ca`
+ * A throwaway self-signed certificate (ECDSA P-256, valid from 2000 with no
+ * expiry: VALIDITY) for the fake sites' TLS servers, built in-process so no
+ * key is committed and no spec shells out to an `openssl` whose flags differ
+ * by platform. The fetcher trusts one only through its specs-only `tls.ca`
  * option (outbound-fetch.ts): a self-signed certificate in `ca` is its own
  * trust anchor, and one left out of it is untrusted, as on the internet.
  */
@@ -24,13 +24,12 @@ export function selfSignedCertificate(
     publicKeyEncoding: { type: 'spki', format: 'der' },
   });
   const name = sequence(set(sequence(oid('2.5.4.3'), utf8(names[0]))));
-  const now = Date.now();
   const tbs = sequence(
     tlv(0xa0, integer(Buffer.from([2]))), // v3
     integer(serialNumber()),
     sequence(oid(ECDSA_WITH_SHA256)),
     name, // issuer: self-signed
-    sequence(utcTime(now - HOUR_MS), utcTime(now + DAY_MS)),
+    VALIDITY,
     name, // subject
     publicKey,
     tlv(
@@ -61,8 +60,6 @@ export function selfSignedCertificate(
 }
 
 const ECDSA_WITH_SHA256 = '1.2.840.10045.4.3.2';
-const HOUR_MS = 60 * 60 * 1000;
-const DAY_MS = 24 * HOUR_MS;
 
 function tlv(tag: number, ...contents: Buffer[]): Buffer {
   const body = Buffer.concat(contents);
@@ -81,6 +78,18 @@ function length(n: number): Buffer {
 const sequence = (...items: Buffer[]) => tlv(0x30, ...items);
 const set = (...items: Buffer[]) => tlv(0x31, ...items);
 const utf8 = (text: string) => tlv(0x0c, Buffer.from(text, 'utf8'));
+
+/**
+ * Fixed, never read from `Date`: OpenSSL checks the window against the real
+ * clock while the gate's clock-shift jobs move the JS one a year ahead (test/AGENTS.md),
+ * so a window dated from `Date.now()` was "not yet valid" there. notBefore
+ * 2000-01-01 as UTCTime; notAfter RFC 5280's "no well-defined expiration"
+ * (4.1.2.5), 9999-12-31 23:59:59 as GeneralizedTime.
+ */
+const VALIDITY = sequence(
+  tlv(0x17, Buffer.from('000101000000Z', 'ascii')),
+  tlv(0x18, Buffer.from('99991231235959Z', 'ascii')),
+);
 
 /** A non-negative INTEGER: a leading 0 when the high bit is set. */
 function integer(value: Buffer): Buffer {
@@ -105,22 +114,6 @@ function oid(dotted: string): Buffer {
     bytes.push(...base128);
   }
   return tlv(0x06, Buffer.from(bytes));
-}
-
-/** UTCTime, YYMMDDHHMMSSZ: valid through 2049, which a day-long cert is. */
-function utcTime(epochMs: number): Buffer {
-  const at = new Date(epochMs);
-  const text = [
-    at.getUTCFullYear() % 100,
-    at.getUTCMonth() + 1,
-    at.getUTCDate(),
-    at.getUTCHours(),
-    at.getUTCMinutes(),
-    at.getUTCSeconds(),
-  ]
-    .map((part) => String(part).padStart(2, '0'))
-    .join('');
-  return tlv(0x17, Buffer.from(`${text}Z`, 'ascii'));
 }
 
 function pem(der: Buffer): string {
