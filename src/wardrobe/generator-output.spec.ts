@@ -252,67 +252,130 @@ describe('the generator, pinned (#168)', () => {
   });
 });
 
+describe('the layer, drawn like the other roles (#646)', () => {
+  // About 9 to 13 °C through the day: a tee alone is too cold, and each of
+  // these five layers fits over every top. The one unworn since winter is
+  // the most rested, which once put it on every card.
+  const SPRING = weatherNeeds(day(10, false), 'all-day', 0)!;
+  let id = 0;
+  const garment = (
+    role: GarmentRole,
+    warmth: (typeof WARMTHS)[number],
+    idleDays = 2,
+  ): IdeaGarment => ({
+    id: (id += 1),
+    role,
+    category: builtInCategoriesOf(role)[0],
+    type: null,
+    colors: ['grey'],
+    pattern: 'solid',
+    formality: 2,
+    weather: { role, warmth, waterResistant: false },
+    idleDays,
+  });
+  const pool = [
+    garment('layer', 2, 90),
+    garment('layer', 3, 20),
+    garment('layer', 3, 30),
+    garment('layer', 4, 12),
+    garment('layer', 4, 40),
+    ...[2, 2, 2, 2, 2, 3].map((warmth) => garment('top', warmth)),
+    ...[3, 3, 3].map((warmth) => garment('bottom', warmth)),
+    ...[2, 2].map((warmth) => garment('footwear', warmth)),
+  ];
+  // A dozen gallery openings, each its first page.
+  const pages = Array.from({ length: 12 }, (_, seed) =>
+    generateIdeas({
+      pool,
+      needs: SPRING,
+      formality: OCCASION_HINTS['all-day'].formality,
+      seed,
+      offset: 0,
+      limit: 6,
+    }).ideas.map((idea) => {
+      expect(idea.score).toBe(0);
+      return idea.garments.find((g) => g.role === 'layer')!.id;
+    }),
+  );
+
+  it('puts no layer on more than half of the ideas', () => {
+    const layers = pages.flat();
+    expect(layers).toHaveLength(72);
+    for (const layer of new Set(layers)) {
+      const share = layers.filter((l) => l === layer).length;
+      expect(share, `layer ${layer}`).toBeLessThanOrEqual(layers.length / 2);
+    }
+  });
+
+  it('puts more than one layer on every page', () => {
+    for (const page of pages) {
+      expect(new Set(page).size, page.join(',')).toBeGreaterThan(1);
+    }
+  });
+});
+
 // First recorded before #168 changed when it stops drawing; re-pinned at
-// GENERATOR_VERSION 2 for #645's limb and layer rules.
+// GENERATOR_VERSION 2 for #645's limb and layer rules, and at 3 for #646's
+// layer drawn by rotation.
 const PINNED = {
   fills: [
-    '161+183+215 0 - 161+183+215',
-    '145+191+211 0 - 145+191+211',
-    '124+215 0 - 124+215',
-    '126+217 0 - 126',
-    '137+192+215 0 - 137+192+215',
-    '124+211 0 - 124+211',
+    '133+186+211 0 - 133+186+211',
+    '126+211 0 - 126+211',
+    '133+191+211 0 - 133+191+211',
+    '178+189+215 0 - 178+189+215',
+    '133+189+214 0 - 133+189+214',
+    '140+196+215 0 - 140+196+215',
     'more true',
   ],
   coldFirst: [
-    '102+178+183+207 1 too-dressy 178+183+207+102',
-    '102+143+181+207 1 too-dressy 143+181+207+102',
-    '102+134+183+207 1 too-dressy 134+183+207+102',
-    '102+161+189+207 1 too-dressy 161+189+207+102',
-    '102+144+186+207 1 too-dressy 144+186+207+102',
-    '102+133+186+207 1 too-dressy 133+186+207+102',
+    '102+169+183+207 1 too-dressy 169+183+207+102',
+    '102+176+189+207 1 too-dressy 189+207+102',
+    '102+144+181+207 1 too-dressy 144+181+207+102',
+    '119+133+186+207 1 too-dressy 133+186+207+119',
+    '102+166+186+207 1 too-dressy 166+186+207+102',
+    '102+166+192+207 1 too-dressy 166+192+207+102',
     'more true',
   ],
   coldThird: [
-    '102+173+192+207 1 too-dressy 173+192+207+102',
-    '102+133+189+207 1 too-dressy 133+189+207+102',
-    '102+149+202+207 1 too-dressy 149+202+207+102',
-    '102+161+183+207 1 too-dressy 161+183+207+102',
-    '102+140+202+207 1 too-dressy 140+202+207+102',
+    '102+144+189+207 1 too-dressy 144+189+207+102',
     '102+133+183+207 1 too-dressy 133+183+207+102',
+    '102+169+189+207 1 too-dressy 169+189+207+102',
+    '107+161+183+207 1 too-dressy 161+183+207',
+    '103+173+192+207 1 too-dressy 173+192+207+103',
+    '155+192+207 1 too-dressy 155+192+207',
     'more true',
   ],
   nearMisses: [
-    '154+181+211 1 too-casual 154+181+211',
-    '119+144+186+211 1 legs-too-warm 144+186+211+119',
-    '173+194+215 1 too-casual 173+194+215',
-    '119+137+202+214 1 too-casual 137+202+214+119',
-    '143+204+215 1 too-casual 143+204+215',
-    '161+189+214 1 too-casual 161+189+214',
+    '148+199+217 1 too-casual 199',
+    '166+199+211 1 too-casual 166+199+211',
+    '166+192+211 1 too-casual 166+192+211',
+    '154+189+215 1 too-casual 154+189+215',
+    '178+204+214 1 too-casual 178+204+214',
+    '173+199+211 1 too-casual 173+199+211',
     'more true',
   ],
   locked: [
-    '102+131+202+207 1 too-dressy 131+202+207+102',
-    '102+131+192+207 1 too-dressy 131+192+207+102',
-    '102+131+183+207 1 too-dressy 131+183+207+102',
     '102+131+186+207 1 too-dressy 131+186+207+102',
-    '102+131+189+207 1 too-dressy 131+189+207+102',
-    '102+131+189+214 2 needs-water-resistance 131+189+214+102',
+    '119+131+202+207 1 too-dressy 131+202+207+119',
+    '119+131+189+207 1 too-dressy 131+189+207+119',
+    '103+131+192+207 1 too-dressy 131+192+207+103',
+    '119+131+183+207 1 too-dressy 131+183+207+119',
+    '102+131+194+207 2 legs-too-cold/too-dressy 131+194+207+102',
     'more true',
   ],
   small: [
     '115+105+108+112 1 too-cold 105+108+112+115',
     '115+105+110+112 1 too-cold 105+110+112+115',
-    '103+110+113 2 needs-water-resistance 103+110+113',
-    '103+108+113 2 needs-water-resistance 103+108+113',
-    '117+107+108+112 2 needs-water-resistance 107+108+112+117',
-    '103+108+112 2 needs-water-resistance 103+108+112',
-    '103+110+112 2 needs-water-resistance 103+110+112',
     '117+107+110+112 2 needs-water-resistance 107+110+112+117',
-    '107+110+113 4 too-cold/needs-water-resistance 107+110+113',
+    '103+108+113 2 needs-water-resistance 103+108+113',
+    '103+108+112 2 needs-water-resistance 103+108+112',
+    '103+110+113 2 needs-water-resistance 103+110+113',
+    '103+110+112 2 needs-water-resistance 103+110+112',
+    '117+107+108+112 2 needs-water-resistance 107+108+112+117',
     '107+108+113 4 too-cold/needs-water-resistance 107+108+113',
+    '107+110+113 4 too-cold/needs-water-resistance 107+110+113',
     'more false',
   ],
-  goesWith: '7482a9daaa25253f',
-  sweep: '2eb50c8bed686d37',
+  goesWith: 'e987ba2187d97b3b',
+  sweep: '10878400dcf2cb5f',
 };
