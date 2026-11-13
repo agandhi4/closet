@@ -1,3 +1,8 @@
+# devkit, materialized from .devkit-rev by .devkit-bootstrap.sh (never tracked), and the
+# bootstrap's lock and swap temporaries a killed run leaves beside it
+/devkit/
+/devkit.*
+
 # compiled output
 /dist
 /node_modules

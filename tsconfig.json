@@ -28,6 +28,6 @@
   // The service worker runs in a worker scope, not Node: it is checked by
   // views/assets/tsconfig.json (npm run typecheck runs both).
   // .claude/worktrees holds whole checkouts made by agent tooling.
-  // devkit/ is vendored tooling; its templates target other module settings.
+  // devkit/ is materialized tooling (.devkit-rev); its templates target other module settings.
   "exclude": ["node_modules", "dist", "views/assets", ".claude", "devkit"]
 }

@@ -7,7 +7,7 @@
 # a file in its directory is read (#104), so the root's "### Area index" section is how an agent
 # planning work finds an area's doc. Every area doc must be named there in backticks, and every
 # `<path>/AGENTS.md` (or CLAUDE.md) the root names anywhere must exist: a stale pointer misleads
-# wherever it is (#119). devkit/ is vendored and has its own doc, so it is not an area.
+# wherever it is (#119). devkit/ is pinned tooling (untracked, so never in $agents_files), not an area.
 
 closet_area_index() {
   awk '

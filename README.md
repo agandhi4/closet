@@ -246,9 +246,11 @@ make review PR=<n>            # one local review round (when Codex is out of bud
 make merge PR=<n>             # squash-merge once the review rounds allow it
 ```
 
-The git hooks are devkit's templates in `.githooks/`: `make install` once per
-checkout or worktree sets `core.hooksPath`, and `make hooks-check` reports a
-repoint. Their steps are `scripts/ci/hooks.conf` (ci-quick plus ci-unit, split
+devkit is not in the tree: `.devkit-rev` pins its commit and `.devkit-bootstrap.sh`
+materializes it into the gitignored `devkit/` before every `make` target and hook
+(`make devkit-sync` bumps the pin). The git hooks are devkit's templates in
+`.githooks/`: `make install` once per checkout or worktree materializes `devkit/`,
+sets `core.hooksPath`, and `make hooks-check` reports a repoint. Their steps are `scripts/ci/hooks.conf` (ci-quick plus ci-unit, split
 between pre-commit and pre-push); neither needs Postgres or a browser.
 
 ### Locked out
