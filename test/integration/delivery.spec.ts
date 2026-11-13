@@ -4,6 +4,7 @@ import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ASSET_VERSION_HEADER } from '../../src/asset-cache';
 import { PUBLIC_DIR } from '../../src/static-assets';
+import { REPLAY_TIMEOUT_MS } from '../../src/offline-writes';
 import { createGarment, jpegPhoto, uploadPhoto } from './garments';
 import { HEALTH_LIMIT } from '../../src/web/security/rate-limit';
 import {
@@ -306,6 +307,8 @@ describe('delivery (PWA_ENABLED=true)', () => {
       expect(JSON.parse(unescapeHtml(content))).toEqual({
         disableInheritance: true,
         historyCacheSize: 3,
+        // The outbox's replay timeout bounds every htmx request (#642).
+        timeout: REPLAY_TIMEOUT_MS,
       });
       expect(html).not.toContain('viewport-fit');
       // Without this, disableInheritance switches hx-boost off for every link

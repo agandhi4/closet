@@ -4,8 +4,8 @@ import { ClockIcon } from './parts';
 
 /**
  * Connectivity banner, the outbox's status and notice, and the toast host,
- * owned by public/js/connectivity.js, public/js/outbox.js, public/js/pwa.js
- * and public/js/freshness.js. Lives inside <body>, so every hx-boost swap
+ * owned by public/js/connectivity.js, public/js/outbox.js, public/js/pwa.js,
+ * public/js/freshness.js and public/js/request-failures.js. Lives inside <body>, so every hx-boost swap
  * replaces it with this empty copy; the scripts re-apply their state on
  * htmx:afterSettle. The strings travel as data attributes so the scripts
  * stay free of i18n.
@@ -29,6 +29,11 @@ export function AppStatus({ ctx }: { ctx: ViewContext }) {
       data-text-updated-ago={t('UPDATED_AGO', { ago: '{ago}' })}
       data-text-newer-page={t('NEWER_PAGE_AVAILABLE')}
       data-text-refresh={t('REFRESH')}
+      // request-failures.js: an htmx request with no answer, or one that
+      // is not this app's (a proxy's 502); the server's own carry theirs.
+      data-text-request-timed-out={t('REQUEST_TIMED_OUT')}
+      data-text-request-failed={t('REQUEST_FAILED')}
+      data-text-request-id={t('REQUEST_ID')}
       data-account={ctx.user && String(ctx.user.id)}
       data-time-zone={signedIn ? ctx.timeZone : undefined}
       {...(signedIn ? outboxText() : {})}

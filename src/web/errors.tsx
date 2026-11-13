@@ -1,11 +1,10 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { STATUS_CODES } from 'node:http';
 import { isLockTimeout } from '../db/errors';
+import { FRAGMENT_VARY, isFragmentRequest } from '../htmx/fragment-request';
 import { OWNER_LOCK_TIMEOUT_MS } from '../db/owner-lock';
 import { t } from './i18n';
-import { AppBar } from './layout/app-bar';
-import { Dock } from './layout/dock';
-import { Layout } from './layout/layout';
+import { ErrorPage } from './error-page';
 import { loggableUrl } from './loggable-url';
 import {
   type ErrorCode,
@@ -16,8 +15,9 @@ import {
 import type { Logger } from '../logger';
 import type { ErrorTracker } from '../metrics/error-tracker';
 import { renderPage } from './render';
+import { safeReturnTo } from './security/return-to';
+import { scrubSecrets } from '../secret-text';
 import { surfaceOf } from './surface';
-import type { ViewContext } from './view-context';
 
 const CODE_OF_STATUS: Readonly<Record<number, ErrorCode>> = {
   400: 'validation',
@@ -100,8 +100,6 @@ export class OwnerLockTimeout extends HttpError {
     this.name = 'OwnerLockTimeout';
   }
 }
-
-const INTERNAL_ERROR = 'Internal server error';
 
 /**
  * Every JSON error answer's body: the status, the message people may read,
@@ -235,7 +233,7 @@ export function describeError(error: unknown): ErrorAnswer {
   }
   return {
     status: 500,
-    message: INTERNAL_ERROR,
+    message: t('refusal.INTERNAL'),
     code: 'internal',
     unexpected: true,
   };
@@ -284,10 +282,69 @@ export function sendProblem(
 }
 
 /**
- * The app's error handler (set at the root by createApp(), so every route
- * and the not-found handler share it): on the API surface a problem body
- * (src/web/problem.ts), elsewhere the error page, in the layout, with the
- * status of the failure. The login redirect and 401 never reach it,
+ * The htmx event a fragment request's failure raises on the element that
+ * asked (HX-Trigger), which public/js/request-failures.js toasts. That
+ * plain script spells the name itself, so the two change together.
+ */
+export const REQUEST_FAILED_EVENT = 'closet:request-failed';
+
+/** The event's detail: what the toast says, and the id a report quotes. */
+export interface RequestFailure {
+  message: string;
+  requestId: string;
+}
+
+/**
+ * The `HX-Trigger` header naming a failure. Escaped to ASCII: a header
+ * value is Latin-1 on the wire and Node throws on anything past it (a
+ * curly quote in a message would fail inside the error handler), while
+ * htmx's JSON.parse reads the `\uXXXX` escapes back.
+ */
+export function failureTrigger(failure: RequestFailure): string {
+  return JSON.stringify({ [REQUEST_FAILED_EVENT]: failure }).replace(
+    /[\u007f-￿]/g,
+    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  );
+}
+
+/**
+ * What a toast says of a failure: our message (an HttpError's, the 500's
+ * fixed one), never the error's own text. A schema validation's message is
+ * ajv's ("body/condition must be equal to one of the allowed values"),
+ * kept on the error page beside its path but not a sentence for a toast.
+ */
+function failureMessage(error: unknown, answer: ErrorAnswer): string {
+  return answer.validation && !(error instanceof HttpError)
+    ? t('refusal.request.invalid')
+    : answer.message;
+}
+
+/**
+ * Where "Try again" goes: the request's own URL, only when it is a GET
+ * (a reload repeats it; a failed write is not repeated by following a
+ * link) that carries no secret: not a `secretPath` route, nothing
+ * scrubSecrets would filter from its query. `safeReturnTo` keeps the href a
+ * path of this site whatever the client sent as its target.
+ */
+function retryHref(request: FastifyRequest): string | undefined {
+  if (request.method !== 'GET') return undefined;
+  if (request.routeOptions.config?.secretPath === true) return undefined;
+  if (scrubSecrets(request.url) !== request.url) return undefined;
+  return safeReturnTo(request.url, '') || undefined;
+}
+
+/**
+ * The app's error handler (set at the root by createApp(), so every route,
+ * the not-found handler, the rate limiter's 429 and the owner lock's 503
+ * share it): the one owner of how a failure reaches the person, by the
+ * kind of request (#642). On the API surface a problem body
+ * (src/web/problem.ts). To an htmx fragment request (isFragmentRequest:
+ * not boosted, not a history restore) no body, and the failure as an
+ * `HX-Trigger` event (failureTrigger) that public/js/request-failures.js
+ * toasts: htmx swaps no 4xx or 5xx into a fragment's target, and a page
+ * there would be wrong anyway. Elsewhere (a navigation, a boosted tap,
+ * which that module swaps in whole) the error page, in the layout, with
+ * the status of the failure. The login redirect and 401 never reach it,
  * requireSession answers those itself.
  *
  * Only an unexpected error (the 500) goes to the error tracker (#117).
@@ -300,14 +357,13 @@ export function sendProblem(
  * the warn line and the request metric's 5xx.
  */
 export function createErrorHandler(logger: Logger, errors: ErrorTracker) {
-  return async function handleError(
+  /** The 500 with its stack, to the tracker too; a chosen answer a warn line. */
+  function report(
     error: unknown,
     request: FastifyRequest,
-    reply: FastifyReply,
-  ): Promise<FastifyReply | undefined> {
-    const answer = describeError(error);
-    const { status, message, logDetail, unexpected } = answer;
-    const url = loggableUrl(request);
+    { status, message, logDetail, unexpected }: ErrorAnswer,
+    url: string,
+  ): void {
     if (unexpected) {
       logger.error({ err: error }, `${request.method} ${url} -> ${status}`);
       errors.captureException(error, {
@@ -318,11 +374,22 @@ export function createErrorHandler(logger: Logger, errors: ErrorTracker) {
         },
         userId: request.auth?.user.id ?? request.accessToken?.user.id,
       });
-    } else {
-      logger.warn(
-        `${request.method} ${url} -> ${status}: ${message}${logDetail ? ` (${logDetail})` : ''}`,
-      );
+      return;
     }
+    logger.warn(
+      `${request.method} ${url} -> ${status}: ${message}${logDetail ? ` (${logDetail})` : ''}`,
+    );
+  }
+
+  return async function handleError(
+    error: unknown,
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<FastifyReply | undefined> {
+    const answer = describeError(error);
+    const { status, message } = answer;
+    const url = loggableUrl(request);
+    report(error, request, answer, url);
 
     if (reply.sent) {
       logger.warn(`${url}: response already sent, no error page`);
@@ -332,6 +399,20 @@ export function createErrorHandler(logger: Logger, errors: ErrorTracker) {
     // included (surfaceOf), and never has a page context.
     if (surfaceOf(request) === 'api') {
       return sendProblem(request, reply, answer);
+    }
+    // Decided by the request's htmx headers: a cache keeps the two apart.
+    reply.header('Vary', FRAGMENT_VARY);
+    if (isFragmentRequest(request.headers)) {
+      return reply
+        .status(status)
+        .header(
+          'HX-Trigger',
+          failureTrigger({
+            message: failureMessage(error, answer),
+            requestId: request.id,
+          }),
+        )
+        .send();
     }
     // No page context: a static path (the root hook skips those; their
     // routes, /file/**, /health/* and /manifest.json, answer data), or a
@@ -347,46 +428,10 @@ export function createErrorHandler(logger: Logger, errors: ErrorTracker) {
         status={status}
         message={message}
         path={request.url}
+        retryHref={retryHref(request)}
         requestId={request.id}
       />,
       { status },
     );
   };
-}
-
-function ErrorPage(props: {
-  ctx: ViewContext;
-  status: number;
-  message: string;
-  path: string;
-  /** Shown so a person reporting the error can quote it. */
-  requestId: string;
-}) {
-  return (
-    <Layout ctx={props.ctx}>
-      <AppBar ctx={props.ctx} title={`${t('ERROR')} ${props.status}`} />
-      <main class="p-20 flex flex-col justify-center items-center h-full">
-        <p>{props.message}</p>
-        <p>
-          <small>
-            {t('PATH')}: {props.path}
-          </small>
-        </p>
-        <p>
-          <small>
-            {t('TIME')}: {new Date().toISOString()}
-          </small>
-        </p>
-        <p>
-          <small>
-            {t('REQUEST_ID')}: {props.requestId}
-          </small>
-        </p>
-        <a href="/" class="btn">
-          {t('RETURN_TO_HOME')}
-        </a>
-      </main>
-      <Dock ctx={props.ctx} />
-    </Layout>
-  );
 }

@@ -28,8 +28,8 @@ export interface LinkPageModel {
 /**
  * GET /wardrobe/new/from-link (and where the manifest's share target sends
  * a link), and the same page again with the message when the link was
- * refused. A native post (PostForm): a refusal answers 4xx or 5xx, which
- * htmx would not swap, and success is the whole garment form page. On the
+ * refused. A native post (PostForm): a refusal answers 4xx or 5xx with
+ * this page again, and success is the whole garment form page. On the
  * person's own closet (a share lands there) the same field can instead be
  * saved as a look (#22d, "Save as inspiration": POST /inspiration/link,
  * the Inspiration tab's paste); never on a wishlist's or a shared

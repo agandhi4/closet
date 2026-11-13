@@ -214,6 +214,11 @@ document.addEventListener('htmx:sendError', () => {
 document.addEventListener('htmx:responseError', () => {
   if (!isPageLeaving()) probe('htmx:responseError');
 });
+// No answer within htmx's timeout (HTMX_CONFIG): a dead link looks like this
+// too. request-failures.js toasts it; the probe says whether we are offline.
+document.addEventListener('htmx:timeout', () => {
+  if (!isPageLeaving()) probe('htmx:timeout');
+});
 // hx-boost replaces the whole body, banner included.
 document.addEventListener('htmx:afterSettle', () => {
   render();

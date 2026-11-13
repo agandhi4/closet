@@ -218,7 +218,7 @@ export async function stagePhotoUploads(
   const { logger } = deps;
   const { stored, refused } = await storeEachPhoto(deps, parts, userId);
   const picked = stored.length + refused.length;
-  if (picked === 0) throw new HttpError(400, 'No file uploaded');
+  if (picked === 0) throw new HttpError(400, t('refusal.request.noFile'));
   if (picked === 1) {
     if (refused[0]) throw refused[0].error;
     const fileName = stored[0];
@@ -490,7 +490,7 @@ export async function replacePhoto(
   parts: AsyncIterable<MultipartFile>,
 ): Promise<SwappedCutout> {
   const photo = await deps.photos.storeUploadParts(parts, ownerId);
-  if (!photo) throw new HttpError(400, 'No file uploaded');
+  if (!photo) throw new HttpError(400, t('refusal.request.noFile'));
   // The `request` event: every new photo is queued for its cutout.
   return swapPhoto(deps, id, ownerId, photo, 'pending');
 }
@@ -545,7 +545,7 @@ export async function rotateGarmentPhoto(
     deps.logger.info(
       `Garment ${id} rotate refused: photo ${source.fileName} changed while it was turned`,
     );
-    return new HttpError(409, 'The photo changed meanwhile; try again');
+    return new HttpError(409, t('refusal.garment.photoChanged'));
   };
   const keepMask = source.cutoutStatus === 'edited';
   const { row, cutoutKept } = await deps.photos

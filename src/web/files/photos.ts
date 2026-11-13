@@ -15,6 +15,7 @@ import {
 import type { CutoutEvent, CutoutStatus, Transition } from '../../cutout/state';
 import type { Db } from '../../db/client';
 import { HttpError } from '../errors';
+import { t } from '../i18n';
 import { NotServed } from '../refusals';
 import { errorFields, type Logger } from '../../logger';
 import { PROJECT_ROOT } from '../../project-root';
@@ -225,7 +226,7 @@ export class Photos {
     upload: MultipartFile | undefined,
     userId: number,
   ): Promise<NewPhotoRow> {
-    if (!upload) throw new HttpError(400, 'No file uploaded');
+    if (!upload) throw new HttpError(400, t('refusal.request.noFile'));
     return this.storeImage(
       {
         stream: upload.file,
