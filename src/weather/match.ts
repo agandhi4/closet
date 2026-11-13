@@ -24,7 +24,7 @@ import { type DayForecast, RAIN_CHANCE } from './forecast';
  *    (src/weather/temperature.ts), is what to dress for.
  * 3. That sets a target warmth: for the torso, the warmths of the top (or
  *    one-piece) and the layer combined (1 a tank ... 9 a sweater under a
- *    parka); for legs and feet, one garment's warmth (1-5).
+ *    parka); for legs and feet, one garment's warmth (1-4).
  * 4. A large swing across the window (its coolest and warmest hours
  *    LAYER_STEPS or more torso steps apart, about 8 °C) asks for a layer that
  *    comes off: the outfit with it is judged by the coolest hours, without it
@@ -54,12 +54,25 @@ export function torsoTarget(feelsLike: number): number {
 }
 
 /**
- * Legs and feet (one garment, 1-5): shorts and sandals (1) from about
- * 26 °C, chinos and sneakers (2) around 19 °C, jeans (3) around 12 °C,
- * heavy denim and boots (4) around 5 °C, the warmest (5) below freezing.
+ * Below this feels-like (°C, about 14 °F) ordinary trousers and shoes alone
+ * are cold: a cold snap's day (8 of New York's 31 days in January 2025).
+ * Above it they are what people wear all winter (real-days.spec.ts).
+ */
+const COLD_SNAP = -10;
+
+/**
+ * Legs and feet (one garment's warmth, 1-4 asked): shorts and sandals (1)
+ * from about 26 °C, chinos and sneakers (2) around 19 °C, jeans (3) from
+ * about 12 °C through an ordinary winter, heavy denim and boots (4) in a
+ * cold snap.
+ * Never 5, and 4 only in a cold snap: no ordinary trousers reach warmth 4
+ * (only heavy denim does, DENIM_WEIGHTS) and only boots among shoes, so a
+ * 4 asked on an ordinary winter day left one pair of jeans and one pair of
+ * boots fitting every idea, and no office outfit at all (#645).
  */
 export function limbTarget(feelsLike: number): Warmth {
-  return clamp(Math.round((33 - feelsLike) / 7), 1, 5) as Warmth;
+  const max = feelsLike < COLD_SNAP ? 4 : 3;
+  return clamp(Math.round((33 - feelsLike) / 7), 1, max) as Warmth;
 }
 
 export interface WeatherNeeds {
@@ -185,14 +198,30 @@ export interface OutfitFit {
   torso: { withLayer: number; withoutLayer: number };
 }
 
-// How far each part may miss its target before it is a problem. Legs and
-// feet may run warmer than the target (jeans in summer are common, shorts
-// in the cold are not); the torso has a layer to shed, so with one it may
-// start warmer too.
+// How far each part may miss its target before it is a problem. Legs may
+// run two steps warmer than the target (jeans in summer are common, shorts
+// in the cold are not), feet one (sneakers in the heat are, suede boots are
+// not); the torso has a layer to shed, so with one it may start warmer too.
+// A layer may be one step warmer than the coolest hours ask of a layer over
+// a tee, and at most LAYER_SPREAD steps warmer than what is under it.
 const TOLERANCE = {
   torso: { below: 1, above: 1, aboveWithLayer: 2 },
-  limbs: { below: 1, above: 2 },
+  legs: { below: 1, above: 2 },
+  feet: { below: 1, above: 1 },
+  layer: { above: 1 },
 } as const;
+/**
+ * What a tee counts for on the torso scale: the layer the coolest hours ask
+ * for is their torso target less a tee under it (a jacket, 3, at 10 °C; a
+ * parka, 5, from about 4 °C, and within the tolerance from about 8 °C).
+ */
+const TEE_WARMTH = 2;
+/**
+ * The most a layer may outweigh the top under it: a parka over a tee (3)
+ * is a cold morning that warms up, a parka over a linen shirt (4) is two
+ * seasons at once, cold whenever it is open or off.
+ */
+const LAYER_SPREAD = 3;
 const MISSING_PENALTY = 2;
 const TORSO_ROLES: readonly GarmentRole[] = ['top', 'one-piece'];
 const LEG_ROLES: readonly GarmentRole[] = ['bottom', 'one-piece'];
@@ -215,9 +244,12 @@ export function assessOutfit(
       .filter((g) => roles.includes(g.role))
       .reduce((sum, g) => sum + g.warmth, 0);
   const withoutLayer = warmthOf(TORSO_ROLES);
-  const layers = warmthOf(['layer']);
-  const withLayer = withoutLayer + layers;
-  const hasLayer = layers > 0;
+  const layerWarmths = garments
+    .filter((g) => g.role === 'layer')
+    .map((g) => g.warmth);
+  const hasLayer = layerWarmths.length > 0;
+  const withLayer = withoutLayer + layerWarmths.reduce((a, b) => a + b, 0);
+  const warmestLayer = Math.max(0, ...layerWarmths);
 
   const problems: FitProblem[] = [];
   let score = 0;
@@ -238,26 +270,39 @@ export function assessOutfit(
       withLayer - (needs.torso + aboveLimit),
       withoutLayer - (needs.torsoWithoutLayer + TOLERANCE.torso.above),
     );
-    if (cold > 0) miss('too-cold', cold);
-    if (warm > 0) miss('too-warm', warm);
+    // The sum alone reads a parka over a linen shirt (5 + 1) as a jacket
+    // over a sweater (3 + 3): the layer is judged on its own too. Too warm
+    // when the coolest hours ask for less of a layer; too cold when the top
+    // under it is far lighter (open or off, it is summer's).
+    const layerTooWarm =
+      warmestLayer -
+      (torsoTarget(needs.feelsLike.min) - TEE_WARMTH + TOLERANCE.layer.above);
+    const layerOverTop = hasLayer
+      ? warmestLayer - withoutLayer - LAYER_SPREAD
+      : 0;
+    const tooCold = Math.max(cold, 0) + Math.max(layerOverTop, 0);
+    const tooWarm = Math.max(warm, 0) + Math.max(layerTooWarm, 0);
+    if (tooCold > 0) miss('too-cold', tooCold);
+    if (tooWarm > 0) miss('too-warm', tooWarm);
   }
   if (needs.layer && !hasLayer) miss('needs-layer', MISSING_PENALTY);
 
   const limb = (
     roles: readonly GarmentRole[],
+    tolerance: { below: number; above: number },
     cold: FitProblem,
     warm: FitProblem,
   ) => {
     const worn = garments.filter((g) => roles.includes(g.role));
     if (worn.length === 0) return;
     const warmth = Math.max(...worn.map((g) => g.warmth));
-    const below = needs.limbs - TOLERANCE.limbs.below - warmth;
-    const above = warmth - (needs.limbs + TOLERANCE.limbs.above);
+    const below = needs.limbs - tolerance.below - warmth;
+    const above = warmth - (needs.limbs + tolerance.above);
     if (below > 0) miss(cold, below);
     if (above > 0) miss(warm, above);
   };
-  limb(LEG_ROLES, 'legs-too-cold', 'legs-too-warm');
-  limb(['footwear'], 'feet-too-cold', 'feet-too-warm');
+  limb(LEG_ROLES, TOLERANCE.legs, 'legs-too-cold', 'legs-too-warm');
+  limb(['footwear'], TOLERANCE.feet, 'feet-too-cold', 'feet-too-warm');
 
   if (
     needs.rain &&
