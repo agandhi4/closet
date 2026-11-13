@@ -236,6 +236,18 @@
     "REPAIR_DAY_FUTURE": "Log it on the day it was done, not before",
     "REPAIR_DAY_REQUIRED": "Enter the day it was done"
   },
+  "refusal": {
+    "FORBIDDEN": "Forbidden",
+    "notFound": {
+      "brand": "Brand not found",
+      "calendarEntry": "Calendar entry not found",
+      "capsule": "Capsule not found",
+      "garment": "Garment not found",
+      "outfit": "Outfit not found",
+      "trip": "Trip not found",
+      "wardrobe": "Wardrobe not found"
+    }
+  },
   "WARDROBE_SHARING": "Wardrobe Sharing",
   "agentAccess": {
     "TITLE": "Agent Access",

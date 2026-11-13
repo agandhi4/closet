@@ -11,24 +11,60 @@ import { renderPage } from './render';
 import type { ViewContext } from './view-context';
 
 /**
+ * The stable machine word of a refusal, which a JSON client switches on
+ * (docs/plans/2026-11-12-json-api.md section 2): the API's problem body
+ * carries it, a page shows the message instead.
+ */
+export type ErrorCode =
+  | 'validation'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'not_found'
+  | 'conflict'
+  | 'stale'
+  | 'rate_limited'
+  | 'busy'
+  | 'internal';
+
+const CODE_OF_STATUS: Readonly<Record<number, ErrorCode>> = {
+  400: 'validation',
+  401: 'unauthorized',
+  403: 'forbidden',
+  404: 'not_found',
+  409: 'conflict',
+  412: 'stale',
+  429: 'rate_limited',
+  503: 'busy',
+};
+
+/** An unlisted 4xx (413, 415) is a request the client must change: validation. */
+function codeOfStatus(status: number): ErrorCode {
+  return CODE_OF_STATUS[status] ?? (status < 500 ? 'validation' : 'internal');
+}
+
+/**
  * What a plain-Fastify handler throws to answer with an error page:
- * `throw new HttpError(404)`. The message is shown on the page, so it is
+ * `throw new HttpError(409)`. The message is shown on the page, so it is
  * for people (the status text by default), never internals; `logDetail` is
  * what the log line adds (ids, the operation), never shown. Any status,
  * a 5xx included (the owner lock's 503): an HttpError is an answer the code
- * chose, not a crash.
+ * chose, not a crash. `code` defaults from the status. A 404 or 403 is a
+ * refusal, thrown as NotFound or Forbidden (src/web/refusals.ts) by the
+ * domain function that decides it (guards.conf [refusals]).
  */
 export class HttpError extends Error {
   readonly logDetail?: string;
+  readonly code: ErrorCode;
 
   constructor(
     readonly statusCode: number,
     message: string = STATUS_CODES[statusCode] ?? 'Error',
-    options: { logDetail?: string } = {},
+    options: { logDetail?: string; code?: ErrorCode } = {},
   ) {
     super(message);
     this.name = 'HttpError';
     this.logDetail = options.logDetail;
+    this.code = options.code ?? codeOfStatus(statusCode);
   }
 }
 

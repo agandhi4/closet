@@ -98,6 +98,25 @@ export function rememberShareReadAhead(
   sharesReadAhead.set(request, share);
 }
 
+/**
+ * Who a domain function acts for (#188): the user, and on a page the share
+ * its session statement read ahead (#170), so a domain function that takes
+ * an Actor costs the statements the route's own check did. Built once per
+ * call by a surface: `actorOf(request)` here for pages, `actorOf(ctx)`
+ * (src/web/mcp/tool.ts) for MCP. No domain function sees a FastifyRequest.
+ */
+export interface Actor {
+  userId: number;
+  shareReadAhead?: ShareReadAhead;
+}
+
+/** The signed-in request's actor; throws on a public route, as sessionUserId does. */
+export function actorOf(request: FastifyRequest): Actor {
+  const userId = sessionUserId(request);
+  const shareReadAhead = sharesReadAhead.get(request);
+  return shareReadAhead ? { userId, shareReadAhead } : { userId };
+}
+
 /** The requester's share of `ownerId`'s wardrobe: the one read ahead when it is this wardrobe's, else a statement. */
 async function sharePermission(
   db: Db,
