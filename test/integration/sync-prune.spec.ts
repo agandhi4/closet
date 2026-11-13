@@ -159,6 +159,40 @@ describe('the prune', () => {
     expect(await floorOf(a.id)).toBe(revisionA);
   });
 
+  it("prunes several owners in one batch, each floor raised to that owner's own newest pruned revision", async () => {
+    const a = await account('prune-multi-a@example.com');
+    const b = await account('prune-multi-b@example.com');
+    const mine = [await newGarment(a.token), await newGarment(a.token)];
+    const theirs = [await newGarment(b.token), await newGarment(b.token)];
+    // Revisions count per owner: b's run ahead of a's, so one max for the
+    // batch would over-raise a.
+    await newGarment(b.token);
+    await newGarment(b.token);
+    for (const id of theirs) await deleteGarment(b.token, id);
+    for (const id of mine) await deleteGarment(a.token, id);
+    const replayable = await newGarment(
+      b.token,
+      'b4d2e3f5-6071-4829-8b3c-4d5e6f708192',
+    );
+    await deleteGarment(b.token, replayable);
+    await age([...mine, ...theirs, replayable], 91);
+    const [revisionA, revisionB] = [
+      (await tombstonesOf(a.id)).at(-1)!.revision,
+      (await tombstonesOf(b.id)).filter((row) => row.id !== replayable).at(-1)!
+        .revision,
+    ];
+    expect(revisionB).not.toBe(revisionA);
+
+    expect(await prune()).toEqual({ pruned: 4, owners: 2 });
+
+    expect(await tombstonesOf(a.id)).toEqual([]);
+    expect((await tombstonesOf(b.id)).map((row) => row.id)).toEqual([
+      replayable,
+    ]);
+    expect(await floorOf(a.id)).toBe(revisionA);
+    expect(await floorOf(b.id)).toBe(revisionB);
+  });
+
   it('a cursor older than the new floor is a 410; one exactly at it misses no pruned deletion', async () => {
     const a = await account('prune-floor@example.com');
     const kept = await newGarment(a.token);

@@ -45,6 +45,12 @@ type BatchRow = {
  * other way it could deadlock with a writer of several owners), the batch
  * deleted, each owner's floor raised to its newest revision pruned.
  *
+ * OWNER_LOCKED (any owner locked) puts the whole lock CTE ahead of the scan;
+ * the per-owner membership is what refuses a tombstone whose owner is not
+ * locked (an account deleted since the batch was read: its rows cascade, or
+ * are left to the next batch). Such a skip can end the run on a short
+ * batch; what remains is the next night's.
+ *
  * Age is Postgres's `now()`, the clock that stamped `deleted_at`, never the
  * process's (the gate's clock shift moves only JS's Date).
  */
@@ -60,7 +66,9 @@ function pruneBatch(db: Db, batch: number) {
     ${ownersLockSql(db, sql`select owner_id from batch`)},
     pruned as (
       delete from ${syncTombstone}
-      where id in (select id from batch) and ${OWNER_LOCKED}
+      where id in (select id from batch)
+        and ${OWNER_LOCKED}
+        and owner_id in (select id from owner_lock)
       returning owner_id, revision
     ),
     per_owner as (
