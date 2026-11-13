@@ -21,7 +21,7 @@ import {
 import type { Photos, QuarterTurn } from '../files/photos';
 import {
   insertPhotoRow,
-  lockOwnerAndPhotoName,
+  lockOwnersAndPhotoName,
   type NewPhotoRow,
 } from '../files/queries';
 import type { Logger } from '../../logger';
@@ -332,8 +332,11 @@ export async function createGarmentWithPendingPhoto(
   const claimed =
     photo &&
     (await db.transaction(async (tx): Promise<ClaimedGarment | undefined> => {
-      // The owner first (lockOwnerAndPhotoName says why), then the take.
-      if (!(await lockOwnerAndPhotoName(tx, ownerId, fileName))) {
+      // Both accounts first, in id order (lockOwnersAndPhotoName says
+      // why): the wardrobe's owner, whose garment and file row this
+      // writes, and the uploader, whose pending row it takes (a MANAGE
+      // grantee's, #544). Then the take.
+      if (!(await lockOwnersAndPhotoName(tx, [ownerId, userId], fileName))) {
         return undefined;
       }
       const taken = await takePendingPhoto(tx, fileName, { userId, ownerId });
@@ -368,7 +371,7 @@ export async function createGarmentWithPendingPhoto(
  * row: only a photo of theirs that no garment was saved with goes. Under
  * the name's lock, so a save claiming it at the same moment either wins
  * (nothing is deleted) or finds it gone. The owner locked is the
- * uploader's, whose account deletion deletes the row (lockOwnerAndPhotoName).
+ * uploader's, whose account deletion deletes the row (lockOwnersAndPhotoName).
  * The bytes go after the commit.
  */
 export async function discardPendingPhoto(
@@ -379,7 +382,7 @@ export async function discardPendingPhoto(
 ): Promise<PendingPhoto | undefined> {
   if (parseStoredName(fileName)?.variant !== 'original') return undefined;
   const discarded = await db.transaction(async (tx) =>
-    (await lockOwnerAndPhotoName(tx, scope.userId, fileName))
+    (await lockOwnersAndPhotoName(tx, [scope.userId], fileName))
       ? takePendingPhoto(tx, fileName, scope, options)
       : undefined,
   );
