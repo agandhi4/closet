@@ -1144,6 +1144,7 @@
     "NEW": "Style an outfit",
     "STRIP_LABEL": "{role}: choose one",
     "PREVIEW": "The outfit",
+    "FIT_OFFLINE": "Offline: the weather check needs a connection.",
     "LOCK": "Lock {role}",
     "NO_GARMENT": "None",
     "NO_IDEA": "Nothing clean goes with the locked rows. Unlock one and shuffle again.",
