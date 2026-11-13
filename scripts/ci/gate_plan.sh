@@ -75,11 +75,6 @@ GATE_IMAGE_EXCLUDE_PATHS='^(LICENSE$|\.github/|test/|docs/metrics/|(playwright|v
 # shellcheck disable=SC2034
 GATE_JOBS_CLOCK="clock-unit ci-unit|clock-db ci-db PG_CONTAINER=$PG_CONTAINER"
 
-# The metrics ratchet, last so it merges every earlier job's seconds (devkit owns the label and
-# which collectors run: devkit/bin/_paths_lib.sh, METRICS).
-# shellcheck disable=SC2034
-GATE_JOBS_METRICS="metrics ci-metrics"
-
 gate_cleanup() {
   "$ROOT/devkit/bin/throwaway_pg.sh" down "$PG_CONTAINER"
   "$ROOT/devkit/bin/throwaway_pg.sh" down "$SMOKE_PG_CONTAINER"
