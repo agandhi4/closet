@@ -320,6 +320,11 @@ const pageStore: WorkboxPlugin = {
     if (!claimed) return null;
     return copyResponse(response, (init) => {
       const headers = new Headers(init.headers);
+      // A landing page's Clear-Site-Data (#244, createCacheClearRelay) was a
+      // one-time instruction to the browser, not part of the page: a copy
+      // served later must not repeat it. Chromium hides the header (it is
+      // gone already); WebKit and Firefox show it.
+      headers.delete('Clear-Site-Data');
       const cachedAtMs = String(Date.now());
       headers.set(CACHED_AT_HEADER, cachedAtMs);
       // A document's own script cannot read this header directly, only

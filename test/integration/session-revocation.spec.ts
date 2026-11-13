@@ -401,3 +401,208 @@ describe('signing in over a live session', () => {
     issuedCookie(res);
   });
 });
+
+/**
+ * WebKit applies Clear-Site-Data only to the response a load ends on, never
+ * to a redirect it follows (#244), and every way a session ends answers with
+ * a redirect (or a bodiless 401 the page follows). So such an answer also
+ * sets a short-lived marker cookie, and the next whole HTML document (the
+ * page the redirect lands on) repeats `Clear-Site-Data: "cache"` and clears
+ * the marker (createCacheClearRelay, src/web/auth/session.ts). Exactly one
+ * page repeats it; no static path, fragment or unmarked page ever does.
+ */
+describe('Clear-Site-Data reaches the page a redirect lands on', () => {
+  let t: TestApp;
+
+  beforeAll(async () => {
+    t = await createTestApp({ ACCESS_TOKEN_SECRET: SECRET });
+  });
+
+  afterAll(() => t?.cleanup());
+
+  const MARKER = 'cache_clear_pending';
+  const MARKED = `${MARKER}=1`;
+  const navigate = { 'sec-fetch-mode': 'navigate' };
+
+  const markerOf = (res: LightMyRequestResponse) =>
+    res.cookies.find((c) => c.name === MARKER);
+
+  /** The answer set the marker: httpOnly, Lax, the whole site, a minute. */
+  const expectMarked = (res: LightMyRequestResponse) => {
+    expect(res.headers['clear-site-data']).toBe('"cache"');
+    const marker = markerOf(res);
+    expect(marker?.value).toBe('1');
+    expect(marker?.maxAge).toBe(60);
+    expect(marker?.path).toBe('/');
+    expect(marker?.httpOnly).toBe(true);
+    expect(marker?.sameSite).toBe('Lax');
+    expect(marker?.secure).toBeUndefined();
+  };
+
+  /**
+   * GETs `url` as the redirect's landing (the marker sent, as the browser
+   * would): the header once, the marker cleared, and the next load of the
+   * same page, without it, clears nothing.
+   */
+  const expectLandingClears = async (url: string, session = '') => {
+    const cookie = session ? `${session}; ${MARKED}` : MARKED;
+    const landing = await t.inject({
+      method: 'GET',
+      url,
+      headers: { ...navigate, cookie },
+      anonymous: !session,
+    });
+    expect(landing.statusCode).toBe(200);
+    // A string, not an array: sent once.
+    expect(landing.headers['clear-site-data']).toBe('"cache"');
+    const cleared = markerOf(landing);
+    expect(cleared?.value).toBe('');
+    expect(cleared?.expires?.getTime()).toBeLessThanOrEqual(Date.now());
+    expect(t.logs.messages('info', 'Session')).toContain(
+      `Clear-Site-Data relayed to the landing page ${url} (200)`,
+    );
+
+    const next = await t.inject({
+      method: 'GET',
+      url,
+      headers: session ? { ...navigate, cookie: session } : navigate,
+      anonymous: !session,
+    });
+    expect(next.statusCode).toBe(200);
+    expect(next.headers['clear-site-data']).toBeUndefined();
+    expect(markerOf(next)).toBeUndefined();
+  };
+
+  it('signing out marks its redirect, and the login page it lands on clears', async () => {
+    const cookie = await t.register('relay-out@example.com');
+    const res = await t.inject({
+      method: 'POST',
+      url: '/auth/logout',
+      headers: { cookie },
+    });
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe('/auth/login');
+    expectMarked(res);
+
+    await expectLandingClears('/auth/login');
+  });
+
+  it('deleting the account marks its redirect; the redirect after it keeps the marker for the login page', async () => {
+    const email = 'relay-delete@example.com';
+    const cookie = await t.register(email);
+    const res = await t.inject({
+      method: 'POST',
+      url: '/auth/delete-account',
+      payload: { email, password: TEST_PASSWORD },
+      headers: { cookie },
+    });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe('/');
+    expectMarked(res);
+
+    // `/` signed out is the gate's redirect: not a page, so not consumed.
+    const home = await t.inject({
+      method: 'GET',
+      url: '/',
+      headers: { ...navigate, cookie: MARKED },
+      anonymous: true,
+    });
+    expect(home.statusCode).toBe(302);
+    expect(home.headers['clear-site-data']).toBeUndefined();
+    expect(markerOf(home)).toBeUndefined();
+
+    await expectLandingClears('/auth/login');
+  });
+
+  it("a revoked cookie's redirect and its htmx 401 are marked; the login page it ends on is not", async () => {
+    const page = await t.inject({
+      method: 'GET',
+      url: '/wardrobe',
+      headers: { ...navigate, cookie: 'access_token=not-a-jwt' },
+    });
+    expect(page.statusCode).toBe(302);
+    expectMarked(page);
+
+    const fragment = await t.inject({
+      method: 'GET',
+      url: '/wardrobe',
+      headers: { 'hx-request': 'true', cookie: 'access_token=not-a-jwt' },
+    });
+    expect(fragment.statusCode).toBe(401);
+    expect(fragment.headers['hx-redirect']).toBe('/auth/login');
+    expectMarked(fragment);
+
+    // The header already rides on the document the load ends on.
+    const login = await t.inject({
+      method: 'GET',
+      url: '/auth/login',
+      headers: { ...navigate, cookie: 'access_token=not-a-jwt' },
+    });
+    expect(login.statusCode).toBe(200);
+    expect(login.headers['clear-site-data']).toBe('"cache"');
+    expect(markerOf(login)).toBeUndefined();
+
+    await expectLandingClears('/auth/login');
+  });
+
+  it('signing in over another account marks its redirect, and the profile it lands on clears', async () => {
+    const email = 'relay-switch@example.com';
+    await t.register(email);
+    const res = await t.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password: TEST_PASSWORD },
+      headers: { ...uniqueClient(), cookie: t.owner.cookie },
+    });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe('/auth/profile');
+    expectMarked(res);
+    const token = res.cookies.find((c) => c.name === 'access_token')!;
+
+    await expectLandingClears('/auth/profile', `access_token=${token.value}`);
+  });
+
+  it('the same account signing in again sets no marker', async () => {
+    const email = 'relay-again@example.com';
+    const cookie = await t.register(email);
+    const res = await t.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password: TEST_PASSWORD },
+      headers: { ...uniqueClient(), cookie },
+    });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers['clear-site-data']).toBeUndefined();
+    expect(markerOf(res)).toBeUndefined();
+  });
+
+  it('a static path or an htmx fragment never clears, and leaves the marker for the page', async () => {
+    for (const url of ['/js/pwa.js', '/health/live', '/manifest.json']) {
+      const res = await t.inject({
+        method: 'GET',
+        url,
+        headers: { cookie: `${t.owner.cookie}; ${MARKED}` },
+      });
+      expect(res.statusCode, url).toBe(200);
+      expect(res.headers['clear-site-data'], url).toBeUndefined();
+      expect(markerOf(res), url).toBeUndefined();
+    }
+    const fragment = await t.inject({
+      method: 'GET',
+      url: '/wardrobe',
+      headers: { 'hx-request': 'true', cookie: `${t.owner.cookie}; ${MARKED}` },
+    });
+    expect(fragment.statusCode).toBe(200);
+    expect(fragment.headers['clear-site-data']).toBeUndefined();
+    expect(markerOf(fragment)).toBeUndefined();
+  });
+
+  it('a page without the marker never clears', async () => {
+    for (const url of ['/', '/wardrobe', '/auth/profile']) {
+      const res = await t.inject({ method: 'GET', url, headers: navigate });
+      expect(res.statusCode, url).toBe(200);
+      expect(res.headers['clear-site-data'], url).toBeUndefined();
+      expect(markerOf(res), url).toBeUndefined();
+    }
+  });
+});
