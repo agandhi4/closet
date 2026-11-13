@@ -7,7 +7,12 @@ import { EmptyState } from './layout/parts';
 import { SECTION_HOME, sectionOf } from './layout/sections';
 import type { ViewContext } from './view-context';
 
-type ErrorClass = 'missing' | 'refused' | 'retry' | 'rejected' | 'failed';
+export type ErrorClass =
+  | 'missing'
+  | 'refused'
+  | 'retry'
+  | 'rejected'
+  | 'failed';
 
 /**
  * The shape of the page by what the person can do about it: a place that is
@@ -15,7 +20,7 @@ type ErrorClass = 'missing' | 'refused' | 'retry' | 'rejected' | 'failed';
  * (409, 412, 429, 503: Try again), a request that must change (the other
  * 4xx), and our failure (the other 5xx).
  */
-function classOf(status: number): ErrorClass {
+export function classOf(status: number): ErrorClass {
   if (status === 404 || status === 410) return 'missing';
   if (status === 403) return 'refused';
   if ([409, 412, 429, 503].includes(status)) return 'retry';

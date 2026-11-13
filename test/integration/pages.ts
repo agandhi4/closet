@@ -4,6 +4,7 @@ import { expect } from 'vitest';
 import { outfit as outfitTable } from '../../src/db/schema';
 import { addDays } from '../../src/calendar-date';
 import { QUEUEABLE_ROUTES } from '../../src/offline-writes';
+import { classOf } from '../../src/web/error-page';
 import { REQUEST_FAILED_EVENT } from '../../src/web/errors';
 import { t as text } from '../../src/web/i18n';
 import {
@@ -488,14 +489,6 @@ export function expectFailureTrigger(
   });
 }
 
-const ERROR_TITLES = {
-  missing: text('errorPage.title.missing'),
-  refused: text('errorPage.title.refused'),
-  retry: text('errorPage.title.retry'),
-  rejected: text('errorPage.title.rejected'),
-  failed: text('errorPage.title.failed'),
-};
-
 /** A boosted tap's (or a navigation's) failure: the error page, whole. */
 export function expectErrorPage(
   res: LightMyRequestResponse,
@@ -505,7 +498,7 @@ export function expectErrorPage(
   expect(res.statusCode).toBe(status);
   expect(res.headers['hx-trigger']).toBeUndefined();
   expectFullPage(res);
-  expect(Object.values(ERROR_TITLES)).toContain(pageTitle(res.body));
+  expect(pageTitle(res.body)).toBe(text(`errorPage.title.${classOf(status)}`));
   expect(unescapeHtml(res.body)).toContain(message);
   // Only a 5xx shows the id (#644); the header carries it on every answer.
   expect(res.body.includes(String(res.headers['x-request-id']))).toBe(
