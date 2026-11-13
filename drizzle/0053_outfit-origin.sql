@@ -9,7 +9,7 @@ ALTER TABLE "outfit" ADD COLUMN "origin" text DEFAULT 'person' NOT NULL;--> stat
 ALTER TABLE "outfit" ADD CONSTRAINT "outfit_origin_check" CHECK ("outfit"."origin" in ('person', 'agent', 'idea', 'planner'));--> statement-breakpoint
 -- The provable origins. `agent`: Muse's proposals. `planner`: "Plan my week"
 -- created it (week_plan_entry.outfit_created, which every person's save of it
--- cleared, adoptPlannerOutfit) and nobody touched it since: no notes, and its
+-- cleared, adoptOutfit) and nobody touched it since: no notes, and its
 -- name still ideaName's, its garments' names in slot order (an unnamed garment,
 -- a truncated name or a rename is a person's: left alone). Not inferred: `idea`
 -- ("Wear this" and a gallery Save are named alike) and planner outfits whose
@@ -42,20 +42,23 @@ WHERE o."proposed_at" IS NULL
     WHERE s."outfit_id" = o."id"
   );--> statement-breakpoint
 -- The updates are synced writes: the sync triggers (0052) refuse them without the
--- owner lock's mark. Lock the owners they touch, in id order as lockOwner does,
--- and mark them, so each outfit gets a new revision and the feed re-sends it.
-SELECT set_config(
-  'closet.locked_owners',
-  coalesce(current_setting('closet.locked_owners', true), '')
-    || coalesce(string_agg(',' || "id" || ',', '' ORDER BY "id"), ''),
-  true
-)
+-- owner lock's mark. This is ownerLockSelect's statement (src/db/owner-lock.ts)
+-- written out, the one shape every writer's lock has: the owners the updates
+-- touch locked in id order, then each one marked ",<id>," above the lock rows
+-- (the lock_timeout is the header's). The trigger reads that format; the
+-- migrations spec runs this file against rows to prove it.
+SELECT "owner_row"."id",
+  set_config(
+    'closet.locked_owners',
+    coalesce(current_setting('closet.locked_owners', true), '') || ',' || "owner_row"."id" || ',',
+    true
+  ) AS "marked"
 FROM (
   SELECT "id" FROM "user"
   WHERE "id" IN (SELECT "owner_id" FROM "outfit_origin_backfill")
   ORDER BY "id"
-  FOR NO KEY UPDATE
-) AS "locked";--> statement-breakpoint
+  FOR NO KEY UPDATE OF "user"
+) AS "owner_row";--> statement-breakpoint
 UPDATE "outfit" o
 SET "origin" = b."origin"
 FROM "outfit_origin_backfill" b

@@ -1,4 +1,5 @@
 import { and, type AnyColumn, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import type { Db, Queryable } from '../../db/client';
 import {
   file,
@@ -632,25 +633,29 @@ export function deleteEntry(
 > {
   return ownerTransaction(db, ownerId, 'deleteEntry', async (tx) => {
     const selfies = await deleteEntrySelfie(tx, id, ownerId);
-    const [deleted] = await tx
-      .delete(outfitCalendar)
-      .where(
-        and(eq(outfitCalendar.id, id), eq(outfitCalendar.ownerId, ownerId)),
-      )
-      .returning({
-        outfitId: outfitCalendar.outfitId,
-        // The deleted row's own columns: drizzle may write them without
-        // their table here, which still names this row (the subquery's
-        // table has no `id` or `planned_by`).
-        plannerCreated: sql<boolean>`${outfitCalendar.plannedBy} = 'auto' and coalesce((select e.outfit_created from ${weekPlanEntry} e where e.entry_id = ${outfitCalendar.id}), false)`,
-      });
+    // The target aliased and every column qualified: the RETURNING's
+    // subquery reads week_plan_entry, so a bare `id` or `planned_by` must
+    // never be left to name resolution. An alias renders as its name
+    // alone in sql``, so each table is named before it.
+    const entry = alias(outfitCalendar, 'deleted_entry');
+    const plan = alias(weekPlanEntry, 'entry_plan');
+    const {
+      rows: [deleted],
+    } = await tx.execute<{ outfit_id: number; planner_created: boolean }>(sql`
+      delete from ${outfitCalendar} as ${entry}
+      where ${entry.id} = ${id} and ${entry.ownerId} = ${ownerId}
+      returning ${entry.outfitId} as outfit_id,
+        ${entry.plannedBy} = 'auto' and coalesce(
+          (select ${plan.outfitCreated} from ${weekPlanEntry} as ${plan} where ${plan.entryId} = ${entry.id}),
+          false
+        ) as planner_created`);
     if (!deleted) return 'not-found';
     const removed =
-      deleted.plannerCreated &&
-      (await removeUnheldOutfits(tx, ownerId, [deleted.outfitId])) > 0;
+      deleted.planner_created &&
+      (await removeUnheldOutfits(tx, ownerId, [deleted.outfit_id])) > 0;
     return {
       selfies,
-      plannerOutfitRemoved: removed ? deleted.outfitId : null,
+      plannerOutfitRemoved: removed ? deleted.outfit_id : null,
     };
   });
 }

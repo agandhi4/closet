@@ -413,6 +413,12 @@ describe('Today', () => {
       expect(res.statusCode).toBe(303);
       expect(res.headers.location).toBe('/');
       const [outfitId] = await outfitsOf(idea);
+      // A one-off (#659): Worn and planned, never on Saved.
+      const [made] = await t.db
+        .select({ origin: outfit.origin })
+        .from(outfit)
+        .where(eq(outfit.id, outfitId));
+      expect(made.origin).toBe('idea');
       const [entry] = await t.db
         .select()
         .from(outfitCalendar)

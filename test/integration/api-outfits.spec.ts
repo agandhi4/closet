@@ -218,6 +218,60 @@ describe('outfits', () => {
     );
   });
 
+  it('lists every outfit without `show`, the kept ones with show=kept and the one-offs with show=one-offs (#659); another value is a 400', async () => {
+    const [shirt, jeans] = await pair();
+    const ids: Record<'person' | 'idea' | 'planner', number> = {
+      person: 0,
+      idea: 0,
+      planner: 0,
+    };
+    const sets = { person: [shirt], idea: [jeans], planner: [shirt, jeans] };
+    for (const origin of ['person', 'idea', 'planner'] as const) {
+      const res = await create({
+        slots: sets[origin].map((garmentId) => ({
+          category: 'any',
+          garmentId,
+        })),
+      });
+      ids[origin] = res.json<Saved>().id;
+      if (origin !== 'person') {
+        await asFixture(t.db, (tx) =>
+          tx.update(outfit).set({ origin }).where(eq(outfit.id, ids[origin])),
+        );
+      }
+    }
+    const listed = async (query: string) => {
+      const res = await t.api(token, {
+        method: 'GET',
+        url: `/api/v1/outfits?limit=100${query}`,
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      const mine = new Set(Object.values(ids));
+      return res
+        .json<{ data: { id: number; origin: string }[] }>()
+        .data.filter(({ id }) => mine.has(id))
+        .map(({ id, origin }) => ({ id, origin }));
+    };
+    expect(await listed('')).toEqual([
+      { id: ids.planner, origin: 'planner' },
+      { id: ids.idea, origin: 'idea' },
+      { id: ids.person, origin: 'person' },
+    ]);
+    expect(await listed('&show=kept')).toEqual([
+      { id: ids.person, origin: 'person' },
+    ]);
+    expect(await listed('&show=one-offs')).toEqual([
+      { id: ids.planner, origin: 'planner' },
+      { id: ids.idea, origin: 'idea' },
+    ]);
+    // A client's typo is refused, never answered with the whole list.
+    expectProblem(
+      await t.api(token, { method: 'GET', url: '/api/v1/outfits?show=all' }),
+      400,
+      'validation',
+    );
+  });
+
   it("lists Muse's waiting proposals with proposed=true, to their owner only, and leaves the default list as it was", async () => {
     const [shirt, jeans] = await pair();
     const waiting = (
