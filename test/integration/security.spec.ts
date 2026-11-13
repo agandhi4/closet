@@ -69,18 +69,92 @@ describe('request security', () => {
       expect(await rows(outfitCalendar)).toBe(entriesBefore);
     });
 
-    it('refuses a cross-site login and a cross-site email change', async () => {
-      const login = await t.inject({
-        method: 'POST',
-        url: '/auth/login',
-        payload: { email: t.owner.email, password: 'whatever' },
-        headers: { origin: 'https://evil.test' },
-        anonymous: true,
-        sameOrigin: false,
-      });
-      expect(login.statusCode).toBe(403);
-      expect(login.cookies).toHaveLength(0);
+    // A cross-site page's auto-submitted form, as the browser sends it now
+    // that the service worker leaves every navigation post alone (#542):
+    // its own Origin (or a cross-site Referer, or an opaque or no Origin),
+    // never this site's. Each must change no session: login CSRF signs the
+    // victim into the attacker's account; a cross-site sign-out or deletion
+    // ends theirs. The deletion carries the right password, which a
+    // cross-site page could only have phished: the Origin still refuses it.
+    const crossSiteNavigation = {
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-dest': 'document',
+      'sec-fetch-site': 'cross-site',
+    };
+    describe.each([
+      ['another site in Origin', { origin: 'https://evil.test' }],
+      ['another site in Referer only', { referer: 'https://evil.test/form' }],
+      ['an opaque Origin', { origin: 'null' }],
+      ['neither Origin nor Referer', {}],
+    ])('a cross-site navigation post with %s', (label, from) => {
+      // Each case's own accounts: a taken email would refuse on its own.
+      const slug = label.replace(/\W+/g, '-').toLowerCase();
+      const post = (url: string, payload: object, cookie?: string) =>
+        t.inject({
+          method: 'POST',
+          url,
+          payload,
+          headers: {
+            ...crossSiteNavigation,
+            ...from,
+            ...(cookie === undefined ? {} : { cookie }),
+          },
+          anonymous: cookie === undefined,
+          sameOrigin: false,
+        });
+      // The same-origin hook's own refusal, before any route ran.
+      const refusedByOrigin = (res: { statusCode: number; body: string }) =>
+        res.statusCode === 403 && res.body === 'Cross-origin request refused';
 
+      it('signs nobody in or up', async () => {
+        const login = await post('/auth/login', {
+          email: t.owner.email,
+          password: TEST_PASSWORD,
+        });
+        expect(refusedByOrigin(login)).toBe(true);
+        expect(login.cookies).toHaveLength(0);
+
+        const email = `planted-${slug}@evil.test`;
+        const register = await post('/auth/register', {
+          email,
+          password: TEST_PASSWORD,
+          confirmPassword: TEST_PASSWORD,
+        });
+        expect(refusedByOrigin(register)).toBe(true);
+        expect(register.cookies).toHaveLength(0);
+        expect(
+          await t.db.select().from(user).where(eq(user.email, email)),
+        ).toEqual([]);
+      });
+
+      it('signs nobody out and deletes no account', async () => {
+        const email = `victim-${slug}@example.com`;
+        const cookie = await t.register(email);
+        for (const [url, payload] of [
+          ['/auth/logout', {}],
+          ['/auth/delete-account', { email, password: TEST_PASSWORD }],
+        ] as const) {
+          const res = await post(url, payload, cookie);
+          expect({ url, refused: refusedByOrigin(res) }).toEqual({
+            url,
+            refused: true,
+          });
+          expect(res.cookies).toHaveLength(0);
+          expect(res.headers['clear-site-data']).toBeUndefined();
+        }
+        const profile = await t.inject({
+          method: 'GET',
+          url: '/auth/profile',
+          headers: { cookie },
+        });
+        expect(profile.statusCode).toBe(200);
+        expect(
+          await t.db.select().from(user).where(eq(user.email, email)),
+        ).toHaveLength(1);
+      });
+    });
+
+    it('refuses a cross-site email change', async () => {
       const change = await t.inject({
         method: 'POST',
         url: '/auth/update-email',

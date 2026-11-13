@@ -313,6 +313,7 @@ export function expectFullPage(res: LightMyRequestResponse): void {
   expectNoRawI18nKeys(res);
   expectNativePostForms(res);
   expectPostFormsOfflineGuarded(res);
+  expect(misannouncedSessionForms(res.body)).toEqual([]);
   expectAutosaveControls(res);
   expectNoScriptNavigation(res);
   expectAppBar(res);
@@ -372,6 +373,29 @@ export function expectNativePostForms(res: LightMyRequestResponse): void {
       !/\bhx-boost=["']?false\b/i.test(tag),
   );
   expect(offenders).toEqual([]);
+}
+
+/**
+ * The posts that change whose session this device has. The service worker
+ * never sees them (#542), so each form says so itself (`PostForm`
+ * `endsSession`, `data-ends-session`): public/js/pwa.js tells the worker as
+ * it posts, and the worker drops the session caches before the landing
+ * page. One missing the mark leaves the previous account's pages cached.
+ */
+export const SESSION_BOUNDARY_ACTIONS = [
+  '/auth/login',
+  '/auth/register',
+  '/auth/logout',
+  '/auth/delete-account',
+];
+
+/** The page's forms posting a sign-in or sign-out without the mark, or the mark on another. */
+export function misannouncedSessionForms(html: string): string[] {
+  return (html.match(/<form\b[^>]*>/gi) ?? []).filter((tag) => {
+    const action = /\baction="([^"]*)"/.exec(tag)?.[1] ?? '';
+    const marked = /\bdata-ends-session=/.test(tag);
+    return marked !== SESSION_BOUNDARY_ACTIONS.includes(action);
+  });
 }
 
 /** A form the outbox queues offline, of a kind it replays. */

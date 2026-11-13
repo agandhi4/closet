@@ -93,6 +93,20 @@ export function bypassesWorker(url: { pathname: string }): boolean {
 }
 
 /**
+ * A navigation that is not a GET: a form post, ours or a cross-site page's.
+ * The worker stops the fetch event of every one before any route sees it
+ * (#542, src-sw.ts): it cannot tell who started the post, and its own fetch
+ * in the post's place would carry this site's Origin and cookie past the
+ * same-origin check. A share target posting to the worker is one too.
+ */
+export function isNavigationPost(request: {
+  method: string;
+  mode: string;
+}): boolean {
+  return request.mode === 'navigate' && request.method !== 'GET';
+}
+
+/**
  * The sections whose home opens stale-while-revalidate: every one but
  * Today. Styling's `/styling` (#42) qualifies: the bare page is the fresh
  * stack, a function of the wardrobe alone (freshStates: the newest garment

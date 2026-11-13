@@ -197,8 +197,9 @@ export function setSessionCookie(reply: FastifyReply, token: string): void {
  * B over A's session ends A's on this device as surely as a sign-out: the new
  * cookie replaces A's, and Clear-Site-Data: "cache" drops what the HTTP cache
  * holds for A (its photos and selfies, immutable for a year), as endSession
- * does (#229). The service worker drops its own session caches on the
- * sign-in's redirect (views/assets/src-sw.ts). The same account signing in
+ * does (#229). The service worker drops its own session caches as the
+ * sign-in form posts (data-ends-session, SESSION_ENDING in
+ * views/assets/src-sw.ts). The same account signing in
  * again keeps its cache; a dead cookie was already ended by the resolver,
  * header included, so there is no live session to replace.
  */
@@ -222,9 +223,9 @@ const CLEAR_SITE_DATA = 'Clear-Site-Data';
  * empties its precache, so the installed app would lose its offline shell
  * (and its push subscription) until a page loaded online registered it
  * again. The worker's session caches, the private things in Cache Storage,
- * are dropped by the worker itself (views/assets/src-sw.ts: the sign-in and
- * sign-out navigations, an auth POST answered with X-Session-Ended, and the
- * signed-out page a revoked session lands on). Cookies are untouched, so a
+ * are dropped by the worker itself (views/assets/src-sw.ts: as our sign-in
+ * and sign-out forms post, SESSION_ENDING, and on the signed-out page a
+ * revoked session lands on). Cookies are untouched, so a
  * cookie set on the same answer (startSession) survives it. Ignored outside
  * a secure context (the HTTP twin) and before Safari 17. Most of these
  * answers are redirects, which WebKit does not apply it from: the

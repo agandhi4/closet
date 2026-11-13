@@ -87,10 +87,9 @@ test('register through the form, sign out from Profile, sign back in', async ({
   await expect(page).toHaveURL(/\/auth\/profile$/);
   await expect(page.locator('#account')).toContainText(email);
   // The refusal's 401 is the only error the page may log; anything else is
-  // a page script failing. Chromium logs it once. WebKit logs it twice:
-  // the worker posts the login itself (sessionBoundaryHandler), so the one
-  // 401 is seen by the worker's fetch and by the document load, and WebKit
-  // reports both to the page (docs/testing-webkit.md).
+  // a page script failing. Chromium logs it once; WebKit logged it twice
+  // while the worker relayed the login (until #542), so the spec counts no
+  // more than that it is there (docs/testing-webkit.md).
   expect(errors, errors.join('\n')).toContain(REFUSED_LOGIN);
   expect(
     errors.filter((error) => error !== REFUSED_LOGIN),

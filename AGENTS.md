@@ -137,7 +137,7 @@ Each rule in full, with its story: `docs/web-layer.md`. A feature lives whole (r
 
 The detail of each rule, its code and its spec: `src/web/security/AGENTS.md`. What every change keeps:
 
-- **CSRF**: the root same-origin hook 403s a POST, PUT, PATCH or DELETE whose `Origin` (or `Referer`) is not this site, before the body is read. Nothing changes state on a GET. The bearer surfaces (`/mcp`, `/api`) accept no Origin and refuse a foreign one. The harness sends an Origin; Playwright posts use `SAME_ORIGIN` / `signUpHeaders()`.
+- **CSRF**: the root same-origin hook 403s a POST, PUT, PATCH or DELETE whose `Origin` (or `Referer`) is not this site, before the body is read. Nothing changes state on a GET. The service worker never answers a navigation POST: its fetch would launder the Origin (#542, `src/web/shell/AGENTS.md`). The bearer surfaces (`/mcp`, `/api`) accept no Origin and refuse a foreign one. The harness sends an Origin; Playwright posts use `SAME_ORIGIN` / `signUpHeaders()`.
 - **Rate limits** are per route, opt-in: `SIGN_IN_LIMIT` (one budget for the login page and the API sign-in, which adds `SIGN_IN_ACCOUNT_LIMIT`), `API_LIMIT`, `ACCOUNT_LIMIT` (every route that checks the current password), `LINK_IMPORT_LIMIT`, `WEATHER_SEARCH_LIMIT`, `WEATHER_LOCATION_LIMIT`, `MCP_LIMIT`, `HEALTH_LIMIT` (`/health/ready`, per address).
 - **Refusals do not reveal ids**: unseeable is a 404 like an unknown id; seeable but not changeable is a 403 (`WardrobeAccess`; the matrix is `test/integration/authorization-*.routes.ts`).
 - **Outbound fetches** of a user-supplied URL or a third-party API go only through `createOutboundFetcher` (`make guard-check`).

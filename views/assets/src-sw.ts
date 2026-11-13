@@ -1,8 +1,5 @@
 import { clientsClaim, copyResponse } from 'workbox-core';
-import type {
-  RouteHandlerCallbackOptions,
-  WorkboxPlugin,
-} from 'workbox-core/types';
+import type { WorkboxPlugin } from 'workbox-core/types';
 import * as navigationPreload from 'workbox-navigation-preload';
 import { precacheAndRoute } from 'workbox-precaching';
 import { warmStrategyCache } from 'workbox-recipes';
@@ -27,6 +24,7 @@ import {
   cachedAt,
   endedSession,
   type FreshPage,
+  isNavigationPost,
   isRenderedPage,
   pageAccount,
   type Revalidation,
@@ -89,8 +87,13 @@ import { parsePushPayload, type PushPayload } from '../../src/web/push/payload';
  *    wardrobe, its pages and thumbs, fetched into the session caches through
  *    the same plugins, so it reads offline (src/web/shell/offline-warm.md).
  *  - The page's outbox (outbox.ts) queues writes; the worker sends none. It
- *    deletes the queue's records at session boundaries, and refetches the
- *    cached pages a sync changed (OUTBOX_SYNCED; src/web/shell/outbox.md).
+ *    deletes other accounts' records when a page for a new account arrives,
+ *    and refetches the cached pages a sync changed (OUTBOX_SYNCED;
+ *    src/web/shell/outbox.md).
+ *  - A navigation that is not a GET (a form post: signing in or out) is
+ *    never the worker's (isNavigationPost, below); our own pages announce a
+ *    sign-in or sign-out first (SESSION_ENDING), which drops the session
+ *    caches.
  *  - Anything unmatched (other POSTs, /health/live) goes straight to the network.
  *
  * Built by `npm run generate:sw` with NODE_ENV=production, which strips
@@ -115,6 +118,20 @@ clientsClaim();
 // a tab root revalidates with it. Only those two routes handle GET
 // navigations, so every preload is consumed.
 navigationPreload.enable();
+
+// The worker never answers a navigation that is not a GET (#542): a form
+// post, whoever started it. The worker can't tell our page's post from a
+// cross-site page's (it sees neither Origin nor Sec-Fetch-Site), and any
+// fetch it makes in its place carries this site's Origin and cookie, so
+// relaying one launders a cross-site post past the server's same-origin
+// check (login CSRF, cross-site sign-out). Left alone, the browser sends it
+// as it is and the server judges its real Origin. Stopping the event here
+// keeps every route, the precache's included, from ever seeing one: this
+// listener must stay above precacheAndRoute and the first registerRoute,
+// which add Workbox's own fetch listener.
+self.addEventListener('fetch', (event) => {
+  if (isNavigationPost(event.request)) event.stopImmediatePropagation();
+});
 
 const FALLBACK_HTML_URL = '/offline.html';
 // v2 since 2026-09-26: copies are stamped and owned (pageStore below);
@@ -213,6 +230,11 @@ function isStale(since: number, path: string): boolean {
 // the next step still runs; the caller still receives it through `run`.
 let ownership: Promise<unknown> = Promise.resolve();
 
+// The latest dropSession, settled or not: servedCopies waits for it, so no
+// copy is served from a cache whose drop has started (a sign-in's landing
+// read while SESSION_ENDING's drop is still deleting the caches).
+let lastDrop: Promise<void> = Promise.resolve();
+
 function serialized<T>(work: () => Promise<T>): Promise<T> {
   const run = ownership.then(work);
   ownership = run.catch(() => undefined);
@@ -230,7 +252,9 @@ function serialized<T>(work: () => Promise<T>): Promise<T> {
  */
 function dropSession(event: ExtendableEvent, reason: string): Promise<void> {
   generation += 1;
-  return serialized(() => emptySessionCaches(event, reason));
+  const drop = serialized(() => emptySessionCaches(event, reason));
+  lastDrop = drop.catch(() => undefined);
+  return drop;
 }
 
 /** Holds the ownership lock; the caller has started the new generation. */
@@ -263,9 +287,9 @@ async function rewarmOfflinePage(event: ExtendableEvent): Promise<void> {
  * session cookie, so it learns the account from each page it stores
  * (X-Page-Account, set by the server on every HTML answer). A page for
  * another account, from a sign-in this worker never saw, empties the cache
- * before it is written. With the drops when a session starts or ends
- * (sessionBoundaryHandler), a cached page is only ever served to the session
- * it was rendered for.
+ * before it is written. With the drop our own pages ask for before every
+ * sign-in and sign-out (SESSION_ENDING), a cached page is only ever served
+ * to the session it was rendered for.
  *
  * False, with nothing written, when the request started in an older
  * generation: the cache has been dropped since, and the answer belongs to a
@@ -399,6 +423,9 @@ async function isFromAnOlderBuild(copy: Response): Promise<boolean> {
 }
 
 async function isOwned(copy: Response, path: string): Promise<boolean> {
+  // The match may predate a drop still running; the owner record is read
+  // after it, so a dropped cache has none and serves nobody.
+  await lastDrop;
   const owner = await readRecord(OWNER_KEY);
   if (pageAccount(copy.headers) === owner) return true;
   console.warn(`[sw] ${path}: cached for another account, not served`);
@@ -546,137 +573,14 @@ const isPageRequest = ({ request, url }: { request: Request; url: URL }) =>
   !bypassesWorker(url) &&
   (request.mode === 'navigate' || request.headers.get('HX-Request') === 'true');
 
-// Signing in (POST /auth/login, /auth/register) and out (POST /auth/logout,
-// /auth/delete-account) change whose pages and photos this device may show:
-// once the server has answered, the session caches go, so no session is ever
-// served the previous one's, online or off. The server also sends
-// Clear-Site-Data: "cache" whenever a session ends, which not every browser
-// applies to Cache Storage. Registered before the page routes: the first
-// match wins.
-const SESSION_STARTS = new Set(['/auth/login', '/auth/register']);
-const SESSION_ENDS = new Set(['/auth/logout', '/auth/delete-account']);
-
-const isSessionBoundary = ({ url }: { url: URL }) =>
-  url.origin === self.location.origin &&
-  (SESSION_STARTS.has(url.pathname) || SESSION_ENDS.has(url.pathname));
-
-type SessionChange = 'session started' | 'session ended' | 'session revoked';
-
-/**
- * What an auth POST's answer did to this device's session, read from the
- * page its redirect landed on (sessionBoundaryHandler follows it). A
- * redirect means it changed. A refusal (a wrong password, a taken email)
- * re-renders the form with a 4xx and changes nothing, unless it says
- * X-Session-Ended (endedSession): the cookie it was sent with no longer
- * opened a session (revoked elsewhere, expired), and the server cleared it
- * on this very answer (#131). The login form stays open to a signed-in
- * user, so this is a wrong password typed after the account's password
- * changed on another device.
- *
- * A sign-in keeps the push subscription even when its redirect also ended
- * a dead session (X-Session-Ended beside the new cookie): the worker sees
- * the page the redirect landed on, not the redirect's own headers, and it
- * need not. The next signed-in page re-sends the subscription
- * (syncSubscription, public/js/push.js), which moves the device's row to
- * the new account with its reminders off (upsertDevice,
- * src/web/push/queries.ts), so the previous account's notifications stop.
- */
-function sessionChange(url: URL, response: Response): SessionChange | null {
-  if (response.redirected) {
-    return SESSION_ENDS.has(url.pathname) ? 'session ended' : 'session started';
-  }
-  return endedSession(response.headers) ? 'session revoked' : null;
-}
-
-/**
- * Follows the redirect in the worker, never as the navigation's opaque
- * redirect (#239). A navigation's request has redirect mode 'manual', so
- * fetching it as is answers with an opaque redirect, and WebKit (Safari,
- * every iOS browser) loses an opaque redirect that carries
- * Clear-Site-Data: the fetch never settles, and signing out, deleting the
- * account or signing in over another account hung on the POST
- * (NetworkResourceLoader::didFinishWithRedirectResponse finishes the load
- * while the header's clearing still holds the response back). A followed
- * one settles everywhere, and Chromium applies Clear-Site-Data on a
- * followed redirect too. `new Request` with an init turns 'navigate' into
- * 'same-origin'; every auth redirect is same-origin.
- */
-async function fetchFollowingRedirects(request: Request): Promise<Response> {
-  return fetch(new Request(request, { redirect: 'follow' }));
-}
-
-/**
- * The answer for the request the page made. A navigation may not be
- * answered with a followed redirect's page (its redirect mode is 'manual':
- * the browser would fail the load, and the URL would stay the POST's), so
- * it gets a 303 to where the redirect landed, which the browser follows
- * like the server's own: a GET, through the page routes. That page is
- * fetched twice, once here to learn the outcome; its body is dropped. An
- * htmx request follows redirects itself and takes the page as it is.
- */
-function answerFor(request: Request, response: Response): Response {
-  if (!response.redirected || request.redirect === 'follow') return response;
-  void response.body?.cancel();
-  return Response.redirect(response.url, 303);
-}
-
-/** Dropped before answering, so the redirect's next page cannot race it. */
-async function changeSession(
-  event: ExtendableEvent,
-  reason: string,
-  ended: boolean,
-): Promise<void> {
-  await dropSession(event, reason);
-  if (ended) event.waitUntil(dropPushSubscription());
-}
-
-const sessionBoundaryHandler = async ({
-  request,
-  url,
-  event,
-}: RouteHandlerCallbackOptions) => {
-  let response: Response;
-  try {
-    response = await fetchFollowingRedirects(request);
-  } catch (error) {
-    // No answer, but the server may have acted on the post: the connection
-    // can drop after it signed out (or in) and before the followed page
-    // arrived. Fail safe: a needless drop costs a refetch, a missed one
-    // leaves another session's pages and photos cached. Then the catch
-    // handler answers, as for any unreachable server (the offline page for
-    // a navigation, if the drop's re-warm has put it back; else an error).
-    console.warn(`[sw] ${url.pathname} got no answer`, error);
-    await changeSession(
-      event,
-      `${url.pathname} got no answer, the session may have changed`,
-      SESSION_ENDS.has(url.pathname),
-    );
-    throw error;
-  }
-  const change = sessionChange(url, response);
-  if (change) {
-    await changeSession(event, change, change !== 'session started');
-  }
-  // Signed out or deleted here: the queue goes with the session, before the
-  // landing page loads (the page's own sign-out discards first, after asking;
-  // this is what a tab that never asked left). A revoked session keeps it,
-  // for a sign-in as the same account, and so does a post that got no
-  // answer above: a needless drop of the caches costs a refetch, of the
-  // queue the user's taps.
-  if (change === 'session ended') {
-    await deleteQueuedWrites(`${url.pathname}: the session ended`, () => true);
-  }
-  return answerFor(request, response);
-};
-
 // A signed-out device receives nobody's notifications: the subscription goes
 // with the session. The server's row is removed when its push service next
 // answers 410 (src/web/push/sender.ts), or with the account. Signing in
 // again, the profile page offers to enable them (no new prompt: the
-// permission stays). A session ended away from this device (a password
-// changed elsewhere, which also removes the row) never passes through here:
-// the login page it lands on drops the subscription (<push-signed-out>,
-// public/js/push.js).
+// permission stays). Here only for a session the worker's own fetch found
+// ended (endFetchedSession); a sign-out, an account deletion or a session
+// ended elsewhere lands on the signed-out login page, which drops the
+// subscription itself (<push-signed-out>, public/js/push.js).
 async function dropPushSubscription(): Promise<void> {
   try {
     const subscription = await self.registration.pushManager.getSubscription();
@@ -729,10 +633,6 @@ async function deleteQueuedWrites(
     console.warn('[sw] could not delete the queued changes', error);
   }
 }
-
-// POST only: GET /auth/logout is the confirmation page old cached pages
-// link to, and GET /auth/login the form; neither changes a session.
-registerRoute(isSessionBoundary, sessionBoundaryHandler, 'POST');
 
 registerRoute(
   ({ request }) => servesStaleWhileRevalidate(request, self.location.origin),
@@ -1173,17 +1073,15 @@ async function runWarm(event: ExtendableMessageEvent): Promise<void> {
  * Whether a warm's answer says this device's session is over. A worker's
  * fetch is no navigation (Sec-Fetch-Mode: cors), so the session gate
  * refuses it with a 401, never a redirect to the login page; a revoked
- * cookie's answer also says X-Session-Ended and clears it, which the
- * worker sees nowhere else (handleAll bypasses sessionBoundaryHandler).
+ * cookie's answer also says X-Session-Ended and clears it.
  */
 function sessionEndedBy(response: Response): boolean {
   return response.status === 401 || endedSession(response.headers);
 }
 
 /**
- * The worker's own fetches' half (a warm's, a synced page's refetch) of
- * what sessionBoundaryHandler does for a revoked session: the session
- * caches and the push subscription go. Only while the generation the
+ * A session the worker's own fetch (a warm's, a synced page's refetch)
+ * found ended: the session caches and the push subscription go. Only while the generation the
  * answer was asked in lasts: a later one is another session's, whose caches
  * an older answer must not empty. `what` names the fetch in the log.
  */
@@ -1193,7 +1091,8 @@ async function endFetchedSession(
   what: string,
 ): Promise<void> {
   if (since !== generation) return;
-  await changeSession(event, `${what}: the session ended`, true);
+  await dropSession(event, `${what}: the session ended`);
+  event.waitUntil(dropPushSubscription());
 }
 
 /**
@@ -1438,8 +1337,10 @@ function formatBytes(bytes: number): string {
 // worker that seizes control mid-session leaves pages holding stale asset
 // URLs, which is the black-screen bug the old hard-navigate hack papered over.
 // The page's own questions come from public/js/freshness.js, each with a
-// MessagePort for the answer; WARM_PAGES from public/js/pwa.js and
-// OUTBOX_SYNCED from outbox.js want none.
+// MessagePort for the answer; WARM_PAGES and SESSION_ENDING from
+// public/js/pwa.js and OUTBOX_SYNCED from outbox.js want none. Only this
+// site's own pages can post here (a page reaches a worker only through its
+// own origin's registration).
 self.addEventListener('message', (event) => {
   const type: unknown = event.data?.type;
   const [port] = event.ports;
@@ -1457,6 +1358,13 @@ self.addEventListener('message', (event) => {
     );
   } else if (type === 'WARM_PAGES') {
     event.waitUntil(warmPages(event));
+  } else if (type === 'SESSION_ENDING') {
+    // A sign-in, a registration, a sign-out or an account deletion is
+    // leaving one of our pages (#542, data-ends-session): whatever session
+    // this device had ends with it, so its caches go before the landing
+    // page is asked for. A post that then fails costs a refetch. Held by
+    // waitUntil, so the drop outlives the page that asked.
+    event.waitUntil(dropSession(event, 'a sign-in or sign-out was posted'));
   } else if (type === OUTBOX_SYNCED) {
     const writes = syncedWritePaths(event.data.paths);
     if (writes.length > 0) {

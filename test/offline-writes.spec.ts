@@ -98,29 +98,6 @@ function cachedAtOf(page: Page, path: string): Promise<number> {
   );
 }
 
-/** How many records the outbox's store holds (views/assets/outbox-store.ts). */
-function outboxSize(page: Page): Promise<number> {
-  return page.evaluate(
-    () =>
-      new Promise<number>((resolve, reject) => {
-        const open = indexedDB.open('closet-outbox', 1);
-        open.onsuccess = () => {
-          const count = open.result
-            .transaction('writes')
-            .objectStore('writes')
-            .count();
-          count.onsuccess = () => {
-            open.result.close();
-            resolve(count.result);
-          };
-          count.onerror = () =>
-            reject(count.error ?? new Error('count failed'));
-        };
-        open.onerror = () => reject(open.error ?? new Error('open failed'));
-      }),
-  );
-}
-
 /** Fails the heartbeat (or lets it through) and tells the page to probe. */
 async function setReachable(page: Page, reachable: boolean) {
   if (reachable) await page.unroute('**/health/live');
@@ -588,47 +565,6 @@ test('offline: PostForms are guarded, and queued writes wait, save and stay orde
       await expect(undo).toBeVisible();
       await expect(app.locator('[data-outbox="pending"]')).toHaveCount(0);
 
-      // A failure left in the store that no sign-out asked about (submit()
-      // fires no submit event, so the page's own rule never runs): the
-      // worker's logout boundary deletes it before the login page loads.
-      await network('online');
-      await app.goto('/auth/profile');
-      await app.evaluate(
-        ([id, label]) =>
-          new Promise<void>((resolve, reject) => {
-            const open = indexedDB.open('closet-outbox', 1);
-            open.onsuccess = () => {
-              const write = open.result.transaction('writes', 'readwrite');
-              write.objectStore('writes').put({
-                id: '00000000-0000-4000-8000-000000000178',
-                account: document.getElementById('app-status')?.dataset.account,
-                kind: 'wash',
-                key: `wash:${id}`,
-                path: `/wardrobe/${id}/washed`,
-                fields: {},
-                label,
-                queuedAt: Date.now(),
-                attempts: 1,
-                state: 'failed',
-                reason: 'refused',
-              });
-              write.oncomplete = () => {
-                open.result.close();
-                resolve();
-              };
-              write.onerror = () =>
-                reject(write.error ?? new Error('write failed'));
-            };
-            open.onerror = () => reject(open.error ?? new Error('open failed'));
-          }),
-        [String(chinos), 'Synced chinos'],
-      );
-      expect(await outboxSize(app)).toBe(1);
-      await app.evaluate(() =>
-        document.querySelector<HTMLFormElement>('#logout-form')?.submit(),
-      );
-      await expect(app).toHaveURL(/\/auth\/login$/);
-      expect(await outboxSize(app)).toBe(0);
       expect(appErrors).toEqual([]);
     } finally {
       await context.close();

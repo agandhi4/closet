@@ -45,13 +45,12 @@ Four quirks the specs absorb rather than skip:
   session and it takes every tap. The Safari projects start with it
   dismissed (`INSTALL_DISMISSED` in `playwright.config.ts`, the element's
   own flag); `test/install-dialog.spec.ts (retired 2026-10-13)` covers the dialog in Chromium.
-- **WebKit logs a refused sign-in's 401 twice.** The service worker posts
-  the auth forms itself (`sessionBoundaryHandler`, #239,
-  `src/web/shell/session-caches.md`), so the one 401 is a response to the
-  worker's fetch and to the document load, and WebKit reports both to the
-  page's console; Chromium reports only the document's. `test/auth.spec.ts`
-  asserts that every console error is that line and that there is one, not
-  how many (2026-10-26, #301).
+- **A refused sign-in's 401 is a console error.** WebKit logged it twice
+  while the service worker relayed the auth forms (#239 until #542: the
+  worker's fetch and the document load); the worker leaves every
+  navigation post to the browser now. `test/auth.spec.ts` asserts that
+  every console error is that line and that there is one, not how many
+  (2026-10-26, #301).
 - **WebKit routes a controlled page's fetches past `page.route`.** Once the
   service worker controls the page, the page's own requests go through the
   worker even where it answers nothing (`/health/live`, `src-sw.ts`), and

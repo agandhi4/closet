@@ -39,8 +39,8 @@
  *   404/409/400 is a failure the notice shows until it is dismissed.
  * - **Accounts**: a record is its page's account's (`data-account`). A page
  *   of another account deletes the others' records unsent; signing out
- *   drains for at most SIGN_OUT_DRAIN_MS, then asks before discarding what
- *   is left.
+ *   and deleting the account drain for at most SIGN_OUT_DRAIN_MS, then ask
+ *   before discarding what is left.
  *
  * Listeners sit on the document once, at module evaluation (a module runs
  * once per document; boosted navigations swap only the body).
@@ -116,8 +116,12 @@ interface DrainResult {
 }
 
 const DRAIN_LOCK = 'closet-outbox-drain';
-const LOGOUT_PATH = '/auth/logout';
-// Sign-out waits this long for the queue to drain, then asks about the rest.
+// The posts that leave the account on this device: its queue drains first.
+const LEAVES_ACCOUNT: ReadonlySet<string> = new Set([
+  '/auth/logout',
+  '/auth/delete-account',
+]);
+// Sign-out and deletion wait this long for the queue to drain, then asks about the rest.
 const SIGN_OUT_DRAIN_MS = 5_000;
 // frontend-pwa.md: a sync says so only once it is slow.
 const SYNCING_QUIET_MS = 2_000;
@@ -962,41 +966,42 @@ function schedule(reason: string): Promise<void> {
 // ---- Signing out --------------------------------------------------------------
 
 /**
- * Sign-out drains first (it is online by definition), for at most
- * SIGN_OUT_DRAIN_MS so a slow link never strands the tap; what is left,
+ * Sign-out and account deletion drain first (online by definition), for at
+ * most SIGN_OUT_DRAIN_MS so a slow link never strands the tap; what is left,
  * failed, unreachable or still in flight, is named in a confirm and
- * discarded (owner decision 2, 2026-11-13). The worker's logout boundary
- * deletes the store too (src-sw.ts, sessionBoundaryHandler).
+ * discarded (owner decision 2, 2026-11-13). A deleted account's queued
+ * writes could never sync, so deletion asks the same. False when the person
+ * keeps them: nothing is posted.
  */
-async function signOut(form: HTMLFormElement, account: string): Promise<void> {
-  if ((await recordsOf(account)).length > 0) {
-    let waited: ReturnType<typeof setTimeout> | undefined;
-    const drained = await Promise.race([
-      schedule('sign-out').then(() => true),
-      new Promise<false>((resolve) => {
-        waited = setTimeout(() => resolve(false), SIGN_OUT_DRAIN_MS);
-      }),
-    ]);
-    clearTimeout(waited);
-    if (!drained) {
-      console.info(
-        `[outbox] sign-out: still syncing after ${SIGN_OUT_DRAIN_MS / 1000} s`,
-      );
-    }
-    const left = await recordsOf(account);
-    if (left.length > 0) {
-      if (!confirm(counted('Discard', left.length))) return;
-      await remove(left);
-      console.info(
-        `[outbox] ${left.length} unsynced change(s) discarded at sign-out`,
-      );
-    }
+async function drainBeforeLeaving(account: string): Promise<boolean> {
+  if ((await recordsOf(account)).length === 0) return true;
+  let waited: ReturnType<typeof setTimeout> | undefined;
+  const drained = await Promise.race([
+    schedule('sign-out').then(() => true),
+    new Promise<false>((resolve) => {
+      waited = setTimeout(() => resolve(false), SIGN_OUT_DRAIN_MS);
+    }),
+  ]);
+  clearTimeout(waited);
+  if (!drained) {
+    console.info(
+      `[outbox] sign-out: still syncing after ${SIGN_OUT_DRAIN_MS / 1000} s`,
+    );
   }
-  form.submit();
+  const left = await recordsOf(account);
+  if (left.length === 0) return true;
+  if (!confirm(counted('Discard', left.length))) return false;
+  await remove(left);
+  console.info(
+    `[outbox] ${left.length} unsynced change(s) discarded at sign-out`,
+  );
+  return true;
 }
 
-let signingOut = false;
-
+// Held in the capture phase, before the form's own confirm (deletion's),
+// submit-once.js and pwa.js see it, then resubmitted as it was (released):
+// the post then leaves like any other, its confirm asked, its buttons
+// disabled, and the worker told (data-ends-session, SESSION_ENDING).
 document.addEventListener(
   'submit',
   (event) => {
@@ -1004,18 +1009,25 @@ document.addEventListener(
     const account = pageAccount();
     if (
       !(form instanceof HTMLFormElement) ||
-      form.getAttribute('action') !== LOGOUT_PATH ||
+      !LEAVES_ACCOUNT.has(form.getAttribute('action') ?? '') ||
       !account
     ) {
       return;
     }
+    if (released.delete(form)) return;
     // Held while the store is read: what is queued is known only there.
     event.preventDefault();
-    if (signingOut) return;
-    signingOut = true;
-    void signOut(form, account).finally(() => {
-      signingOut = false;
-    });
+    event.stopPropagation();
+    if (deciding.has(form)) return;
+    deciding.add(form);
+    const submitter = event.submitter;
+    void drainBeforeLeaving(account)
+      .then((leave) => {
+        if (!leave) return;
+        released.add(form);
+        form.requestSubmit(submitter);
+      })
+      .finally(() => deciding.delete(form));
   },
   true,
 );
