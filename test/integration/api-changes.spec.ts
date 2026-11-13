@@ -688,6 +688,50 @@ describe('the cursor', () => {
     );
   });
 
+  it("is the user's it was answered to: another account's, or one naming no user, is expired, then the full sync is the caller's own (#617)", async () => {
+    const a = await account('changes-bound@example.com');
+    const b = await account('changes-switched@example.com');
+    await newGarment(a.device, 'Mine');
+    const own = await newGarment(b.device, 'Theirs');
+    const cursorOfA = (await syncAll(a.device, { limit: 100 })).cursor;
+    const fields = JSON.parse(
+      Buffer.from(cursorOfA, 'base64url').toString(),
+    ) as Record<string, unknown>;
+    const encoded = (json: Record<string, unknown>) =>
+      Buffer.from(JSON.stringify(json)).toString('base64url');
+    const unnamed = encoded({ ...fields, u: undefined });
+    // The device switched accounts: a's cursor, presented by b.
+    for (const [token, cursor] of [
+      [b.device, cursorOfA],
+      [b.device, unnamed],
+      [a.device, unnamed],
+    ]) {
+      expectProblem(
+        await api(token, 'GET', `/changes?cursor=${cursor}`),
+        410,
+        'cursor_expired',
+      );
+    }
+    expectProblem(
+      await api(
+        b.device,
+        'GET',
+        `/changes?cursor=${encoded({ ...fields, u: String(b.id) })}`,
+      ),
+      400,
+      'validation',
+    );
+
+    const fresh = await syncAll(b.device, { limit: 100 });
+    expect(changeKeys(fresh.pages)).toEqual([`garment:${own}`]);
+    expect(fresh.pages[0].snapshot).toEqual({ wardrobes: [b.id] });
+    // a's own cursor still reads.
+    expect(await changes(a.device, { cursor: cursorOfA })).toMatchObject({
+      changes: [],
+      more: false,
+    });
+  });
+
   it('is a 410 below sync_floor, or inside its deletions; at the floor, past it or fresh it is read', async () => {
     const a = await account('changes-floor@example.com');
     const kept = [

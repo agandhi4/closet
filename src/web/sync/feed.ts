@@ -285,6 +285,11 @@ export async function readChanges(
       `a cursor of coverage ${cursor.coverage}, not ${FEED_COVERAGE}`,
     );
   }
+  if (cursor && cursor.userId !== actor.userId) {
+    throw expired(
+      `a cursor answered to ${cursor.userId === null ? 'no named user' : `user ${cursor.userId}`}`,
+    );
+  }
   // A 410 mid-way restarts the full sync: the client syncs from no cursor.
   const fullSync = cursor === undefined || cursor.snapshot;
   return inFeedSnapshot(db, async (tx) => {
@@ -318,6 +323,7 @@ export async function readChanges(
         .map(itemOf),
       cursor: writeChangesCursor({
         ...nextCursor(reads, page.at(-1), items[limit]),
+        userId: actor.userId,
         snapshot: fullSync && more,
       }),
       more,
@@ -379,7 +385,7 @@ function nextCursor(
   reads: readonly WardrobeRead[],
   last: FeedItem | undefined,
   next: FeedItem | undefined,
-): Omit<ChangesCursor, 'snapshot'> {
+): Omit<ChangesCursor, 'snapshot' | 'userId'> {
   const nextRank = next
     ? reads.findIndex((read) => read.ownerId === next.ownerId)
     : reads.length;

@@ -121,7 +121,19 @@ export function ownersLockCte(
  * (`with ${ownerLockSql(db, id)}, ...`); its writes ask OWNER_LOCKED.
  */
 export function ownerLockSql(db: Queryable, ownerId: number): SQL {
-  return sql`${sql.identifier(OWNER_LOCK_CTE)} as (${ownerLockSelect(db, eq(user.id, ownerId)).getSQL()})`;
+  return ownerLockCteSql(db, eq(user.id, ownerId));
+}
+
+/**
+ * ownerLockSql for the owners a subquery names (ownersLockCte's one global
+ * order): the sync tombstone prune's batch (src/maintenance/sync-prune.ts).
+ */
+export function ownersLockSql(db: Queryable, ownerIds: SQL): SQL {
+  return ownerLockCteSql(db, sql`${user.id} in (${ownerIds})`);
+}
+
+function ownerLockCteSql(db: Queryable, which: SQL): SQL {
+  return sql`${sql.identifier(OWNER_LOCK_CTE)} as (${ownerLockSelect(db, which).getSQL()})`;
 }
 
 /** ownerLocked in SQL, for a statement that names the CTE ownerLockSql wrote. */

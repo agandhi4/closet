@@ -16,7 +16,7 @@ const ChangesQuery = Type.Object({
       maxLength: 4096,
       pattern: '^[A-Za-z0-9_-]+$',
       description:
-        "The previous page's `cursor`, as it was answered; absent: everything, from the start",
+        "The previous page's `cursor`, as it was answered to you; absent: everything, from the start",
     }),
   ),
   limit: ListLimit(CHANGES_PAGE_SIZE),
@@ -124,7 +124,7 @@ export const syncApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         tags: ['sync'],
         summary: 'What changed since your last sync',
         description:
-          "Rows and deletions after `cursor`, oldest first, across your wardrobe and each one shared with you (its garments and capsules only). Apply each page's deletions, then its changes, then keep its `cursor`; call again while `more`. A 410 `cursor_expired` means the feed no longer holds what the cursor needs: sync again from no cursor. A sync from no cursor is a full sync: its pages carry `snapshot`, and after its last one every synced row it did not send, and every wardrobe it did not list, is gone. The garment carries what is stored on it: a garment's wear counts and capsules are yours to derive from the wears and capsules.",
+          "Rows and deletions after `cursor`, oldest first, across your wardrobe and each one shared with you (its garments and capsules only). Apply each page's deletions, then its changes, then keep its `cursor`; call again while `more`. A 410 `cursor_expired` means the feed no longer holds what the cursor needs (a deletion older than 90 days was pruned), or the cursor was answered to another account (a device that switched accounts): sync again from no cursor. A sync from no cursor is a full sync: its pages carry `snapshot`, and after its last one every synced row it did not send, and every wardrobe it did not list, is gone. The garment carries what is stored on it: a garment's wear counts and capsules are yours to derive from the wears and capsules.",
         querystring: ChangesQuery,
         response: apiResponses({ 200: ChangesPage }),
       },

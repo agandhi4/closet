@@ -9,6 +9,7 @@ import { scheduleMinutely } from './maintenance/minutely';
 import { scheduleNightly } from './maintenance/nightly';
 import { reconcileStorage } from './maintenance/reconcile';
 import { type ScheduledJob, stopBeforeClose } from './maintenance/scheduled';
+import { pruneSyncTombstones } from './maintenance/sync-prune';
 import { addDays, todayIn } from './calendar-date';
 import { pruneReminders, sendDueReminders } from './web/push/reminders';
 import { pollOrderMail } from './web/wardrobe/order-mail/poll';
@@ -20,8 +21,8 @@ import {
   replanWeeks,
 } from './web/week-plan/replan';
 
-// The hour, in APP_TIMEZONE, of the nightly storage reconciliation and the
-// cutout retry.
+// The hour, in APP_TIMEZONE, of the nightly jobs: the storage
+// reconciliation, the cutout retry, the prunes.
 const RECONCILE_HOUR = 3;
 
 /**
@@ -84,6 +85,18 @@ export async function serve(
     );
   }
   jobs.push(startCutouts(config, logger, metrics, db, cutouts, runner));
+  // The changes feed's old deletions (src/maintenance/sync-prune.ts):
+  // database only, so with or without MAINTENANCE_ENABLED.
+  const sync = { db, logger: logger.child({ logger: 'Sync' }) };
+  jobs.push(
+    scheduleNightly({
+      name: 'Sync tombstone prune',
+      hour: RECONCILE_HOUR,
+      timeZone: config.APP_TIMEZONE,
+      run: metrics.timeJob('sync_prune', () => pruneSyncTombstones(sync)),
+      logger: sync.logger,
+    }),
+  );
   // One set of re-plan deps: the minutely run and the morning reminder's
   // re-plan first (src/web/push/reminders.ts) are the same re-plan.
   const replan: ReplanDeps = {
