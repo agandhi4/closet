@@ -170,30 +170,29 @@ export async function insertPhotoRow(
 }
 
 /**
- * Serializes every transaction that decides the fate of a stored name that
- * may have no row yet (a link import's pending photo: claimed by a garment
- * save, or discarded when another photo is picked). A row cannot be locked
- * before it exists, so the name itself is: a transaction-scoped advisory
- * lock, released at commit or rollback.
+ * The name's lock: serializes every transaction that decides the fate of a
+ * stored name that may have no row yet (a pending photo: claimed by a
+ * garment's or a look's save, or discarded). A row cannot be locked before
+ * it exists, so the name itself is: a transaction-scoped advisory lock,
+ * released at commit or rollback. Taken only behind an owner lock
+ * (lockOwnerAndPhotoName).
  */
-export async function lockPhotoName(
-  tx: Queryable,
-  fileName: string,
-): Promise<void> {
-  await tx.execute(sql`select ${photoNameLock(fileName)}`);
-}
-
 function photoNameLock(fileName: string): SQL<void> {
   return sql<void>`pg_advisory_xact_lock(hashtext(${`closet:photo:${fileName}`}))`;
 }
 
 /**
- * lockPhotoName for a save into `ownerId`'s wardrobe, behind the owner's
- * lock in the same statement (src/db/owner-lock.ts): the owner, then the
- * name, before the save claims the pending row. Account deletion locks the
- * owner before it deletes their pending rows, so a save holding the row
- * and waiting on the owner would deadlock with it. False when the owner is
- * gone (locked nothing).
+ * The name's lock (photoNameLock) behind `ownerId`'s owner lock in the
+ * same statement (src/db/owner-lock.ts): the owner, then the name, before
+ * a claim or a discard takes the pending row. The one way to lock a name,
+ * so every taker orders the two as account deletion does (the owner
+ * before their pending rows): one that held the row and then waited on
+ * the owner would deadlock with it, and one that never waited would save a
+ * `file` row the deletion's cascade drops without its bytes. False when
+ * the owner is gone (locked nothing): their pending rows went with them.
+ * Callers: createGarmentWithPendingPhoto and discardPendingPhoto
+ * (src/web/wardrobe/writes.ts), saveInspirationWithPendingPhoto
+ * (src/web/inspiration/queries.ts).
  */
 export async function lockOwnerAndPhotoName(
   tx: Queryable,

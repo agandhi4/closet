@@ -12,9 +12,8 @@ import {
   user,
   USER_EMAIL_UNIQUE,
 } from '../../db/schema';
-import { HttpError } from '../errors';
+import { OwnerLockTimeout } from '../errors';
 import { sharePermissionSql } from '../sharing/access';
-import { t } from '../i18n';
 import { type StoredPhoto, unkeyedPhoto } from '../files/image-variant';
 import { STORED_PHOTO_COLUMNS } from '../files/queries';
 import { revokeDevicesStatement } from '../push/queries';
@@ -337,35 +336,8 @@ export async function lockOwner(tx: Queryable, ownerId: number): Promise<void> {
  * above it. Any change here is verified with EXPLAIN (VERBOSE).
  */
 export function lockOwnerQuery(tx: Queryable, ownerId: number) {
-  const lock = ownerLockCte(tx, ownerId, `${OWNER_LOCK_TIMEOUT_MS}ms`);
+  const lock = ownerLockCte(tx, ownerId);
   return tx.with(lock).select({ id: lock.id }).from(lock);
-}
-
-/**
- * How long an owner transaction waits for any lock (the owner lock, or a
- * row lock under it) before it gives up: its `lock_timeout`. Behind a
- * stalled writer (a hung statement, a request stuck mid-transaction; the
- * pool's own timeouts end those, src/db/client.ts) a request fails fast
- * with OwnerLockTimeout instead of hanging with it.
- */
-export const OWNER_LOCK_TIMEOUT_MS = 5_000;
-
-/**
- * An owner transaction's lock wait ran past OWNER_LOCK_TIMEOUT_MS: a 503
- * asking to try again, logged with the owner and the writer. Nothing was
- * written (the transaction rolled back).
- */
-export class OwnerLockTimeout extends HttpError {
-  constructor(
-    readonly ownerId: number,
-    readonly writer: string,
-  ) {
-    super(503, t('WARDROBE_BUSY'), {
-      logDetail: `${writer} for owner ${ownerId} waited ${OWNER_LOCK_TIMEOUT_MS} ms for a lock`,
-      retryAfterSeconds: OWNER_LOCK_TIMEOUT_MS / 1000,
-    });
-    this.name = 'OwnerLockTimeout';
-  }
 }
 
 /**
@@ -428,7 +400,7 @@ export async function ownerTransaction<T>(
   } catch (error) {
     // The innermost ownerTransaction maps it; the callers pass it on.
     if (!(error instanceof OwnerLockTimeout) && isLockTimeout(error)) {
-      throw new OwnerLockTimeout(ownerId, writer);
+      throw new OwnerLockTimeout(writer, ownerId);
     }
     throw error;
   }

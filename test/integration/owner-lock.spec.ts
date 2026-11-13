@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Queryable } from '../../src/db/client';
 import {
   garment,
+  inspiration,
   outfit,
   outfitCalendar,
   outfitSlot,
@@ -60,8 +61,10 @@ import { insertPhotoRow } from '../../src/web/files/queries';
 import { readGarmentForm } from '../../src/web/wardrobe/garment-input';
 import {
   createGarmentWithPendingPhoto,
+  discardPendingPhoto,
   keepPendingPhoto,
 } from '../../src/web/wardrobe/writes';
+import { saveInspirationWithPendingPhoto } from '../../src/web/inspiration/queries';
 import { setWoreToday } from '../../src/web/wears/queries';
 import { saveWeekTemplate } from '../../src/web/week-plan/template';
 import { createGarment, jpegPhoto } from './garments';
@@ -775,7 +778,7 @@ describe('the owner lock', () => {
       expect(row).toEqual({ photoId: null });
     });
 
-    describe("a pending photo's save against its account's deletion", () => {
+    describe("a pending photo's taker against its account's deletion", () => {
       const deps = () => ({
         db: t.db,
         photos: t.photos,
@@ -804,75 +807,123 @@ describe('the owner lock', () => {
         return { saver, fileName };
       };
 
-      // The save holds the owner and the claimed row; the deletion waits on
-      // the owner, then deletes the account with the garment just saved.
-      it('a deletion that waited on a save deletes the account after it', async () => {
-        const { saver, fileName } = await saverWithPendingPhoto(
-          'save-first@example.com',
-        );
-        let written!: () => void;
-        const wrote = new Promise<void>((resolve) => (written = resolve));
+      /** Every taker of a pending row: each locks the owner, then the name (lockOwnerAndPhotoName). */
+      const takers: Record<
+        string,
+        (saver: number, fileName: string) => Promise<unknown>
+      > = {
+        "a garment's save": (saver, fileName) =>
+          createGarmentWithPendingPhoto(
+            deps(),
+            saver,
+            saver,
+            fields(),
+            fileName,
+            'closet',
+          ),
+        'a discard': (saver, fileName) =>
+          discardPendingPhoto(deps(), fileName, {
+            userId: saver,
+            ownerId: saver,
+          }),
+        "a look's save": async (saver, fileName) => {
+          const photo = await t.photos.pendingPhotoRow(fileName, saver);
+          if (!photo) throw new Error('the fixture photo must be stored');
+          return saveInspirationWithPendingPhoto(t.db, saver, photo, {
+            title: null,
+            sourceUrl: 'https://example.com/look',
+          });
+        },
+      };
+
+      /** A transaction holding `fileName`'s pending row until `release`. */
+      const holdPendingRow = async (fileName: string) => {
+        let held!: () => void;
+        const holding = new Promise<void>((resolve) => (held = resolve));
         let release!: () => void;
         const released = new Promise<void>((resolve) => (release = resolve));
-        const save = createGarmentWithPendingPhoto(
-          deps(),
-          saver,
-          saver,
-          fields(),
-          fileName,
-          'closet',
-          async () => {
-            written();
-            await released;
-          },
-        );
-        await Promise.race([wrote, save]);
-        const deletion = deleteAccount(
-          { db: t.db, photos: t.photos, logger: t.logger },
-          saver,
-        );
-        await expect.poll(lockWaiters).toBe(1);
-        release();
-        const [saved] = await Promise.all([save, deletion]);
-        expect(saved).toBeDefined();
-        expect(await t.db.$count(user, eq(user.id, saver))).toBe(0);
-      });
-
-      // deleteUserAndFileRows' order, held between its owner lock and its
-      // pending rows' delete: the save must wait on the owner, not claim
-      // the row and then wait on the owner (a deadlock, 40P01).
-      it('a save that waited on a deletion finds its photo gone, never a deadlock', async () => {
-        const { saver, fileName } = await saverWithPendingPhoto(
-          'delete-first@example.com',
-        );
-        let locked!: () => void;
-        const ownerHeld = new Promise<void>((resolve) => (locked = resolve));
-        let proceed!: () => void;
-        const go = new Promise<void>((resolve) => (proceed = resolve));
-        const deletion = t.db.transaction(async (tx) => {
-          await lockOwner(tx, saver);
-          locked();
-          await go;
-          return tx
-            .delete(pendingPhoto)
-            .where(eq(pendingPhoto.userId, saver))
-            .returning({ fileName: pendingPhoto.fileName });
+        const holder = t.db.transaction(async (tx) => {
+          await tx
+            .select({ fileName: pendingPhoto.fileName })
+            .from(pendingPhoto)
+            .where(eq(pendingPhoto.fileName, fileName))
+            .for('update');
+          held();
+          await released;
         });
-        await Promise.race([ownerHeld, deletion]);
-        const save = createGarmentWithPendingPhoto(
-          deps(),
-          saver,
-          saver,
-          fields(),
-          fileName,
-          'closet',
-        );
-        await expect.poll(lockWaiters).toBe(1);
-        proceed();
-        const [deleted, saved] = await Promise.all([deletion, save]);
-        expect(deleted).toEqual([{ fileName }]);
-        expect(saved).toBeUndefined();
-        expect(await t.db.$count(garment, eq(garment.ownerId, saver))).toBe(0);
+        await Promise.race([holding, holder]);
+        return {
+          release: () => {
+            release();
+            return holder;
+          },
+        };
+      };
+
+      describe.each(Object.entries(takers))('%s', (name, take) => {
+        const email = (order: string) =>
+          `${order}-${name.replace(/\W+/g, '-')}@example.com`;
+
+        // The taker holds the owner and the name, stopped at the row (a third
+        // transaction holds it); the deletion waits on the owner, not the
+        // row. Taking the row before the owner (lockPhotoName, then the
+        // garment's insert locking the owner) deadlocked here, 40P01.
+        it('a deletion that waited on it deletes the account after it', async () => {
+          const { saver, fileName } = await saverWithPendingPhoto(
+            email('take-first'),
+          );
+          const row = await holdPendingRow(fileName);
+          const taken = take(saver, fileName);
+          await expect.poll(lockWaiters).toBe(1);
+          const deletion = deleteAccount(
+            { db: t.db, photos: t.photos, logger: t.logger },
+            saver,
+          );
+          await expect.poll(lockWaiters).toBe(2);
+          await row.release();
+          const [answer] = await Promise.all([taken, deletion]);
+          expect(answer).toBeDefined();
+          expect(await t.db.$count(user, eq(user.id, saver))).toBe(0);
+          expect(
+            await t.db.$count(pendingPhoto, eq(pendingPhoto.userId, saver)),
+          ).toBe(0);
+        });
+
+        // deleteUserAndFileRows' order, held between its owner lock and its
+        // pending rows' delete: the taker must wait on the owner, not take
+        // the row first (a deadlock, or a look whose file row the
+        // deletion's cascade drops without its bytes).
+        it('waits on a deletion and finds its photo gone, never a deadlock', async () => {
+          const { saver, fileName } = await saverWithPendingPhoto(
+            email('delete-first'),
+          );
+          let locked!: () => void;
+          const ownerHeld = new Promise<void>((resolve) => (locked = resolve));
+          let proceed!: () => void;
+          const go = new Promise<void>((resolve) => (proceed = resolve));
+          const deletion = t.db.transaction(async (tx) => {
+            await lockOwner(tx, saver);
+            locked();
+            await go;
+            return tx
+              .delete(pendingPhoto)
+              .where(eq(pendingPhoto.userId, saver))
+              .returning({ fileName: pendingPhoto.fileName });
+          });
+          await Promise.race([ownerHeld, deletion]);
+          const taken = take(saver, fileName);
+          await expect.poll(lockWaiters).toBe(1);
+          proceed();
+          const [deleted, answer] = await Promise.all([deletion, taken]);
+          expect(deleted).toEqual([{ fileName }]);
+          expect(answer).toBeUndefined();
+          expect(await t.db.$count(garment, eq(garment.ownerId, saver))).toBe(
+            0,
+          );
+          expect(
+            await t.db.$count(inspiration, eq(inspiration.ownerId, saver)),
+          ).toBe(0);
+        });
       });
     });
   });

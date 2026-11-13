@@ -20,7 +20,7 @@ import { user } from './schema';
  * **The mark is set only once the row is locked.** The inner select locks;
  * the outer select's set_config runs above its LockRows node, over the row
  * LockRows returned, so a wait that times out (and a savepoint that rolls
- * back and is caught) leaves no mark without the lock. lockTimeout's
+ * back and is caught) leaves no mark without the lock. The lock timeout's
  * set_config is the opposite: it must bound the wait, so it sits in the
  * inner scan's select list, computed below LockRows before the wait
  * (owner-lock.spec.ts EXPLAINs both).
@@ -36,22 +36,32 @@ export const LOCKED_OWNERS_SETTING = 'closet.locked_owners';
 const OWNER_LOCK_CTE = 'owner_lock';
 
 /**
+ * How long a transaction that took an owner lock waits for any lock (the
+ * owner lock, or a row lock after it) before it gives up: its
+ * `lock_timeout`. Behind a stalled writer (a hung statement, a request
+ * stuck mid-transaction; the pool's own timeouts end those,
+ * src/db/client.ts) a writer fails fast with 55P03, which the web layer
+ * answers as OwnerLockTimeout's 503 (src/web/errors.tsx).
+ */
+export const OWNER_LOCK_TIMEOUT_MS = 5_000;
+
+/**
  * The lock as a select: a row (`id`) per owner `which` names that exists,
  * locked in id order (two lockers of several owners never deadlock) and
- * marked. `lockTimeout` ('5000ms') bounds every lock wait from this
- * statement to the transaction's end (SET LOCAL); without it the waits keep
- * the pool's statement_timeout, as the folded writers' did before #196a.
+ * marked. Every form of the lock (lockOwner's statement and each folded
+ * one) bounds every lock wait from this statement to the transaction's end
+ * by OWNER_LOCK_TIMEOUT_MS (SET LOCAL): a folded writer waits on the same
+ * holders lockOwner's do (planMyWeek, the re-plan, deleteOutfit), so it
+ * gets the same 503, not a 500 at statement_timeout (PR #537).
  */
-function ownerLockSelect(db: Queryable, which: SQL, lockTimeout?: string) {
+function ownerLockSelect(db: Queryable, which: SQL) {
   const locked = db
     .select({
       id: user.id,
-      ...(lockTimeout !== undefined && {
-        lockTimeout:
-          sql<string>`set_config('lock_timeout', ${lockTimeout}, true)`.as(
-            'lock_timeout',
-          ),
-      }),
+      lockTimeout:
+        sql<string>`set_config('lock_timeout', ${`${OWNER_LOCK_TIMEOUT_MS}ms`}, true)`.as(
+          'lock_timeout',
+        ),
     })
     .from(user)
     .where(which)
@@ -72,14 +82,8 @@ function ownerLockSelect(db: Queryable, which: SQL, lockTimeout?: string) {
 }
 
 /** `owner_lock` (ownerLockSelect) as a query builder's CTE: `db.with(lock)`. */
-export function ownerLockCte(
-  db: Queryable,
-  ownerId: number,
-  lockTimeout?: string,
-) {
-  return db
-    .$with(OWNER_LOCK_CTE)
-    .as(ownerLockSelect(db, eq(user.id, ownerId), lockTimeout));
+export function ownerLockCte(db: Queryable, ownerId: number) {
+  return db.$with(OWNER_LOCK_CTE).as(ownerLockSelect(db, eq(user.id, ownerId)));
 }
 
 /**
