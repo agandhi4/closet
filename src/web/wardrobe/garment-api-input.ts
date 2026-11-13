@@ -42,7 +42,7 @@ import {
 } from './garment-input';
 import { OWNED_STATUSES } from './garment-actions';
 import type { BulkChange, TagBody } from './grid-schemas';
-import { LINK_INPUT_MAX } from './link-import/import';
+import { LINK_INPUT_MAX } from './link-import/link-text';
 import type { RepairField } from './repairs';
 import type { RotateDirection } from './writes';
 

@@ -96,7 +96,8 @@ import {
 } from './garment-resource';
 import { searchFilters } from './garment-search';
 import { GRID_PAGE_SIZE } from './grid-page-size';
-import { linkIn, REFUSALS } from './link-import/import';
+import { REFUSALS } from './link-import/import';
+import { linkIn } from './link-import/link-text';
 import { saveGarmentFromLink } from './link-import/save';
 import { bulkSetProperty } from './queries';
 import { readRepairForm, RepairParams } from './repairs';
