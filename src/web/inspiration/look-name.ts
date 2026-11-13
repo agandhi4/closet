@@ -11,7 +11,9 @@ export function linkHost(sourceUrl: string): string {
 }
 
 /** What a look is called: its title, else its link's site, else "Untitled look". */
-export function lookName(look: InspirationSummary): string {
+export function lookName(
+  look: Pick<InspirationSummary, 'title' | 'sourceUrl'>,
+): string {
   if (look.title) return look.title;
   if (look.sourceUrl) return linkHost(look.sourceUrl);
   return t('inspiration.UNTITLED');

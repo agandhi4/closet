@@ -52,3 +52,23 @@ export const LOOK_PIECES_ID = 'look-pieces';
 export function recreateLookUrl(id: number): string {
   return `${INSPIRATION_PATH}/${id}/recreate`;
 }
+
+/** "Save as outfit": the match view's form, posting every piece's choice. */
+export function saveRecreationPath(id: number): string {
+  return `${recreateLookUrl(id)}/outfit`;
+}
+
+/** "Find this": a missing piece to the wishlist. */
+export function findPiecePath(id: number, position: number): string {
+  return `${inspirationPiecePath(id, position)}/find`;
+}
+
+/** A piece's heading on the match view, where "Find this" lands. */
+export function recreatePieceId(position: number): string {
+  return `recreate-piece-${position}`;
+}
+
+/** The match view at one piece. */
+export function recreatePieceUrl(id: number, position: number): string {
+  return `${recreateLookUrl(id)}#${recreatePieceId(position)}`;
+}

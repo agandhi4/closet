@@ -159,6 +159,7 @@ const ADDRESS: Fixture = {
   inspirationId: 150,
   inspirationTitle: 'Inspo',
   inspirationFileName: 'look.webp',
+  inspirationTeeId: 151,
   ownerId: 1,
   tripId: 110,
   tripName: 'Trip',

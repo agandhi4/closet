@@ -156,6 +156,8 @@ export interface Fixture {
   inspirationId: number;
   inspirationTitle: string;
   inspirationFileName: string;
+  /** A closet tee of the owner's, a match of the look's one piece (a white tee): what its save chooses (#22c). */
+  inspirationTeeId: number;
   /** The owner's id. */
   ownerId: number;
   /**
@@ -672,6 +674,12 @@ export function describeMatrix(
         headers: { cookie, 'hx-request': 'true' },
       });
       expect(named.statusCode).toBe(200);
+      // A white tee of the closet, the piece's match (#22c's save).
+      const inspirationTeeId = await createGarment(t, {
+        name: `Tee ${tag}`,
+        category: 'tops',
+        cookie,
+      });
       // One piece read in it (#22b), at position 0.
       const tagged = await t.inject({
         method: 'POST',
@@ -796,6 +804,7 @@ export function describeMatrix(
         inspirationId: look.id,
         inspirationTitle,
         inspirationFileName: look.fileName,
+        inspirationTeeId,
         today,
         ownerId: t.owner.id,
         tripId,

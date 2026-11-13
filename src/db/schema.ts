@@ -1310,8 +1310,9 @@ export const inspiration = pgTable(
 // What the owner read in a look, one row per piece in the look's order
 // (#22): a role, the garment type, up to two colours and a pattern, the
 // value sets of src/wardrobe/properties.ts (checked here, like outfit_rule's
-// matchers). `matched_garment_id` is the closet garment the owner chose for
-// it; deleting that garment empties the match, never the piece.
+// matchers). `matched_garment_id` is the garment the owner chose for it: the
+// closet garment its outfit was saved with, or the wishlist item "Find this"
+// made (#22c); deleting that garment empties the match, never the piece.
 export const inspirationPiece = pgTable(
   'inspiration_piece',
   {

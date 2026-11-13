@@ -3,12 +3,13 @@ import type { IsoDate } from '../../calendar-date';
 import { initialCutoutState } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { selectScalars } from '../../db/select-scalars';
-import { file, inspiration, inspirationPiece } from '../../db/schema';
+import { file, garment, inspiration, inspirationPiece } from '../../db/schema';
 import type {
   GarmentColor,
   InspirationPieceRole,
   Pattern,
 } from '../../wardrobe/properties';
+import type { GarmentStatus } from '../../wardrobe/status';
 import type { LookPiece } from '../../wardrobe/recreate';
 import type { PrivatePhoto } from '../files/image-url';
 import {
@@ -25,6 +26,9 @@ import {
 } from '../files/queries';
 import { HttpError } from '../errors';
 import { NotFound } from '../refusals';
+import { insertGarment } from '../wardrobe/queries';
+import { onWishlist } from '../wardrobe/status';
+import { wishlistFieldsOf } from './piece-wishlist';
 
 /**
  * Saved looks (#22; docs/plans/2026-11-13-inspiration-library.md): the
@@ -33,7 +37,8 @@ import { NotFound } from '../refusals';
  * NotFound like an unknown id. The one writer of `inspiration` is here
  * (saveInspiration, saveInspirationWithPendingPhoto, setInspirationPhoto,
  * updateInspirationText, deleteInspiration), and of `inspiration_piece`
- * (addInspirationPiece, updateInspirationPiece, deleteInspirationPiece);
+ * (addInspirationPiece, updateInspirationPiece, deleteInspirationPiece,
+ * and the match view's recordPieceChoices and setPieceMatch, #22c);
  * the bytes are Photos', stored before and unlinked after by the callers
  * (writes.ts, the commit contract).
  */
@@ -55,6 +60,20 @@ export interface InspirationSummary {
 /** A piece of a look as the owner read it, at its place in the look. */
 export interface StoredPiece extends LookPiece {
   position: number;
+  /**
+   * The garment chosen for it (matched_garment_id): the closet garment its
+   * outfit was saved with, or the wishlist item "Find this" made for it.
+   * Null when none is.
+   */
+  matched: MatchedGarment | null;
+}
+
+/** A piece's chosen garment as the match view draws it. */
+export interface MatchedGarment {
+  id: number;
+  name: string | null;
+  category: string;
+  status: GarmentStatus;
 }
 
 /** The most pieces a look holds: an outfit's worth, with room for accessories. */
@@ -114,6 +133,7 @@ type PieceJson = [
   type: string | null,
   colors: GarmentColor[],
   pattern: Pattern | null,
+  matched: MatchedGarment | null,
 ];
 
 interface LookJson {
@@ -144,9 +164,17 @@ function lookJsonSql(id: number, ownerId: number): SQL<LookJson | null> {
         select coalesce(json_agg(json_build_array(
           ${inspirationPiece.position}, ${inspirationPiece.role},
           ${inspirationPiece.type}, ${inspirationPiece.colors},
-          ${inspirationPiece.pattern}
+          ${inspirationPiece.pattern},
+          case when ${garment.id} is not null then json_build_object(
+            'id', ${garment.id}, 'name', ${garment.name},
+            'category', ${garment.category}, 'status', ${garment.status}
+          ) end
         ) order by ${inspirationPiece.position}), '[]')
         from ${inspirationPiece}
+        left join ${garment} on ${and(
+          eq(garment.id, inspirationPiece.matchedGarmentId),
+          eq(garment.ownerId, inspiration.ownerId),
+        )}
         where ${eq(inspirationPiece.inspirationId, inspiration.id)}
       )
     )
@@ -162,12 +190,13 @@ function readLook(json: LookJson | null): InspirationDetail {
   return {
     ...look,
     photo: photoOf({ fileName, version }),
-    pieces: pieces.map(([position, role, type, colors, pattern]) => ({
+    pieces: pieces.map(([position, role, type, colors, pattern, matched]) => ({
       position,
       role,
       type,
       colors,
       pattern,
+      matched,
     })),
   };
 }
@@ -466,4 +495,214 @@ export async function deleteInspirationPiece(
     .where(ownPiece(id, position, ownerId))
     .returning({ position: inspirationPiece.position });
   if (deleted.length === 0) throw new NotFound('inspirationPiece');
+}
+
+/** A look locked for its match view's save (lockLookForSave). */
+export interface LookToSave {
+  title: string | null;
+  /** Each piece's role, by its position. */
+  roles: Map<number, InspirationPieceRole>;
+}
+
+/**
+ * The owner's look `id`, its row locked, with its pieces' roles: what the
+ * match view's save checks its choices against. One statement; NotFound
+ * when the look is not theirs. The lock is the one a piece's add takes, so
+ * the pieces read are the ones the save records against.
+ */
+export async function lockLookForSave(
+  q: Queryable,
+  id: number,
+  ownerId: number,
+): Promise<LookToSave> {
+  const rows = await q
+    .select({
+      title: inspiration.title,
+      position: inspirationPiece.position,
+      role: inspirationPiece.role,
+    })
+    .from(inspiration)
+    .leftJoin(
+      inspirationPiece,
+      eq(inspirationPiece.inspirationId, inspiration.id),
+    )
+    .where(and(eq(inspiration.id, id), eq(inspiration.ownerId, ownerId)))
+    .for('update', { of: inspiration });
+  const [first] = rows;
+  if (!first) throw new NotFound('inspiration');
+  const roles = new Map<number, InspirationPieceRole>();
+  for (const { position, role } of rows) {
+    if (position !== null && role !== null) roles.set(position, role);
+  }
+  return { title: first.title, roles };
+}
+
+/** The garment the owner chose for the piece at `position` (null: none), and the category a match of it has. */
+export interface PieceChoice {
+  position: number;
+  garmentId: number | null;
+  category: string;
+}
+
+/**
+ * Records the owner's choices on their look `id` (locked by
+ * lockLookForSave) in one statement: each piece's matched_garment_id, a
+ * garment stored only when it is the owner's and of the piece's category
+ * (pieceCategory), checked in the update itself. Answers how many pieces
+ * it wrote: fewer than `choices` when a piece is gone or a garment is not
+ * one a match of it could be, for the caller to refuse the save whole.
+ */
+export async function recordPieceChoices(
+  q: Queryable,
+  id: number,
+  ownerId: number,
+  choices: readonly PieceChoice[],
+): Promise<number> {
+  if (choices.length === 0) return 0;
+  const values = sql.join(
+    choices.map(
+      (c) =>
+        sql`(${c.position}::int, ${c.garmentId}::int, ${c.category}::text)`,
+    ),
+    sql`, `,
+  );
+  const { rows } = await q.execute<{ position: number }>(sql`
+    update ${inspirationPiece} set matched_garment_id = choice.garment_id
+    from (values ${values}) as choice (position, garment_id, category)
+    where ${inspirationPiece.inspirationId} = ${id}::int
+      and ${inspirationPiece.position} = choice.position
+      and (choice.garment_id is null or exists (
+        select 1 from ${garment}
+        where ${garment.id} = choice.garment_id
+          and ${garment.ownerId} = ${ownerId}::int
+          and ${garment.category} = choice.category
+      ))
+    returning ${inspirationPiece.position}`);
+  return rows.length;
+}
+
+/** A piece "Find this" turns into a wishlist item, with the look it is from. */
+interface PieceToFind extends LookPiece {
+  matchedGarmentId: number | null;
+  look: Pick<InspirationSummary, 'title' | 'sourceUrl'>;
+}
+
+/**
+ * The piece at `position` of the owner's look `id`, its row locked
+ * (FOR UPDATE), so two "Find this" of one piece take turns and the second
+ * reads the first's wishlist item; NotFound when it is not a piece of one
+ * of their looks.
+ */
+async function lockPieceToFind(
+  q: Queryable,
+  id: number,
+  position: number,
+  ownerId: number,
+): Promise<PieceToFind> {
+  const [row] = await q
+    .select({
+      role: inspirationPiece.role,
+      type: inspirationPiece.type,
+      colors: inspirationPiece.colors,
+      pattern: inspirationPiece.pattern,
+      matchedGarmentId: inspirationPiece.matchedGarmentId,
+      title: inspiration.title,
+      sourceUrl: inspiration.sourceUrl,
+    })
+    .from(inspirationPiece)
+    .innerJoin(inspiration, eq(inspiration.id, inspirationPiece.inspirationId))
+    .where(
+      and(
+        eq(inspirationPiece.inspirationId, id),
+        eq(inspirationPiece.position, position),
+        eq(inspiration.ownerId, ownerId),
+      ),
+    )
+    .for('update', { of: inspirationPiece });
+  if (!row) throw new NotFound('inspirationPiece');
+  const { title, sourceUrl, ...piece } = row;
+  return { ...piece, look: { title, sourceUrl } };
+}
+
+/**
+ * Whether `garmentId` is on the owner's wishlist. Its own statement after
+ * lockPieceToFind's lock, so it sees a wishlist item the piece's previous
+ * holder committed while this one waited (a statement's snapshot is taken
+ * when it starts).
+ */
+async function isOwnWishlistItem(
+  q: Queryable,
+  garmentId: number,
+  ownerId: number,
+): Promise<boolean> {
+  const [row] = await q
+    .select({ id: garment.id })
+    .from(garment)
+    .where(
+      and(
+        eq(garment.id, garmentId),
+        eq(garment.ownerId, ownerId),
+        onWishlist(),
+      ),
+    );
+  return row !== undefined;
+}
+
+/** Points the (locked, lockPieceToFind) piece at the garment chosen for it. */
+async function setPieceMatch(
+  q: Queryable,
+  id: number,
+  position: number,
+  garmentId: number,
+): Promise<void> {
+  await q
+    .update(inspirationPiece)
+    .set({ matchedGarmentId: garmentId })
+    .where(
+      and(
+        eq(inspirationPiece.inspirationId, id),
+        eq(inspirationPiece.position, position),
+      ),
+    );
+}
+
+/** What "Find this" answers: the piece's wishlist item, and whether this tap made it. */
+export interface FoundPiece {
+  garmentId: number;
+  created: boolean;
+}
+
+/**
+ * "Find this": a wishlist item of the owner's for the piece at `position`
+ * of their look `id`, recorded as the piece's match, in one transaction.
+ * The piece's row is locked first, so a double tap makes one item: the
+ * second finds the piece's match on the wishlist and answers it
+ * (`created: false`). The item is an ordinary wishlist garment
+ * (insertGarment, status `wishlist`), so it lands in the inbox and "Goes
+ * with my closet" judges it; a piece whose match is a closet garment (one
+ * archived since, say) gets one too. NotFound when the piece is not one of
+ * the owner's.
+ */
+export function addPieceToWishlist(
+  db: Db,
+  ownerId: number,
+  id: number,
+  position: number,
+): Promise<FoundPiece> {
+  return db.transaction(async (tx) => {
+    const piece = await lockPieceToFind(tx, id, position, ownerId);
+    const matched = piece.matchedGarmentId;
+    if (matched !== null && (await isOwnWishlistItem(tx, matched, ownerId))) {
+      return { garmentId: matched, created: false };
+    }
+    const garmentId = await insertGarment(
+      tx,
+      ownerId,
+      wishlistFieldsOf(piece, piece.look),
+      null,
+      'wishlist',
+    );
+    await setPieceMatch(tx, id, position, garmentId);
+    return { garmentId, created: true };
+  });
 }

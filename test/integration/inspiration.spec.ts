@@ -1,11 +1,14 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { readdir, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   file,
+  garment,
   inspiration,
   inspirationPiece,
+  outfit,
+  outfitSlot,
   pendingPhoto,
 } from '../../src/db/schema';
 import { reconcileStorage } from '../../src/maintenance/reconcile';
@@ -34,11 +37,11 @@ import { silentLogger } from './logger';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Saved looks (#22, slices 22a and 22b): adding one from a photo or a
+ * Saved looks (#22, slices 22a to 22c): adding one from a photo or a
  * pasted link, its page's title and note, its photo added, replaced and
  * deleted with it, the photo's references (private like a selfie's; never
- * an orphan to reconciliation), its pieces tagged, and "Recreate this
- * look" over the closet. Who may reach them is the authorization matrix's
+ * an orphan to reconciliation), its pieces tagged, "Recreate this look"
+ * over the closet, saving it as an outfit and "Find this". Who may reach them is the authorization matrix's
  * (authorization-outfits.routes.ts); the matching's rules are
  * src/wardrobe/recreate.spec.ts'.
  */
@@ -336,6 +339,87 @@ describe('inspiration', () => {
   /** A hint's own post: its hidden kind (the select's options are <option>s). */
   const hintFor = (kind: string) => `type="hidden" name="kind" value="${kind}"`;
 
+  /** A garment of the owner's `cookie`, posted through the garment form. */
+  const wear = async (
+    cookie: string,
+    name: string,
+    category: string,
+    type: string,
+    color: string,
+  ) => {
+    const res = await t.inject({
+      method: 'POST',
+      url: '/wardrobe',
+      payload: { name, category, props: '1', type, color: [color] },
+      headers: { cookie },
+    });
+    expect(res.statusCode).toBe(302);
+    return Number(
+      /^\/wardrobe\/(\d+)\?/.exec(String(res.headers.location))![1],
+    );
+  };
+
+  /**
+   * A closet (a navy blazer, a black jacket, a white and a grey tee) and a
+   * look titled `title` with three pieces: a blue blazer, a white tee and
+   * white sneakers, which the closet has nothing close to.
+   */
+  const closetAndLook = async (cookie: string, title = 'Navy and white') => {
+    const navyBlazer = await wear(
+      cookie,
+      'Navy blazer',
+      'outerwear',
+      'blazer',
+      'blue',
+    );
+    const blackJacket = await wear(
+      cookie,
+      'Black jacket',
+      'outerwear',
+      'jacket',
+      'black',
+    );
+    const whiteTee = await wear(
+      cookie,
+      'White tee',
+      'tops',
+      't-shirt',
+      'white',
+    );
+    const greyTee = await wear(cookie, 'Grey tee', 'tops', 't-shirt', 'grey');
+    const { id } = await addLook(t, photo, cookie);
+    const named = await t.inject({
+      method: 'POST',
+      url: `/inspiration/${id}`,
+      payload: { title, note: '' },
+      headers: { cookie, 'hx-request': 'true' },
+    });
+    expect(named.statusCode).toBe(200);
+    for (const payload of [
+      piece('layer/blazer', 'blue'),
+      piece('top/t-shirt', 'white'),
+      piece('footwear/sneakers', 'white', '', 'solid'),
+    ]) {
+      const res = await t.inject({
+        method: 'POST',
+        url: `/inspiration/${id}/pieces`,
+        payload,
+        headers: { cookie },
+      });
+      expect(res.statusCode).toBe(303);
+    }
+    return { id, navyBlazer, blackJacket, whiteTee, greyTee };
+  };
+
+  const matchedOf = async (id: number) =>
+    (
+      await t.db
+        .select({ matched: inspirationPiece.matchedGarmentId })
+        .from(inspirationPiece)
+        .where(eq(inspirationPiece.inspirationId, id))
+        .orderBy(inspirationPiece.position)
+    ).map((row) => row.matched);
+
   it('tags a look: the hints from its title, the add form, a change saved, a removal; a bad value is a 400', async () => {
     const id = lookIdOf(
       (await pasteLink(sites.url('/lookbook'))).headers.location,
@@ -472,50 +556,12 @@ describe('inspiration', () => {
 
   it('recreates a look from the owner’s closet in one statement: the closest first, the alternates, the missing', async () => {
     const cookie = await t.register('recreator@example.com');
-    const wear = async (
-      name: string,
-      category: string,
-      type: string,
-      color: string,
-    ) => {
-      const res = await t.inject({
-        method: 'POST',
-        url: '/wardrobe',
-        payload: { name, category, props: '1', type, color: [color] },
-        headers: { cookie },
-      });
-      expect(res.statusCode).toBe(302);
-      return Number(
-        /^\/wardrobe\/(\d+)\?/.exec(String(res.headers.location))![1],
-      );
-    };
     const othersTee = await createGarment(t, {
       name: 'Their tee',
       category: 'tops',
     });
-    const navyBlazer = await wear('Navy blazer', 'outerwear', 'blazer', 'blue');
-    const blackJacket = await wear(
-      'Black jacket',
-      'outerwear',
-      'jacket',
-      'black',
-    );
-    const whiteTee = await wear('White tee', 'tops', 't-shirt', 'white');
-    const greyTee = await wear('Grey tee', 'tops', 't-shirt', 'grey');
-    const { id } = await addLook(t, photo, cookie);
-    for (const payload of [
-      piece('layer/blazer', 'blue'),
-      piece('top/t-shirt', 'white'),
-      piece('footwear/sneakers', 'white'),
-    ]) {
-      const res = await t.inject({
-        method: 'POST',
-        url: `/inspiration/${id}/pieces`,
-        payload,
-        headers: { cookie },
-      });
-      expect(res.statusCode).toBe(303);
-    }
+    const { id, navyBlazer, blackJacket, whiteTee, greyTee } =
+      await closetAndLook(cookie);
 
     let res!: Awaited<ReturnType<typeof t.inject>>;
     const { statements } = await recordQueries(async () => {
@@ -548,6 +594,200 @@ describe('inspiration', () => {
     );
     // The owner's closet only: another user's white tee never shows.
     expect(body).not.toContain(`data-match="${othersTee}"`);
+  });
+
+  it('saves the chosen garments as an outfit named after the look, recording each choice; the same save twice is one outfit', async () => {
+    const cookie = await t.register('look-saver@example.com');
+    const { id, blackJacket } = await closetAndLook(cookie, 'Jacket weather');
+    const save = (payload: Record<string, unknown>) =>
+      t.inject({
+        method: 'POST',
+        url: `/inspiration/${id}/recreate/outfit`,
+        payload,
+        headers: { cookie },
+      });
+
+    // The alternate jacket for the blazer, None for the tee.
+    let res!: Awaited<ReturnType<typeof t.inject>>;
+    const { statements } = await recordQueries(async () => {
+      res = await save({
+        position: ['0', '1'],
+        garment: [String(blackJacket), ''],
+      });
+    });
+    expect(res.statusCode, res.body).toBe(303);
+    // The session, begin, the owner lock, the look locked with its pieces,
+    // the garments locked (with the outfit they already are), the outfit
+    // and its slots, the choices recorded, commit.
+    expect(statements).toBe(9);
+    const outfitId = Number(
+      /^\/outfits\/(\d+)$/.exec(String(res.headers.location))?.[1],
+    );
+    expect(outfitId).toBeGreaterThan(0);
+    const [saved] = await t.db
+      .select()
+      .from(outfit)
+      .where(eq(outfit.id, outfitId));
+    expect(saved.name).toBe('Jacket weather');
+    const slots = await t.db
+      .select({ garmentId: outfitSlot.garmentId })
+      .from(outfitSlot)
+      .where(eq(outfitSlot.outfitId, outfitId));
+    expect(slots).toEqual([{ garmentId: blackJacket }]);
+    expect(await matchedOf(id)).toEqual([blackJacket, null, null]);
+    expect(t.logs.messages('info')).toContainEqual(
+      `Inspiration ${id} saved as outfit ${outfitId} by user ${await userIdOf(t, 'look-saver@example.com')} with 1 garment(s)`,
+    );
+
+    // The page centres the choice made, not the closest.
+    const page = unescapeHtml(
+      (
+        await t.inject({
+          method: 'GET',
+          url: `/inspiration/${id}/recreate`,
+          headers: { cookie },
+        })
+      ).body,
+    );
+    expect(page).toContain(`name="garment" value="${blackJacket}"`);
+    expect(page).toMatch(
+      new RegExp(`data-snap-value="${blackJacket}"[^>]*data-selected=""`),
+    );
+    expect(page).toContain(text('inspiration.SAVE_OUTFIT'));
+
+    // A double tap: the outfit the first made, nothing created.
+    const again = await save({
+      position: ['0', '1'],
+      garment: [String(blackJacket), ''],
+    });
+    expect(again.headers.location).toBe(`/outfits/${outfitId}?alreadySaved=1`);
+    expect(
+      await t.db.$count(
+        outfit,
+        eq(outfit.ownerId, await userIdOf(t, 'look-saver@example.com')),
+      ),
+    ).toBe(1);
+  });
+
+  it('refuses a save whole: nothing chosen, a choice of another kind or for no piece, another user’s garment, a malformed post', async () => {
+    const cookie = await t.register('look-refused@example.com');
+    const userId = await userIdOf(t, 'look-refused@example.com');
+    const { id, navyBlazer, whiteTee } = await closetAndLook(cookie);
+    const othersTee = await createGarment(t, {
+      name: 'Their tee',
+      category: 'tops',
+    });
+    const save = (payload: Record<string, unknown>) =>
+      t.inject({
+        method: 'POST',
+        url: `/inspiration/${id}/recreate/outfit`,
+        payload,
+        headers: { cookie },
+      });
+    for (const [payload, status] of [
+      [{ position: ['0', '1'], garment: ['', ''] }, 400],
+      [{ position: ['0', '1'], garment: [String(navyBlazer)] }, 400],
+      [
+        {
+          position: ['0', '0'],
+          garment: [String(navyBlazer), String(navyBlazer)],
+        },
+        400,
+      ],
+      [{ position: '0', garment: 'blazer' }, 400],
+      // The tee is not a layer, and the look has no piece 7: the page is stale.
+      [{ position: ['0'], garment: [String(whiteTee)] }, 409],
+      [{ position: ['7'], garment: [String(navyBlazer)] }, 409],
+      [{ position: ['1'], garment: [String(othersTee)] }, 404],
+    ] as const) {
+      const res = await save(payload);
+      expect(res.statusCode, JSON.stringify(payload)).toBe(status);
+    }
+    expect(await t.db.$count(outfit, eq(outfit.ownerId, userId))).toBe(0);
+    expect(await matchedOf(id)).toEqual([null, null, null]);
+  });
+
+  it('finds a missing piece: one wishlist item with its kind and colours, noting the look, shown on the match view; a double tap makes one', async () => {
+    const cookie = await t.register('look-finder@example.com');
+    const userId = await userIdOf(t, 'look-finder@example.com');
+    const { id } = await closetAndLook(cookie, 'Summer whites');
+    const find = () =>
+      t.inject({
+        method: 'POST',
+        url: `/inspiration/${id}/pieces/2/find`,
+        headers: { cookie },
+      });
+
+    const before = unescapeHtml(
+      (
+        await t.inject({
+          method: 'GET',
+          url: `/inspiration/${id}/recreate`,
+          headers: { cookie },
+        })
+      ).body,
+    );
+    expect(before).toContain(`formaction="/inspiration/${id}/pieces/2/find"`);
+
+    let res!: Awaited<ReturnType<typeof t.inject>>;
+    const { statements } = await recordQueries(async () => {
+      res = await find();
+    });
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe(
+      `/inspiration/${id}/recreate#recreate-piece-2`,
+    );
+    // The session, begin, the piece locked, the item, the piece's match, commit.
+    expect(statements).toBe(6);
+    const items = await t.db
+      .select()
+      .from(garment)
+      .where(and(eq(garment.ownerId, userId), eq(garment.status, 'wishlist')));
+    expect(items).toHaveLength(1);
+    const [item] = items;
+    expect(item).toMatchObject({
+      name: text('property.type.sneakers'),
+      category: 'footwear',
+      type: 'sneakers',
+      colors: ['white'],
+      // Footwear has no pattern.
+      pattern: null,
+      sourceUrl: null,
+      notes: text('inspiration.FOUND_NOTE', { look: 'Summer whites' }),
+    });
+    expect(await matchedOf(id)).toEqual([null, null, item.id]);
+
+    const after = unescapeHtml(
+      (
+        await t.inject({
+          method: 'GET',
+          url: `/inspiration/${id}/recreate`,
+          headers: { cookie },
+        })
+      ).body,
+    );
+    expect(after).toContain(`data-wishlisted="${item.id}"`);
+    expect(after).toContain(text('inspiration.ON_WISHLIST'));
+    expect(after).not.toContain(`/inspiration/${id}/pieces/2/find`);
+
+    // A second tap (submit-once is the client's guard): the same item.
+    expect((await find()).statusCode).toBe(303);
+    expect(
+      await t.db.$count(
+        garment,
+        and(eq(garment.ownerId, userId), eq(garment.status, 'wishlist')),
+      ),
+    ).toBe(1);
+    expect(t.logs.messages('info')).toContainEqual(
+      `Inspiration ${id} piece 2 already on the wishlist of user ${userId} as garment ${item.id}, nothing created`,
+    );
+    // An unknown piece is a 404, writing nothing.
+    const unknown = await t.inject({
+      method: 'POST',
+      url: `/inspiration/${id}/pieces/9/find`,
+      headers: { cookie },
+    });
+    expect(unknown.statusCode).toBe(404);
   });
 
   it('deleting the account removes a look, its file row and every variant, leaving nothing to reconcile', async () => {
