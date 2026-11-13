@@ -15,6 +15,7 @@ import {
   type OutfitRuleKind,
   type StoredMatcher,
   storedMatcher,
+  storedSides,
 } from '../../wardrobe/outfit-rules';
 import { NotFound } from '../refusals';
 import type { Actor } from '../sharing/access';
@@ -190,7 +191,9 @@ export interface NewOutfitRule {
 /**
  * Adds one of the actor's own rules (#21b), the one writer of outfit_rule:
  * its id, or 'duplicate' when they have it already (the unique index, so a
- * concurrent add cannot slip past a check made first). A side naming a
+ * concurrent add cannot slip past a check made first). A never-rule's
+ * sides are stored in one order (storedSides), so its mirror is a
+ * duplicate too. A side naming a
  * garment that is not the actor's own (owned now or once, as avoidPair's)
  * is NotFound, and nothing is written. The two sides must differ (the
  * route says so; the table checks only two garments). A type is its
@@ -208,9 +211,8 @@ export async function addOutfitRule(
   rule: NewOutfitRule,
 ): Promise<number | 'duplicate'> {
   const ownerId = actor.userId;
-  const garmentIds = [rule.a.garmentId, rule.b.garmentId].filter(
-    (id) => id !== null,
-  );
+  const [a, b] = storedSides(rule.kind, rule.a, rule.b);
+  const garmentIds = [a.garmentId, b.garmentId].filter((id) => id !== null);
   const owned = db
     .select({ id: garment.id })
     .from(garment)
@@ -231,7 +233,7 @@ export async function addOutfitRule(
       insert into ${outfitRule} (owner_id, kind,
         a_garment_id, a_category, a_type, a_color, a_pattern,
         b_garment_id, b_category, b_type, b_color, b_pattern)
-      select ${ownerId}::int, ${rule.kind}::text, ${side(rule.a)}, ${side(rule.b)}
+      select ${ownerId}::int, ${rule.kind}::text, ${side(a)}, ${side(b)}
       where (select count(*) from owned) = ${garmentIds.length}
       on conflict do nothing
       returning id

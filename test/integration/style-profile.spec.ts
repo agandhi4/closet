@@ -235,7 +235,8 @@ describe('the style profile', () => {
         expect(res.headers.location).toBe(ADDED);
       }
       expect(await rules()).toMatchObject([
-        { kind: 'never', aColor: 'blue', bColor: 'black' },
+        // A never-rule is stored with its sides in one order (storedSides).
+        { kind: 'never', aColor: 'black', bColor: 'blue' },
         {
           kind: 'never',
           aCategory: 'footwear',
@@ -246,7 +247,7 @@ describe('the style profile', () => {
         { kind: 'always', aGarmentId: jeans, bGarmentId: boots },
       ]);
       expect(await sentences()).toEqual([
-        'Never blue with black',
+        'Never black with blue',
         'Never Sneakers with Outerwear',
         'Always Brown boots with Selvedge jeans',
       ]);
@@ -271,13 +272,20 @@ describe('the style profile', () => {
         new RegExp(`<option value="garment:${belt}" selected`),
       );
       expect(same.body).toMatch(/value="always"[^>]*checked/);
-      const again = await post(RULES, {
-        kind: 'never',
-        a: 'color:blue',
-        b: 'color:black',
-      });
-      expect(again.statusCode).toBe(400);
-      expect(again.body).toContain('You have this rule already.');
+      // The same never-rule either way round: never is symmetric.
+      for (const payload of [
+        { kind: 'never', a: 'color:blue', b: 'color:black' },
+        { kind: 'never', a: 'color:black', b: 'color:blue' },
+        {
+          kind: 'never',
+          a: 'category:outerwear',
+          b: 'category:footwear:sneakers',
+        },
+      ]) {
+        const again = await post(RULES, payload);
+        expect(again.statusCode, JSON.stringify(payload)).toBe(400);
+        expect(again.body).toContain('You have this rule already.');
+      }
       expect(await rules()).toEqual(before);
     });
 
