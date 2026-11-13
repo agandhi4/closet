@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
   afterAll,
   afterEach,
@@ -9,7 +9,16 @@ import {
   it,
   vi,
 } from 'vitest';
-import { user, userWeather, weatherForecast } from '../../src/db/schema';
+import {
+  garment,
+  user,
+  userWeather,
+  weatherForecast,
+} from '../../src/db/schema';
+import { DEFAULT_OCCASION } from '../../src/wardrobe/occasions';
+import { assessOutfit, weatherNeeds } from '../../src/weather/match';
+import { createGarment } from './garments';
+import { t as text } from '../../src/web/i18n';
 import { forecastDayOf, weatherFor } from '../../src/seed/weather';
 import { displayTemperature } from '../../src/weather/temperature';
 import { createOutfit } from '../../src/web/outfits/queries';
@@ -567,6 +576,164 @@ describe('weather', () => {
         ...form({ unit: 'celsius' }),
       });
     });
+
+    // Styling's fit line (#468b): the rows' outfit against the aimed day's
+    // weather, in the gallery's words, loaded after the page.
+    describe("Styling's fit line", () => {
+      let jumper: number;
+      let parka: number;
+      let viewer: string;
+      let stranger: string;
+
+      const fitUrl = (
+        rows: [role: string, garmentId: number | null][],
+        extra = '',
+      ) => {
+        const query = new URLSearchParams();
+        for (const [role, garmentId] of rows) {
+          query.append('role', role);
+          query.append(
+            'garmentId',
+            garmentId === null ? '' : String(garmentId),
+          );
+          query.append('lock', '');
+        }
+        return `/styling/fit?${query.toString()}${extra}`;
+      };
+      const fit = (url: string, cookie?: string) =>
+        t.inject({
+          method: 'GET',
+          url,
+          headers: { ...HX_FRAGMENT, ...(cookie ? { cookie } : {}) },
+        });
+
+      beforeAll(async () => {
+        jumper = await createGarment(t, {
+          name: 'Wool jumper',
+          category: 'tops',
+        });
+        parka = await createGarment(t, {
+          name: 'Parka',
+          category: 'outerwear',
+        });
+        await t.db
+          .update(garment)
+          .set({ warmth: 5 })
+          .where(inArray(garment.id, [jumper, parka]));
+        viewer = await t.register('viewer-fit@example.com');
+        stranger = await t.register('stranger-fit@example.com');
+        const invite = await t.inject({
+          method: 'POST',
+          url: '/wardrobe-share/create-invite-link',
+          payload: { permission: 'VIEW' },
+          headers: HX_FRAGMENT,
+        });
+        const token = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(
+          invite.body,
+        )![1];
+        const accepted = await t.inject({
+          method: 'POST',
+          url: `/wardrobe-share/invite/${token}/accept`,
+          payload: {},
+          headers: { cookie: viewer },
+        });
+        expect(accepted.statusCode).toBeLessThan(400);
+      });
+
+      it("names what is wrong in the gallery's words, from the cached forecast in one statement", async () => {
+        const hits = stub.hits.length;
+        const url = fitUrl([
+          ['layer', parka],
+          ['top', jumper],
+          ['bottom', null],
+        ]);
+        const res = await fit(url);
+        expect(res.statusCode).toBe(200);
+        expectFragment(res);
+        // Today, all day, at home: what ideasFor would match an idea to.
+        const needs = weatherNeeds(
+          forecastDayOf('demo', weatherFor('demo', TODAY, 1)[0]),
+          DEFAULT_OCCASION,
+          0,
+        )!;
+        const { problems } = assessOutfit(needs, [
+          { role: 'layer', warmth: 5, waterResistant: false },
+          { role: 'top', warmth: 5, waterResistant: false },
+        ]);
+        expect(problems).toContain('too-warm');
+        const chips = [
+          ...unescapeHtml(res.body).matchAll(/<li[^>]*>([^<]+)</g),
+        ];
+        expect(chips.map((chip) => chip[1])).toEqual(
+          problems.map((problem) => text(`gallery.problem.${problem}`)),
+        );
+        expect(res.body).not.toContain('Fits the weather');
+        // The session, then the garments with the settings and forecast row.
+        expect((await recordQueries(() => fit(url))).statements).toBe(2);
+        expect(stub.hits).toHaveLength(hits);
+      });
+
+      it('says nothing without a garment, over a shared wardrobe, or for a past day', async () => {
+        const none = await fit(fitUrl([['top', null]]));
+        expect(none.statusCode).toBe(200);
+        expect(none.body).toBe('');
+        // A grantee: nothing of the owner's weather, nothing read.
+        const shared = fitUrl([['top', jumper]], `&ownerId=${t.owner.id}`);
+        const browsed = await fit(shared, viewer);
+        expect(browsed.statusCode).toBe(200);
+        expect(browsed.body).toBe('');
+        expect(
+          (await recordQueries(() => fit(shared, viewer))).statements,
+        ).toBe(1);
+        expect((await fit(shared, stranger)).statusCode).toBe(404);
+        // Another's garment in one's own rows is not judged.
+        expect((await fit(fitUrl([['top', jumper]]), viewer)).body).toBe('');
+        const past = await fit(
+          fitUrl([['top', jumper]], '&for=day:2026-09-20&occasion=all-day'),
+        );
+        expect(past.statusCode).toBe(200);
+        expect(past.body).toBe('');
+      });
+
+      it('refuses rows that do not line up, or are not rows', async () => {
+        for (const url of [
+          `/styling/fit?role=top&garmentId=${jumper}`,
+          '/styling/fit?role=top&garmentId=jumper&lock=',
+          '/styling/fit?role=hat&garmentId=&lock=',
+        ]) {
+          expect((await fit(url)).statusCode).toBe(400);
+        }
+      });
+
+      it('leaves the page byte-stable: an empty slot it loads after drawing, again with each rows answer', async () => {
+        const page = await t.inject({ method: 'GET', url: '/styling' });
+        expectFullPage(page);
+        const body = unescapeHtml(page.body);
+        expect(body).toMatch(
+          /<div id="styling-fit-line" [^>]*hx-get="\/styling\/fit" hx-include="#styling-form" hx-trigger="intersect once, styling:outfit-changed delay:500ms"[^>]*><\/div>/,
+        );
+        expect(body).not.toContain('Fits the weather');
+        expect(body).not.toContain('May be too');
+        at(2 * HOUR);
+        expect((await t.inject({ method: 'GET', url: '/styling' })).body).toBe(
+          page.body,
+        );
+        await t.weather!.settled();
+        const shuffled = await fit(
+          fitUrl([['top', jumper]]).replace('/fit', '/shuffle'),
+        );
+        expect(shuffled.body).toMatch(
+          /<div id="styling-fit" hx-swap-oob="true"/,
+        );
+        const shared = await t.inject({
+          method: 'GET',
+          url: `/styling?ownerId=${t.owner.id}`,
+          headers: { cookie: viewer },
+        });
+        expect(shared.statusCode).toBe(200);
+        expect(shared.body).not.toContain('styling-fit');
+      });
+    });
   });
 
   describe("the phone's location", () => {
@@ -859,7 +1026,11 @@ describe('weather off (WEATHER_ENABLED=false)', () => {
   });
 
   it('fetches nothing and stores no location', async () => {
-    for (const url of ['/weather/summary', '/weather/places?q=Brooklyn']) {
+    for (const url of [
+      '/weather/summary',
+      '/weather/places?q=Brooklyn',
+      '/styling/fit?role=top&garmentId=&lock=',
+    ]) {
       const res = await t.inject({ method: 'GET', url, headers: HX_FRAGMENT });
       expect(res.statusCode).toBe(404);
     }
@@ -876,11 +1047,13 @@ describe('weather off (WEATHER_ENABLED=false)', () => {
       '/calendar',
       '/calendar/month',
       '/auth/profile',
+      '/styling',
     ]) {
       const res = await t.inject({ method: 'GET', url });
       expect(res.statusCode).toBe(200);
       expect(res.body).not.toContain('/weather/');
       expect(res.body).not.toContain('id="weather');
+      expect(res.body).not.toContain('styling-fit');
     }
     const token = await createAccessToken(t);
     expect(await toolNamesOf(t, token)).not.toContain('get_weather');

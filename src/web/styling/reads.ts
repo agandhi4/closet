@@ -14,6 +14,9 @@ import {
   type IdeasInput,
   ideasColumns,
   ideasFrom,
+  type IdeasWeather,
+  weatherColumn,
+  weatherFrom,
 } from '../gallery/ideas';
 import {
   closetGarmentsSql,
@@ -30,14 +33,17 @@ import {
   readGarments,
   picksSql,
   readRoleWindows,
+  readRowWeather,
   readSavedOutfit,
   type RoledGarment,
   roleWindowsSql,
   type RowCarry,
   rowGarmentsSql,
+  rowWeatherSql,
   type SavedOutfit,
   savedOutfitSql,
 } from './queries';
+import type { MatchGarment } from '../../weather/match';
 import { type RoleWindow, withPicks } from './rows';
 
 /**
@@ -271,5 +277,41 @@ export async function ideaReads(
     lockable: readPool(row.lockable ?? []),
     draw: async (locked) =>
       (await ideasFrom(deps, { ...input, locked }, row, now)).ideas[0],
+  };
+}
+
+export interface FitReads {
+  /** The rows' garments the rows may carry, as the matching sees them. */
+  garments: MatchGarment[];
+  /** The aimed day's weather; null without a forecast (or normals) for it. */
+  weather: IdeasWeather | null;
+}
+
+/**
+ * The fit line's read (#468b): the posted rows' garments (rowWeatherSql:
+ * what the rows may carry, rowGarmentsSql's rule) and the aimed day's
+ * weather (weatherColumn, ideasFor's own reading: the settings and the
+ * location's cached forecast row), in one statement; none when the day has
+ * no weather to read (a past day). The requester's own wardrobe alone: the
+ * route answers nothing over a share, whose owner's weather is theirs.
+ */
+export async function fitReads(
+  deps: { db: Db; weather: WeatherService | undefined },
+  scope: StylingScope,
+  ask: { heldIds: readonly number[]; aim: IdeasAim; today: IsoDate; now: Date },
+): Promise<FitReads> {
+  const { aim, today, now } = ask;
+  const day = { today, ...aim.planning, ...aim.weatherAt };
+  const column = weatherColumn(deps, scope.ownerId, day, now);
+  if (column === undefined || ask.heldIds.length === 0) {
+    return { garments: [], weather: null };
+  }
+  const row = await selectScalars(deps.db, {
+    garments: rowWeatherSql(scope.ownerId, ask.heldIds, carryOf(scope)),
+    weather: column,
+  });
+  return {
+    garments: readRowWeather(row.garments),
+    weather: await weatherFrom(deps, day, row.weather, now),
   };
 }

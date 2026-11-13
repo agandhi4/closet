@@ -16,6 +16,8 @@ export const STYLING_GARMENTS_PATH = `${STYLING_PATH}/garments`;
 export const STYLING_ROW_PATH = `${STYLING_PATH}/row`;
 /** Shuffle: the rows again, the unlocked ones filled by the generator. */
 export const STYLING_SHUFFLE_PATH = `${STYLING_PATH}/shuffle`;
+/** The fit line (#468b): how the rows' outfit meets the aimed day's weather. WEATHER_ENABLED only. */
+export const STYLING_FIT_PATH = `${STYLING_PATH}/fit`;
 
 export interface StylingState {
   /** `?for=`: where Save plans the outfit (a day, a trip) or none. */

@@ -1,4 +1,6 @@
 import type { GarmentRole } from '../../wardrobe/properties';
+import type { FitProblem } from '../../weather/match';
+import { ChipList, fitsChip, problemChip } from '../gallery/chips';
 import {
   DEFAULT_OCCASION,
   type Occasion,
@@ -33,6 +35,7 @@ import {
   StylingRowView,
 } from './styling-row';
 import {
+  STYLING_FIT_PATH,
   STYLING_PATH,
   STYLING_ROW_PATH,
   STYLING_SHUFFLE_PATH,
@@ -169,7 +172,7 @@ export function StylingPage(props: { ctx: ViewContext; model: StylingModel }) {
                 dangerouslySetInnerHTML={{ __html: STYLING_INIT }}
               />
             </div>
-            <StylingAside model={model} />
+            <StylingAside ctx={ctx} model={model} />
           </div>
         ) : (
           <Empty model={model} />
@@ -233,12 +236,74 @@ const COMPOSER_COLUMNS =
  * fixed box ignores a parent that has no transform. In DOM order after the
  * rows and "Add row", so Tab reaches Shuffle and Save last on both.
  */
-function StylingAside({ model }: { model: StylingModel }) {
+function StylingAside(props: { ctx: ViewContext; model: StylingModel }) {
+  const { model } = props;
   return (
     <div class="contents lg:flex lg:flex-col lg:gap-4 lg:sticky lg:top-20 lg:self-start">
       <StylingPreview rows={model.rows} />
+      {props.ctx.weatherEnabled && !model.shared && <StylingFit />}
       <ActionBar model={model} />
     </div>
+  );
+}
+
+/**
+ * The fit line's slot (#468b), under the preview from lg (hidden on a
+ * phone for now: the plan's desktop first). Empty in the page, so
+ * /styling stays byte-stable (a tab root, OPENS_STALE): GET
+ * /styling/fit answers into it with the rows (`hx-include`). It loads on
+ * `intersect`, not `load`, so a phone, where it is display:none, never asks;
+ * again on `styling:outfit-changed`, which styling.js sends it when a choice
+ * changes the preview while it is shown (debounced, the last ask wins);
+ * and a rows answer (Shuffle, "Add row", the picks switch) sends this slot
+ * again out of band, which loads afresh. Only with WEATHER_ENABLED (no
+ * route without it) and never over a shared wardrobe (the owner's weather
+ * is theirs). Offline the line dims and the note says why.
+ */
+export function StylingFit(props: { oob?: boolean }) {
+  return (
+    <div
+      id="styling-fit"
+      hx-swap-oob={props.oob ? 'true' : undefined}
+      class="hidden lg:flex flex-col gap-1"
+    >
+      <div
+        id="styling-fit-line"
+        class="min-h-6"
+        hx-get={STYLING_FIT_PATH}
+        hx-include="#styling-form"
+        hx-trigger="intersect once, styling:outfit-changed delay:500ms"
+        hx-sync="this:replace"
+        hx-swap="innerHTML"
+        hx-indicator="#styling-fit-line"
+        aria-live="polite"
+        data-needs-network=""
+      ></div>
+      <p class="text-xs text-muted" data-offline-note="">
+        {t('styling.FIT_OFFLINE')}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * GET /styling/fit's answer: the gallery's words for how the outfit meets
+ * the day (a chip per problem, else "Fits the weather"); nothing without a
+ * judgement (no garment, no forecast, a shared wardrobe).
+ */
+export function FitLine(props: {
+  fit?: { problems: readonly FitProblem[]; typical: boolean };
+}) {
+  const { fit } = props;
+  if (!fit) return null;
+  return (
+    <ChipList
+      chips={
+        fit.problems.length > 0
+          ? fit.problems.map(problemChip)
+          : [fitsChip(fit)]
+      }
+    />
   );
 }
 
