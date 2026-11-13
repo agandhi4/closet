@@ -182,68 +182,45 @@ Deviations from `~/.claude/conventions/`, each with its `docs/decisions.md` entr
 
 ## Commands
 
-```bash
-nvm use                       # Node 22.23.3 (exact; devkit's toolchain-check holds the Dockerfile and workflows to it)
-npm ci                        # postinstall applies patches/ via patch-package
+Each command's detail (flags, timings, what it needs): README's Development section.
 
-npm run start:dev             # tsc --watch + node --watch dist/main.js + tailwind --watch
-npm run build                 # clean, tsc -p tsconfig.build.json (type-checks), generate (build-info, vendor, tailwind, sw, precompress)
-npm run start:prod            # node dist/main.js (the image runs `node dist/main.js` as PID 1). Like start:dev it
-                              # downloads the 940 MB model into MODELS_PATH (./models) on its first boot
-npm run start:test            # the build with background removal stubbed (test/support/test-server.ts): what
-                              # Playwright and Lighthouse start; never downloads the model
-# The CLIs run from dist/ (build first) and never migrate; their flags, and how to run them in production:
+```bash
+nvm use                       # Node 22, the exact .nvmrc version
+npm ci                        # postinstall applies patches/ via patch-package
+npm run start:dev             # tsc, node and tailwind, each --watch
+npm run build                 # clean, tsc (type-checks), generate
+npm run start:prod            # node dist/main.js, as the image runs it; fetches the 940 MB model on first boot
+npm run start:test            # the build with background removal stubbed: what Playwright and Lighthouse start
+# The CLIs run from dist/ (build first) and never migrate:
 npm run maintenance:reconcile # src/maintenance/AGENTS.md, like user:set-password and push:revoke-all
 npm run seed                  # src/seed/AGENTS.md
 npm run cutout:fetch-model    # src/cutout/AGENTS.md
+npm run lint                  # eslint --fix; lint:check is the gate
+npm run format                # prettier --write; format:check is the gate
 
-npm run lint                  # eslint --fix (src, test, scripts); lint:check is the no-fix, cached gate
-npm run format                # prettier --write; format:check is the cached gate
-
-# Test tiers, cheapest first
-npm test                      # Vitest unit projects (unit, unit-new-york): mocked DB/fs, verifies wiring.
-npm run test:watch            # the same in watch mode; test:debug waits for an inspector on :9229
+# Test tiers, cheapest first; all but the first need Postgres (pgvault-dev, .env.local: README)
+npm test                      # Vitest unit projects; test:watch, test:debug
 (cd ../pgvault-dev && docker compose up -d --wait)
-                              # every tier below needs Postgres: pgvault-dev on localhost:5432 (superuser
-                              # postgres, trust auth). Dev app config lives in .env.local (DATABASE_*,
-                              # closet_db, ACCESS_TOKEN_SECRET: the server refuses to boot without
-                              # one); see README Development.
-npm run test:int              # Vitest integration: the real app in-process via inject(), a scratch database
-                              # per spec file cloned from the migrated template (TEST_DATABASE_URL, default
-                              # pgvault-dev). No build. The default place for behavior assertions.
-npm run test:e2e              # build, then playwright (all browsers; ten scenarios); start:test on :3000 unless
-                              # one is running. The PWA scenarios skip unless PWA_ENABLED: test/AGENTS.md
-npm run audit:pages           # every page/action as the demo persona vs docs/perf/ (docs/perf/README.md)
+npm run test:int              # Vitest integration: the real app in-process, a scratch database per spec file
+npm run test:e2e              # build, then Playwright (ten scenarios): test/AGENTS.md
+npm run audit:pages           # every page/action as the demo persona vs docs/perf/
 npm run lighthouse            # lhci autorun
-
-npm run test:all              # every Vitest project in one run (vitest.config.mts); test:cov adds v8 coverage in coverage/
-npm run typecheck             # tsc: app + tests + scripts, then the service worker (~3 s cold)
-npm run check                 # check:static (format:check, lint:check, typecheck) and test:all in
-                              # parallel (~80 s on 16 cores). `precommit` is an alias.
-                              # The plan runs the halves as two jobs: `make ci-quick` and `make ci-db`.
-npm run verify:push           # build + Chromium Playwright against the fresh build (the plan: make ci-e2e)
+npm run test:all              # every Vitest project; test:cov adds v8 coverage
+npm run typecheck             # app, tests, scripts, then the service worker
+npm run check                 # check:static (format, lint, types) + test:all (~80 s); alias precommit
+npm run verify:push           # build + Chromium Playwright (the plan: make ci-e2e)
 npm run precommit:full        # check + verify:push + page audit + lighthouse (minutes)
+npx drizzle-kit generate --name <what-changed>   # see Changing the schema
+docker build --build-arg APP_VERSION=dev -t closet .
 
-# Git hooks (.githooks/, devkit's templates): `make install` once per checkout or worktree sets
-# core.hooksPath; `make hooks-check` reports a repoint. Steps: scripts/ci/hooks.conf (ci-quick
-# plus ci-unit, split across the two); neither needs Postgres or a browser.
-
-npx drizzle-kit generate --name <what-changed>   # a schema change: see Changing the schema
-
-docker build --build-arg APP_VERSION=dev -t closet .   # or: make ci-image ci-smoke CI_BUILD_VERSION=<v>
-
-# The plan's jobs (Makefile, thin callers of the npm scripts; ci.yml calls the same targets).
-# Each brings its own throwaway Postgres 18 container, so none needs pgvault-dev.
-make ci-deps ci-quick         # npm ci; ci-guards, secrets-check, ci-lint, ci-typecheck
-make ci-unit | ci-db | ci-e2e # unit projects; test:cov on Postgres 18; build + chromium (PWA on, random PORT).
-                              # Each holds its budget (60/110/180 s) and floor; `make screenshots` the persona shots
-make ci-metrics               # the metrics ratchet, the plan's last job: scripts/ci/metrics.conf vs docs/metrics/ratchet.json
-make metrics-tighten          # lock improved numbers into docs/metrics/ratchet.json (commit it in the same PR)
+# The plan's jobs (scripts/ci/gate_plan.sh), each on its own throwaway Postgres 18
+make install                  # git hooks (.githooks/), once per checkout or worktree
+make ci-deps ci-quick         # npm ci; guards (docs-check among them), secrets, lint, types
+make ci-unit | ci-db | ci-e2e # each holds its budget and floor (Workflow)
+make ci-metrics               # the ratchet; make metrics-tighten locks improved numbers
 make review PR=<n>            # one local review round (when Codex is out of budget)
 make merge PR=<n>             # squash-merge once the review rounds allow it
 ```
-
-`scripts/ci/gate_plan.sh` is the plan: the publisher host runs every job of it on main (`devkit/bin/check_tree.sh`, at most once per 3 h window) before it ships; a red main files a `main-red` issue.
 
 Builds, test suites, and `npm ci` go through a `build:build-runner` subagent, never inline.
 
@@ -263,10 +240,8 @@ Planned contract items still missing (`docs/decisions.md` 2026-10-16, Convention
 - Plan in plain text and get approval before writing code or spawning implementers. Approval of a goal is not approval of an implementation.
 - **Tests are budgeted and lean** (owner directive 2026-10-13; `test/AGENTS.md`): `make ci-unit` ≤ 60 s, `ci-db` ≤ 110 s (integration workers share their module graph: no `vi.mock` there), `ci-e2e` ≤ 180 s, each with a collected-count floor, both enforced by the Makefile. A test earns its place: it fails for a plausible regression in our code, proves what no kept test proves, is hermetic, and runs at the cheapest tier that can prove it. Behavior assertions go in `test/integration/` (the real app in-process); Playwright holds ten critical-path scenarios for what only a browser shows, and a new one replaces one.
 - **Metrics only ratchet** (`make ci-metrics`; complexity, dead code, import cycles, duplication, coverage lines and branches): a PR that improves a number runs `make metrics-tighten` and commits the bounds; loosening one needs the `metrics-rebaseline` label. Coverage is read from `make ci-db`'s report; vitest has no thresholds (`docs/decisions.md` 2026-10-16).
-- Every feature is still verified in a browser as an installed PWA on a phone-width viewport before it is called done. Type checks and tests verify code, not the app.
-- **Changes land through pull requests** (owner decision, 2026-09-26). No pre-merge gate (devkit 2026-11-02): `make merge` decides on review rounds, at most the plan's `DEVKIT_REVIEW_ROUNDS` (3). Below the cap P0/P1 findings block, at the cap only P0 does; the rest are filed as issues at the merge. Parallel branches that each pass alone (duplicate migration numbers) show on main, at check_tree, and are fixed forward. Squash merges only: one PR is one commit on `main`, and merged branches are deleted.
-- **The flow per issue slice** (in full: `docs/workflow.md`): a branch `<issue>-<slug>` (own worktree when agents run in parallel); the fast loop locally; a PR linking its issue; a review round (`@codex review`, or `make review PR=<n>` at Codex's limit; docs-only PRs owe none), its P0/P1 findings answered once; then `make merge PR=<n>` squash-merges the head. Merging publishes, then deploys. The owner may stop any PR.
-- **Phone-width checks** still happen before a feature is called done: Playwright at 390 px, run locally in the one worktree that is not racing another for `:3000`, or from CI's uploaded artifacts.
+- **Before a feature is called done** it is verified in a browser as an installed PWA at phone width (type checks and tests verify code, not the app): Playwright at 390 px, locally in the one worktree not racing another for `:3000`, or from CI's uploaded artifacts.
+- **Changes land through pull requests** (owner decision 2026-09-26), per issue slice (in full: `docs/workflow.md`): a branch `<issue>-<slug>` (own worktree when agents run in parallel); the fast loop locally; a PR linking its issue; a review round (`@codex review`, or `make review PR=<n>` at Codex's limit; docs-only PRs owe none), its P0/P1 findings answered once; `make merge PR=<n>` squash-merges. No pre-merge gate (devkit 2026-11-02): at most `DEVKIT_REVIEW_ROUNDS` (3) rounds; below the cap P0/P1 block, at it only P0, the rest filed as issues. Parallel branches that clash show on main and are fixed forward. Merging publishes, then deploys; the owner may stop any PR.
 - **Migrations and parallel branches:** two branches that each generate `NNNN` collide in `drizzle/meta/_journal.json`. The later branch rebases on `main`, deletes its migration and snapshot, and regenerates (`npx drizzle-kit generate`); the drift test (ci-db) proves the result. Never hand-merge a journal.
 - pre-commit runs guards, staged secrets and lint; pre-push typecheck and unit; never bypass either with `--no-verify`. If a hook fails, fix and create a new commit, never amend.
 - Commit messages: concise, why over what.
