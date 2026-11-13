@@ -76,6 +76,11 @@ describe('migrations', () => {
         'generator_avoid_pkey',
         'generator_avoid_garment_a_id_index',
         'generator_avoid_garment_b_id_index',
+        // A rule stored once, led by owner_id (the generator's read and the
+        // owner_id foreign key's); each side's garment has its own.
+        'outfit_rule_owner_id_kind_a_b_unique',
+        'outfit_rule_a_garment_id_index',
+        'outfit_rule_b_garment_id_index',
         // Every MCP call looks its bearer token up by its hash; the profile
         // lists a user's tokens (also the user_id foreign key's).
         'personal_access_token_token_hash_unique',

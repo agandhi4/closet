@@ -20,6 +20,7 @@ import {
 } from '../../db/schema';
 import { washLimit } from '../../wardrobe/availability';
 import type { IdeaGarment, SavedOutfit } from '../../wardrobe/generator';
+import type { OutfitRule } from '../../wardrobe/outfit-rules';
 import { categoryRole } from '../../wardrobe/properties';
 import type { PlannerGarment } from '../../wardrobe/week-planner';
 import { matchGarment } from '../../weather/match';
@@ -29,20 +30,24 @@ import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson, readPhotoRef } from '../files/queries';
 import { sameGarmentsOutfit } from '../outfits/queries';
 import { outfitIsComplete } from '../outfits/references';
+import {
+  type OutfitRuleRow,
+  outfitRulesSql,
+  readOutfitRules,
+} from '../style/queries';
 import { inCloset, onWishlist, ownedGarment } from '../wardrobe/status';
 import { availableGarment, wearsSinceWashSql } from '../wears/queries';
 
 /**
  * The outfit gallery's rows (#9): the generator's pool and what it must
- * avoid, read per owner, and the one writer of generator_avoid. Private like
- * outfits: every function is scoped to the signed-in owner, and shares
- * never reach it.
+ * avoid (saved outfits, clashes, the owner's outfit rules), read per
+ * owner, and the one writer of generator_avoid. Private like outfits: every
+ * function is scoped to the signed-in owner, and shares never reach it.
  */
 
 /** A garment as the generator draws it and the gallery shows it. */
 export interface PoolGarment extends IdeaGarment {
   name: string | null;
-  category: string;
   photo: SignablePhotoRef | null;
 }
 
@@ -81,6 +86,7 @@ function poolGarment(row: PoolRow): PoolGarment {
     id: row.id,
     name: row.name,
     category: row.category,
+    type: row.type,
     photo: row.photo,
     role: categoryRole(row.category),
     colors: row.colors ?? [],
@@ -242,12 +248,11 @@ export async function styledGarment(
 }
 
 /**
- * A garment as "Goes with my closet" (#18b) reads it: the pool's, with its
- * type (near-duplicates), never rotated (no idle days: its readers draw
- * uniformly, and a grantee's Shuffle never learns the owner's wears).
+ * A garment as "Goes with my closet" (#18b) reads it: the pool's, never
+ * rotated (no idle days: its readers draw uniformly, and a grantee's
+ * Shuffle never learns the owner's wears).
  */
 export interface ClosetGarment extends PoolGarment {
-  type: string | null;
   idleDays: null;
 }
 
@@ -313,7 +318,6 @@ function drawnGarment([
       ...{ id, name, category, colors, pattern, formality, warmth, type },
       ...{ fabricWeight, waterResistant, photo, idleDays: null },
     }),
-    type,
     idleDays: null,
   };
 }
@@ -374,13 +378,14 @@ function wishlistGarmentSql(
 /**
  * What "Goes with my closet" (#18b; goesWithCloset, goesWithCount in
  * ideas.ts) judges: the owner's wishlist item as the generator locks it
- * (undefined when `itemId` is not one), their whole closet and their
- * avoided pairs.
+ * (undefined when `itemId` is not one), their whole closet, their
+ * avoided pairs and their outfit rules.
  */
 export interface GoesWithInputs {
   item: WishlistGarment | undefined;
   closet: ClosetGarment[];
   avoid: [number, number][];
+  rules: OutfitRule[];
 }
 
 /** GoesWithInputs as goesWithInputsSql reads them (readGoesWithInputs). */
@@ -388,6 +393,7 @@ export interface GoesWithInputsJson {
   item: [DrawnJson, number | null] | null;
   closet: DrawnJson[];
   avoid: [number, number][];
+  rules: OutfitRuleRow[];
 }
 
 /**
@@ -404,7 +410,8 @@ export function goesWithInputsSql(
   return sql<GoesWithInputsJson>`json_build_object(
     'item', ${wishlistGarmentSql(ownerId, itemId)},
     'closet', ${closetGarmentsSql(ownerId)},
-    'avoid', ${avoidedPairsSql(ownerId)}
+    'avoid', ${avoidedPairsSql(ownerId)},
+    'rules', ${outfitRulesSql(ownerId)}
   )`;
 }
 
@@ -415,26 +422,29 @@ export function readGoesWithInputs(json: GoesWithInputsJson): GoesWithInputs {
       : undefined,
     closet: json.closet.map(drawnGarment),
     avoid: json.avoid,
+    rules: readOutfitRules(json.rules),
   };
 }
 
 /**
  * GoesWithInputs for many wishlist items at once: the owner's wishlist
- * garments `which` picks (a condition on garment), with one closet and one
- * avoid list for all of them. The Muse inbox's "Unlocks N" and a need's
- * options side by side (src/web/wishlist/inbox.ts) read it with their other
- * lists in one statement.
+ * garments `which` picks (a condition on garment), with one closet, one
+ * avoid list and one rule list for all of them. The Muse inbox's "Unlocks
+ * N" and a need's options side by side (src/web/wishlist/inbox.ts) read it
+ * with their other lists in one statement.
  */
 export interface ManyGoesWithInputs {
   items: WishlistGarment[];
   closet: ClosetGarment[];
   avoid: [number, number][];
+  rules: OutfitRule[];
 }
 
 export interface ManyGoesWithInputsJson {
   items: [DrawnJson, number | null][];
   closet: DrawnJson[];
   avoid: [number, number][];
+  rules: OutfitRuleRow[];
 }
 
 export function goesWithManyInputsSql(
@@ -452,7 +462,8 @@ export function goesWithManyInputsSql(
       where ${and(eq(garment.ownerId, ownerId), onWishlist(), which)}
     ),
     'closet', ${closetGarmentsSql(ownerId)},
-    'avoid', ${avoidedPairsSql(ownerId)}
+    'avoid', ${avoidedPairsSql(ownerId)},
+    'rules', ${outfitRulesSql(ownerId)}
   )`;
 }
 
@@ -466,6 +477,7 @@ export function readManyGoesWithInputs(
     })),
     closet: json.closet.map(drawnGarment),
     avoid: json.avoid,
+    rules: readOutfitRules(json.rules),
   };
 }
 
@@ -487,6 +499,8 @@ export interface GeneratorMemory {
   saved: SavedOutfit[];
   /** The owner's avoided pairs ("Clashes", generator_avoid). */
   avoid: [number, number][];
+  /** The owner's outfit rules (outfit_rule, #21). */
+  rules: OutfitRule[];
 }
 
 /** Each saved slot's outfit, garment and category (savedSlotsSql). */
@@ -529,15 +543,22 @@ function avoidedPairsSql(ownerId: number): SQL<[number, number][]> {
  * and the page's own reads, #168; the week planner with its pool, #173);
  * readGeneratorMemory reads them back. They were two statements beside the
  * pool on every ideas surface (#158: statements, not their size, are what a
- * page pays for over production's ~114 ms link).
+ * page pays for over production's ~114 ms link); the outfit rules (#21)
+ * joined them as a third column, not a third statement. Only ever for the
+ * signed-in owner: a grantee's ideas (browseIdea) read none of it.
  */
 export function generatorMemorySql(ownerId: number) {
-  return { saved: savedSlotsSql(ownerId), avoid: avoidedPairsSql(ownerId) };
+  return {
+    saved: savedSlotsSql(ownerId),
+    avoid: avoidedPairsSql(ownerId),
+    rules: outfitRulesSql(ownerId),
+  };
 }
 
 export function readGeneratorMemory(row: {
   saved: SavedSlot[];
   avoid: [number, number][];
+  rules: OutfitRuleRow[];
 }): GeneratorMemory {
   const outfits = new Map<
     number,
@@ -548,7 +569,11 @@ export function readGeneratorMemory(row: {
     outfitSlots.push({ id, role: categoryRole(category) });
     outfits.set(outfitId, outfitSlots);
   }
-  return { saved: [...outfits.values()], avoid: row.avoid };
+  return {
+    saved: [...outfits.values()],
+    avoid: row.avoid,
+    rules: readOutfitRules(row.rules),
+  };
 }
 
 export type AvoidOutcome = 'added' | 'already' | 'not-found';
