@@ -32,7 +32,10 @@ import {
  *   neither takes any garment of its role. A piece with no match is missing.
  * - **Going together**: the chosen set must pass the generator's colour and
  *   pattern rule (colorsGoTogether) and break none of the owner's
- *   never-rules (avoided pairs included), and no garment fills two pieces.
+ *   never-rules (avoided pairs included), and no garment fills two pieces:
+ *   when pieces outnumber their garments, the most pieces are filled (a
+ *   flexible piece yields another's only garment), each in look order
+ *   keeping the closest that costs no later piece its garment.
  *   What the look itself breaks is excused (the owner saved it: the pieces
  *   judged as garments), as the generator excuses a rule two locked
  *   garments break. When the closest set clashes, the sets that stray
@@ -285,12 +288,19 @@ function* spreads(
   }
 }
 
+/** A piece with at least one match: its index in the look and its ranking. */
+interface Matched<G> {
+  index: number;
+  ranking: Scored<G>[];
+  loud: number;
+}
+
 /**
  * The steps down each matched piece's ranking of the set that strays least
  * and goes together, or undefined when none within the search does.
  */
 function repick<G extends RecreateGarment>(
-  matched: readonly { index: number; ranking: Scored<G>[]; loud: number }[],
+  matched: readonly Matched<G>[],
   judge: Judge,
 ): Map<number, number> | undefined {
   const order = [...matched].sort(
@@ -313,21 +323,69 @@ function repick<G extends RecreateGarment>(
 }
 
 /**
- * When no set goes: each piece the best garment no earlier piece took
- * (missing when none is left), and the pieces whose garments clash.
+ * The most pieces one garment each can fill (Kuhn's augmenting paths):
+ * `fixed` pieces keep the garment (or the absence, -1) they are fixed to.
  */
-function closestKept<G extends RecreateGarment>(
-  matched: readonly { index: number; ranking: Scored<G>[] }[],
-  judge: Judge,
-): { steps: Map<number, number>; unfixed: number[] } {
-  const taken = new Set<number>();
+function maximumFilled<G extends RecreateGarment>(
+  matched: readonly Matched<G>[],
+  fixed: ReadonlyMap<number, number>,
+): number {
+  const holder = new Map<number, number>();
+  for (const [i, id] of fixed) if (id >= 0) holder.set(id, i);
+  const augment = (i: number, seen: Set<number>): boolean =>
+    matched[i].ranking.some(({ garment: { id } }) => {
+      if (seen.has(id)) return false;
+      seen.add(id);
+      const held = holder.get(id);
+      if (held !== undefined && (fixed.has(held) || !augment(held, seen))) {
+        return false;
+      }
+      holder.set(id, i);
+      return true;
+    });
+  let filled = [...fixed.values()].filter((id) => id >= 0).length;
+  matched.forEach((_, i) => {
+    if (!fixed.has(i) && augment(i, new Set())) filled += 1;
+  });
+  return filled;
+}
+
+/**
+ * One garment per piece, as many pieces filled as the closet allows; among
+ * the ways to fill that many, each piece in turn takes the closest garment
+ * that still lets the later ones fill as many (a piece goes missing only
+ * when every garment of its would cost another piece its own). Answers
+ * each placed piece's step down its ranking.
+ */
+function assignment<G extends RecreateGarment>(
+  matched: readonly Matched<G>[],
+): Map<number, number> {
+  // A piece among k never needs a garment below its k-th: of its first k,
+  // the other k - 1 pieces can hold at most k - 1.
+  const short = matched.map((m) => ({
+    ...m,
+    ranking: m.ranking.slice(0, matched.length),
+  }));
+  const most = maximumFilled(short, new Map());
+  const fixed = new Map<number, number>();
   const steps = new Map<number, number>();
-  for (const { index, ranking } of matched) {
-    const step = ranking.findIndex((s) => !taken.has(s.garment.id));
-    if (step < 0) continue;
-    steps.set(index, step);
-    taken.add(ranking[step].garment.id);
-  }
+  short.forEach(({ index, ranking }, i) => {
+    const step = ranking.findIndex(({ garment: { id } }) => {
+      if ([...fixed.values()].includes(id)) return false;
+      return maximumFilled(short, new Map(fixed).set(i, id)) === most;
+    });
+    fixed.set(i, step < 0 ? -1 : ranking[step].garment.id);
+    if (step >= 0) steps.set(index, step);
+  });
+  return steps;
+}
+
+/** The placed pieces whose garments break a never-rule or the colour rule. */
+function clashingPieces<G extends RecreateGarment>(
+  matched: readonly Matched<G>[],
+  steps: ReadonlyMap<number, number>,
+  judge: Judge,
+): number[] {
   const chosen = matched.flatMap(({ index, ranking }) => {
     const step = steps.get(index);
     return step === undefined
@@ -348,25 +406,30 @@ function closestKept<G extends RecreateGarment>(
       if (loudness(garment) > 0) clashing.add(index);
     }
   }
-  return { steps, unfixed: [...clashing].sort((a, b) => a - b) };
+  return [...clashing].sort((a, b) => a - b);
 }
 
 /**
- * Each matched piece's step down its ranking: the set that strays least and
- * goes together; failing that, without the pieces left with no garment of
- * their own (two pieces, one garment), whose duplicate alone would sink
- * every set; failing that, the closest kept and the clash named.
+ * Each matched piece's step down its ranking. The assignment first fixes
+ * which pieces are filled (two pieces, one garment: one goes missing, and
+ * its duplicate alone would sink every set) and is kept when it goes
+ * together; when it clashes, the set that strays least and goes together;
+ * failing that, the assignment kept and the clash named.
  */
 function chosenSteps<G extends RecreateGarment>(
-  matched: readonly { index: number; ranking: Scored<G>[]; loud: number }[],
+  matched: readonly Matched<G>[],
   judge: Judge,
 ): { steps: Map<number, number>; unfixed: number[] } {
-  const found = repick(matched, judge);
+  const assigned = assignment(matched);
+  const placed = matched.filter((m) => assigned.has(m.index));
+  const set = placed.map((m) => m.ranking[assigned.get(m.index) ?? 0].garment);
+  if (goesTogether(set, judge)) return { steps: assigned, unfixed: [] };
+  const found = repick(placed, judge);
   if (found) return { steps: found, unfixed: [] };
-  const kept = closestKept(matched, judge);
-  const placed = matched.filter((m) => kept.steps.has(m.index));
-  const without = placed.length < matched.length && repick(placed, judge);
-  return without ? { steps: without, unfixed: [] } : kept;
+  return {
+    steps: assigned,
+    unfixed: clashingPieces(placed, assigned, judge),
+  };
 }
 
 export function recreateLook<G extends RecreateGarment>(

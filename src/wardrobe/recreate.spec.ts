@@ -318,6 +318,45 @@ describe('recreateLook', () => {
     expect(one.unfixed).toEqual([]);
   });
 
+  it('fills as many pieces as the closet allows, a flexible piece yielding another’s only garment', () => {
+    const belt = garment('accessory', { type: 'belt', colors: ['brown'] });
+    const hat = garment('accessory', { type: 'hat', colors: ['black'] });
+    const scarf = garment('accessory', { type: 'scarf', colors: ['grey'] });
+    const { pieces, unfixed } = recreate({
+      pieces: [
+        piece('accessory'),
+        piece('accessory', { type: 'belt' }),
+        piece('accessory', { type: 'hat' }),
+        piece('accessory', { type: 'hat' }),
+      ],
+      closet: [belt, hat, scarf],
+    });
+    expect(pieces.map((p) => p.matches[0]?.garment.id)).toEqual([
+      scarf.id,
+      belt.id,
+      hat.id,
+      undefined,
+    ]);
+    expect(unfixed).toEqual([]);
+  });
+
+  it('gives the earlier piece its closest when two ways fill as many', () => {
+    const white = garment('top', { type: 't-shirt', colors: ['white'] });
+    const grey = garment('top', { type: 't-shirt', colors: ['grey'] });
+    const { pieces } = recreate({
+      pieces: [
+        piece('top', { type: 't-shirt', colors: ['white'] }),
+        piece('top', { type: 't-shirt', colors: ['white'] }),
+      ],
+      closet: [grey, white],
+    });
+    expect(pieces.map((p) => p.matches[0].garment.id)).toEqual([
+      white.id,
+      grey.id,
+    ]);
+    expect(pieces.map((p) => p.repicked)).toEqual([false, true]);
+  });
+
   it('still mends a clash when a piece goes missing for want of a garment of its own', () => {
     const tee = garment('top', { type: 't-shirt', colors: ['white'] });
     const jeans = garment('bottom', { type: 'jeans', colors: ['blue'] });
