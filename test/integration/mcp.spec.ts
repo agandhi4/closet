@@ -29,7 +29,13 @@ import {
   productShot,
   startLinkSites,
 } from './link-sites';
-import { callTool, createAccessToken, mcpRequest, tool } from './mcp';
+import {
+  callTool,
+  createAccessToken,
+  mcpRequest,
+  mintToken,
+  tool,
+} from './mcp';
 
 /**
  * The MCP endpoint (#33) driven like a client: JSON-RPC over POST /mcp
@@ -190,6 +196,31 @@ describe('the MCP endpoint', () => {
         message: 'Unauthorized',
         request_id: res.headers['x-request-id'],
       });
+    });
+
+    it('refuses a device token (#189) as an unknown one, recording no use', async () => {
+      const device = await mintToken(t, t.owner.id, 'Phone', 'device');
+      if (!device.created) throw new Error('no device token');
+      issued.push(device.token);
+      t.logs.clear();
+      const res = await mcpRequest(t, device.token, 'tools/list');
+      expect(res.statusCode).toBe(401);
+      expect(res.headers['www-authenticate']).toBe('Bearer realm="closet"');
+      expect(res.json()).toEqual({
+        statusCode: 401,
+        message: 'Unauthorized',
+        request_id: res.headers['x-request-id'],
+      });
+      const [row] = await t.db
+        .select({ lastUsedAt: personalAccessToken.lastUsedAt })
+        .from(personalAccessToken)
+        .where(eq(personalAccessToken.id, device.id));
+      expect(row.lastUsedAt).toBeNull();
+      const refused = t.logs.messages('warn', 'Mcp');
+      expect(refused).toHaveLength(1);
+      expect(refused[0]).toMatch(
+        /^MCP POST refused: unknown, revoked or non-MCP token from /,
+      );
     });
 
     it('answers GET and DELETE with 405 (stateless: no stream, no session)', async () => {

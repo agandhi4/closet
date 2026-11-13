@@ -1,5 +1,6 @@
 import { and, eq, ne, notExists, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
+import type { TokenKind } from '../../credential-names';
 import type { Db, Queryable } from '../../db/client';
 import { isLockTimeout, isUniqueViolation } from '../../db/errors';
 import {
@@ -142,64 +143,81 @@ export async function insertUser(
 /** What a new password took away, besides every other session. */
 export interface PasswordChange {
   account: AccountRow;
-  revokedTokens: number;
+  /** Tokens revoked, by kind: the log lines name both. */
+  revokedTokens: Record<TokenKind, number>;
   revokedDevices: number;
+}
+
+/** What the device making the change keeps. */
+export interface PasswordChangeKeeps {
+  /** Its push subscription (revokeDevicesStatement). */
+  endpoint?: string;
+  /**
+   * Its own token, once a token-authenticated route can change a password
+   * (the API's, docs/plans/2026-11-12-json-api.md section 3); no caller yet.
+   */
+  tokenId?: number;
 }
 
 /**
  * The one writer of a password. The new hash ends every session issued
- * before it (the fingerprint), and the same statement revokes every
- * personal access token and every push subscription but `keepEndpoint`'s
- * (the device making the change, if it has one): a new password is how an
- * account is taken back, and a device signed out by it must stop receiving
- * the account's notifications at once (revokeDevicesStatement).
+ * before it (the fingerprint), and the same transaction revokes every
+ * personal access token of both kinds and every push subscription, but
+ * what `keep` names (the device making the change, if it has one): a new
+ * password is how an account is taken back, and a device signed out by it
+ * must stop receiving the account's notifications at once
+ * (revokeDevicesStatement).
  *
- * One statement, not a transaction of three (#171): the token revocation
- * and the device removal are data-modifying CTEs beside the update, which
- * Postgres runs to completion whether or not the outer select reads them,
- * atomically with it. The three touch different tables, so none sees
- * another's change (a CTE's writes are invisible to its siblings). A
- * transaction cost five round trips to pgvault, this one.
+ * Two statements in a transaction, in this order, and never one statement
+ * again (#189): the update takes the user's row lock, which createToken
+ * holds while it mints, and the revocations are read after the lock is
+ * granted. One statement shares one snapshot, taken before it waited on the
+ * lock, so its revocation CTE could not see a token a mint committed during
+ * the wait, and that token outlived the new password
+ * (auth-statements.spec, "a token minted while the password waits").
  *
  * An account that no longer exists is an HttpError 404 (the route's page;
  * the CLI prints it), never a half-read row.
  */
-export async function updatePasswordHash(
-  db: Queryable,
+export function updatePasswordHash(
+  db: Db,
   id: number,
   passwordHash: string,
-  keepEndpoint?: string,
+  keep: PasswordChangeKeeps = {},
 ): Promise<PasswordChange> {
-  const account = db
-    .$with('account')
-    .as(
-      db
-        .update(user)
-        .set({ password: passwordHash })
-        .where(eq(user.id, id))
-        .returning(accountColumns),
-    );
-  const tokens = db
-    .$with('revoked_tokens')
-    .as(revokeAllTokensStatement(db, id));
-  const devices = db
-    .$with('revoked_devices')
-    .as(revokeDevicesStatement(db, id, keepEndpoint));
-  const [row] = await db
-    .with(account, tokens, devices)
-    .select({
-      id: account.id,
-      email: account.email,
-      password: account.password,
-      revokedTokens: sql`(select count(*) from ${tokens})`.mapWith(Number),
-      revokedDevices: sql`(select count(*) from ${devices})`.mapWith(Number),
-    })
-    .from(account);
-  // No row: the account is gone (deleted between the caller's read and
-  // this), and the CTEs found nothing of it to revoke. A 404, as lockOwner.
-  if (!row) throw new HttpError(404, 'Account not found');
-  const { revokedTokens, revokedDevices, ...changed } = row;
-  return { account: changed, revokedTokens, revokedDevices };
+  return db.transaction(async (tx) => {
+    const [account] = await tx
+      .update(user)
+      .set({ password: passwordHash })
+      .where(eq(user.id, id))
+      .returning(accountColumns);
+    // The account is gone (deleted between the caller's read and this).
+    if (!account) throw new HttpError(404, 'Account not found');
+    const tokens = tx
+      .$with('revoked_tokens')
+      .as(revokeAllTokensStatement(tx, id, keep.tokenId));
+    const devices = tx
+      .$with('revoked_devices')
+      .as(revokeDevicesStatement(tx, id, keep.endpoint));
+    // An aggregate over the revoked tokens: one row even when there are none.
+    const [revoked] = await tx
+      .with(tokens, devices)
+      .select({
+        mcp: sql`count(*) filter (where ${tokens.kind} = 'mcp')`.mapWith(
+          Number,
+        ),
+        device: sql`count(*) filter (where ${tokens.kind} = 'device')`.mapWith(
+          Number,
+        ),
+        devices: sql`(select count(*) from ${devices})`.mapWith(Number),
+      })
+      .from(tokens);
+    return {
+      account,
+      revokedTokens: { mcp: revoked.mcp, device: revoked.device },
+      revokedDevices: revoked.devices,
+    };
+  });
 }
 
 /**

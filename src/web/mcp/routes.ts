@@ -81,10 +81,14 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
   async function requireToken(request: FastifyRequest, reply: FastifyReply) {
     const header = request.headers.authorization;
     const presented = header ? BEARER.exec(header)?.[1] : undefined;
-    const auth = presented ? await authenticateToken(db, presented) : undefined;
+    // Agent tokens only: a native client's device token is refused here as
+    // an unknown one would be (#189).
+    const auth = presented
+      ? await authenticateToken(db, presented, 'mcp')
+      : undefined;
     if (!auth) {
       mcpLogger.warn(
-        `MCP ${request.method} refused: ${presented ? 'unknown or revoked token' : 'no bearer token'} from ${request.ip}`,
+        `MCP ${request.method} refused: ${presented ? 'unknown, revoked or non-MCP token' : 'no bearer token'} from ${request.ip}`,
       );
       return (
         reply

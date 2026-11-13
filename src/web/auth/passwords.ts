@@ -3,7 +3,11 @@ import { PASSWORD_HASH_ROUNDS_PRODUCTION } from '../../config';
 import type { Db } from '../../db/client';
 import { markSecretChecked } from '../../metrics/request-timing';
 import type { StringKey } from '../i18n';
-import { type PasswordChange, updatePasswordHash } from './queries';
+import {
+  type PasswordChange,
+  type PasswordChangeKeeps,
+  updatePasswordHash,
+} from './queries';
 
 /**
  * Compared against when the account does not exist, so an unknown email
@@ -81,21 +85,16 @@ export function passwordProblems(password: string): StringKey[] {
  * fingerprint every session token carries (tokens.ts), so every session
  * issued before is rejected from the next request on, and every personal
  * access token and push subscription is revoked with it
- * (updatePasswordHash). `keepEndpoint`: the push subscription of the device
- * making the change, which stays signed in (the route); the CLI has none,
- * so every device goes. Returns the updated row, for a caller that issues
- * this device a fresh token, and what was revoked, for its log line.
+ * (updatePasswordHash). `keep`: what of the device making the change stays
+ * signed in (the route names its push subscription); the CLI has no
+ * device, so everything goes. Returns the updated row, for a caller that
+ * issues this device a fresh token, and what was revoked, for its log line.
  */
 export async function setPassword(
   db: Db,
   userId: number,
   password: string,
-  keepEndpoint?: string,
+  keep?: PasswordChangeKeeps,
 ): Promise<PasswordChange> {
-  return updatePasswordHash(
-    db,
-    userId,
-    await hashPassword(password),
-    keepEndpoint,
-  );
+  return updatePasswordHash(db, userId, await hashPassword(password), keep);
 }

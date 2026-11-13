@@ -18,8 +18,25 @@ export function profileSection(id: string): string {
 export const ACCOUNT_SECTION_ID = 'account';
 export const STYLE_SECTION_ID = 'style';
 export const AGENT_ACCESS_SECTION_ID = 'agent-access';
+export const DEVICES_SECTION_ID = 'devices';
 export const EXPORT_SECTION_ID = 'export';
 export const SIGN_OUT_SECTION_ID = 'sign-out';
 
 /** Agent access: the MCP endpoint's personal access tokens (token-routes.tsx). */
 export const TOKENS_PATH = '/auth/tokens';
+
+/** Profile › Devices: a native client's device tokens, revoked under it (token-routes.tsx). */
+export const DEVICES_PATH = '/auth/devices';
+
+/**
+ * A revoke redirect's `?revoked=` / `?deviceRevoked=` (1: revoked, 0:
+ * nothing to revoke) as its notice; any other value shows nothing (URL
+ * state, never a 400).
+ */
+export function revokeNotice(
+  value: string | undefined,
+): 'revoked' | 'revoke-gone' | undefined {
+  if (value === '1') return 'revoked';
+  if (value === '0') return 'revoke-gone';
+  return undefined;
+}

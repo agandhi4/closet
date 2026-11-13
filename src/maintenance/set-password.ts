@@ -129,7 +129,7 @@ export async function runSetPassword(
       password,
     );
     logger.info(
-      `Password set for user ${account.id} via CLI: ${revokedTokens} access tokens and ${revokedDevices} push devices revoked`,
+      `Password set for user ${account.id} via CLI: ${revokedTokens.mcp} MCP tokens, ${revokedTokens.device} device tokens and ${revokedDevices} push devices revoked`,
     );
     output.write(
       `Password set for user ${account.id}; every existing session of that account is signed out, and its access tokens and push subscriptions are revoked.\n`,
