@@ -3,17 +3,20 @@ import type { InjectOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { addDays } from '../../src/calendar-date';
 import {
+  optionGroup,
   outfit,
   outfitCalendar,
   tripItem,
   tripOutfit,
   weekPlan,
 } from '../../src/db/schema';
+import { markSuggestion } from '../../src/web/wishlist/decisions';
 import { deviceToken, SIGN_IN_URL, signInDevice } from './api';
 import { failCutout } from './cutouts';
 import { jpeg, type LinkSites, startLinkSites } from './link-sites';
 import {
   createGarment,
+  createWishlistItem,
   jpegPhoto,
   photoFileName,
   pngCutout,
@@ -1174,6 +1177,288 @@ describe('API statements per route', () => {
       const apiRun = await statementsOf(() => t.api(token, api(onApi)));
       expect([pageRun.status, apiRun.status]).toEqual(ok);
       expect(apiRun.statements).toBe(pageRun.statements);
+    });
+  });
+
+  describe('the wishlist and capsules: what their page twins cost (#194b)', () => {
+    let token: string;
+
+    beforeAll(async () => {
+      token = await twinToken();
+    });
+
+    /**
+     * One run's own rows: a need with two picks and another with one
+     * bought, a capsule holding a garment, so each write has something to
+     * change and no run sees another's.
+     */
+    interface ShopSetup {
+      needId: number;
+      pickId: number;
+      boughtId: number;
+      capsuleId: number;
+      garmentId: number;
+      today: string;
+    }
+
+    let runs = 0;
+    const shopSetup = async (): Promise<ShopSetup> => {
+      const tag = ++runs;
+      const ownerId = t.owner.id;
+      const need = async (name: string) => {
+        const [row] = await t.db
+          .insert(optionGroup)
+          .values({ ownerId, name, budget: '100' })
+          .returning({ id: optionGroup.id });
+        return row.id;
+      };
+      const pick = async (name: string, groupId: number) => {
+        const id = await createWishlistItem(t, { name, price: '90' });
+        const marked = await markSuggestion(t.db, ownerId, id, {
+          tokenId: null,
+          groupId,
+          note: null,
+          rank: null,
+        });
+        expect(marked).toBe('marked');
+        return id;
+      };
+      const needId = await need(`Counted need ${tag}`);
+      const pickId = await pick(`Counted pick ${tag}`, needId);
+      await pick(`Counted sibling ${tag}`, needId);
+      const boughtId = await pick(
+        `Counted bought ${tag}`,
+        await need(`Counted bought need ${tag}`),
+      );
+      const bought = await t.inject({
+        method: 'POST',
+        url: `/wardrobe/${boughtId}/bought`,
+        payload: { acquiredOn: t.today() },
+      });
+      expect(bought.statusCode).toBe(303);
+      const garmentId = await createGarment(t, {
+        name: `Counted member ${tag}`,
+      });
+      const made = await t.inject({
+        method: 'POST',
+        url: '/capsules',
+        payload: { name: `Counted capsule ${tag}` },
+      });
+      const capsuleId = Number(
+        /^\/capsules\/(\d+)/.exec(made.headers.location as string)![1],
+      );
+      expect(
+        (
+          await t.inject({
+            method: 'POST',
+            url: `/capsules/${capsuleId}/garments`,
+            payload: { ids: [garmentId] },
+          })
+        ).statusCode,
+      ).toBe(303);
+      return {
+        needId,
+        pickId,
+        boughtId,
+        capsuleId,
+        garmentId,
+        today: t.today(),
+      };
+    };
+
+    /**
+     * Each route's page twin and its API request, each on a setup of its
+     * own: the same writer, the same statements, but `fewer` where the page
+     * reads what only its drawing needs.
+     */
+    const CASES: {
+      name: string;
+      ok: [page: number, api: number];
+      /** Statements the API saves on its page twin, and why. */
+      fewer?: number;
+      page: (s: ShopSetup) => InjectOptions;
+      api: (s: ShopSetup) => InjectOptions;
+    }[] = [
+      {
+        name: 'GET /wishlist (GET /wardrobe/wishlist)',
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: '/wardrobe/wishlist' }),
+        api: () => ({ method: 'GET', url: '/api/v1/wishlist' }),
+      },
+      {
+        name: 'GET /wishlist/needs/{id} (GET /wardrobe/wishlist/needs/:id)',
+        ok: [200, 200],
+        page: (s) => ({
+          method: 'GET',
+          url: `/wardrobe/wishlist/needs/${s.needId}`,
+        }),
+        api: (s) => ({
+          method: 'GET',
+          url: `/api/v1/wishlist/needs/${s.needId}`,
+        }),
+      },
+      {
+        name: 'POST /wishlist/seen (POST /wardrobe/wishlist/seen)',
+        ok: [200, 200],
+        page: () => ({ method: 'POST', url: '/wardrobe/wishlist/seen' }),
+        api: () => ({ method: 'POST', url: '/api/v1/wishlist/seen' }),
+      },
+      {
+        name: 'POST /garments/{id}/decisions (POST /wardrobe/:id/choose)',
+        ok: [303, 200],
+        page: (s) => ({ method: 'POST', url: `/wardrobe/${s.pickId}/choose` }),
+        api: (s) => ({
+          method: 'POST',
+          url: `/api/v1/garments/${s.pickId}/decisions`,
+          payload: { event: 'choose' },
+        }),
+      },
+      {
+        name: 'POST /wishlist/needs/{id}/decisions (POST …/needs/:id/dismiss)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/wardrobe/wishlist/needs/${s.needId}/dismiss`,
+          payload: { reason: 'not_now' },
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: `/api/v1/wishlist/needs/${s.needId}/decisions`,
+          payload: { event: 'dismiss', reason: 'not_now' },
+        }),
+      },
+      {
+        name: 'POST /garments/{id}/purchases (POST /wardrobe/:id/bought)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/wardrobe/${s.pickId}/bought`,
+          payload: { acquiredOn: s.today, price: '80' },
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: `/api/v1/garments/${s.pickId}/purchases`,
+          payload: { acquiredOn: s.today, price: '80' },
+        }),
+      },
+      {
+        name: 'POST /garments/{id}/returns (POST /wardrobe/:id/returned)',
+        ok: [200, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/wardrobe/${s.boughtId}/returned`,
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: `/api/v1/garments/${s.boughtId}/returns`,
+        }),
+      },
+      {
+        name: 'GET /capsules (GET /capsules)',
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: '/capsules' }),
+        api: () => ({ method: 'GET', url: '/api/v1/capsules' }),
+      },
+      {
+        // The page reads the capsule's first page of garments and their
+        // count beside it; the API's are GET /garments?capsuleId=.
+        name: 'GET /capsules/{id} (GET /capsules/:id)',
+        ok: [200, 200],
+        fewer: 2,
+        page: (s) => ({ method: 'GET', url: `/capsules/${s.capsuleId}` }),
+        api: (s) => ({ method: 'GET', url: `/api/v1/capsules/${s.capsuleId}` }),
+      },
+      {
+        name: 'POST /capsules (POST /capsules)',
+        ok: [303, 201],
+        page: (s) => ({
+          method: 'POST',
+          url: '/capsules',
+          payload: { name: `Page capsule ${s.capsuleId}` },
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: '/api/v1/capsules',
+          payload: { name: `Api capsule ${s.capsuleId}` },
+        }),
+      },
+      {
+        // The page reads the capsule before the form, to draw a refused
+        // one; the API's refusal reads it only then.
+        name: 'PUT /capsules/{id} (POST /capsules/:id)',
+        ok: [303, 200],
+        fewer: 1,
+        page: (s) => ({
+          method: 'POST',
+          url: `/capsules/${s.capsuleId}`,
+          payload: { name: `Renamed ${s.capsuleId}` },
+        }),
+        api: (s) => ({
+          method: 'PUT',
+          url: `/api/v1/capsules/${s.capsuleId}`,
+          payload: { name: `Renamed ${s.capsuleId}` },
+        }),
+      },
+      {
+        name: 'DELETE /capsules/{id} (DELETE /capsules/:id)',
+        ok: [200, 204],
+        page: (s) => ({ method: 'DELETE', url: `/capsules/${s.capsuleId}` }),
+        api: (s) => ({
+          method: 'DELETE',
+          url: `/api/v1/capsules/${s.capsuleId}`,
+        }),
+      },
+      {
+        name: 'PATCH /capsules/{id}/members (POST /capsules/:id/garments)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/capsules/${s.capsuleId}/garments`,
+          payload: { shown: [s.garmentId] },
+        }),
+        api: (s) => ({
+          method: 'PATCH',
+          url: `/api/v1/capsules/${s.capsuleId}/members`,
+          payload: { remove: [s.garmentId] },
+        }),
+      },
+      {
+        name: 'PATCH /garments/{id}/capsules (POST /wardrobe/:id/capsules)',
+        ok: [200, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/wardrobe/${s.garmentId}/capsules`,
+          payload: { shown: [s.capsuleId] },
+        }),
+        api: (s) => ({
+          method: 'PATCH',
+          url: `/api/v1/garments/${s.garmentId}/capsules`,
+          payload: { remove: [s.capsuleId] },
+        }),
+      },
+    ];
+
+    it.each(CASES)('$name', async ({ ok, fewer = 0, page, api }) => {
+      const [onPage, onApi] = [await shopSetup(), await shopSetup()];
+      const pageRun = await statementsOf(() => t.inject(page(onPage)));
+      // A second call of the minute: no last-use write.
+      await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      const apiRun = await statementsOf(() => t.api(token, api(onApi)));
+      expect([pageRun.status, apiRun.status]).toEqual(ok);
+      expect(apiRun.statements).toBe(pageRun.statements - fewer);
+    });
+
+    it('GET /garments/{id}/goes-with: the token, then its inputs in one statement', async () => {
+      const { pickId } = await shopSetup();
+      await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      expect(
+        await statementsOf(() =>
+          t.api(token, {
+            method: 'GET',
+            url: `/api/v1/garments/${pickId}/goes-with`,
+          }),
+        ),
+      ).toMatchObject({ status: 200, statements: 2 });
     });
   });
 

@@ -639,6 +639,10 @@ export const ROUTES: Route[] = [
       viewer: ['hidden', 'ok'],
       stranger: ['hidden', 'notFound'],
     },
+    api: {
+      ok: 200,
+      request: (_, q) => ({ method: 'GET', url: `/api/v1/wishlist${q}` }),
+    },
   },
   // The Muse inbox (#333): read like the wishlist (a VIEW grantee sees
   // Muse's needs and notes), decided by the owner alone: with ?ownerId= a
@@ -678,6 +682,13 @@ export const ROUTES: Route[] = [
       viewer: ['notFound', 'ok'],
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'GET',
+        url: `/api/v1/wishlist/needs/${f.needId}${q}`,
+      }),
+    },
   },
   ...(
     [
@@ -698,6 +709,14 @@ export const ROUTES: Route[] = [
         payload,
       }),
       expect: OWNER_DECIDES,
+      api: {
+        ok: 200,
+        request: (f, q) => ({
+          method: 'POST',
+          url: `/api/v1/garments/${id(f)}/decisions${q}`,
+          payload: { event: decision, ...payload },
+        }),
+      },
     }),
   ),
   {
@@ -712,6 +731,13 @@ export const ROUTES: Route[] = [
       url: `/wardrobe/${f.boughtPickId}/returned${q}`,
     }),
     expect: OWNER_DECIDES,
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/garments/${f.boughtPickId}/returns${q}`,
+      }),
+    },
   },
   ...(
     [
@@ -731,6 +757,14 @@ export const ROUTES: Route[] = [
         payload,
       }),
       expect: OWNER_DECIDES,
+      api: {
+        ok: 200,
+        request: (f, q) => ({
+          method: 'POST',
+          url: `/api/v1/wishlist/needs/${id(f)}/decisions${q}`,
+          payload: { event: decision, ...payload },
+        }),
+      },
     }),
   ),
   {
@@ -770,6 +804,14 @@ export const ROUTES: Route[] = [
       manager: ['notFound', 'ok'],
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/garments/${f.wishlistId}/purchases${q}`,
+        payload: { acquiredOn: f.today, price: '10' },
+      }),
     },
   },
   {

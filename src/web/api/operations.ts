@@ -76,6 +76,24 @@ export const OPERATIONS = [
   'setTripItemPacked',
   'removeTripItem',
   'copyTripItems',
+  // #194b: the wishlist (Muse's inbox, its decisions, "Bought it") and
+  // capsules. A new wishlist item, and "Bought a different one", are
+  // createGarment's (`destination`, `boughtForNeedId`).
+  'getWishlist',
+  'markWishlistSeen',
+  'getWishlistNeed',
+  'decideWishlistPick',
+  'decideWishlistNeed',
+  'buyWishlistItem',
+  'returnGarment',
+  'getGoesWith',
+  'listCapsules',
+  'getCapsule',
+  'createCapsule',
+  'updateCapsule',
+  'deleteCapsule',
+  'changeCapsuleMembers',
+  'changeGarmentCapsules',
 ] as const;
 export type OperationId = (typeof OPERATIONS)[number];
 
@@ -90,8 +108,6 @@ export function isOperationId(id: string): id is OperationId {
 type EndpointIssue =
   /** Outfits, styling, ideas, the calendar, wears, the week plan, selfies. */
   | '#193'
-  /** Trips and packing, the wishlist, capsules. */
-  | '#194'
   /** Today, insights, sizes, the style profile, weather (a trip's destination too), shared wardrobes. */
   | '#195';
 
@@ -285,21 +301,21 @@ export const PAGE_WRITES: Readonly<
   'POST /trips/:id/packed': { api: 'setTripGarmentPacked' },
 
   // The wishlist (Muse's inbox).
-  'POST /wardrobe/:id/choose': { pending: '#194' },
-  'POST /wardrobe/:id/dismiss': { pending: '#194' },
-  'POST /wardrobe/:id/undo': { pending: '#194' },
-  'POST /wardrobe/:id/bought': { pending: '#194' },
-  'POST /wardrobe/:id/returned': { pending: '#194' },
-  'POST /wardrobe/wishlist/needs/:id/dismiss': { pending: '#194' },
-  'POST /wardrobe/wishlist/needs/:id/undo': { pending: '#194' },
-  'POST /wardrobe/wishlist/seen': { pending: '#194' },
+  'POST /wardrobe/:id/choose': { api: 'decideWishlistPick' },
+  'POST /wardrobe/:id/dismiss': { api: 'decideWishlistPick' },
+  'POST /wardrobe/:id/undo': { api: 'decideWishlistPick' },
+  'POST /wardrobe/:id/bought': { api: 'buyWishlistItem' },
+  'POST /wardrobe/:id/returned': { api: 'returnGarment' },
+  'POST /wardrobe/wishlist/needs/:id/dismiss': { api: 'decideWishlistNeed' },
+  'POST /wardrobe/wishlist/needs/:id/undo': { api: 'decideWishlistNeed' },
+  'POST /wardrobe/wishlist/seen': { api: 'markWishlistSeen' },
 
   // Capsules.
-  'POST /capsules': { pending: '#194' },
-  'POST /capsules/:id': { pending: '#194' },
-  'DELETE /capsules/:id': { pending: '#194' },
-  'POST /capsules/:id/garments': { pending: '#194' },
-  'POST /wardrobe/:id/capsules': { pending: '#194' },
+  'POST /capsules': { api: 'createCapsule' },
+  'POST /capsules/:id': { api: 'updateCapsule' },
+  'DELETE /capsules/:id': { api: 'deleteCapsule' },
+  'POST /capsules/:id/garments': { api: 'changeCapsuleMembers' },
+  'POST /wardrobe/:id/capsules': { api: 'changeGarmentCapsules' },
 
   // Sizes, the style profile, the weather.
   'POST /auth/profile/sizes/measurements': { pending: '#195' },
@@ -354,7 +370,7 @@ export const MCP_WRITES: Readonly<Record<string, ToolParity>> = {
   plan_week: { api: 'planWeek' },
   add_inspiration: { pending: '#193' },
   set_inspiration_pieces: { pending: '#193' },
-  set_capsule_membership: { pending: '#194' },
+  set_capsule_membership: { api: 'changeCapsuleMembers' },
   plan_trip_outfit: { api: 'addTripOutfit' },
   create_option_group: MUSE_ROUND,
   suggest_garment: MUSE_ROUND,

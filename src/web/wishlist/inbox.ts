@@ -385,7 +385,8 @@ function sortGroups(
  * the brand notes and "Unlocks N" (counted after the statement, one search
  * per open pick; logged with its time by the route). `groupsOnly`: the
  * next page's cards (GET /wardrobe/wishlist/more), which read the needs and
- * the unlocks alone.
+ * the unlocks alone. The switcher only for a `viewerId`: the page's, never
+ * its next pages', the API's or MCP's.
  */
 export async function readInbox(
   db: Db,
@@ -396,7 +397,7 @@ export async function readInbox(
     groupsOnly = false,
   }: {
     ownerId: number;
-    viewerId: number;
+    viewerId?: number;
     isOwner: boolean;
     groupsOnly?: boolean;
   },
@@ -404,7 +405,8 @@ export async function readInbox(
   const row = await selectScalars(db, {
     needs: needsSql(ownerId, inInbox),
     own: groupsOnly ? undefined : ownItemsSql(ownerId),
-    sharedWardrobes: groupsOnly ? undefined : sharedWardrobesSql(viewerId),
+    sharedWardrobes:
+      viewerId === undefined ? undefined : sharedWardrobesSql(viewerId),
     brandSizes: isOwner && !groupsOnly ? brandSizesSql(ownerId) : undefined,
     unlocks: isOwner ? goesWithManyInputsSql(ownerId, OPEN_PICKS) : undefined,
   });
