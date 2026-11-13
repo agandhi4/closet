@@ -18,7 +18,7 @@ import {
   userIdOf,
   asFixture,
 } from './harness';
-import { deviceToken } from './api';
+import { deviceToken, expectProblem } from './api';
 import { createAccessToken, callTool, mintToken, tool } from './mcp';
 import { mirrorPhoto, postSelfie } from './selfies';
 
@@ -310,6 +310,48 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
       expect(page.statusCode).toBe(200);
       expect(page.body).toContain(`data-year="${today.slice(0, 4)}"`);
       expect(page.body).toContain(`data-to="${today}"`);
+    });
+
+    it("the API's insights and year in review (#588) count to today, the household's", async () => {
+      const worn = await createGarment(t, {
+        name: `API insight ${at}`,
+        cookie,
+      });
+      expect(
+        (await post(`/wardrobe/${worn}/wear`, { worn: '1' })).statusCode,
+      ).toBe(303);
+      const { token } = await deviceToken(t);
+      const insights = await t.api(token, {
+        method: 'GET',
+        url: '/api/v1/insights?unwornDays=30',
+      });
+      expect(insights.statusCode, insights.body).toBe(200);
+      const model = insights.json<{
+        today: IsoDate;
+        unworn: { garments: { id: number }[] };
+      }>();
+      expect(model.today).toBe(today);
+      expect(model.unworn.garments.map((g) => g.id)).not.toContain(worn);
+      const year = Number(today.slice(0, 4));
+      const recap = await t.api(token, {
+        method: 'GET',
+        url: '/api/v1/insights/recap',
+      });
+      expect(recap.json()).toMatchObject({
+        year,
+        from: `${year}-01-01`,
+        to: today,
+        complete: false,
+      });
+      // Data, not the page's navigation state: next year is a 400.
+      expectProblem(
+        await t.api(token, {
+          method: 'GET',
+          url: `/api/v1/insights/recap?year=${year + 1}`,
+        }),
+        400,
+        'validation',
+      );
     });
 
     it('GET /api/v1/me (#530) answers the household day', async () => {

@@ -134,6 +134,17 @@ export const OPERATIONS = [
   'resetTemperatureOffset',
   'getTripWeather',
   'setTripDestination',
+  // #588: insights and the year in review (reads), sizes, measurements and
+  // the brand hint.
+  'getInsights',
+  'getRecap',
+  'getSizes',
+  'saveMeasurements',
+  'setLengthUnit',
+  'listBrandSizes',
+  'addBrandSize',
+  'updateBrandSize',
+  'deleteBrandSize',
 ] as const;
 export type OperationId = (typeof OPERATIONS)[number];
 
@@ -372,11 +383,11 @@ export const PAGE_WRITES: Readonly<
   'POST /wardrobe/:id/capsules': { api: 'changeGarmentCapsules' },
 
   // Sizes, the style profile, the weather.
-  'POST /auth/profile/sizes/measurements': { pending: '#195' },
-  'POST /auth/profile/sizes/unit': { pending: '#195' },
-  'POST /auth/profile/sizes/brands': { pending: '#195' },
-  'POST /auth/profile/sizes/brands/:id': { pending: '#195' },
-  'POST /auth/profile/sizes/brands/:id/delete': { pending: '#195' },
+  'POST /auth/profile/sizes/measurements': { api: 'saveMeasurements' },
+  'POST /auth/profile/sizes/unit': { api: 'setLengthUnit' },
+  'POST /auth/profile/sizes/brands': { api: 'addBrandSize' },
+  'POST /auth/profile/sizes/brands/:id': { api: 'updateBrandSize' },
+  'POST /auth/profile/sizes/brands/:id/delete': { api: 'deleteBrandSize' },
   'POST /auth/profile/style': { pending: '#195' },
   'POST /auth/profile/style/rules': { pending: '#195' },
   'POST /auth/profile/style/rules/:id/delete': { pending: '#195' },

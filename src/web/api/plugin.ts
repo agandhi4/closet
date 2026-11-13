@@ -8,6 +8,7 @@ import { galleryApiRoutes } from '../gallery/api-routes';
 import { lookApiRoutes } from '../inspiration/api-routes';
 import type { InspirationLinkLimit } from '../inspiration/writes';
 import type { SignInLimit } from '../auth/sign-in';
+import { insightsApiRoutes } from '../insights/api-routes';
 import { outfitApiRoutes } from '../outfits/api-routes';
 import type { WebOptions } from '../plugin';
 import { Problem } from '../problem';
@@ -18,6 +19,7 @@ import {
   enforceLimit,
   type WeatherLimits,
 } from '../security/rate-limit';
+import { sizesApiRoutes } from '../sizes/api-routes';
 import { API_PREFIX } from '../surface';
 import { todayApiRoutes } from '../today/api-routes';
 import { tripApiRoutes } from '../trips/api-routes';
@@ -135,6 +137,8 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
   await app.register(galleryApiRoutes, options);
   await app.register(selfieApiRoutes, options);
   await app.register(lookApiRoutes, options);
+  await app.register(insightsApiRoutes, options);
+  await app.register(sizesApiRoutes, options);
   // Only with WEATHER_ENABLED, as /weather/* (webPlugin).
   const { weather } = options;
   if (weather) await app.register(weatherApiRoutes, { ...options, weather });
