@@ -11,6 +11,7 @@ import { authenticateToken } from '../auth/personal-tokens';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { loggableUrl } from '../loggable-url';
+import { rememberShareReadAhead, shareToReadAhead } from '../sharing/access';
 
 /**
  * The API's credential (#190): a `device` token in `Authorization: Bearer`,
@@ -34,8 +35,9 @@ export function signInAgain(): HttpError {
  * before Fastify reads or parses the body, so an unauthenticated request is
  * a 401 whatever it sent, never a 400 for malformed JSON or a 413 for a body
  * past the limit, and a stranger's body is never read at all. One indexed
- * read (authenticateToken), plus the last-use write once a minute. Logs the
- * refusal's reason and the client address, never the token.
+ * read (authenticateToken, with the `?ownerId=` share read ahead), plus the
+ * last-use write once a minute. Logs the refusal's reason and the client
+ * address, never the token.
  */
 export function createDeviceTokenHook({
   db,
@@ -49,9 +51,13 @@ export function createDeviceTokenHook({
   ): Promise<void> {
     if (request.routeOptions.config.public === true) return;
     const presented = presentedBearer(request);
+    // A grantee's `?ownerId=` share rides in the token's read (#170), as a
+    // page's rides in the session's: the access check costs no statement.
     const auth =
       'token' in presented
-        ? await authenticateToken(db, presented.token, 'device')
+        ? await authenticateToken(db, presented.token, 'device', {
+            shareOf: shareToReadAhead(request),
+          })
         : undefined;
     if (!auth) {
       const reason =
@@ -63,7 +69,9 @@ export function createDeviceTokenHook({
       );
       throw signInAgain();
     }
-    request.accessToken = auth;
+    const { share, ...accessToken } = auth;
+    request.accessToken = accessToken;
+    if (share) rememberShareReadAhead(request, share);
   };
 }
 

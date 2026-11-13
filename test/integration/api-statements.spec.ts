@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { deviceToken, SIGN_IN_URL, signInDevice } from './api';
+import { createGarment } from './garments';
 import {
   createTestApp,
   recordQueries,
@@ -81,6 +82,63 @@ describe('API statements per route', () => {
         t.api(token, { method: 'DELETE', url: SIGN_IN_URL }),
       ),
     ).toMatchObject({ status: 204, statements: 3 });
+  });
+
+  describe("the wardrobe's reads: what their page twins cost (#192a)", () => {
+    let ownerToken: string;
+    let viewerToken: string;
+    let garmentId: number;
+    const shared = () => `?ownerId=${t.owner.id}`;
+    /** A second call of the minute: no last-use write. */
+    const warm = async (token: string, url: string) => {
+      await t.api(token, { method: 'GET', url });
+      return statementsOf(() => t.api(token, { method: 'GET', url }));
+    };
+
+    beforeAll(async () => {
+      ownerToken = (await deviceToken(t)).token;
+      const email = 'garment-statements-viewer@example.com';
+      const cookie = await t.register(email);
+      viewerToken = (await deviceToken(t, { email })).token;
+      const invite = await t.inject({
+        method: 'POST',
+        url: '/wardrobe-share/create-invite-link',
+        payload: { permission: 'VIEW' },
+        headers: { 'hx-request': 'true' },
+      });
+      const code = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(
+        invite.body,
+      )![1];
+      await t.inject({
+        method: 'POST',
+        url: `/wardrobe-share/invite/${code}/accept`,
+        headers: { cookie },
+      });
+      garmentId = await createGarment(t, { name: 'Counted tee' });
+    });
+
+    it('GET /garments: the token, the page and the count, as GET /wardrobe is 3', async () => {
+      expect(await warm(ownerToken, '/api/v1/garments')).toMatchObject({
+        status: 200,
+        statements: 3,
+      });
+      // A grantee's share rides in the token's read (#170).
+      const grantee = await warm(viewerToken, `/api/v1/garments${shared()}`);
+      expect(grantee).toMatchObject({ status: 200, statements: 3 });
+      expect(grantee.sql[0]).toContain('"wardrobe_share"');
+    });
+
+    it('GET /garments/{id}: the token, the garment and its context, as its page is 3', async () => {
+      const url = `/api/v1/garments/${garmentId}`;
+      expect(await warm(ownerToken, url)).toMatchObject({
+        status: 200,
+        statements: 3,
+      });
+      expect(await warm(viewerToken, `${url}${shared()}`)).toMatchObject({
+        status: 200,
+        statements: 3,
+      });
+    });
   });
 
   it('GET /openapi.json: none', async () => {

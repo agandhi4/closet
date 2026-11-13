@@ -36,6 +36,10 @@ export const ROUTES: Route[] = [
       viewer: ['hidden', 'ok'],
       stranger: ['hidden', 'notFound'],
     },
+    api: {
+      ok: 200,
+      request: (_, q) => ({ method: 'GET', url: `/api/v1/garments${q}` }),
+    },
   },
   {
     // The grid's next page (its "load more" sentinel).
@@ -293,6 +297,13 @@ export const ROUTES: Route[] = [
       manager: ['notFound', 'ok'],
       viewer: ['notFound', 'ok'],
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'GET',
+        url: `/api/v1/garments/${f.garmentId}${q}`,
+      }),
     },
   },
   {

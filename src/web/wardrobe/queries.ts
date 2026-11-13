@@ -28,6 +28,7 @@ import { inCapsule } from '../capsules/queries';
 import type { SignablePhotoRef, PlinthPhoto } from '../files/image-url';
 import type { StoredPhoto } from '../files/image-variant';
 import {
+  type PhotoWithCutout,
   photoWithCutoutJson,
   PLINTH_PHOTO_COLUMNS,
   plinthPhoto,
@@ -252,8 +253,10 @@ export const CLOSET_FILTERS: GridFilters = {
 };
 
 /**
- * A garment as a list for a reader, not a screen, shows it: what it is
- * (the MCP tools' search, capsule and comparison answers), never its photo.
+ * A garment as a list shows what it is: the MCP tools' search, capsule and
+ * comparison answers (which leave the photo out: an agent reads, it asks
+ * get_garment_photo to see) and the API's GET /garments (#192a), whose
+ * client draws the photo. The photo is the one the garment page reads.
  */
 export interface GarmentSummary {
   id: number;
@@ -272,6 +275,7 @@ export interface GarmentSummary {
   price: string | null;
   sourceUrl: string | null;
   status: GarmentStatus;
+  photo: PhotoWithCutout | null;
 }
 
 /**
@@ -314,8 +318,10 @@ export async function garmentSummaries(
       price: garment.price,
       sourceUrl: garment.sourceUrl,
       status: garment.status,
+      photo: photoWithCutoutJson,
     })
     .from(garment)
+    .leftJoin(file, eq(file.id, garment.photoId))
     .where(
       and(
         gridWhere(ownerId, filters),

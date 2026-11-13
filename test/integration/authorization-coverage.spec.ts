@@ -100,7 +100,10 @@ function appRoutes(registered: RouteOptions[]): AppRoute[] {
   );
 }
 
-/** Each template a matrix case requests, and by which vias. */
+/**
+ * Each template a matrix case requests, and by which vias: a page route's,
+ * and its /api/v1 twin's (Route.api), on which every case replays.
+ */
 async function matrixCoverage(
   groups: MatrixGroup[],
   router: FastifyInstance,
@@ -108,14 +111,19 @@ async function matrixCoverage(
   const covered = new Map<RouteKey, Set<Via>>();
   const unresolved: string[] = [];
   const cases = groups.flatMap(({ group, routes }) =>
-    routes.flatMap((route) => route.vias.map((via) => ({ group, route, via }))),
+    routes.flatMap(({ name, vias, request, api }) =>
+      [
+        { name, request },
+        ...(api ? [{ name: `${name} (api)`, request: api.request }] : []),
+      ].flatMap((sent) => vias.map((via) => ({ group, ...sent, via }))),
+    ),
   );
-  for (const { group, route, via } of cases) {
+  for (const { group, name, request, via } of cases) {
     const query = via === 'ownerId' ? `?ownerId=${ADDRESS.ownerId}` : '';
-    const { method, url } = await route.request(ADDRESS, query);
+    const { method, url } = await request(ADDRESS, query);
     const res = await router.inject({ method, url });
     if (res.statusCode !== 200) {
-      unresolved.push(`${group}: ${route.name} (${via}) reaches no route`);
+      unresolved.push(`${group}: ${name} (${via}) reaches no route`);
       continue;
     }
     covered.set(res.body, (covered.get(res.body) ?? new Set()).add(via));

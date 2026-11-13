@@ -19,7 +19,7 @@ import { normalizeCategory } from '../../wardrobe/garment';
 import { CLOSET_FILTERS, garmentSummaries } from '../../wardrobe/queries';
 import { CATEGORY_MAX } from '../../wardrobe/garment-input';
 import { defineTool } from '../tool';
-import { checkedType } from './garments';
+import { checkedType } from '../../wardrobe/garment-search';
 
 /**
  * get_closet_coverage (#337; doc section 5): what the closet lacks,

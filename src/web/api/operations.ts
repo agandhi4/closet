@@ -12,7 +12,16 @@
  * not here (requireContract), so a twin below can name only a real one, and
  * a typo fails tsc.
  */
-export const OPERATIONS = ['getOpenApi', 'signIn', 'signOut', 'getMe'] as const;
+export const OPERATIONS = [
+  'getOpenApi',
+  'signIn',
+  'signOut',
+  'getMe',
+  // #192a: the wardrobe's reads (no page write twins them; their matrix
+  // routes are GET /wardrobe and GET /wardrobe/:id).
+  'listGarments',
+  'getGarment',
+] as const;
 export type OperationId = (typeof OPERATIONS)[number];
 
 export function isOperationId(id: string): id is OperationId {

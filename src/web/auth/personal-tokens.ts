@@ -4,7 +4,12 @@ import { TOKEN_PREFIX, type TokenKind } from '../../credential-names';
 import type { Db, Queryable } from '../../db/client';
 import type { Logger } from '../../logger';
 import { markSecretChecked } from '../../metrics/request-timing';
-import { personalAccessToken, user } from '../../db/schema';
+import {
+  personalAccessToken,
+  type SharePermission,
+  user,
+} from '../../db/schema';
+import { type ShareReadAhead, sharePermissionSql } from '../sharing/access';
 import type { SessionUser } from './session';
 
 /**
@@ -267,13 +272,16 @@ export interface TokenAuth {
  * unknown, revoked or other-kind one (the caller answers each with the same
  * 401, and an other-kind token's use is never recorded). One indexed read;
  * a second statement records the use when the last one is a minute old.
+ * `shareOf` (shareToReadAhead) reads the token user's share of that
+ * wardrobe in the same read, as the session statement does (#170): `share`
+ * then answers it, unless the wardrobe is the user's own.
  */
 export async function authenticateToken(
   db: Db,
   token: string,
   kind: TokenKind,
-  now = new Date(),
-): Promise<TokenAuth | undefined> {
+  { shareOf, now = new Date() }: { shareOf?: number; now?: Date } = {},
+): Promise<(TokenAuth & { share?: ShareReadAhead }) | undefined> {
   markSecretChecked();
   if (!token.startsWith(TOKEN_PREFIX)) return undefined;
   const [row] = await db
@@ -282,6 +290,9 @@ export async function authenticateToken(
       lastUsedAt: personalAccessToken.lastUsedAt,
       userId: user.id,
       email: user.email,
+      ...(shareOf === undefined
+        ? {}
+        : { share: sharePermissionSql(shareOf, user.id) }),
     })
     .from(personalAccessToken)
     .innerJoin(user, eq(user.id, personalAccessToken.userId))
@@ -293,17 +304,33 @@ export async function authenticateToken(
       ),
     );
   if (!row) return undefined;
-  if (
-    row.lastUsedAt === null ||
-    now.getTime() - row.lastUsedAt.getTime() >= LAST_USED_RESOLUTION_MS
-  ) {
+  if (usedLongAgo(row.lastUsedAt, now)) {
     await db
       .update(personalAccessToken)
       .set({ lastUsedAt: now })
       .where(eq(personalAccessToken.id, row.tokenId));
   }
+  const share = shareReadAhead(shareOf, row);
   return {
     user: { id: row.userId, email: row.email },
     tokenId: row.tokenId,
+    ...(share && { share }),
   };
+}
+
+/** The share the token's read answered: none asked, or the user's own wardrobe. */
+function shareReadAhead(
+  shareOf: number | undefined,
+  row: { userId: number; share?: SharePermission | null },
+): ShareReadAhead | undefined {
+  if (shareOf === undefined || shareOf === row.userId) return undefined;
+  return { ownerId: shareOf, permission: row.share ?? null };
+}
+
+/** Whether a use at `now` is worth recording: never used, or not this minute. */
+function usedLongAgo(lastUsedAt: Date | null, now: Date): boolean {
+  return (
+    lastUsedAt === null ||
+    now.getTime() - lastUsedAt.getTime() >= LAST_USED_RESOLUTION_MS
+  );
 }
