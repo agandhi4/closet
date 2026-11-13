@@ -51,7 +51,7 @@ export function ToBuySection(props: { pieces: readonly OutfitGarment[] }) {
           <li>
             <a
               href={`/wardrobe/${piece.id}`}
-              class="flex items-center gap-3 min-h-11 rounded-box bg-base-100 p-2 shadow-sm"
+              class="flex items-center gap-3 rounded-box bg-base-100 p-2 shadow-sm"
               data-piece-to-buy={piece.id}
             >
               <GarmentThumb

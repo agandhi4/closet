@@ -346,9 +346,8 @@ export function ProfilePage(props: ProfileProps) {
 /**
  * Profile › Export (#200): the requester's own wardrobe as a file. Plain
  * downloads: not boosted (htmx would fetch the file as a page) and never
- * the service worker's (bypassesWorker). Each at least 44 px tall (WCAG
- * 2.5.5, the app's touch target): daisyUI's default button is 40 px at this
- * theme's field size, so `min-h-11` lifts it without btn-lg's larger type.
+ * the service worker's (bypassesWorker). Default-size buttons: 44 px on a
+ * phone from the theme's touch sizing (views/assets/main.css).
  */
 function ExportSection() {
   return (
@@ -359,7 +358,7 @@ function ExportSection() {
           href={wardrobeExportPath('csv')}
           download=""
           hx-boost="false"
-          class="btn min-h-11 flex-1"
+          class="btn flex-1"
           data-export="csv"
         >
           {t('profile.EXPORT_CSV')}
@@ -368,7 +367,7 @@ function ExportSection() {
           href={wardrobeExportPath('json')}
           download=""
           hx-boost="false"
-          class="btn min-h-11 flex-1"
+          class="btn flex-1"
           data-export="json"
         >
           {t('profile.EXPORT_JSON')}

@@ -80,8 +80,6 @@ function primaryOf(item: MuseOutfit): Primary {
 }
 
 const PIECE_GRID = 'grid grid-cols-4 gap-1.5';
-// 44 px on a phone; compact where a mouse is the pointer.
-const ACTION = 'btn min-h-11 fine:min-h-8';
 
 function MuseCard(props: {
   item: MuseOutfit;
@@ -155,7 +153,7 @@ function MuseCard(props: {
               picks: true,
               returnTo: RETURN_TO,
             })}
-            class="link link-hover inline-flex min-h-11 items-center text-sm"
+            class="link link-hover text-sm"
           >
             {t('outfits.EDIT')}
           </a>
@@ -166,7 +164,6 @@ function MuseCard(props: {
             returnTo={RETURN_TO}
             reasons={OUTFIT_DISMISS_REASONS}
             label={`× ${t('muse.NOT_FOR_ME')}`}
-            class="min-h-11 fine:min-h-8"
           />
         </div>
       </div>
@@ -184,7 +181,7 @@ function PrimaryAction(props: { item: MuseOutfit; primary: Primary }) {
           <input type="hidden" name="returnTo" value={RETURN_TO} />
           <button
             type="submit"
-            class={`${ACTION} btn-primary`}
+            class="btn btn-primary"
             data-muse-primary={primary.kind}
           >
             {t(
@@ -199,7 +196,7 @@ function PrimaryAction(props: { item: MuseOutfit; primary: Primary }) {
       return (
         <a
           href={`/wardrobe/${primary.piece.id}`}
-          class={`${ACTION} btn-primary`}
+          class="btn btn-primary"
           data-muse-primary="choose"
         >
           {t('outfits.muse.CHOOSE_PIECES')}
@@ -213,7 +210,7 @@ function PrimaryAction(props: { item: MuseOutfit; primary: Primary }) {
             picks: true,
             returnTo: RETURN_TO,
           })}
-          class={`${ACTION} btn-primary`}
+          class="btn btn-primary"
           data-muse-primary="replace"
         >
           {t('outfits.EDIT')}
@@ -310,7 +307,7 @@ function PieceTile(props: {
       {toBuy && props.unlocks && !props.unlocks.capped && (
         <a
           href={`/wardrobe/${piece.id}`}
-          class="text-xs link link-hover inline-flex min-h-11 fine:min-h-0 items-start leading-tight"
+          class="text-xs link link-hover inline-flex items-start leading-tight"
           data-unlocks-link=""
         >
           {unlocksText(props.unlocks)}
@@ -324,7 +321,7 @@ function PieceTile(props: {
 function SetAside({ outfits }: { outfits: readonly MuseOutfit[] }) {
   return (
     <details class="px-1" data-muse-set-aside="">
-      <summary class="cursor-pointer text-sm text-muted min-h-11 flex items-center">
+      <summary class="link link-hover text-sm text-muted flex items-center">
         {t('outfits.muse.SET_ASIDE_COUNT', { count: outfits.length })}
       </summary>
       <ul class="flex flex-col gap-1 pt-1">

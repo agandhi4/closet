@@ -356,7 +356,7 @@ function IdeaCard(props: {
             <input type="hidden" name="garmentId" value={String(g.id)} />
           ))}
           <input type="hidden" name="occasion" value={props.occasion} />
-          <button type="submit" class="btn btn-primary btn-sm w-full">
+          <button type="submit" class="btn btn-primary w-full">
             {t('today.WEAR_THIS')}
           </button>
         </PostForm>

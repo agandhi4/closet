@@ -136,11 +136,91 @@
   }
 }
 
-/* https://stackoverflow.com/questions/2989263/disable-auto-zoom-in-input-text-tag-safari-on-iphone */
-@supports (-webkit-overflow-scrolling: touch) {
-    input {
-        font-size: 16px;
+/* Touch sizing (#636). daisyUI's scale is a desktop one at this theme's
+   --size-field (a button 40 px, btn-sm 32, btn-xs 24; a field's text 14 px,
+   input-sm's 12), and iOS zooms the page into any field under 16 px, then
+   leaves it side-scrollable. Where the primary pointer is a finger the
+   sizes are decided here, at the token, never at a call site:
+   - --size-field 0.275rem: every btn, input, select and tab at its default
+     size is 44 px (WCAG 2.5.5, Apple's minimum); -sm and -xs scale with it;
+   - a text field is at least 16 px (1em keeps one inside larger type) and a
+     small field takes the default height: a field is typed into, not dense
+     chrome; a menu's rows are 44 px too. daisyUI's own guard raises only .input and .textarea, only while
+     focused, so the page reflowed under the zoom it was preventing;
+   - the dense controls keep their look and gain a 44 px hit area (Touch hit
+     areas, below).
+   Unlayered, so it outranks daisyUI's sizes (layers inside utilities) and a
+   utility's text-sm on a field. A fine pointer keeps daisyUI's scale. */
+@media (pointer: coarse) {
+  :root {
+    --size-field: 0.275rem;
+  }
+  input:not(
+      [type="checkbox"],
+      [type="radio"],
+      [type="range"],
+      [type="file"],
+      [type="color"],
+      [type="button"],
+      [type="submit"],
+      [type="reset"],
+      [type="image"]
+    ),
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+  :is(.input, .select):is(.input-sm, .input-xs, .select-sm, .select-xs) {
+    --size: calc(var(--size-field) * 10);
+  }
+  /* A menu's rows (Profile's account links, a ⋯ menu) are a list a finger
+     runs down: each row 44 px, its text centred, as an iOS list's. */
+  .menu :where(li:not(.menu-title) > :not(ul, details, .menu-title, .btn)),
+  .menu :where(li:not(.menu-title) > details > summary:not(.menu-title)) {
+    min-height: 2.75rem;
+    align-content: center;
+  }
+}
+
+/* Touch hit areas (#636): btn-sm, btn-xs, a tab, a checkbox, radio or
+   toggle, a text link (.link) and a badge that is a control keep their
+   drawn size on a phone
+   (a row's density is the design) and gain a transparent pseudo-element
+   reaching 44 px each way, centred on the control: a negative inset of half
+   what the control lacks, none once it is big enough. ::after, except on an
+   input that is a .btn or .tab, whose ::after is daisyUI's label
+   (`attr(aria-label)`), so it takes ::before, which daisyUI leaves free on
+   those; checkboxes, radios and toggles draw their mark in ::before.
+   In components, so a call site's utilities win: a stretched link's
+   `after:absolute after:inset-0` with `static` on the control (the
+   wishlist inbox's Decide). An ancestor's overflow clips the area like any
+   descendant (a scroll strip's edge). test/support/touch-targets.ts
+   measures the control's box unioned with this one. */
+@layer components {
+  @media (pointer: coarse) {
+    :is(
+        .btn-sm,
+        .btn-xs,
+        .tab,
+        .link,
+        .checkbox,
+        .radio,
+        .toggle,
+        :is(a, button, label, summary).badge
+      ) {
+      position: relative;
     }
+    :is(.btn-sm, .btn-xs, .tab, .link, :is(a, button, label, summary).badge):not(
+        input
+      )::after,
+    :is(.checkbox, .radio, .toggle):not(.btn, .tab)::after,
+    input:is(.btn-sm, .btn-xs, .tab)::before {
+      content: "";
+      position: absolute;
+      inset-block: min(0px, calc((100% - 2.75rem) / 2));
+      inset-inline: min(0px, calc((100% - 2.75rem) / 2));
+    }
+  }
 }
 
 /* The dock's height, the safe area included, as daisyUI sizes .dock: what a

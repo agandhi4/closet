@@ -258,14 +258,14 @@ describe('calendar', () => {
       const saturday = columns.get('2030-10-12')!;
 
       expect(hasText(tuesday, 'Brunch look')).toBe(true);
-      expect(tuesday).toContain(`action="/calendar/${brunchEntry}/delete"`);
+      expect(tuesday).toContain(`hx-post="/calendar/${brunchEntry}/delete"`);
       // The chip edits the outfit in Styling (#42), back to this day of
       // the week, not the top of it (selfies.spec.ts: a selfie's too).
       expect(unescapeHtml(tuesday)).toContain(
         `/styling?outfit=${brunch}&returnTo=%2Fcalendar%3Fweek%3D2030-10-08%23day-2030-10-08"`,
       );
       expect(hasText(saturday, 'Untitled Outfit')).toBe(true);
-      expect(saturday).toContain(`action="/calendar/${untitledEntry}/delete"`);
+      expect(saturday).toContain(`hx-post="/calendar/${untitledEntry}/delete"`);
       // 2030 is ahead: a planned day has no worn pill.
       expect(saturday).not.toContain(`/calendar/${untitledEntry}/worn`);
 
