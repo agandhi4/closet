@@ -272,6 +272,8 @@ sed -i.bak \
   -e "s#'3000:3000'#'$PORT:3000'#" \
   -e "s#<secret>#smoke-test-access-token-secret-not-for-deployment#" \
   -e "s#<password>#smoke-readme-password#" "$COMPOSE_FILE"
+grep -qxF "    image: $IMAGE" "$COMPOSE_FILE" \
+  || fail "README's closet image line was not replaced by $IMAGE: compose would test the published image"
 if grep -v '^ *#' "$COMPOSE_FILE" | grep -q '<[a-z ]*>'; then
   fail "README's compose block has a placeholder the smoke does not fill"
 fi

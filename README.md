@@ -67,6 +67,8 @@ volumes:
   closet_pg:
 ```
 
+**Upgrading from the earlier Postgres 17 example.** Postgres 18 keeps its data under `/var/lib/postgresql`, so pointing this block at a 17 volume starts an empty cluster and Closet migrates into an empty database: your wardrobe looks gone. Before switching, run `docker compose exec postgres pg_dumpall -U closet > closet.sql` on the old stack, bring up the new one, and restore with `docker compose exec -T postgres psql -U closet -d postgres < closet.sql`.
+
 **Behind HTTPS.** The installed app, its offline shell and push need a secure origin. With `PWA_ENABLED: 'true'` the server refuses to start unless `SITE_URL` is an `https://` URL and both VAPID keys are set, and it names the missing key. Set `TRUSTED_PROXIES` to your reverse proxy so the client address is read correctly.
 
 Open [http://localhost:3000](http://localhost:3000) and register an account: login is always required. Once everyone in the household has signed up, set `DISABLE_REGISTRATION=true`.
