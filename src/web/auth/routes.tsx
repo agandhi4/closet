@@ -137,10 +137,10 @@ export const authRoutes: FastifyPluginCallbackTypebox<
   );
 
   // Only a same-origin POST signs out (the same-origin hook refuses any
-  // other), so a cross-site link or image cannot. The service worker drops
-  // its page cache when this answers with its redirect
-  // (views/assets/src-sw.ts). Public: a stale tab signing out again still
-  // gets the cookie cleared and lands on the login page.
+  // other), so a cross-site link or image cannot. The service worker never
+  // relays it (#542); the sign-out form tells it to drop its session caches
+  // as the post leaves (data-ends-session). Public: a stale tab signing out
+  // again still gets the cookie cleared and lands on the login page.
   app.post(LOGOUT_PATH, { config: { public: true } }, async (req, reply) => {
     if (req.auth) logger.info(`User ${req.auth.user.id} signed out`);
     endSession(reply);

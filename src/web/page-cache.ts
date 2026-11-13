@@ -10,6 +10,7 @@
 
 import { isApiPath } from './api-path';
 import { LOGIN_PATH } from './auth/login-path';
+import { INSPIRATION_SHARE_PATH } from './inspiration/share-target';
 import { type Section, SECTION_HOME } from './layout/sections';
 
 /**
@@ -90,6 +91,32 @@ export function bypassesWorker(url: { pathname: string }): boolean {
     isApiPath(url.pathname) ||
     EXPORT_PATHS.has(url.pathname)
   );
+}
+
+/**
+ * What the worker does with a navigation that is not a GET (a form post,
+ * ours or a cross-site page's): it **never sends one to the server**
+ * (#542, src-sw.ts). It cannot tell who started the post, and its own
+ * fetch in the post's place would carry this site's Origin and cookie past
+ * the same-origin check. So the fetch event of every one is stopped before
+ * any route sees it, and:
+ *  - `share-target`: the manifest's share target, the one it answers, on the
+ *    device (receiveShare: a stash and a 303, no fetch; share-target.ts);
+ *  - `browser`: any other, left to the browser, which posts it as it is and
+ *    the server judges its real Origin.
+ * Undefined for every other request: the worker's routes.
+ */
+export function navigationPostAnswer(
+  request: { method: string; mode: string; url: string },
+  origin: string,
+): 'share-target' | 'browser' | undefined {
+  if (request.mode !== 'navigate' || request.method === 'GET') return undefined;
+  const url = new URL(request.url);
+  return request.method === 'POST' &&
+    url.origin === origin &&
+    url.pathname === INSPIRATION_SHARE_PATH
+    ? 'share-target'
+    : 'browser';
 }
 
 /**

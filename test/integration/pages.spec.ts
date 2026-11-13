@@ -9,10 +9,12 @@ import {
   expectFullPage,
   HX_BOOSTED,
   HX_FRAGMENT,
+  misannouncedSessionForms,
   offlineUnguardedPostForms,
   PageFixture,
   PageRoute,
   pageRoutes,
+  SESSION_BOUNDARY_ACTIONS,
 } from './pages';
 
 /**
@@ -54,6 +56,9 @@ describe('pages', () => {
     // proves the table reaches the forms (the account, token, link import,
     // laundry, sharing and styling ones were unguarded before #411's default).
     let postForms = 0;
+    // expectFullPage also holds the sign-in and sign-out forms to their
+    // data-ends-session mark (#542); this proves the table reaches all four.
+    const announced = new Set<string>();
     for (const route of routes()) {
       const { url } = route;
       const res = await t.inject({ method: 'GET', url });
@@ -62,8 +67,29 @@ describe('pages', () => {
       expectFormPageFlag(route, res);
       postForms +=
         res.body.match(/<form\b[^>]*data-submit-once=/g)?.length ?? 0;
+      for (const [, action] of res.body.matchAll(
+        /<form\b[^>]*\baction="([^"]*)"[^>]*\bdata-ends-session=/g,
+      )) {
+        announced.add(action);
+      }
     }
     expect(postForms).toBeGreaterThan(40);
+    expect([...announced].sort()).toEqual([...SESSION_BOUNDARY_ACTIONS].sort());
+  });
+
+  it('a form posting elsewhere with the session mark is what the check catches', async () => {
+    const signIn = await renderToString(
+      PostForm({ action: '/auth/login', endsSession: true }),
+    );
+    expect(misannouncedSessionForms(signIn)).toEqual([]);
+    expect(
+      misannouncedSessionForms(signIn.replace(' data-ends-session=""', '')),
+    ).toHaveLength(1);
+    expect(
+      misannouncedSessionForms(
+        await renderToString(PostForm({ action: '/x', endsSession: true })),
+      ),
+    ).toHaveLength(1);
   });
 
   it('a PostForm posts offline only with a stated reason', async () => {

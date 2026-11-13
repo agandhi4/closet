@@ -217,6 +217,67 @@ function warmForOffline() {
   });
 }
 
+const WORKER_TELL_MS = 1_000;
+
+/** Posts to the registration's active worker, giving up after WORKER_TELL_MS. */
+async function tellActiveWorker(message) {
+  let gaveUp;
+  const timeout = new Promise((resolve) => {
+    gaveUp = setTimeout(resolve, WORKER_TELL_MS);
+  });
+  try {
+    const registration = await Promise.race([
+      navigator.serviceWorker.getRegistration(),
+      timeout,
+    ]);
+    registration?.active?.postMessage(message);
+  } finally {
+    clearTimeout(gaveUp);
+  }
+}
+
+// A sign-in, a registration, a sign-out or an account deletion leaving this
+// page: the PostForms marked data-ends-session (src/web/auth/form.tsx). The
+// worker never sees the post itself (#542: it would launder a cross-site
+// one's Origin), so the page tells it as the post leaves and it drops the
+// session caches before the landing page is asked for (SESSION_ENDING,
+// src-sw.ts). Bubbling, after submit-once.js and the form's own confirm: a
+// cancelled submit (a declined confirm, a second tap, the outbox holding a
+// sign-out to drain) is defaultPrevented and says nothing. A page the
+// worker does not control (a hard reload) is held while the registration's
+// active worker is told (tellActiveWorker); without one nothing is cached.
+function announceSessionBoundaries() {
+  document.addEventListener('submit', (event) => {
+    const form = event.target;
+    if (
+      !(form instanceof HTMLFormElement) ||
+      !('endsSession' in form.dataset)
+    ) {
+      return;
+    }
+    if (event.defaultPrevented) return;
+    const message = { type: 'SESSION_ENDING' };
+    const { controller } = navigator.serviceWorker;
+    if (controller) {
+      controller.postMessage(message);
+    } else {
+      // The registration is read asynchronously, and the native post would
+      // unload the page before the worker heard: held until it is told
+      // (bounded), then posted as it was (form.submit() skips the submit
+      // event, so the form's confirm is not asked again).
+      event.preventDefault();
+      tellActiveWorker(message)
+        .catch((error) =>
+          console.warn('[pwa] could not tell the worker of a sign-out', error),
+        )
+        .finally(() => form.submit());
+    }
+    console.info(
+      `[pwa] ${form.getAttribute('action')} posted: worker told to drop the session caches`,
+    );
+  });
+}
+
 // A Home Screen app asks once per launch to be kept out of the browser's
 // eviction (WebKit grants it to an installed web app by heuristics), so a
 // warmed wardrobe survives storage pressure. The answer is only logged.
@@ -235,6 +296,7 @@ const signedIn = document.documentElement.hasAttribute('data-signed-in');
 
 if ('serviceWorker' in navigator) {
   registerServiceWorker();
+  announceSessionBoundaries();
   watchFreshness();
   if (signedIn) warmForOffline();
 }

@@ -5,6 +5,7 @@ import {
   cachedAt,
   endedSession,
   isRenderedPage,
+  navigationPostAnswer,
   PAGE_ACCOUNT_HEADER,
   pageAccount,
   revalidationOutcome,
@@ -12,6 +13,7 @@ import {
   servesStaleWhileRevalidate,
   SESSION_ENDED_HEADER,
 } from './page-cache';
+import { PROFILE_PATH } from './auth/urls';
 
 const ORIGIN = 'https://closet.test';
 
@@ -40,6 +42,65 @@ describe('bypassesWorker', () => {
   ])('handles %s as the app', (path) => {
     expect(bypassesWorker(new URL(`${ORIGIN}${path}`))).toBe(false);
   });
+});
+
+describe('navigationPostAnswer', () => {
+  const nav = (method: string, path: string, mode = 'navigate') => ({
+    method,
+    mode,
+    url: `${ORIGIN}${path}`,
+  });
+
+  // The worker never sends a navigation post to the server (#542): every
+  // one is stopped before any route, and the only one it answers itself is
+  // the share target, on the device (receiveShare fetches nothing:
+  // share-target.spec.ts). Everything else is the browser's own post.
+  it('answers only the share target itself', () => {
+    expect(
+      navigationPostAnswer(nav('POST', '/inspiration/share'), ORIGIN),
+    ).toBe('share-target');
+  });
+
+  it.each([
+    ['POST', '/auth/login'],
+    ['POST', '/auth/logout'],
+    ['POST', '/inspiration'],
+    ['POST', '/inspiration/share/confirm'],
+    ['POST', '/inspiration/share/'],
+    ['PUT', '/inspiration/share'],
+    ['DELETE', '/inspiration/share'],
+    ['PATCH', '/wardrobe/1'],
+  ])('leaves a %s navigation to %s to the browser', (method, path) => {
+    expect(navigationPostAnswer(nav(method, path), ORIGIN)).toBe('browser');
+  });
+
+  it('leaves a share-target navigation to another origin to the browser', () => {
+    expect(
+      navigationPostAnswer(
+        {
+          method: 'POST',
+          mode: 'navigate',
+          url: 'https://evil.example/inspiration/share',
+        },
+        ORIGIN,
+      ),
+    ).toBe('browser');
+  });
+
+  it('leaves the worker a GET navigation (its page routes)', () => {
+    expect(navigationPostAnswer(nav('GET', '/inspiration/share'), ORIGIN)).toBe(
+      undefined,
+    );
+  });
+
+  it.each(['cors', 'same-origin', 'no-cors'])(
+    'leaves the worker a %s POST (only our own pages’ fetches reach it)',
+    (mode) => {
+      expect(
+        navigationPostAnswer(nav('POST', '/inspiration/share', mode), ORIGIN),
+      ).toBe(undefined);
+    },
+  );
 });
 
 describe('servesStaleWhileRevalidate', () => {
@@ -84,6 +145,19 @@ describe('servesStaleWhileRevalidate', () => {
     expect(
       servesStaleWhileRevalidate(
         { mode: 'navigate', url: `${ORIGIN}/` },
+        ORIGIN,
+      ),
+    ).toBe(false);
+  });
+
+  // Signing in or registering lands on Profile (routes.tsx). A landing the
+  // worker answered from its cache could show the previous account's copy;
+  // fetched first, its answer for the new account claims the cache, which
+  // drops the old one before anything is stored (claimPageCache).
+  it('fetches a sign-in’s landing, Profile, from the server', () => {
+    expect(
+      servesStaleWhileRevalidate(
+        { mode: 'navigate', url: `${ORIGIN}${PROFILE_PATH}` },
         ORIGIN,
       ),
     ).toBe(false);
