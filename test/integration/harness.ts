@@ -458,6 +458,18 @@ export function hasText(html: string, text: string): boolean {
   return html.includes(text);
 }
 
+/**
+ * The markup a page shows: without the other states the queued writes keep
+ * in `<template data-outbox-state>` (src/web/outbox.tsx), which the outbox
+ * swaps in only for a tap it queued offline.
+ */
+export function shownMarkup(html: string): string {
+  return html.replace(
+    /<template data-outbox-state="">[\s\S]*?<\/template>/g,
+    '',
+  );
+}
+
 export interface QueryRecord {
   /** SQL statements sent. */
   statements: number;

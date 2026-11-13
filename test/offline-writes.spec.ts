@@ -1,6 +1,15 @@
-import { expect, type Page, test } from '@playwright/test';
-import { signIn } from './support/e2e-session';
+import { expect, type Page, type Route, test } from '@playwright/test';
+import { createGarment, createOutfit } from './support/e2e-data';
+import {
+  E2E_PASSWORD,
+  SAME_ORIGIN,
+  signIn,
+  signUpHeaders,
+} from './support/e2e-session';
+import { householdToday } from './support/household-today';
 import { pageErrors } from './support/page-errors';
+import { addDays } from '../src/calendar-date';
+import { queueableKindOf, REPLAY_TIMEOUT_MS } from '../src/offline-writes';
 
 /**
  * Every PostForm is disabled offline (#411; owner, 2026-10-22): when
@@ -10,6 +19,16 @@ import { pageErrors } from './support/page-errors';
  * exactly those. Its log line counts them. The forms are found on the page,
  * not listed; the integration tier's expectFullPage holds every page's
  * PostForms to the marker.
+ *
+ * Except the writes the outbox queues (#178, public/js/outbox.js): Wore
+ * today and a packing tick stay enabled offline, show their other state and
+ * "Waiting to sync", and save on reconnect; a write the server refuses is a
+ * notice until dismissed or signed out; another account's page never sends
+ * them. A tap behind a record still waiting (backing off, or in flight, in
+ * this tab or another) goes through the outbox too, so the older one never
+ * lands after it; a tap that never reached the server, a replay that never
+ * answers and a refusal each end where the user can see.
+ * Their markup is test/integration/queued-writes.spec.ts's.
  */
 
 // The worker blocked: once it controls the page, WebKit sends the heartbeat
@@ -41,6 +60,22 @@ function guardedControls(page: Page) {
   );
 }
 
+/**
+ * Offline for writes too: every POST the page sends fails like the
+ * heartbeat, so a queued write can only wait. Pages still load (GET), as a
+ * cached copy would.
+ */
+async function setWritesReachable(page: Page, reachable: boolean) {
+  if (reachable) {
+    await page.unroute('**/*');
+  } else {
+    await page.route('**/*', (route) =>
+      route.request().method() === 'POST' ? route.abort() : route.fallback(),
+    );
+  }
+  await setReachable(page, reachable);
+}
+
 /** Fails the heartbeat (or lets it through) and tells the page to probe. */
 async function setReachable(page: Page, reachable: boolean) {
   if (reachable) await page.unroute('**/health/live');
@@ -54,34 +89,350 @@ async function setReachable(page: Page, reachable: boolean) {
   });
 }
 
-test('every PostForm on a page is disabled offline and restored online', async ({
+// One scenario, in steps: the e2e tier holds ten (test/AGENTS.md), and a new
+// one replaces one. The page's own clock ticks as usual, so the replay
+// timeout can be jumped past instead of waited for.
+test('offline: PostForms are guarded, and queued writes wait, save and stay ordered', async ({
   page,
 }) => {
+  await page.clock.install();
   const errors = pageErrors(page);
-  await signIn(page, 'offline-writes');
-  let outside = 0;
-  for (const url of ['/wardrobe', '/auth/profile', '/auth/tokens']) {
-    await page.goto(url);
-    const online = await guardedControls(page);
-    expect(online.length, url).toBeGreaterThan(0);
 
-    const logged = page.waitForEvent('console', (message) =>
-      message.text().includes('write controls disabled'),
-    );
-    await setReachable(page, false);
-    const offline = await guardedControls(page);
-    for (const form of offline) {
-      expect(form, url).toMatchObject({ disabled: form.controls });
+  await test.step('every PostForm on a page is disabled offline and restored online', async () => {
+    await signIn(page, 'offline-writes');
+    let outside = 0;
+    for (const url of ['/wardrobe', '/auth/profile', '/auth/tokens']) {
+      await page.goto(url);
+      const online = await guardedControls(page);
+      expect(online.length, url).toBeGreaterThan(0);
+
+      const logged = page.waitForEvent('console', (message) =>
+        message.text().includes('write controls disabled'),
+      );
+      await setReachable(page, false);
+      const offline = await guardedControls(page);
+      for (const form of offline) {
+        expect(form, url).toMatchObject({ disabled: form.controls });
+      }
+      const forms = offline.filter((form) => form.marked > 0).length;
+      expect(forms, url).toBeGreaterThan(0);
+      expect((await logged).text()).toContain(`(${forms} forms)`);
+      outside += offline.reduce((sum, form) => sum + form.outside, 0);
+
+      await setReachable(page, true);
+      await expect.poll(() => guardedControls(page)).toEqual(online);
     }
-    const forms = offline.filter((form) => form.marked > 0).length;
-    expect(forms, url).toBeGreaterThan(0);
-    expect((await logged).text()).toContain(`(${forms} forms)`);
-    outside += offline.reduce((sum, form) => sum + form.outside, 0);
+    // The add sheet's camera and library inputs name their forms in `form=`.
+    expect(outside).toBeGreaterThanOrEqual(2);
+  });
 
-    await setReachable(page, true);
-    await expect.poll(() => guardedControls(page)).toEqual(online);
-  }
-  // The add sheet's camera and library inputs name their forms in `form=`.
-  expect(outside).toBeGreaterThanOrEqual(2);
+  await test.step('wears and ticks queue offline, save on reconnect, and stay their account’s', async () => {
+    const email = await signIn(page, 'outbox');
+    const chinos = await createGarment(page, 'Navy chinos');
+    const gone = await createGarment(page, 'Gone tee');
+    const today = householdToday();
+    const created = await page.request.post('/trips', {
+      form: {
+        name: 'Queued trip',
+        destination: '',
+        startsOn: today,
+        endsOn: addDays(today, 1),
+        notes: '',
+      },
+      headers: SAME_ORIGIN,
+    });
+    const tripUrl = new URL(created.url()).pathname;
+    expect(
+      (
+        await page.request.post(`${tripUrl}/outfits`, {
+          form: {
+            outfitId: String(await createOutfit(page, 'Trip look', chinos)),
+            day: '',
+            occasion: '',
+          },
+          headers: SAME_ORIGIN,
+        })
+      ).ok(),
+    ).toBe(true);
+    // Queued writes that reached the server, and every one attempted.
+    const saved: string[] = [];
+    const attempted: string[] = [];
+    const queued = (url: string) => queueableKindOf(new URL(url).pathname);
+    page.on('requestfinished', (request) => {
+      if (queued(request.url())) saved.push(request.url());
+    });
+    page.on('request', (request) => {
+      if (queued(request.url())) attempted.push(request.url());
+    });
+    const offlineBanner = page.locator('#connectivity-banner');
+    const banner = page.locator('#outbox-banner');
+    const pendingChips = page.locator(
+      '[data-outbox="pending"] [data-outbox-chip]',
+    );
+    const wore = page.getByRole('button', { name: 'Wore today', exact: true });
+    const undo = page.getByRole('button', { name: 'Undo “Wore today”' });
+
+    // Offline: the tap shows its other state and waits, nothing sent.
+    await page.goto(`/wardrobe/${chinos}`);
+    await setWritesReachable(page, false);
+    await expect(wore).toBeEnabled();
+    await wore.click();
+    await expect(undo).toBeVisible();
+    await expect(pendingChips).toHaveCount(1);
+    await expect(banner).toHaveText('1 change waiting to sync');
+    await page.goto(`/wardrobe/${gone}`);
+    await expect(offlineBanner).toBeVisible();
+    await wore.click();
+    await expect(banner).toHaveText('2 changes waiting to sync');
+    await page.goto(tripUrl);
+    await expect(offlineBanner).toBeVisible();
+    await page.getByRole('checkbox', { name: /Navy chinos/ }).check();
+    await expect(pendingChips).toHaveCount(1);
+    await expect(banner).toHaveText('3 changes waiting to sync');
+    expect(saved).toEqual([]);
+
+    // Reopened offline, the page shows what waits, from the records.
+    await page.goto(`/wardrobe/${chinos}`);
+    await expect(undo).toBeVisible();
+    await expect(pendingChips).toHaveCount(1);
+
+    // The tee goes meanwhile (elsewhere): its wear cannot be saved.
+    expect(
+      (
+        await page.request.delete(`/wardrobe/${gone}`, { headers: SAME_ORIGIN })
+      ).ok(),
+    ).toBe(true);
+
+    // Back online: saved, said once, and the refusal stays.
+    await setWritesReachable(page, true);
+    await expect(page.getByText('2 changes saved')).toBeVisible();
+    await expect(pendingChips).toHaveCount(0);
+    await expect(banner).toBeHidden();
+    const notice = page.locator('#outbox-notice');
+    await expect(notice).toContainText(
+      'Gone tee, Wore today: not saved, it was deleted.',
+    );
+    await page.reload();
+    await expect(undo).toBeVisible();
+    await expect(notice).toBeVisible();
+    await page.goto(tripUrl);
+    await expect(
+      page.getByRole('checkbox', { name: /Navy chinos/ }),
+    ).toBeChecked();
+
+    // Signing out with the refusal unsynced asks before discarding it.
+    await page.locator('#avatar').click();
+    page.once('dialog', (dialog) => {
+      expect(dialog.message()).toBe(
+        '1 change has not synced. Sign out and discard it?',
+      );
+      void dialog.accept();
+    });
+    await page
+      .locator('#sign-out')
+      .getByRole('button', { name: 'Logout' })
+      .click();
+    await expect(page).toHaveURL(/\/auth\/login$/);
+
+    // Queued as one account, the page of another deletes it unsent.
+    expect(
+      (
+        await page.request.post('/auth/login', {
+          form: { email, password: E2E_PASSWORD },
+          headers: signUpHeaders(),
+        })
+      ).ok(),
+    ).toBe(true);
+    await page.goto(`/wardrobe/${chinos}`);
+    await setWritesReachable(page, false);
+    await undo.click();
+    await expect(banner).toHaveText('1 change waiting to sync');
+    // Signed out (a revoked session) and in as someone else before it could
+    // sync: still offline, so only the new page's own rule can act on it.
+    await page.context().clearCookies();
+    await signIn(page, 'outbox-other');
+    attempted.length = 0;
+    const deleted = page.waitForEvent('console', (message) =>
+      message.text().includes('of another account deleted unsent'),
+    );
+    await page.goto('/wardrobe');
+    expect((await deleted).text()).toContain('[outbox] 1 queued change(s)');
+    await setWritesReachable(page, true);
+    await expect(banner).toBeHidden();
+    expect(attempted).toEqual([]);
+  });
+
+  await test.step('a tap behind a waiting replay replaces it and lands last', async () => {
+    await signIn(page, 'outbox-order');
+    const chinos = await createGarment(page, 'Order chinos');
+    const wore = page.getByRole('button', { name: 'Wore today', exact: true });
+    const undo = page.getByRole('button', { name: 'Undo “Wore today”' });
+    const waiting = page.locator('[data-outbox="pending"]');
+    const notice = page.locator('#outbox-notice');
+    const wearPath = `/wardrobe/${chinos}/wear`;
+    const worn = (route: Route) =>
+      new URLSearchParams(route.request().postData() ?? '').get('worn');
+    const replayed = (value: string, on = page) =>
+      on.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === wearPath &&
+          response.request().headers()['x-closet-queued'] !== undefined &&
+          new URLSearchParams(response.request().postData() ?? '').get(
+            'worn',
+          ) === value &&
+          response.status() === 204,
+      );
+    // How the wear route answers: every worn=1 a 503 (backing off for as
+    // long as the test needs); the first request held until released, failed
+    // as unreachable, never answered, or refused as too old; else the server.
+    let answer:
+      | 'refuse-worn'
+      | 'hold'
+      | 'abort-once'
+      | 'hang'
+      | 'conflict-once'
+      | 'pass' = 'refuse-worn';
+    let release: (() => Promise<void>) | undefined;
+    let reached: () => void = () => undefined;
+    const reachedOnce = () =>
+      new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+    let held = reachedOnce();
+    await page.goto(`/wardrobe/${chinos}`);
+    await page.route(`**${wearPath}`, async (route) => {
+      const now = answer;
+      if (now === 'refuse-worn' && worn(route) === '1') {
+        await route.fulfill({ status: 503 });
+        return;
+      }
+      if (now === 'refuse-worn' || now === 'pass') {
+        await route.fallback();
+        return;
+      }
+      answer = 'pass';
+      reached();
+      if (now === 'hold') release = () => route.fallback();
+      else if (now === 'abort-once') await route.abort();
+      else if (now === 'conflict-once') {
+        await route.fulfill({
+          status: 409,
+          headers: { 'X-Closet-Outcome': 'too-old' },
+        });
+      }
+      // 'hang': never answered.
+    });
+
+    // Backing off: Wore today queued, its replay a 503; the Undo tapped
+    // online replaces it and is the only one sent.
+    await setWritesReachable(page, false);
+    await wore.click();
+    await expect(undo).toBeVisible();
+    const backingOff = page.waitForEvent('console', (message) =>
+      message.text().includes('unreachable, retry 1'),
+    );
+    await setWritesReachable(page, true);
+    await backingOff;
+    const undone = replayed('0');
+    await undo.click();
+    await undone;
+    await expect(waiting).toHaveCount(0);
+    await page.reload();
+    await expect(wore).toBeVisible();
+    await expect(waiting).toHaveCount(0);
+
+    // In flight: Wore today's replay held at the server's door; the Undo
+    // tapped meanwhile waits for it, then lands after it.
+    await setWritesReachable(page, false);
+    await wore.click();
+    await expect(undo).toBeVisible();
+    answer = 'hold';
+    await setWritesReachable(page, true);
+    await held;
+    await undo.click();
+    const undoneAfter = replayed('0');
+    await release?.();
+    await undoneAfter;
+    await expect(waiting).toHaveCount(0);
+    await page.reload();
+    await expect(wore).toBeVisible();
+
+    // Online, the tap never reaches the server and the heartbeat still
+    // answers (no connectivity change): queued, and drained without a reload.
+    answer = 'abort-once';
+    held = reachedOnce();
+    const woreReplayed = replayed('1');
+    await wore.click();
+    await held;
+    await woreReplayed;
+    await expect(waiting).toHaveCount(0);
+    await expect(undo).toBeVisible();
+
+    // A replay that never answers gives up after the timeout, so the drain
+    // lock comes back: a tap made meanwhile is sent.
+    await setWritesReachable(page, false);
+    await undo.click();
+    await expect(wore).toBeVisible();
+    answer = 'hang';
+    held = reachedOnce();
+    await setWritesReachable(page, true);
+    await held;
+    await wore.click();
+    await expect(undo).toBeVisible();
+    const woreAfterHang = replayed('1');
+    await page.clock.fastForward(REPLAY_TIMEOUT_MS);
+    await woreAfterHang;
+    await expect(waiting).toHaveCount(0);
+    await page.reload();
+    await expect(undo).toBeVisible();
+
+    // Refused (409): the notice says so and the control shows the server's
+    // state again, not the unsaved one.
+    await setWritesReachable(page, false);
+    await undo.click();
+    await expect(wore).toBeVisible();
+    answer = 'conflict-once';
+    await setWritesReachable(page, true);
+    await expect(notice).toContainText('Order chinos');
+    await expect(undo).toBeVisible();
+    await expect(waiting).toHaveCount(0);
+    await notice.getByRole('button').click();
+    await expect(notice).toBeHidden();
+
+    // Two tabs: A queues Undo offline; B is told and shows it, and drains it
+    // into a 503 (so it stays pending); B's Wore today goes through the
+    // outbox in place of A's record, so the older Undo never lands after it.
+    const other = await page.context().newPage();
+    const otherErrors = pageErrors(other);
+    await other.goto(`/wardrobe/${chinos}`);
+    await other.route(`**${wearPath}`, (route) =>
+      worn(route) === '0' ? route.fulfill({ status: 503 }) : route.fallback(),
+    );
+    const otherBackingOff = other.waitForEvent('console', (message) =>
+      message.text().includes('unreachable, retry 1'),
+    );
+    const otherUndo = other.getByRole('button', { name: 'Undo “Wore today”' });
+    const otherWore = other.getByRole('button', {
+      name: 'Wore today',
+      exact: true,
+    });
+    await expect(otherUndo).toBeVisible();
+    await setWritesReachable(page, false);
+    await undo.click();
+    await expect(wore).toBeVisible();
+    await expect(otherWore).toBeVisible();
+    await expect(other.locator('[data-outbox="pending"]')).toHaveCount(1);
+    await otherBackingOff;
+    const fromOther = replayed('1', other);
+    await otherWore.click();
+    await fromOther;
+    await expect(other.locator('[data-outbox="pending"]')).toHaveCount(0);
+    await setWritesReachable(page, true);
+    await expect(waiting).toHaveCount(0);
+    await page.reload();
+    await expect(undo).toBeVisible();
+    expect(otherErrors).toEqual([]);
+  });
+
   expect(errors).toEqual([]);
 });

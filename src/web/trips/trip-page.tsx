@@ -15,7 +15,9 @@ import { DayHeading } from '../layout/day-heading';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { HangerIcon, SavedToast, StripFlags } from '../layout/parts';
+import { queuedTarget } from '../../offline-writes';
 import { collagePieces, OutfitCollage } from '../outfits/collage';
+import { OutboxPending, outboxRegion } from '../outbox';
 import type { ViewContext } from '../view-context';
 import { PLACE_QUERY_MAX, PLACE_QUERY_MIN } from '../weather/place-picker';
 import { WornControl } from '../wears/worn-control';
@@ -258,6 +260,7 @@ function tripWornControl(model: TripPageModel, outfit: TripOutfitView) {
       <WornControl
         entryId={wornEntry}
         worn
+        label={outfit.name || t('UNTITLED_OUTFIT')}
         size="pill"
         returnTo={tripUrl(tripId)}
       />
@@ -377,7 +380,12 @@ function PackingSection({ model }: { model: TripPageModel }) {
       ) : (
         <>
           <PackedSummary packing={packing} />
-          <AutosaveForm action={tripUrl(trip.id, '/packed')} native>
+          {/* Each tick queues offline as its own record (#178). */}
+          <AutosaveForm
+            action={tripUrl(trip.id, '/packed')}
+            native
+            offlineQueue="packed"
+          >
             <div class="flex flex-col gap-3">
               {packing.groups.map((group) => (
                 <fieldset data-role={group.role}>
@@ -386,7 +394,7 @@ function PackingSection({ model }: { model: TripPageModel }) {
                   </legend>
                   <ul class="flex flex-col">
                     {group.rows.map((row) => (
-                      <PackingRowView row={row} />
+                      <PackingRowView tripId={trip.id} row={row} />
                     ))}
                   </ul>
                 </fieldset>
@@ -399,12 +407,20 @@ function PackingSection({ model }: { model: TripPageModel }) {
   );
 }
 
-function PackingRowView({ row }: { row: PackingRow<PackingGarmentView> }) {
+function PackingRowView(props: {
+  tripId: number;
+  row: PackingRow<PackingGarmentView>;
+}) {
+  const { row } = props;
   const { garment } = row;
   const id = String(garment.id);
   const name = garment.name ?? t('trips.UNNAMED_GARMENT');
   return (
-    <li class="py-1.5" data-packing-garment={garment.id}>
+    <li
+      class="py-1.5"
+      data-packing-garment={garment.id}
+      {...outboxRegion(queuedTarget('packed', props.tripId, garment.id), name)}
+    >
       <label class="flex items-center gap-3 cursor-pointer">
         <input
           type="checkbox"
@@ -446,6 +462,7 @@ function PackingRowView({ row }: { row: PackingRow<PackingGarmentView> }) {
         </span>
       </label>
       <ShownId id={id} />
+      <OutboxPending class="ml-8" />
       {row.warnings.length > 0 && (
         <ul class="flex flex-wrap gap-1 mt-1 ml-8">
           {row.warnings.map((warning) => (
@@ -513,12 +530,20 @@ function ExtrasSection({ model }: { model: TripPageModel }) {
       {items.length > 0 && (
         <>
           <ItemsSummary items={items} />
-          <AutosaveForm action={tripUrl(trip.id, '/items/packed')} native>
+          <AutosaveForm
+            action={tripUrl(trip.id, '/items/packed')}
+            native
+            offlineQueue="item"
+          >
             <ul class="flex flex-col">
               {items.map((item) => (
                 <li
                   class="flex items-center gap-3 py-1"
                   data-trip-item={item.id}
+                  {...outboxRegion(
+                    queuedTarget('item', trip.id, item.id),
+                    item.label,
+                  )}
                 >
                   <label class="flex items-center gap-3 flex-1 min-w-0 cursor-pointer">
                     <input
@@ -530,6 +555,7 @@ function ExtrasSection({ model }: { model: TripPageModel }) {
                     />
                     <span class="text-sm truncate">{item.label}</span>
                   </label>
+                  <OutboxPending />
                   <ShownId id={item.id} />
                   {/* Submits its own form below (forms cannot nest). */}
                   <button

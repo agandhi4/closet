@@ -1,3 +1,4 @@
+import { queuedTarget } from '../../offline-writes';
 import { PostForm } from '../auth/form';
 import { t } from '../i18n';
 import { Dock } from '../layout/dock';
@@ -9,6 +10,7 @@ import {
   StripFlags,
 } from '../layout/parts';
 import type { SharedWardrobe } from '../sharing/access';
+import { OutboxPending, outboxRegion } from '../outbox';
 import type { ViewContext } from '../view-context';
 import { categoryLabel } from '../wardrobe/garment';
 import { LAUNDRY_PATH } from '../wardrobe/urls';
@@ -23,7 +25,9 @@ const LAUNDRY_FLAGS = ['washed'] as const;
  * as one native form (PostForm; the answer is this page again): what needs
  * a wash, checked, then what was worn but is not due yet (jeans after one
  * wear), unchecked. "Mark washed" posts the checked ones to POST /laundry,
- * which washes every copy today. Always the user's own wardrobe, so the
+ * which washes every copy today. Offline it queues (#178): each checked row
+ * is its own record, replayed through the garment's Washed, so laundry day
+ * in a basement saves without a signal. Always the user's own wardrobe, so the
  * header is theirs (a shared one's closet is a switch away).
  */
 export function LaundryPage(props: {
@@ -56,7 +60,11 @@ export function LaundryPage(props: {
               </a>
             </EmptyState>
           ) : (
-            <PostForm action={LAUNDRY_PATH} class="flex flex-col gap-6">
+            <PostForm
+              action={LAUNDRY_PATH}
+              class="flex flex-col gap-6"
+              offlineQueue="wash"
+            >
               {due.length > 0 && (
                 <LaundryGroup title={t('wear.LAUNDRY_DUE')} items={due} />
               )}
@@ -105,7 +113,10 @@ function LaundryGroup(props: { title: string; items: LaundryItem[] }) {
 function LaundryRow({ item }: { item: LaundryItem }) {
   const name = item.name ?? categoryLabel(item.category);
   return (
-    <label class="flex items-center gap-3 rounded-box bg-base-100 shadow-sm p-2 cursor-pointer has-[:checked]:ring-2 has-[:checked]:ring-primary">
+    <label
+      class="flex items-center gap-3 rounded-box bg-base-100 shadow-sm p-2 cursor-pointer has-[:checked]:ring-2 has-[:checked]:ring-primary"
+      {...outboxRegion(queuedTarget('wash', item.id), name)}
+    >
       <input
         type="checkbox"
         name="ids"
@@ -118,6 +129,7 @@ function LaundryRow({ item }: { item: LaundryItem }) {
       <span class="flex flex-col min-w-0">
         <span class="font-medium truncate">{name}</span>
         <span class="text-xs text-muted">{washLabel(item)}</span>
+        <OutboxPending />
       </span>
     </label>
   );

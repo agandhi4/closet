@@ -310,6 +310,7 @@ export async function createApp(
     orderMailOwner: orderMail?.ownerEmail,
     release: build.release,
     assetVersion: build.assetVersion,
+    timeZone: config.APP_TIMEZONE,
   });
   // Declared up front so every request object has the same shape; the hook
   // below fills them (both stay undefined on static paths).

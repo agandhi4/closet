@@ -1,5 +1,12 @@
+import { queuedTarget } from '../../offline-writes';
 import { PostForm } from '../auth/form';
 import { t } from '../i18n';
+import {
+  OutboxAlternate,
+  OutboxPending,
+  outboxRegion,
+  queueForm,
+} from '../outbox';
 
 /** POST /calendar/:id/worn (calendar routes): the one write behind every control. */
 function entryWornUrl(entryId: number): string {
@@ -7,8 +14,12 @@ function entryWornUrl(entryId: number): string {
 }
 
 type WornControlTarget =
-  /** An entry on the calendar, worn or not: marked and unmarked in place. */
-  | { worn: boolean; entryId: number; createUrl?: undefined }
+  /**
+   * An entry on the calendar, worn or not: marked and unmarked in place, and
+   * queued offline. `label` (the outfit's name) is what the outbox's notices
+   * call the mark.
+   */
+  | { worn: boolean; entryId: number; label: string; createUrl?: undefined }
   /**
    * Not on the calendar yet (a trip's outfit): "Wore it" posts to the
    * caller's create-and-wear route, which plans it today and marks it worn.
@@ -33,47 +44,66 @@ export type WornControlProps = WornControlTarget & {
   returnTo: string;
 };
 
+type Look = Pick<WornControlProps, 'size' | 'past'>;
+
 /**
  * Marking an outfit worn, the same words, look and undo wherever it is
  * tapped (#359): not worn, "Wore it" ("Worn?" on a past day); worn, a
  * success badge "✓ Worn" and a quiet Undo. Every state posts the state it
  * asks for, so a double tap or a replayed post marks once (setEntryWorn).
- * Disabled offline (data-needs-network). Used by the calendar's
- * OccasionRow and its worn route, Today's PlannedCard and a trip's outfit
- * rows; a garment's own "Wore today" (wear-section.tsx) is a different
- * record (one garment, no entry) and stays its own control.
+ * On an entry it queues offline (#178, src/web/outbox.tsx), its other state
+ * beside it; the create-and-wear route plans an entry, so it needs the
+ * network (data-needs-network). Used by the calendar's OccasionRow and its
+ * worn route, Today's PlannedCard and a trip's outfit rows; a garment's own
+ * "Wore today" (wear-section.tsx) is a different record (one garment, no
+ * entry) and stays its own control.
  */
 export function WornControl(props: WornControlProps) {
-  const pill = props.size === 'pill';
-  const onEntry = props.createUrl === undefined;
-  const action = onEntry ? entryWornUrl(props.entryId) : props.createUrl;
-  const fields = onEntry && (
+  if (props.createUrl !== undefined) {
+    return (
+      <PostForm action={props.createUrl} class={layoutClass(false, props.size)}>
+        <WornBody worn={false} look={props} />
+      </PostForm>
+    );
+  }
+  const state = (worn: boolean) => (
+    <EntryWornForm
+      entryId={props.entryId}
+      worn={worn}
+      inPlace={props.inPlace === true}
+      returnTo={props.returnTo}
+      look={props}
+    />
+  );
+  return (
+    <div
+      class={`flex items-center gap-1 ${props.size === 'pill' ? 'shrink-0' : 'flex-1'}`}
+      {...outboxRegion(queuedTarget('entry', props.entryId), props.label)}
+    >
+      {state(props.worn)}
+      <OutboxAlternate>{state(!props.worn)}</OutboxAlternate>
+      <OutboxPending />
+    </div>
+  );
+}
+
+/** One state of an entry's control: it posts the other. */
+function EntryWornForm(props: {
+  entryId: number;
+  worn: boolean;
+  inPlace: boolean;
+  returnTo: string;
+  look: Look;
+}) {
+  const action = entryWornUrl(props.entryId);
+  const layout = layoutClass(props.worn, props.look.size);
+  const children = (
     <>
       <input type="hidden" name="worn" value={props.worn ? '0' : '1'} />
       <input type="hidden" name="returnTo" value={props.returnTo} />
+      <WornBody worn={props.worn} look={props.look} />
     </>
   );
-  const body = props.worn ? (
-    <>
-      <span
-        class={`badge badge-success gap-1 whitespace-nowrap ${pill ? 'badge-sm' : ''}`}
-        data-worn=""
-      >
-        ✓ {t('wear.WORN')}
-      </span>
-      <button
-        type="submit"
-        class="btn btn-ghost btn-xs font-normal text-muted hover:text-base-content"
-      >
-        {t('wear.UNDO_WORN')}
-      </button>
-    </>
-  ) : (
-    <button type="submit" class={wearClass(props.size, props.past === true)}>
-      {props.past ? t('wear.WORN_ASK') : t('wear.WORE_IT')}
-    </button>
-  );
-  const layout = layoutClass(props.worn, props.size);
   if (props.inPlace) {
     return (
       <form
@@ -83,18 +113,43 @@ export function WornControl(props: WornControlProps) {
         hx-post={action}
         hx-target="closest [data-occasion]"
         hx-swap="outerHTML"
-        data-needs-network=""
+        {...queueForm('entry')}
       >
-        {fields}
-        {body}
+        {children}
       </form>
     );
   }
   return (
-    <PostForm action={action} class={layout}>
-      {fields}
-      {body}
+    <PostForm action={action} class={layout} offlineQueue="entry">
+      {children}
     </PostForm>
+  );
+}
+
+function WornBody(props: { worn: boolean; look: Look }) {
+  const { size, past } = props.look;
+  if (props.worn) {
+    return (
+      <>
+        <span
+          class={`badge badge-success gap-1 whitespace-nowrap ${size === 'pill' ? 'badge-sm' : ''}`}
+          data-worn=""
+        >
+          ✓ {t('wear.WORN')}
+        </span>
+        <button
+          type="submit"
+          class="btn btn-ghost btn-xs font-normal text-muted hover:text-base-content"
+        >
+          {t('wear.UNDO_WORN')}
+        </button>
+      </>
+    );
+  }
+  return (
+    <button type="submit" class={wearClass(size, past === true)}>
+      {past ? t('wear.WORN_ASK') : t('wear.WORE_IT')}
+    </button>
   );
 }
 

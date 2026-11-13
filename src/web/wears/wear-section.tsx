@@ -9,11 +9,18 @@ import type { IsoDate } from '../../calendar-date';
 import { relativeDay } from '../date-labels';
 import { t } from '../i18n';
 import { StyleThisLink } from '../styling/style-this';
-import { priceLabel } from '../wardrobe/garment';
+import { categoryLabel, priceLabel } from '../wardrobe/garment';
 import type { GarmentDetail } from '../wardrobe/queries';
 import { garmentUrl } from '../wardrobe/urls';
 import { CARE_NOTE_MAX } from '../wardrobe/garment-input';
 import { markLabel } from '../layout/garment-mark';
+import { queuedTarget } from '../../offline-writes';
+import {
+  OutboxAlternate,
+  OutboxPending,
+  outboxRegion,
+  queueForm,
+} from '../outbox';
 import type { WearGarment, WearSummary } from './queries';
 
 /** What Wore today and Washed answer: the wear line and the buttons. */
@@ -28,12 +35,13 @@ export interface WearPanel {
 
 // Wore today and Washed answer the wear status (htmx) or, posted without
 // script, the garment page (303); never "where it is" (WhereaboutsSection),
-// which is autosaved: a save queued there would die with a swap. Disabled
-// while offline (data-needs-network): the connectivity banner says why.
+// which is autosaved: a save queued there would die with a swap. Offline
+// both queue (#178, src/web/outbox.tsx): each is a region with its other
+// state beside it, and the wear line's counts stay the server's until the
+// sync.
 const SWAP = {
   'hx-target': `#${WEAR_STATUS_ID}`,
   'hx-swap': 'outerHTML',
-  'data-needs-network': '',
 } as const;
 
 /**
@@ -85,19 +93,9 @@ export function WearStatus(props: { garment: WearGarment; panel: WearPanel }) {
         {garment.status === 'closet' && (
           <StyleThisLink garmentId={garment.id} viewOwner={undefined} />
         )}
-        <WoreToday garment={garment} today={summary.today} />
+        <WoreToday garment={garment} panel={panel} />
         {summary.sinceWash > 0 && limit !== null && (
-          <form
-            method="post"
-            action={garmentUrl(garment.id, undefined, '/washed')}
-            hx-post={garmentUrl(garment.id, undefined, '/washed')}
-            class="flex flex-1"
-            {...SWAP}
-          >
-            <button type="submit" class="btn btn-outline flex-1">
-              {t('wear.WASHED')}
-            </button>
-          </form>
+          <Washed garment={garment} />
         )}
       </div>
     </div>
@@ -156,36 +154,96 @@ function WashState(props: { dirty: number; quantity: number }) {
  * WornControl (worn-control.tsx), which marks a calendar entry: this is a
  * garment's own record, in the same words ("Wore …", "✓ Worn …", Undo).
  */
-function WoreToday(props: {
-  garment: WearGarment;
-  today: WearSummary['today'];
-}) {
-  if (props.today === 'entry') {
+function WoreToday(props: { garment: WearGarment; panel: WearPanel }) {
+  const { garment, panel } = props;
+  if (panel.summary.today === 'entry') {
     return (
       <span class="badge badge-success self-center">
         ✓ {t('wear.WORN_TODAY_CALENDAR')}
       </span>
     );
   }
-  const url = garmentUrl(props.garment.id, undefined, '/wear');
-  const undo = props.today === 'single';
+  const worn = panel.summary.today === 'single';
+  // The page's day is the key's and the region's: a tap on a copy rendered
+  // another day is refused offline (its state is that day's).
+  return (
+    <div
+      class="flex flex-1 flex-col items-center gap-1"
+      {...outboxRegion(
+        queuedTarget('wear', garment.id, panel.today),
+        garmentName(garment),
+        panel.today,
+      )}
+    >
+      <WoreTodayForm garmentId={garment.id} worn={worn} />
+      <OutboxAlternate>
+        <WoreTodayForm garmentId={garment.id} worn={!worn} />
+      </OutboxAlternate>
+      <OutboxPending />
+    </div>
+  );
+}
+
+/** Wore today, or its undo once worn: each posts the state it asks for. */
+function WoreTodayForm(props: { garmentId: number; worn: boolean }) {
+  const url = garmentUrl(props.garmentId, undefined, '/wear');
   return (
     <form
       method="post"
       action={url}
       hx-post={url}
-      class="flex flex-1"
+      class="flex w-full"
       {...SWAP}
+      {...queueForm('wear')}
     >
-      <input type="hidden" name="worn" value={undo ? '0' : '1'} />
+      <input type="hidden" name="worn" value={props.worn ? '0' : '1'} />
       <button
         type="submit"
-        class={`btn flex-1 whitespace-nowrap ${undo ? 'btn-ghost' : 'btn-outline'}`}
+        class={`btn flex-1 whitespace-nowrap ${props.worn ? 'btn-ghost' : 'btn-outline'}`}
       >
-        {undo ? t('wear.UNDO_WORE_TODAY') : t('wear.WORE_TODAY')}
+        {props.worn ? t('wear.UNDO_WORE_TODAY') : t('wear.WORE_TODAY')}
       </button>
     </form>
   );
+}
+
+/**
+ * Washed: every copy, today. It has no undo, so queued offline its other
+ * state is only what the sync will show, "✓ Washed".
+ */
+function Washed(props: { garment: WearGarment }) {
+  const { garment } = props;
+  const url = garmentUrl(garment.id, undefined, '/washed');
+  return (
+    <div
+      class="flex flex-1 flex-col items-center gap-1"
+      {...outboxRegion(queuedTarget('wash', garment.id), garmentName(garment))}
+    >
+      <form
+        method="post"
+        action={url}
+        hx-post={url}
+        class="flex w-full"
+        {...SWAP}
+        {...queueForm('wash')}
+      >
+        <button type="submit" class="btn btn-outline flex-1">
+          {t('wear.WASHED')}
+        </button>
+      </form>
+      <OutboxAlternate>
+        <span class="badge badge-success self-center">
+          ✓ {t('wear.WASHED')}
+        </span>
+      </OutboxAlternate>
+      <OutboxPending />
+    </div>
+  );
+}
+
+/** What the outbox's notices call the garment. */
+function garmentName(garment: Pick<WearGarment, 'name' | 'category'>): string {
+  return garment.name ?? categoryLabel(garment.category);
 }
 
 /**

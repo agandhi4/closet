@@ -43,3 +43,262 @@ export function dayRefusal(
   if (day < addDays(today, -REPLAY_WINDOW_DAYS)) return 'too-old';
   return undefined;
 }
+
+/**
+ * The page's outbox (views/assets/outbox.ts, bundled into public/js/outbox.js;
+ * plan section 3) and the views that mark the queueable controls share
+ * these rules, so a key the server renders is the key the outbox collapses
+ * by.
+ */
+
+/** Where a queued write replays, and the key its records collapse by. */
+export interface QueuedTarget {
+  /**
+   * One record per key, the last intent wins: `wear:41:2026-11-12` (a
+   * garment's wear on a day), `wash:41`, `entry:88`, `packed:7:41` (a
+   * trip's garment), `item:7:3` (a trip's extra).
+   */
+  key: string;
+  path: string;
+}
+
+/**
+ * The target of a queued write: `id` is the route's `:id` (the garment, the
+ * entry, the trip); `part` what the key adds, a wear's day or the trip's
+ * garment or extra.
+ */
+export function queuedTarget(
+  kind: QueueableKind,
+  id: number,
+  part?: number | IsoDate,
+): QueuedTarget {
+  return {
+    key: [kind, id, ...(part === undefined ? [] : [part])].join(':'),
+    path: QUEUEABLE_ROUTES[kind].replace(':id', String(id)),
+  };
+}
+
+const QUEUEABLE_PATHS = Object.entries(QUEUEABLE_ROUTES).map(
+  ([kind, pattern]) => ({
+    kind: kind as QueueableKind,
+    path: new RegExp(`^${pattern.replace(':id', '[1-9]\\d{0,9}')}$`),
+  }),
+);
+
+/**
+ * The kind a stored record's path replays as, or undefined: the outbox
+ * replays nothing else (plan section 7), whatever its store holds.
+ */
+export function queueableKindOf(path: string): QueueableKind | undefined {
+  return QUEUEABLE_PATHS.find((route) => route.path.test(path))?.kind;
+}
+
+/**
+ * What marks a replay (plan section 4), naming the account that queued it:
+ * sent by the page's outbox, read by src/web/offline-writes.ts (the replay
+ * contract) and src/web/auth/session-access.ts, which answers a replay
+ * without a session the bodiless 401, never the navigation's 302. The
+ * household's HTTP twin gets no Fetch Metadata, so without this header a
+ * replay would look like a navigation and its redirect reach the outbox as
+ * an opaque answer.
+ */
+export const REPLAY_HEADER = 'X-Closet-Queued';
+
+/** Whether a request is a replay, from Node's lower-cased headers. */
+export function isReplayRequest(
+  headers: Record<string, string | string[] | undefined>,
+): boolean {
+  return headers[REPLAY_HEADER.toLowerCase()] !== undefined;
+}
+
+/** The kinds whose record posts the tap's `day` (todayIn APP_TIMEZONE). */
+export function takesDay(kind: QueueableKind): boolean {
+  return kind === 'wear' || kind === 'wash';
+}
+
+/** The packing ticks: a record per item, posting `shown` and `packed`. */
+export function isChecklist(kind: QueueableKind): boolean {
+  return kind === 'packed' || kind === 'item';
+}
+
+/**
+ * The most records waiting at once: past it the queueable controls are
+ * disabled offline, with the banner saying why.
+ */
+export const OUTBOX_MAX_PENDING = 200;
+
+/**
+ * Whether a tap goes through the outbox rather than straight to the server:
+ * offline, or while any of its keys has a pending record (queued, backing
+ * off or in flight), even online. A tap sent past a pending record would
+ * land first and then be overwritten by the older record's replay (Wore
+ * today, a 503, Undo during the backoff: the replay marks it worn again);
+ * through the outbox it replaces that record (`OutboxStore.putCollapsed`)
+ * and replays after the one in flight.
+ */
+export function goesThroughOutbox(
+  offline: boolean,
+  keys: readonly string[],
+  pendingKeys: ReadonlySet<string>,
+): boolean {
+  return offline || keys.some((key) => pendingKeys.has(key));
+}
+
+/** What the queue's rules read of a stored record. */
+export interface StoredRecord {
+  account: string;
+  key: string;
+  state: 'pending' | 'failed';
+}
+
+/**
+ * The outbox's store, the one truth about what waits: IndexedDB in the page
+ * (views/assets/outbox.ts), shared by every tab of the origin; a stub in the
+ * spec. Every decision reads it as committed, never a copy a failed put or
+ * another tab's write could leave disagreeing with it.
+ */
+export interface OutboxStore<R extends StoredRecord> {
+  /** The account's records, oldest first. */
+  records(account: string): Promise<R[]>;
+  /**
+   * Each record in place of its account's record of the same key, in one
+   * transaction: the last intent wins, and nothing in between is seen.
+   */
+  putCollapsed(records: readonly R[]): Promise<void>;
+}
+
+/**
+ * `open` run once and shared by concurrent callers, but forgotten if it
+ * rejects, so the next call retries: one transient IndexedDB open failure
+ * must not break every later read and write for the page's life.
+ */
+export function sharedUntilRejected<T>(
+  open: () => Promise<T>,
+): () => Promise<T> {
+  let shared: Promise<T> | undefined;
+  return () => {
+    if (!shared) {
+      const attempt = open();
+      shared = attempt;
+      attempt.catch(() => {
+        if (shared === attempt) shared = undefined;
+      });
+    }
+    return shared;
+  };
+}
+
+const pendingKeys = (records: readonly StoredRecord[]) =>
+  new Set(records.filter((r) => r.state === 'pending').map((r) => r.key));
+
+/**
+ * `goesThroughOutbox` over the store as committed now: another tab's
+ * pending record counts, a put that failed does not. A store that cannot be
+ * read rejects; the page then sends online taps straight on.
+ */
+export async function routesThroughOutbox<R extends StoredRecord>(
+  store: OutboxStore<R>,
+  account: string,
+  offline: boolean,
+  keys: readonly string[],
+): Promise<boolean> {
+  if (offline) return true;
+  return goesThroughOutbox(
+    false,
+    keys,
+    pendingKeys(await store.records(account)),
+  );
+}
+
+export type EnqueueResult =
+  | { outcome: 'queued' }
+  /** Past OUTBOX_MAX_PENDING: nothing stored. */
+  | { outcome: 'full' }
+  /** The store refused (private mode, quota): nothing stored. */
+  | { outcome: 'unavailable'; error: unknown };
+
+/**
+ * Stores a tap's records. They are pending only once the put has
+ * committed: until then, and after a failed put, nothing routes through
+ * them.
+ */
+export async function enqueue<R extends StoredRecord>(
+  store: OutboxStore<R>,
+  account: string,
+  incoming: readonly R[],
+): Promise<EnqueueResult> {
+  try {
+    const waiting = pendingKeys(await store.records(account));
+    const added = incoming.filter((record) => !waiting.has(record.key));
+    if (waiting.size + added.length > OUTBOX_MAX_PENDING) {
+      return { outcome: 'full' };
+    }
+    await store.putCollapsed(incoming);
+    return { outcome: 'queued' };
+  } catch (error) {
+    return { outcome: 'unavailable', error };
+  }
+}
+
+/** Why a queued write was not saved: the notice's reason. */
+export type ReplayFailure = 'gone' | 'refused' | ReplayRefusal;
+
+/** What the outbox does with a record after its replay's answer. */
+export type ReplayVerdict =
+  /** Saved (204): the record goes. */
+  | { verdict: 'saved'; changed: boolean }
+  /** Refused for good: the record stays, failed, until dismissed. */
+  | { verdict: 'failed'; reason: ReplayFailure }
+  /** The server may take it later (5xx, 408, 429): stop, back off. */
+  | { verdict: 'retry' }
+  /** No session (401, or a redirect): stop, keep everything for the next sign-in. */
+  | { verdict: 'signed-out' };
+
+function isRefusal(outcome: string | null): outcome is ReplayRefusal {
+  return outcome === 'too-old' || outcome === 'future' || outcome === 'account';
+}
+
+/**
+ * A replay's answer (src/web/offline-writes.ts): 204 saved, 401 signed out,
+ * 404 gone (a deleted garment, entry or trip), a 409 refused for the reason
+ * in `X-Closet-Outcome` (a wishlist item has none), a server error or rate
+ * limit retried. A redirect (status 0: the outbox fetches with `redirect:
+ * 'manual'`, so it is opaque) is kept like a 401: the only one a queueable
+ * route gives is the session gate's to the login page, for a client that
+ * did not say it was a replay. Anything else (a 400, a 403) is refused: the
+ * page must never take an answer it does not know for saved.
+ */
+export function replayVerdict(
+  status: number,
+  outcome: string | null,
+): ReplayVerdict {
+  if (status === 204)
+    return { verdict: 'saved', changed: outcome === 'changed' };
+  if (status === 401 || status === 0) return { verdict: 'signed-out' };
+  if (status === 404) return { verdict: 'failed', reason: 'gone' };
+  if (status === 409 && isRefusal(outcome)) {
+    return { verdict: 'failed', reason: outcome };
+  }
+  if (status >= 500 || status === 408 || status === 429) {
+    return { verdict: 'retry' };
+  }
+  return { verdict: 'failed', reason: 'refused' };
+}
+
+/**
+ * The longest a replay may wait for its answer: a request hung on a flaky
+ * link would otherwise hold the drain lock for every tab, and sign-out
+ * behind it. Aborted, it is a network error: retried with backoff.
+ */
+export const REPLAY_TIMEOUT_MS = 15_000;
+
+const RETRY_FIRST_MS = 5_000;
+const RETRY_MAX_MS = 5 * 60_000;
+
+/** The wait before the next drain after `attempts` failed ones: 5 s doubling, at most 5 min. */
+export function retryDelayMs(attempts: number): number {
+  return Math.min(
+    RETRY_FIRST_MS * 2 ** Math.max(attempts - 1, 0),
+    RETRY_MAX_MS,
+  );
+}

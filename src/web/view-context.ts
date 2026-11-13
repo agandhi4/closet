@@ -36,6 +36,8 @@ export interface ViewContext {
   release: string;
   /** `?v=` on every first-party static URL; see src/build-info.ts. */
   appVersion: string;
+  /** APP_TIMEZONE: the outbox dates a queued tap in it (#178, AppStatus). */
+  timeZone: string;
   canonicalUrl: string;
   /** The page's link preview URL and image unless the page names its own (Layout). */
   ogUrl: string;
@@ -72,6 +74,7 @@ export interface ViewContextConfig {
   /** BuildInfo.release and BuildInfo.assetVersion. */
   release: string;
   assetVersion: string;
+  timeZone: string;
 }
 
 /**
@@ -104,6 +107,7 @@ export function createViewContextBuilder(config: ViewContextConfig) {
         auth?.user.email?.toLowerCase() === config.orderMailOwner,
       release: config.release,
       appVersion: config.assetVersion,
+      timeZone: config.timeZone,
       canonicalUrl,
       ogUrl: canonicalUrl,
       ogImage: `${origin}/assets/${config.iconName}`,

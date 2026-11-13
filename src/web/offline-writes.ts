@@ -7,7 +7,9 @@ import type { IsoDate } from '../calendar-date';
 import type { Logger } from '../logger';
 import {
   dayRefusal,
+  isReplayRequest,
   type QueueableKind,
+  REPLAY_HEADER,
   type ReplayRefusal,
 } from '../offline-writes';
 import { sessionUserId } from './auth/require-session';
@@ -43,7 +45,7 @@ declare module 'fastify' {
  *   gone, 409 refused) and, for a 409 of this contract, names its reason in
  *   the same header.
  */
-const QUEUED_HEADER = 'x-closet-queued';
+const QUEUED_HEADER = REPLAY_HEADER.toLowerCase();
 const IDEMPOTENCY_HEADER = 'idempotency-key';
 const OUTCOME_HEADER = 'X-Closet-Outcome';
 
@@ -55,7 +57,7 @@ const REFUSAL_MESSAGES: Record<ReplayRefusal, string> = {
 
 /** A replay, as the queued-write hook has let it through. */
 export function isReplay(request: FastifyRequest): boolean {
-  return request.headers[QUEUED_HEADER] !== undefined;
+  return isReplayRequest(request.headers);
 }
 
 /** A replay's answer: whether this request changed anything. */

@@ -62,6 +62,8 @@ data/**
 /models/
 public/bundle.css
 public/sw.js
+# Bundled from views/assets/outbox.ts (npm run generate:outbox)
+public/js/outbox.js
 public/build.json
 public/vendor/
 public/modules/

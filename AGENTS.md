@@ -90,7 +90,7 @@ Each area's detail lives in an `AGENTS.md` beside its code, with `CLAUDE.md` a s
 | Web Push | `src/push/AGENTS.md` | subscriptions, notifications, reminders |
 | MCP server | `src/web/mcp/AGENTS.md` | `/mcp`, its tools, personal access tokens |
 | Health | `src/web/health/AGENTS.md` | `/health/live`, `/health/ready`, `/healthz`, a readiness check, the image `HEALTHCHECK` |
-| PWA and the service worker | `src/web/shell/AGENTS.md` | the service worker, caching, offline, install, updates, static delivery |
+| PWA and the service worker | `src/web/shell/AGENTS.md` | the service worker, caching, offline, queued writes (the outbox), install, updates, static delivery |
 | Styles and fonts | `views/assets/AGENTS.md` | the theme, colours, fonts |
 | Layout | `src/web/layout/AGENTS.md` | the app bar, the dock, sections, stacking, a page's `<main>` |
 | Database | `src/db/AGENTS.md` | schema internals, drizzle-kit traps, the MikroORM-era adoption |
@@ -153,7 +153,7 @@ In full: `docs/conventions.md`, `docs/web-layer.md#client-behavior`.
 - **No runtime CDN imports**: client packages from `public/modules/` (`CLIENT_MODULES`) or `public/vendor/`; zero external requests (`delivery.spec.ts`).
 - **Postgres in every tier**; no second driver for test speed.
 - **Cookies stay `Secure`-less** (the HTTP twin has no TLS: `secure: true` breaks login); `SameSite=Lax` must stay (CSRF).
-- **Offline-first per `frontend-pwa.md`**: cached reads show freshness; unreachable writes are disabled with a reason, never dropped; heartbeat, not `navigator.onLine`.
+- **Offline-first per `frontend-pwa.md`**: cached reads show freshness; unreachable writes are disabled with a reason, never dropped, except wears, washes and packing ticks, which the page's outbox queues and replays (`data-offline-queue`, `src/web/shell/outbox.md`, #178); heartbeat, not `navigator.onLine`.
 - **"Today" is `todayIn(APP_TIMEZONE, now)`** in app and tests (`t.today()`, `householdToday()`): a UTC date is tomorrow on a New York evening. ESLint's `no-restricted-syntax` refuses `toISOString().slice/substring/split` and `toLocaleDateString`; a new consumer gets a row in `test/integration/today.spec.ts`.
 
 ### Changing the schema
