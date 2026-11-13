@@ -22,7 +22,7 @@
   - `SIGN_IN_LIMIT` is ONE checker for the login page and this sign-in (`signInLimit`, built in `webPlugin`), so an address gets 5 a minute in all and the 6th is a 429 at either door.
   - `SIGN_IN_ACCOUNT_LIMIT` (5 a minute per SHA-256 of the normalized email) caps guesses spread over addresses: the API door only.
   - `API_LIMIT` allows 120 a minute per token: one checker for the whole API, a preHandler after authentication.
-  - `LINK_IMPORT_LIMIT` is ONE checker for the page's link import, its photo choice and `POST /garments/link-imports` (`linkImportLimit`, built in `webPlugin`), counted after the wardrobe is judged.
+  - `LINK_IMPORT_LIMIT` is ONE checker for the page's link import, its photo choice and `POST /garments/link-imports` (`linkImportLimit`, built in `webPlugin`), counted after the wardrobe is judged and the cheap body checks pass (a refused body spends none, at either door).
   - A 429 is a problem with `Retry-After`.
 - **Errors are RFC 9457 problem+json** (`src/web/problem.ts`'s `Problem`; `problemOf`/`sendProblem` in `errors.tsx`, the one module that may import `node:http`). The body is `{ type: "about:blank", title, status, detail, code, requestId }`, plus `errors: [{ path, message }]` for a schema validation.
   - `code` comes from `HttpError.code`. `NotFound`/`Forbidden` keep the page's message, which names no id.

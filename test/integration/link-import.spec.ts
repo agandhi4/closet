@@ -869,9 +869,13 @@ describe('adding a garment from a link', () => {
     const shopperId = await userIdOf(t, 'shopper@example.com');
     const statuses: number[] = [];
     for (let i = 0; i < 11; i++) {
-      statuses.push((await importLink('no link here', { cookie })).statusCode);
+      statuses.push(
+        (await importLink(sites.url('/nothing-here'), { cookie })).statusCode,
+      );
     }
-    expect(statuses.slice(0, 10)).toEqual(Array(10).fill(400));
+    // Refused after the fetch, so each spends one (a no-link body spends none).
+    expect(statuses.slice(0, 10)).toEqual(Array(10).fill(statuses[0]));
+    expect(statuses[0]).toBeGreaterThanOrEqual(400);
     expect(statuses[10]).toBe(429);
     expect(t.logs.messages('warn', 'Web')).toContain(
       `Rate limit reached: POST /wardrobe/new/from-link for user ${shopperId}`,
@@ -879,8 +883,9 @@ describe('adding a garment from a link', () => {
     // Someone else's count is their own.
     const other = await signUp('other-shopper@example.com');
     expect(
-      (await importLink('no link here', { cookie: other.cookie })).statusCode,
-    ).toBe(400);
+      (await importLink(sites.url('/nothing-here'), { cookie: other.cookie }))
+        .statusCode,
+    ).toBe(statuses[0]);
   });
 
   it('counts imports and photo choices together: the combined eleventh is refused', async () => {
@@ -894,14 +899,16 @@ describe('adding a garment from a link', () => {
       });
     // Five of each, interleaved: ten fetches between the two routes.
     for (let i = 0; i < 5; i++) {
-      expect((await importLink('no link here', { cookie })).statusCode).toBe(
-        400,
-      );
+      expect(
+        (await importLink(sites.url('/nothing-here'), { cookie })).statusCode,
+      ).not.toBe(429);
       const choice = await choose();
       expect(choice.body).not.toContain(text('linkImport.RATE_LIMITED'));
     }
 
-    const eleventhImport = await importLink('no link here', { cookie });
+    const eleventhImport = await importLink(sites.url('/nothing-here'), {
+      cookie,
+    });
     expect(eleventhImport.statusCode).toBe(429);
     const eleventhChoice = await choose();
     expect(eleventhChoice.statusCode).toBe(200);

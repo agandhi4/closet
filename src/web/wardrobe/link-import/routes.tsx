@@ -163,8 +163,6 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<
     LINK_IMPORT_PATH,
     { schema: { querystring: DestinationQuery, body: LinkBody } },
     async (request, reply) => {
-      const retryAfter = await linkImportRetryAfter(request);
-      if (retryAfter !== undefined) throw tooManyAttempts(retryAfter);
       const { access, viewOwner } = await authorize(request, 'manage');
       const { destination } = await resolveDestination(
         db,
@@ -175,6 +173,10 @@ export const linkImportRoutes: FastifyPluginCallbackTypebox<
       const typed = request.body.url;
       const link = linkIn(typed);
       if (!link) return refuse(reply, 'no-link', typed, viewOwner, destination);
+      // After the cheap checks, as the API's import does: a refused body
+      // fetches nothing, so it spends none of the budget.
+      const retryAfter = await linkImportRetryAfter(request);
+      if (retryAfter !== undefined) throw tooManyAttempts(retryAfter);
       try {
         const result = await importLink(importDeps, link, userId);
         const form = importedForm(result, link);
