@@ -1,4 +1,15 @@
-import { createServer, type RequestListener, type Server } from 'node:http';
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from 'node:http';
+import {
+  createSecureServer,
+  type Http2SecureServer,
+  type Http2ServerRequest,
+  type Http2ServerResponse,
+} from 'node:http2';
 import { createServer as createHttpsServer } from 'node:https';
 import type { AddressInfo } from 'node:net';
 import { TLSSocket } from 'node:tls';
@@ -23,7 +34,9 @@ import { selfSignedCertificate } from '../support/tls-certificate';
  *
  * The same pages are served over TLS too (`secureUrl`), with a throwaway
  * certificate for both names that the fetcher trusts only through
- * `outboundFetch.tls` (#496a): never NODE_TLS_REJECT_UNAUTHORIZED.
+ * `outboundFetch.tls` (#496a): never NODE_TLS_REJECT_UNAUTHORIZED. That
+ * server speaks HTTP/2, and HTTP/1.1 to a client offering only that, unless
+ * `protocol: 'http/1.1'` has it offer HTTP/1.1 alone (#496b's fallback).
  */
 
 const SHOP_HOST = 'shop.test';
@@ -76,10 +89,23 @@ export interface Page {
 export interface SiteRequest {
   /** The path, query included. */
   path: string;
+  /** Host, or h2's `:authority`. */
   host: string | undefined;
   /** The SNI the TLS client sent (false: none); null over plain HTTP. */
   servername: string | false | null;
+  /** The protocol ALPN agreed (false: none); null over plain HTTP. */
+  alpn: string | false | null;
 }
+
+export interface LinkSitesOptions {
+  /** What the TLS server offers by ALPN; `h2` (the default) adds HTTP/1.1. */
+  protocol?: 'h2' | 'http/1.1';
+}
+
+type SiteHandler = (
+  req: IncomingMessage | Http2ServerRequest,
+  res: ServerResponse | Http2ServerResponse,
+) => void;
 
 export interface LinkSites {
   outboundFetch: NonNullable<AppOptions['outboundFetch']>;
@@ -91,12 +117,12 @@ export interface LinkSites {
   serve(path: string, page: Page): void;
   /** Every path requested, in order (query included). */
   hits: string[];
-  /** Every request, in order, with its Host and SNI. */
+  /** Every request, in order, with its Host, SNI and ALPN. */
   requests: SiteRequest[];
   close(): Promise<void>;
 }
 
-function listenOnPublicIp(server: Server): Promise<number> {
+function listenOnPublicIp(server: Server | Http2SecureServer): Promise<number> {
   return new Promise((done, fail) => {
     server.once('error', fail);
     server.listen(0, PUBLIC_IP, () =>
@@ -112,18 +138,40 @@ function closeServer(server: Server): Promise<void> {
   });
 }
 
-export async function startLinkSites(): Promise<LinkSites> {
+/** An h2 server has no closeAllConnections: its open sessions end with it. */
+function closeSecureServer(
+  server: Server | Http2SecureServer,
+  sockets: Set<TLSSocket>,
+): Promise<void> {
+  return new Promise((done) => {
+    for (const socket of sockets) socket.destroy();
+    server.close(() => done());
+  });
+}
+
+/** The TLS socket a request came in on; null over plain HTTP. */
+function tlsSocketOf(
+  req: IncomingMessage | Http2ServerRequest,
+): TLSSocket | null {
+  const socket = 'stream' in req ? req.stream.session?.socket : req.socket;
+  return socket instanceof TLSSocket ? socket : null;
+}
+
+export async function startLinkSites({
+  protocol = 'h2',
+}: LinkSitesOptions = {}): Promise<LinkSites> {
   const pages = new Map<string, Page>();
   const hits: string[] = [];
   const requests: SiteRequest[] = [];
-  const handler: RequestListener = (req, res) => {
+  const handler: SiteHandler = (req, res) => {
     const path = req.url ?? '/';
     hits.push(path);
+    const tls = tlsSocketOf(req);
     requests.push({
       path,
-      host: req.headers.host,
-      servername:
-        req.socket instanceof TLSSocket ? req.socket.servername : null,
+      host: 'stream' in req ? req.authority : req.headers.host,
+      servername: tls ? tls.servername : null,
+      alpn: tls ? tls.alpnProtocol : null,
     });
     const page = pages.get(path);
     if (!page) {
@@ -146,7 +194,15 @@ export async function startLinkSites(): Promise<LinkSites> {
   };
   const certificate = selfSignedCertificate([SHOP_HOST, WWW_SHOP_HOST]);
   const server: Server = createServer(handler);
-  const secureServer: Server = createHttpsServer(certificate, handler);
+  const secureServer =
+    protocol === 'h2'
+      ? createSecureServer({ ...certificate, allowHTTP1: true }, handler)
+      : createHttpsServer(certificate, handler);
+  const secureSockets = new Set<TLSSocket>();
+  secureServer.on('secureConnection', (socket: TLSSocket) => {
+    secureSockets.add(socket);
+    socket.once('close', () => secureSockets.delete(socket));
+  });
   const [port, securePort] = await Promise.all([
     listenOnPublicIp(server),
     listenOnPublicIp(secureServer),
@@ -164,7 +220,10 @@ export async function startLinkSites(): Promise<LinkSites> {
     hits,
     requests,
     close: async () => {
-      await Promise.all([closeServer(server), closeServer(secureServer)]);
+      await Promise.all([
+        closeServer(server),
+        closeSecureServer(secureServer, secureSockets),
+      ]);
     },
   };
 }

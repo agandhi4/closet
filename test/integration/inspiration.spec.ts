@@ -454,6 +454,11 @@ describe('inspiration', () => {
   it('refuses a photo past the share cap with a 413, storing nothing', async () => {
     const looks = await t.db.$count(inspiration);
     const files = await t.db.$count(file);
+    const bytes = await stored();
+    // A whole JPEG, then padding past the cap: the parser reports the cut
+    // only after the photo decoded, so its bytes are stored, then deleted
+    // before the 413 (Photos.storeUploadParts). Before that they landed
+    // after the response, which only "is never an orphan" saw, shifted.
     const huge = Buffer.concat([
       photo,
       Buffer.alloc(SHARE_PHOTO_MAX_BYTES + 1 - photo.length),
@@ -462,6 +467,7 @@ describe('inspiration', () => {
     expect(res.statusCode).toBe(413);
     expect(await t.db.$count(inspiration)).toBe(looks);
     expect(await t.db.$count(file)).toBe(files);
+    expect(await stored()).toEqual(bytes);
   });
 
   // The button posts the page's one field, `url`, to the paste's route
