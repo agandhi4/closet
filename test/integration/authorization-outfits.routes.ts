@@ -751,6 +751,14 @@ export const ROUTES: Route[] = [
         viewer: 'notFound',
         stranger: 'notFound',
       },
+      // The device token's twin: the page's route reads the cookie.
+      api: {
+        ok: 200,
+        request: (f) => ({
+          method: 'GET',
+          url: `/api/v1/selfie-photos/${f.selfieFileName}?v=1${variant ? '&variant=thumb' : ''}`,
+        }),
+      },
     }),
   ),
   // Saved looks (#22) are the owner's like the style profile: the list is

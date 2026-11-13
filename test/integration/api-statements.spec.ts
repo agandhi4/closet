@@ -1492,6 +1492,7 @@ describe('API statements per route', () => {
       bottom: number;
       entryId: number;
       selfieId: number;
+      selfieFileName: string;
       today: string;
     }
 
@@ -1534,10 +1535,18 @@ describe('API statements per route', () => {
         ...(await selfieUpload()),
       });
       const [taken] = await t.db
-        .select({ id: selfie.id })
+        .select({ id: selfie.id, fileName: file.fileName })
         .from(selfie)
+        .innerJoin(file, eq(file.id, selfie.photoId))
         .where(eq(selfie.outfitCalendarId, entry.id));
-      return { top, bottom, entryId: entry.id, selfieId: taken.id, today };
+      return {
+        top,
+        bottom,
+        entryId: entry.id,
+        selfieId: taken.id,
+        selfieFileName: taken.fileName,
+        today,
+      };
     };
 
     /**
@@ -1633,6 +1642,18 @@ describe('API statements per route', () => {
         api: (s) => ({
           method: 'DELETE',
           url: `/api/v1/selfies/${s.selfieId}`,
+        }),
+      },
+      {
+        name: 'GET /selfie-photos/{fileName} (GET /selfies/:fileName)',
+        ok: [200, 200],
+        page: (s) => ({
+          method: 'GET',
+          url: `/selfies/${s.selfieFileName}?v=1`,
+        }),
+        api: (s) => ({
+          method: 'GET',
+          url: `/api/v1/selfie-photos/${s.selfieFileName}?v=1`,
         }),
       },
     ];

@@ -41,7 +41,7 @@ export interface PrivatePhoto {
 }
 
 // The single source of truth for photo paths (/file/**, /selfies/*,
-// /inspiration/photo/* and /api/v1/look-photos/*), for JSX views and view-models that pre-build URLs.
+// /inspiration/photo/*, /api/v1/look-photos/* and /api/v1/selfie-photos/*), for JSX views and view-models that pre-build URLs.
 // The routes are in routes.ts beside this file, src/web/selfies/routes.ts
 // and src/web/inspiration/routes.tsx, and must stay in step.
 //
@@ -90,18 +90,32 @@ export function inspirationPhotoUrl(
 }
 
 /**
- * The same photo to a device token (#193d): GET /api/v1/look-photos/{fileName}
- * (src/web/inspiration/api-routes.ts), which never reads the cookie the
- * page route needs. `variant` is a query parameter there, so a look's two
- * URLs differ only in it; `v` is the version, as on the page's.
+ * The same photos to a device token: GET /api/v1/look-photos/{fileName}
+ * (#193d, src/web/inspiration/api-routes.ts) and
+ * /api/v1/selfie-photos/{fileName} (#579, src/web/selfies/api-routes.ts),
+ * which never read the cookie the page routes need. `variant` is a query
+ * parameter there, so a photo's two URLs differ only in it; `v` is the
+ * version, as on the page's.
  */
 export const LOOK_PHOTO_API_ROOT = `${API_PREFIX}/look-photos`;
+export const SELFIE_PHOTO_API_ROOT = `${API_PREFIX}/selfie-photos`;
 
-export function apiInspirationPhotoUrl(
+export const apiInspirationPhotoUrl = (
+  image: PrivatePhoto,
+  variant: Exclude<ImageVariant, 'nobg'>,
+): string => apiPrivatePhotoUrl(LOOK_PHOTO_API_ROOT, image, variant);
+
+export const apiSelfieUrl = (
+  image: PrivatePhoto,
+  variant: Exclude<ImageVariant, 'nobg'>,
+): string => apiPrivatePhotoUrl(SELFIE_PHOTO_API_ROOT, image, variant);
+
+function apiPrivatePhotoUrl(
+  root: string,
   image: PrivatePhoto,
   variant: Exclude<ImageVariant, 'nobg'>,
 ): string {
-  const url = `${variantPath(LOOK_PHOTO_API_ROOT, image.fileName, 'original')}?v=${image.version ?? 1}`;
+  const url = `${variantPath(root, image.fileName, 'original')}?v=${image.version ?? 1}`;
   return variant === 'original' ? url : `${url}&variant=${variant}`;
 }
 

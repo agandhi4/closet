@@ -446,6 +446,64 @@ describe('outfit selfies', () => {
     );
   });
 
+  it("serves the owner's selfie bytes as the page does, a problem 404 to anyone else, once replaced or removed", async () => {
+    const { id: outfitId } = await newOutfit('Photo look');
+    const entry = await schedule(outfitId, t.today());
+    const { selfieId } = (await upload(entry.id)).json<{ selfieId: number }>();
+    const photoUrls = async () => {
+      const [found] = (
+        await api('GET', `/calendar-entries?from=${t.today()}&to=${t.today()}`)
+      )
+        .json<{
+          data: {
+            id: number;
+            selfiePhoto?: { originalUrl: string; thumbUrl: string };
+          }[];
+        }>()
+        .data.filter((e) => e.id === entry.id);
+      return found.selfiePhoto!;
+    };
+    const { originalUrl, thumbUrl } = await photoUrls();
+    expect(thumbUrl).toMatch(/\?v=\d+&variant=thumb$/);
+    const fileName = originalUrl.split('/').pop()!.split('?')[0];
+
+    for (const url of [originalUrl, thumbUrl]) {
+      const bytes = await t.api(token, { method: 'GET', url });
+      expect(bytes.statusCode, url).toBe(200);
+      expect(bytes.headers['content-type']).toBe('image/webp');
+      expect(bytes.headers['cache-control']).toBe(
+        'private, max-age=31536000, immutable',
+      );
+      const refused = await t.api(strangerToken, { method: 'GET', url });
+      expectProblem(refused, 404, 'not_found');
+      expect(refused.headers['cache-control']).toBe('no-store');
+      expect(refused.body).not.toContain(fileName);
+    }
+
+    // A replacement keeps the selfie's id but is another photo: the old URL is gone.
+    expect((await upload(entry.id)).json<{ selfieId: number }>().selfieId).toBe(
+      selfieId,
+    );
+    expectProblem(
+      await t.api(token, { method: 'GET', url: originalUrl }),
+      404,
+      'not_found',
+    );
+    const replaced = await photoUrls();
+    expect(replaced.originalUrl).not.toBe(originalUrl);
+    expect(
+      (await t.api(token, { method: 'GET', url: replaced.thumbUrl }))
+        .statusCode,
+    ).toBe(200);
+
+    await api('DELETE', `/selfies/${selfieId}`);
+    expectProblem(
+      await t.api(token, { method: 'GET', url: replaced.originalUrl }),
+      404,
+      'not_found',
+    );
+  });
+
   it('removes a selfie once, the entry still worn: 204, then the 404 a retry reads as done', async () => {
     const { id: outfitId } = await newOutfit('Removed look');
     const entry = await schedule(outfitId, t.today());
