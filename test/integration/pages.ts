@@ -5,6 +5,7 @@ import { outfit as outfitTable } from '../../src/db/schema';
 import { addDays } from '../../src/calendar-date';
 import { QUEUEABLE_ROUTES } from '../../src/offline-writes';
 import { REQUEST_FAILED_EVENT } from '../../src/web/errors';
+import { t as text } from '../../src/web/i18n';
 import {
   createGarment,
   createWishlistItem,
@@ -487,6 +488,14 @@ export function expectFailureTrigger(
   });
 }
 
+const ERROR_TITLES = {
+  missing: text('errorPage.title.missing'),
+  refused: text('errorPage.title.refused'),
+  retry: text('errorPage.title.retry'),
+  rejected: text('errorPage.title.rejected'),
+  failed: text('errorPage.title.failed'),
+};
+
 /** A boosted tap's (or a navigation's) failure: the error page, whole. */
 export function expectErrorPage(
   res: LightMyRequestResponse,
@@ -496,7 +505,10 @@ export function expectErrorPage(
   expect(res.statusCode).toBe(status);
   expect(res.headers['hx-trigger']).toBeUndefined();
   expectFullPage(res);
-  expect(pageTitle(res.body)).toBe(`Error ${status}`);
+  expect(Object.values(ERROR_TITLES)).toContain(pageTitle(res.body));
   expect(unescapeHtml(res.body)).toContain(message);
-  expect(res.body).toContain(String(res.headers['x-request-id']));
+  // Only a 5xx shows the id (#644); the header carries it on every answer.
+  expect(res.body.includes(String(res.headers['x-request-id']))).toBe(
+    status >= 500,
+  );
 }

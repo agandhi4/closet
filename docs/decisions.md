@@ -876,3 +876,9 @@ Consequence: no call site sizes for touch; a text link that truncates puts `trun
 Why: htmx swaps no 4xx/5xx, so a refused tap (a deleted garment's 404, the owner lock's 503, a 429) showed nothing; routes answered 200-with-error one by one.
 Decision: the root error handler decides by request kind: a fragment request gets its status, no body and `HX-Trigger` `closet:request-failed` `{ message, requestId }` (i18n, never the error's text; the 500 a fixed line); a navigation or boosted tap the error page. `public/js/request-failures.js` swaps a boosted error page that is ours (`X-Request-ID`), toasts the trigger, a foreign error answer and `htmx:timeout` (`HTMX_CONFIG.timeout` = `REPLAY_TIMEOUT_MS`); a queueable form's timeout is queued by the outbox instead. Not `responseHandling`: its rules see only the status, not `boosted`, and swapping every 4xx would empty a fragment target with the bodiless answer.
 Consequence: a route throws to refuse an htmx request; the link photo choice's 200-with-error is gone, the registration's inline validation stays 200 (a message is its answer, not a failure). The 404 handler's message no longer echoes the URL.
+
+## 2026-11-13 — The error page names what the person can do, by status class (#644)
+
+**Why:** upstream's debug view (Path, Time, a lone Return to Home in `p-20`) made a deleted garment look like a crash with no way back.
+**Decision:** `ErrorPage` (`src/web/error-page.tsx`) classes the status (missing, refused, retry, rejected, failed): a human h1, Back plus the section's home link, Try again only for the retry class on a plain GET with nothing secret in its URL, the request id on a 5xx only. Strings are `errorPage.*`; the refusal sentences stay `refusal.*`.
+**Consequence:** a new status that needs its own shape is a new `ErrorClass`; the h1 is no longer "Error NNN", so specs find the page by its title.

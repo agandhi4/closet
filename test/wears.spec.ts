@@ -164,7 +164,7 @@ test('mark an outfit worn, wash it, log a wear alone, and do the laundry', async
   });
   expect(deleted.ok()).toBe(true);
   await tile.click();
-  await expect(page.getByRole('heading', { name: 'Error 404' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Not found' })).toBeVisible();
   await expect(page.getByText(text('refusal.notFound.garment'))).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`/wardrobe/${oxford}$`));
 
