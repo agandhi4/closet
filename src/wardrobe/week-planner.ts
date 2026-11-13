@@ -330,9 +330,11 @@ const LIMBS_TOO_WARM: readonly FitProblem[] = [
 ];
 
 /**
- * Legs or feet too warm against today's needs but not against the ceiling
- * the entry was planned with. Only a fallen ceiling can make that so (same
- * garments, same tolerances); an entry stored without one is never judged.
+ * Legs or feet too warm against today's needs and the too-warm ceiling lower
+ * than the one the entry was planned with: the weather warmed past what it was
+ * planned for. A near miss planned already too warm, in unchanged weather, is
+ * not judged again; one the ceiling keeps falling under is. An entry stored
+ * without a ceiling is never judged.
  */
 function limbsTurnedTooWarm(
   needs: WeatherNeeds,
@@ -340,15 +342,11 @@ function limbsTurnedTooWarm(
   garments: readonly { weather: MatchGarment }[],
 ): boolean {
   if (!plannedFor || plannedFor.limbsCeiling === null) return false;
-  const tooWarm = (n: WeatherNeeds) =>
-    assessOutfit(
-      n,
-      garments.map((g) => g.weather),
-    ).problems.some((p) => LIMBS_TOO_WARM.includes(p));
-  return (
-    tooWarm(needs) &&
-    !tooWarm({ ...needs, limbsCeiling: plannedFor.limbsCeiling })
-  );
+  if (needs.limbsCeiling >= plannedFor.limbsCeiling) return false;
+  return assessOutfit(
+    needs,
+    garments.map((g) => g.weather),
+  ).problems.some((p) => LIMBS_TOO_WARM.includes(p));
 }
 
 /** An entry the planner wrote and still owns (planned_by 'auto'). */
@@ -439,8 +437,8 @@ export function replanWeek<G extends PlannerGarment>(
     // `sameNeeds` cannot see the ceiling (the too-warm bound, uncapped where
     // `limbs` is capped), so boots planned for 5 C that turn too warm at 12 C
     // leave the targets equal. Judged when the legs or feet are too warm now
-    // and were not against the ceiling it was planned with: a near miss the
-    // planner chose knowingly is not re-judged every morning.
+    // and the ceiling fell since planning: a near miss the planner chose
+    // knowingly, in the same weather, is not re-judged every morning.
     const warmedPast =
       sameNeeds(plannedFor, now) &&
       limbsTurnedTooWarm(needs, plannedFor, entry.garments);

@@ -535,6 +535,24 @@ describe('the re-plan', () => {
       expect(replanAt(8.6, 8.6)).toEqual({ entryId: 1, kind: 'unchanged' });
     });
 
+    it('judges a near miss when the ceiling falls further still: a heatwave under boots planned at ceiling 5', () => {
+      const planned: PlannedNeeds = {
+        ...plannedNeeds(needsAt(8.6))!,
+        limbsCeiling: 5,
+      };
+      const [replan] = replanWeek({
+        ...input({
+          pool,
+          entries: [entry(1, day, 'all-day', outfit)],
+          forecast: new Map([[day, steadyDay(day, 8.6)]]),
+        }),
+        auto: [{ entryId: 1, plannedFor: planned, unwearable: null }],
+      });
+      expect(replan.kind).toBe('swap');
+      if (replan.kind !== 'swap') return;
+      expect(replan.cause).toEqual({ kind: 'weather', change: 'warmer' });
+    });
+
     it('never judges an entry planned before the ceiling was kept', () => {
       expect(replanAt(8.4, 8.6, false)).toEqual({
         entryId: 1,
