@@ -1,5 +1,6 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
+import { SHARE_PERMISSIONS } from '../../db/schema';
 import { sessionUserId } from '../auth/require-session';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage, wantsFragment } from '../render';
@@ -23,9 +24,9 @@ const LegacyManageQuery = Type.Object({
 });
 
 const CreateInviteBody = Type.Object({
-  // SharePermission; anything else is a 400, never a stored string.
+  // Anything else is a 400, never a stored string.
   permission: Type.Optional(
-    Type.Union([Type.Literal('VIEW'), Type.Literal('MANAGE')]),
+    Type.Union(SHARE_PERMISSIONS.map((value) => Type.Literal(value))),
   ),
 });
 

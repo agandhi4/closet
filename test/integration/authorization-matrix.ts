@@ -19,7 +19,10 @@ import type { SuggestionDecision } from '../../src/wardrobe/suggestions';
 import { setGarmentStatus } from '../../src/web/wardrobe/status';
 import { decide, markSuggestion } from '../../src/web/wishlist/decisions';
 import { addOutfitRule, saveStyleProfile } from '../../src/web/style/queries';
-import { EMPTY_STYLE_PROFILE } from '../../src/web/style/validation';
+import {
+  EMPTY_STYLE_PROFILE,
+  NO_MATCHER,
+} from '../../src/web/style/validation';
 import { LOGIN_PATH } from '../../src/web/auth/login-path';
 import { addBrandSize } from '../../src/web/sizes/queries';
 import { addRepair } from '../../src/web/wardrobe/repairs';
@@ -279,14 +282,6 @@ export const inspirationTitle = (f: Fixture) => f.inspirationTitle;
 export const inspirationPhotoName = (f: Fixture) => f.inspirationFileName;
 export const OWNER_TOKEN_NAME = 'Owner laptop token';
 export const OWNER_DEVICE_NAME = 'Owner phone app';
-/** A rule side with no matcher set: a fixture's sides spread one in. */
-const NO_MATCHER = {
-  garmentId: null,
-  category: null,
-  type: null,
-  color: null,
-  pattern: null,
-};
 
 /** A feature off by default whose routes exist only with it on. */
 export type Feature = 'weather' | 'orderMail';
@@ -1028,9 +1023,14 @@ export function describeMatrix(
       request: InjectOptions,
       secret: string,
     ) => {
+      const before = await snapshot();
       const res = await send('api', actor, request);
       expect(res.statusCode).toBe(actor === 'anonymous' ? 401 : 400);
       expect(res.body).not.toContain(secret);
+      // Refused before the handler: nobody's rows change, the owner's least.
+      expect(
+        await changedRows(changedTables(before, await snapshot())),
+      ).toEqual([]);
     };
 
     /** The case's request and success status on its surface. */

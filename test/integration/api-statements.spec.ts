@@ -13,6 +13,9 @@ import {
   tripOutfit,
   weekPlan,
 } from '../../src/db/schema';
+import { GARMENT_COLORS } from '../../src/wardrobe/properties';
+import { addOutfitRule } from '../../src/web/style/queries';
+import { NO_MATCHER } from '../../src/web/style/validation';
 import { markSuggestion } from '../../src/web/wishlist/decisions';
 import {
   STUB_WEATHER_NOW,
@@ -37,6 +40,7 @@ import {
   recordQueries,
   TEST_PASSWORD,
   type TestApp,
+  userIdOf,
 } from './harness';
 
 /**
@@ -1960,6 +1964,140 @@ describe('API statements per route', () => {
       // pieces, the white tee removed, the counter taken, the jeans added,
       // commit. MCP's twin reads the recreation back after it.
       expect(run).toMatchObject({ status: 200, statements: 8 });
+    });
+  });
+
+  describe('the style profile and shared wardrobes: what their page twins cost (#195c)', () => {
+    // A user of their own, as the looks' (the twin device's API_LIMIT).
+    const email = 'style-statements@example.com';
+    let cookie: string;
+    let token: string;
+    let userId: number;
+    let pairs = 0;
+
+    const asUser = (request: InjectOptions): InjectOptions => ({
+      ...request,
+      headers: { ...request.headers, cookie },
+    });
+
+    beforeAll(async () => {
+      cookie = await t.register(email);
+      token = (await deviceToken(t, { email })).token;
+      userId = await userIdOf(t, email);
+    });
+
+    /** One run's rows: a rule to remove, and two colours no rule holds yet. */
+    interface Setup {
+      ruleId: number;
+      colors: [string, string];
+    }
+
+    const setup = async (): Promise<Setup> => {
+      const [a, b, c] = [0, 1, 2].map(
+        (i) => GARMENT_COLORS[(pairs * 3 + i) % GARMENT_COLORS.length],
+      );
+      pairs += 1;
+      const ruleId = await addOutfitRule(
+        t.db,
+        { userId },
+        {
+          kind: 'always',
+          a: { ...NO_MATCHER, color: a },
+          b: { ...NO_MATCHER, pattern: 'stripes' },
+        },
+      );
+      if (typeof ruleId !== 'number') throw new Error('No rule');
+      return { ruleId, colors: [b, c] };
+    };
+
+    const profile = {
+      styles: ['classic'],
+      palette: ['black'],
+      budget: 'mid',
+      notes: 'Counted',
+    };
+
+    // Token auth is the API's one auth statement, as the session is the
+    // page's: an extra read on either side fails the equality.
+    const CASES: {
+      name: string;
+      ok: [page: number, api: number];
+      page: (s: Setup) => InjectOptions;
+      api: (s: Setup) => InjectOptions;
+    }[] = [
+      {
+        name: 'GET /style-profile (GET /auth/profile/style: it reads more in the one statement)',
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: '/auth/profile/style' }),
+        api: () => ({ method: 'GET', url: '/api/v1/style-profile' }),
+      },
+      {
+        name: 'PUT /style-profile (POST /auth/profile/style)',
+        ok: [303, 200],
+        page: () => ({
+          method: 'POST',
+          url: '/auth/profile/style',
+          payload: profile,
+        }),
+        api: () => ({
+          method: 'PUT',
+          url: '/api/v1/style-profile',
+          payload: profile,
+        }),
+      },
+      {
+        name: 'POST /outfit-rules (POST /auth/profile/style/rules)',
+        ok: [303, 201],
+        page: (s) => ({
+          method: 'POST',
+          url: '/auth/profile/style/rules',
+          payload: {
+            kind: 'never',
+            a: `color:${s.colors[0]}`,
+            b: `color:${s.colors[1]}`,
+          },
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: '/api/v1/outfit-rules',
+          payload: {
+            kind: 'never',
+            a: { color: s.colors[0] },
+            b: { color: s.colors[1] },
+          },
+        }),
+      },
+      {
+        name: 'DELETE /outfit-rules/{id} (POST /auth/profile/style/rules/:id/delete)',
+        ok: [303, 204],
+        page: (s) => ({
+          method: 'POST',
+          url: `/auth/profile/style/rules/${s.ruleId}/delete`,
+        }),
+        api: (s) => ({
+          method: 'DELETE',
+          url: `/api/v1/outfit-rules/${s.ruleId}`,
+        }),
+      },
+    ];
+
+    it.each(CASES)('$name', async ({ ok, page, api }) => {
+      const [onPage, onApi] = [await setup(), await setup()];
+      const pageRun = await statementsOf(() => t.inject(asUser(page(onPage))));
+      // A second call of the minute: no last-use write.
+      await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      const apiRun = await statementsOf(() => t.api(token, api(onApi)));
+      expect([pageRun.status, apiRun.status]).toEqual(ok);
+      expect(apiRun.statements).toBe(pageRun.statements);
+      expect(apiRun.statements).toBe(2);
+    });
+
+    it("GET /shared-wardrobes: the token, then list_shared_wardrobes' one read (no page twin)", async () => {
+      await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      const run = await statementsOf(() =>
+        t.api(token, { method: 'GET', url: '/api/v1/shared-wardrobes' }),
+      );
+      expect(run).toMatchObject({ status: 200, statements: 2 });
     });
   });
 

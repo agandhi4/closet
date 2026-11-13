@@ -22708,6 +22708,2784 @@
         }
       }
     },
+    "/api/v1/style-profile": {
+      "get": {
+        "operationId": "getStyleProfile",
+        "summary": "Your style profile and outfit rules",
+        "tags": [
+          "style"
+        ],
+        "responses": {
+          "200": {
+            "description": "What Muse reads of your taste: the profile (empty sets when never saved) and your outfit rules, oldest first. Your week is GET /week-template.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "StyleProfile",
+                  "description": "What Muse reads of your taste: the profile (empty sets when never saved) and your outfit rules, oldest first. Your week is GET /week-template.",
+                  "type": "object",
+                  "required": [
+                    "styles",
+                    "palette",
+                    "rules"
+                  ],
+                  "properties": {
+                    "styles": {
+                      "uniqueItems": true,
+                      "description": "The styles you dress in, each once",
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "elevated-basics"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "smart-casual"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "minimal"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "classic"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "workwear"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "outdoor-technical"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "streetwear"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "athleisure"
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "palette": {
+                      "uniqueItems": true,
+                      "description": "Your palette: garment colours, each once",
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "red"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "pink"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "orange"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "yellow"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "green"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "blue"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "purple"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "black"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "white"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "grey"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "beige"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "brown"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "gold"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "silver"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "pattern"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "other"
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "budget": {
+                      "description": "Per piece: budget under $50, mid $50-150, premium $150-400, luxury above",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "budget"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "mid"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "premium"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "luxury"
+                          ]
+                        }
+                      ]
+                    },
+                    "notes": {
+                      "maxLength": 2000,
+                      "type": "string"
+                    },
+                    "rules": {
+                      "type": "array",
+                      "items": {
+                        "title": "OutfitRule",
+                        "description": "A never-rule's sides are stored in one order, so they may read swapped from how they were sent",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "kind",
+                          "a",
+                          "b",
+                          "sentence"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "kind": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "never"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "always"
+                                ]
+                              }
+                            ]
+                          },
+                          "a": {
+                            "title": "OutfitRuleSide",
+                            "description": "Exactly one matcher, as sent, and its words",
+                            "type": "object",
+                            "required": [
+                              "label"
+                            ],
+                            "properties": {
+                              "garmentId": {
+                                "type": "integer"
+                              },
+                              "category": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "accessories"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "bags"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "outerwear"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "dresses"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "tops"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "bottoms"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "footwear"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "other"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "color": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "red"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "pink"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "orange"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "yellow"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "green"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "blue"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "purple"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "black"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "white"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "grey"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "beige"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "brown"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "gold"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "silver"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "pattern"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "other"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "pattern": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "solid"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "stripes"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "check"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "print"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "graphic"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "floral"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "other"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "label": {
+                                "description": "The side in the app's words: the garment's name, the type or category, the colour, the pattern",
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "b": {
+                            "title": "OutfitRuleSide",
+                            "description": "Exactly one matcher, as sent, and its words",
+                            "type": "object",
+                            "required": [
+                              "label"
+                            ],
+                            "properties": {
+                              "garmentId": {
+                                "type": "integer"
+                              },
+                              "category": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "accessories"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "bags"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "outerwear"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "dresses"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "tops"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "bottoms"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "footwear"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "other"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "color": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "red"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "pink"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "orange"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "yellow"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "green"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "blue"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "purple"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "black"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "white"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "grey"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "beige"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "brown"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "gold"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "silver"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "pattern"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "other"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "pattern": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "solid"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "stripes"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "check"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "print"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "graphic"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "floral"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "other"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "label": {
+                                "description": "The side in the app's words: the garment's name, the type or category, the colour, the pattern",
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "sentence": {
+                            "description": "The rule as the Style page lists it: \"Never Stripes with Check\"",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "saveStyleProfile",
+        "summary": "Saves your style profile, whole",
+        "tags": [
+          "style"
+        ],
+        "description": "Every field replaced at once (last write wins); a field left out or null is cleared. Answers the profile as saved. The outfit rules are their own (POST /outfit-rules).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "StyleProfileInput",
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "styles",
+                  "palette"
+                ],
+                "properties": {
+                  "styles": {
+                    "uniqueItems": true,
+                    "description": "The styles you dress in, each once",
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "elevated-basics"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "smart-casual"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "minimal"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "classic"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "workwear"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "outdoor-technical"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "streetwear"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "athleisure"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "palette": {
+                    "uniqueItems": true,
+                    "description": "Your palette: garment colours, each once",
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "red"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "pink"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "orange"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "yellow"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "green"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "blue"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "purple"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "black"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "white"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "grey"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "beige"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "brown"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "gold"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "silver"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "pattern"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "other"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "budget": {
+                    "description": "Absent or null: none",
+                    "anyOf": [
+                      {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "budget"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "mid"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "premium"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "luxury"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "notes": {
+                    "description": "Trimmed; blank, absent or null: none",
+                    "anyOf": [
+                      {
+                        "maxLength": 2000,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The style profile as saved, its sets in their own order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "StyleProfileValues",
+                  "description": "The style profile as saved, its sets in their own order",
+                  "type": "object",
+                  "required": [
+                    "styles",
+                    "palette"
+                  ],
+                  "properties": {
+                    "styles": {
+                      "uniqueItems": true,
+                      "description": "The styles you dress in, each once",
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "elevated-basics"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "smart-casual"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "minimal"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "classic"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "workwear"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "outdoor-technical"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "streetwear"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "athleisure"
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "palette": {
+                      "uniqueItems": true,
+                      "description": "Your palette: garment colours, each once",
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "red"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "pink"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "orange"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "yellow"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "green"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "blue"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "purple"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "black"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "white"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "grey"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "beige"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "brown"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "gold"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "silver"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "pattern"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "other"
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "budget": {
+                      "description": "Per piece: budget under $50, mid $50-150, premium $150-400, luxury above",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "budget"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "mid"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "premium"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "luxury"
+                          ]
+                        }
+                      ]
+                    },
+                    "notes": {
+                      "maxLength": 2000,
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/outfit-rules": {
+      "post": {
+        "operationId": "addOutfitRule",
+        "summary": "Adds an outfit rule",
+        "tags": [
+          "style"
+        ],
+        "description": "Two different sides (else a 400 at `body/b`); a garment side must be yours, else a 404 and nothing is written. 201 with its `Location`; 200 `added: false` when you have the rule already (a retry, or a never-rule sent the other way round). Ideas, Today and Plan my week keep to it from the next read.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "OutfitRuleInput",
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "kind",
+                  "a",
+                  "b"
+                ],
+                "properties": {
+                  "kind": {
+                    "description": "never: no outfit holds a and b together (either way round); always: an outfit with a also has b, when one can join it",
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "never"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "always"
+                        ]
+                      }
+                    ]
+                  },
+                  "a": {
+                    "title": "OutfitRuleSideInput",
+                    "description": "One of: a garment of yours (`garmentId`), a category and maybe its type, a colour, a pattern",
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "garmentId"
+                        ],
+                        "properties": {
+                          "garmentId": {
+                            "description": "One of your garments",
+                            "minimum": 1,
+                            "maximum": 2147483647,
+                            "type": "integer"
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "accessories"
+                            ]
+                          },
+                          "type": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "hat"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "cap"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "beanie"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "scarf"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "gloves"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "belt"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sunglasses"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "tie"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "jewelry"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "watch"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "bags"
+                            ]
+                          },
+                          "type": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "backpack"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "tote"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "crossbody"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "handbag"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "duffel"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "outerwear"
+                            ]
+                          },
+                          "type": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "jacket"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "denim-jacket"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "leather-jacket"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "blazer"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "coat"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "parka"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "puffer"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "trench"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "rain-jacket"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "vest"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "fleece"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "dresses"
+                            ]
+                          },
+                          "type": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "day-dress"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "evening-dress"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "jumpsuit"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "tops"
+                            ]
+                          },
+                          "type": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "t-shirt"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "long-sleeve-tee"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "shirt"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "polo"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "blouse"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "tank"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sweater"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "cardigan"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "hoodie"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sweatshirt"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "turtleneck"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "bottoms"
+                            ]
+                          },
+                          "type": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "jeans"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "chinos"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "trousers"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "joggers"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sweatpants"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "shorts"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "skirt"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "leggings"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "footwear"
+                            ]
+                          },
+                          "type": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sneakers"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "running-shoes"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "boots"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "loafers"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "dress-shoes"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sandals"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "slides"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "heels"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "other"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "color"
+                        ],
+                        "properties": {
+                          "color": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "red"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "pink"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "orange"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "yellow"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "green"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "blue"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "purple"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "black"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "white"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "grey"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "beige"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "brown"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "gold"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "silver"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "pattern"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "pattern"
+                        ],
+                        "properties": {
+                          "pattern": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "solid"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "stripes"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "check"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "print"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "graphic"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "floral"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "b": {
+                    "title": "OutfitRuleSideInput",
+                    "description": "One of: a garment of yours (`garmentId`), a category and maybe its type, a colour, a pattern",
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "garmentId"
+                        ],
+                        "properties": {
+                          "garmentId": {
+                            "description": "One of your garments",
+                            "minimum": 1,
+                            "maximum": 2147483647,
+                            "type": "integer"
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "accessories"
+                            ]
+                          },
+                          "type": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "hat"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "cap"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "beanie"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "scarf"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "gloves"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "belt"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sunglasses"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "tie"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "jewelry"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "watch"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "bags"
+                            ]
+                          },
+                          "type": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "backpack"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "tote"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "crossbody"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "handbag"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "duffel"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "outerwear"
+                            ]
+                          },
+                          "type": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "jacket"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "denim-jacket"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "leather-jacket"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "blazer"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "coat"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "parka"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "puffer"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "trench"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "rain-jacket"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "vest"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "fleece"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "dresses"
+                            ]
+                          },
+                          "type": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "day-dress"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "evening-dress"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "jumpsuit"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "tops"
+                            ]
+                          },
+                          "type": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "t-shirt"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "long-sleeve-tee"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "shirt"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "polo"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "blouse"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "tank"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sweater"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "cardigan"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "hoodie"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sweatshirt"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "turtleneck"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "bottoms"
+                            ]
+                          },
+                          "type": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "jeans"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "chinos"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "trousers"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "joggers"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sweatpants"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "shorts"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "skirt"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "leggings"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "footwear"
+                            ]
+                          },
+                          "type": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sneakers"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "running-shoes"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "boots"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "loafers"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "dress-shoes"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sandals"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "slides"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "heels"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "category"
+                        ],
+                        "properties": {
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "other"
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "color"
+                        ],
+                        "properties": {
+                          "color": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "red"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "pink"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "orange"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "yellow"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "green"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "blue"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "purple"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "black"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "white"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "grey"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "beige"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "brown"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "gold"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "silver"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "pattern"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "additionalProperties": false,
+                        "type": "object",
+                        "required": [
+                          "pattern"
+                        ],
+                        "properties": {
+                          "pattern": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "solid"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "stripes"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "check"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "print"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "graphic"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "floral"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "OutfitRuleAdded",
+                  "type": "object",
+                  "required": [
+                    "added"
+                  ],
+                  "properties": {
+                    "added": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "description": "The new rule (201 only)",
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "OutfitRuleAdded",
+                  "type": "object",
+                  "required": [
+                    "added"
+                  ],
+                  "properties": {
+                    "added": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "description": "The new rule (201 only)",
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/outfit-rules/{id}": {
+      "delete": {
+        "operationId": "deleteOutfitRule",
+        "summary": "Removes an outfit rule",
+        "tags": [
+          "style"
+        ],
+        "description": "One already gone is a 404, which a retry may read as done.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/shared-wardrobes": {
+      "get": {
+        "operationId": "listSharedWardrobes",
+        "summary": "The wardrobes shared with you",
+        "tags": [
+          "sharing"
+        ],
+        "description": "Each owner's id and first name and your permission there. Never paged: a household shares a few.",
+        "responses": {
+          "200": {
+            "description": "Every wardrobe shared with you, in the order you accepted them",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "SharedWardrobeList",
+                  "description": "Every wardrobe shared with you, in the order you accepted them",
+                  "type": "object",
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "title": "SharedWardrobe",
+                        "type": "object",
+                        "required": [
+                          "ownerId",
+                          "permission"
+                        ],
+                        "properties": {
+                          "ownerId": {
+                            "description": "The `ownerId` the share-aware routes take (GET /garments)",
+                            "type": "integer"
+                          },
+                          "ownerFirstName": {
+                            "description": "Left out when they set none",
+                            "type": "string"
+                          },
+                          "permission": {
+                            "description": "VIEW: read only; MANAGE: you may also change its garments and capsules",
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "VIEW"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "MANAGE"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/weather": {
       "get": {
         "operationId": "getWeather",
