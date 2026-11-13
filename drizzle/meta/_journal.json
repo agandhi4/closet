@@ -344,6 +344,13 @@
       "when": 1794553920460,
       "tag": "0048_token-kind",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794559926950,
+      "tag": "0049_inspiration",
+      "breakpoints": true
     }
   ]
 }

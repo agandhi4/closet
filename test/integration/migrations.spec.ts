@@ -105,6 +105,13 @@ describe('migrations', () => {
         'selfie_outfit_calendar_id_unique',
         'selfie_photo_id_unique',
         'selfie_owner_id_day_index',
+        // Saved looks (#22): the list newest first (also owner_id's), a
+        // photo one look's (also photo_id's), a garment's matches (the
+        // matched_garment_id foreign key's; the pieces' key leads with
+        // inspiration_id).
+        'inspiration_owner_id_id_index',
+        'inspiration_photo_id_unique',
+        'inspiration_piece_matched_garment_id_index',
         // Trips (#10): the list (also owner_id's), a trip's outfits once a
         // day or once undated (also trip_id's), an outfit's trips (the
         // packed marks' pruning; outfit_id's), extras once per label (also
