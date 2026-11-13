@@ -813,7 +813,6 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 **Why:** 0051's ~30 `ALTER TABLE`s on root tables ran before 0052's `SET LOCAL lock_timeout`, so behind a long reader (a backup's `pg_dump`) the boot could wait without limit instead of failing and retrying. A new migration cannot help: the timeout must be in force while 0051 runs.
 **Decision:** edit 0051 (a leading `SET LOCAL lock_timeout = '5s'`) before production ever ran it (last ship 96b3ebc predates #566), under the `migration-contract` label. No schema changes; a database that already applied 0051 (dev, worktrees) is unaffected since Drizzle never re-checks hashes.
 **Consequence:** once a migration has shipped to production this hatch is closed; fix forward then.
-
 ## 2026-11-13 — A migration that locks a table must start with lock_timeout (#603)
 
 **Decision:** `src/db/migration-lock-timeout.spec.ts` (unit tier, reads `drizzle/*.sql`) fails any file from 0051 on with `ALTER TABLE`, trigger, `DROP`, `TRUNCATE` or non-concurrent `CREATE INDEX` whose first statement is not `SET LOCAL lock_timeout`; 0000-0050 are exempt by number.
@@ -827,3 +826,16 @@ Consequence: a new Origin-less route is a reviewed CSRF exemption with a list en
 Why: `settle` resolved the Muse need through `postedDestination(db, ...)` on the pool while the insert's transaction held a connection and the owner lock: two connections for one create, and a pool at its limit could deadlock the request on itself.
 Decision: `settle(tx)` receives the transaction; `postedDestination`, `resolveNeed`, `resolveOrderItem` and `findPendingOrderItem` take `Queryable`. No other `db.transaction` callback in `src/` reaches the pool (audited).
 Consequence: no per-app pool size exists in the harness (`POOL_MAX` is a constant), so the proof is the type (a pool-typed closure no longer compiles) plus the retry and need specs in api-wishlist.
+
+## 2026-11-13 — The feed's garment carries its stored fields only (#607)
+
+**Why:** the page's garment embeds `worn`, `wornSinceWash`, `lastWorn`, `cost`, `costPerWear` and `capsules`, read from wears and capsules. A wear or a capsule rename moves only its own row's revision, so a synced garment would hold them stale; touching the garment from every wear needs a migration and resends a garment per wear.
+**Decision:** `GET /changes` carries `SyncedGarment` (`garment-resource.ts`): the stored fields, the owner's stored care (`washAfterWears`, `lastWashedOn`, `away`, `awayNote`) and repair log (a child that touches the garment), nothing derived. The wears and capsules (with `garmentIds`) are resources of their own; the client derives the rest.
+**Consequence:** the feed's garment differs from `GET /garments/{id}`'s; the derived rules (`src/wardrobe/insights.ts`, the wash rules) are the client's to mirror.
+
+## 2026-11-13 — The changes cursor: a keyset position per wardrobe (#607)
+
+**Why:** one transaction is one revision (a bulk edit, the #196a backfill's every row at 0), so `{ ownerId: revision }` cannot end a page inside a revision; an inclusive end resends a revision-0 wardrobe forever; a full sync paging below a raised floor would 410 forever.
+**Decision:** opaque base64url JSON `{ v: 1, c, w: { <owner>: [revision, kind, table, id, seq, passFloor] } }` (`src/web/sync/cursor.ts`): the total order `(revision, kind, resource COLLATE "C", id, tombstone id)`, an exclusive end (kind 2) at the snapshot's `user.revision`, the floor the pass began at (expired only if the floor rose past both), and `c`, the registered resources' bitmask: a cursor from before a resource joined the feed is a 410 rather than missing that resource's older rows.
+**Consequence:** #608 registering a resource expires every cursor once (one full sync per device); a malformed cursor is a 400 like `readIdCursor`'s.
+A full sync is marked: every page of one begun without a cursor carries `snapshot: { wardrobes }` (the cursor's `s: 1` holds it to the last page), and after it the client drops what was not re-sent, since a cursorless read can send neither pruned deletions nor revoked shares.

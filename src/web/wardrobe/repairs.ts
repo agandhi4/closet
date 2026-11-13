@@ -166,7 +166,9 @@ function readRepairDay(
  * the requester owns the garment. The cost is cast to text: in JSON a
  * numeric is a number, and '25.00' would arrive as 25.
  */
-export function repairLogSql(garmentId: number): SQL<RepairEntry[]> {
+export function repairLogSql(
+  garmentId: number | AnyPgColumn,
+): SQL<RepairEntry[]> {
   return sql<RepairEntry[]>`(
     select coalesce(
       json_agg(

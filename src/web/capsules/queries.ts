@@ -131,6 +131,38 @@ export async function findCapsule(
   return row;
 }
 
+/** A capsule as the changes feed carries it (capsulesByIds). */
+export interface SyncedCapsuleRow extends CapsuleDetail {
+  /** Every member, archived ones included (the membership as stored), by id. */
+  garmentIds: number[];
+}
+
+/**
+ * The capsules with these ids and their members, in one statement whatever
+ * their owners (the changes feed's page, src/web/sync/feed.ts, which read
+ * the ids from the wardrobes its caller may see, in the same snapshot). A
+ * membership change touches its capsule (capsule_garment is its sync
+ * child), so the feed resends the capsule with its members.
+ */
+export function capsulesByIds(
+  db: Queryable,
+  ids: readonly number[],
+): Promise<SyncedCapsuleRow[]> {
+  return db
+    .select({
+      id: capsule.id,
+      name: capsule.name,
+      notes: capsule.notes,
+      garmentIds: sql<number[]>`array(
+        select ${capsuleGarment.garmentId} from ${capsuleGarment}
+        where ${capsuleGarment.capsuleId} = ${capsule.id}
+        order by ${capsuleGarment.garmentId}
+      )`,
+    })
+    .from(capsule)
+    .where(inArray(capsule.id, [...ids]));
+}
+
 /** A card's count and strip as the list's statement reads them (JSON), before readCard. */
 interface CardJson {
   count: number;

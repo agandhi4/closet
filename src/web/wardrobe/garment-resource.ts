@@ -28,7 +28,13 @@ import { literals, withoutNulls } from '../api/resource';
 import { imageUrl } from '../files/image-url';
 import { IsoDateSchema } from '../schemas';
 import type { GarmentContext } from './garment-context';
-import type { GarmentDetail, GarmentPhoto, GarmentSummary } from './queries';
+import type {
+  GarmentDetail,
+  GarmentPhoto,
+  GarmentSummary,
+  SyncedGarmentRow,
+} from './queries';
+import type { RepairEntry } from './repairs';
 import type { SwappedCutout } from './writes';
 
 /**
@@ -157,13 +163,18 @@ const CareLabel = Type.Object(
   { title: 'CareLabel' },
 );
 
+/** The owner's care records as stored on the garment (a wash, "Where it is"). */
+const storedCare = {
+  /** Absent: the role's default; 0: never washed. */
+  washAfterWears: Type.Optional(Type.Integer({ minimum: 0 })),
+  lastWashedOn: Type.Optional(IsoDateSchema),
+  away: Type.Optional(literals(AWAY_REASONS)),
+  awayNote: Type.Optional(Type.String()),
+};
+
 const OwnerCare = Type.Object(
   {
-    /** Absent: the role's default; 0: never washed. */
-    washAfterWears: Type.Optional(Type.Integer({ minimum: 0 })),
-    lastWashedOn: Type.Optional(IsoDateSchema),
-    away: Type.Optional(literals(AWAY_REASONS)),
-    awayNote: Type.Optional(Type.String()),
+    ...storedCare,
     worn: Type.Integer({ minimum: 0 }),
     wornSinceWash: Type.Integer({ minimum: 0 }),
     lastWorn: Type.Optional(IsoDateSchema),
@@ -179,6 +190,12 @@ const OwnerCare = Type.Object(
   },
 );
 
+const StoredCare = Type.Object(storedCare, {
+  title: 'SyncedGarmentCare',
+  description:
+    "The owner's own care records as stored: only on their own wardrobe. What the wears and repairs add up to is the client's to derive",
+});
+
 const Repair = Type.Object(
   {
     id: Type.Integer(),
@@ -190,17 +207,24 @@ const Repair = Type.Object(
   { title: 'Repair' },
 );
 
+/** A garment's stored fields beyond its identity: the page's and the feed's. */
+const recordFields = {
+  ...identity,
+  notes: Type.Optional(Type.String()),
+  acquiredOn: Type.Optional(IsoDateSchema),
+  /** A wishlist item's (or a bought one's) garment it replaces. */
+  replacesGarmentId: Type.Optional(Type.Integer()),
+  sourceUrl: Type.Optional(Type.String()),
+  conditionNote: Type.Optional(Type.String()),
+  properties: Properties,
+  careLabel: CareLabel,
+  /** The owner's repair and alteration log: only on their own wardrobe. */
+  repairs: Type.Optional(Type.Array(Repair)),
+};
+
 export const Garment = Type.Object(
   {
-    ...identity,
-    notes: Type.Optional(Type.String()),
-    acquiredOn: Type.Optional(IsoDateSchema),
-    /** A wishlist item's (or a bought one's) garment it replaces. */
-    replacesGarmentId: Type.Optional(Type.Integer()),
-    sourceUrl: Type.Optional(Type.String()),
-    conditionNote: Type.Optional(Type.String()),
-    properties: Properties,
-    careLabel: CareLabel,
+    ...recordFields,
     capsules: Type.Array(
       Type.Object(
         { id: Type.Integer(), name: Type.String() },
@@ -208,8 +232,6 @@ export const Garment = Type.Object(
       ),
     ),
     care: Type.Optional(OwnerCare),
-    /** The owner's repair and alteration log: only on their own wardrobe. */
-    repairs: Type.Optional(Type.Array(Repair)),
   },
   {
     title: 'Garment',
@@ -220,16 +242,25 @@ export const Garment = Type.Object(
 type Garment = Static<typeof Garment>;
 
 /**
- * The garment in full, from its page's reads: the owner's records only
- * where garmentContext read them (`own`: the owner of an owned garment),
- * so a grantee's answer cannot hold them.
+ * The changes feed's garment (#196b-1, GET /changes): its stored fields
+ * only. A wear or a capsule's change never moves the garment's revision,
+ * so what the page derives from them (worn, since the wash, last worn,
+ * cost per wear, its capsules) would go stale in a synced copy; the
+ * client derives them from the feed's wears and capsules (decisions
+ * 2026-11-13, the feed's garment).
  */
-export function toGarmentResource(
-  garment: GarmentDetail,
-  context: GarmentContext,
-): Garment {
-  const { own } = context;
-  return withoutNulls({
+export const SyncedGarment = Type.Object(
+  { ...recordFields, care: Type.Optional(StoredCare) },
+  {
+    title: 'SyncedGarment',
+    description:
+      "A garment as the changes feed carries it: what is stored on it, nothing derived from its wears or capsules. `care` and `repairs` are the owner's own records, never a grantee's to read",
+  },
+);
+
+/** What a garment page's answer and the feed's share, nulls kept for withoutNulls. */
+function recordOf(garment: GarmentDetail, repairs: RepairEntry[] | null) {
+  return {
     id: garment.id,
     name: garment.name,
     category: garment.category,
@@ -267,12 +298,48 @@ export function toGarmentResource(
       dryClean: garment.careDryClean,
       notes: garment.washingDetails,
     }),
+    repairs: repairs && repairs.map((entry) => withoutNulls({ ...entry })),
+  };
+}
+
+/**
+ * The garment in full, from its page's reads: the owner's records only
+ * where garmentContext read them (`own`: the owner of an owned garment),
+ * so a grantee's answer cannot hold them.
+ */
+export function toGarmentResource(
+  garment: GarmentDetail,
+  context: GarmentContext,
+): Garment {
+  const { own } = context;
+  return withoutNulls({
+    ...recordOf(garment, own ? own.repairs.entries : null),
     capsules: context.capsules
       .filter((capsule) => capsule.member)
       .map(({ id, name }) => ({ id, name })),
     care: own && ownerCare(garment, own.wear),
-    repairs:
-      own && own.repairs.entries.map((entry) => withoutNulls({ ...entry })),
+  });
+}
+
+/**
+ * The feed's garment (garmentsByIds): the owner's records only where the
+ * reader read them (`repairs`, null for a grantee's), so a grantee's
+ * answer cannot hold them.
+ */
+export function toSyncedGarment(
+  garment: SyncedGarmentRow,
+): Static<typeof SyncedGarment> {
+  return withoutNulls({
+    ...recordOf(garment, garment.repairs),
+    care:
+      garment.repairs === null
+        ? null
+        : withoutNulls({
+            washAfterWears: garment.washAfterWears,
+            lastWashedOn: garment.lastWashedOn,
+            away: garment.away,
+            awayNote: garment.awayNote,
+          }),
   });
 }
 

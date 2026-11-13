@@ -2,7 +2,7 @@ import { type Static, Type } from '@sinclair/typebox';
 import { ListOf, withoutNulls } from '../api/resource';
 import { imageUrl } from '../files/image-url';
 import { RowId } from '../schemas';
-import type { CapsuleCard, CapsuleDetail } from './queries';
+import type { CapsuleCard, CapsuleDetail, SyncedCapsuleRow } from './queries';
 import { CAPSULE_NAME_MAX, CAPSULE_NOTES_MAX } from './validation';
 
 /**
@@ -82,6 +82,34 @@ export const Capsule = Type.Object(
 export function toCapsuleResource(
   capsule: CapsuleDetail,
 ): Static<typeof Capsule> {
+  return withoutNulls(capsule);
+}
+
+/**
+ * The changes feed's capsule (#196b-1, GET /changes): the capsule with its
+ * membership, which the feed carries nowhere else (a grantee's too: capsules
+ * are share-aware). A garment's `capsules` are the client's to derive from
+ * these (decisions 2026-11-13, the feed's garment).
+ */
+export const SyncedCapsule = Type.Object(
+  {
+    id: Type.Integer(),
+    name: Type.String(),
+    notes: Type.Optional(Type.String()),
+    garmentIds: Type.Array(Type.Integer(), {
+      description:
+        'Every member by id, archived ones included (the capsule views leave those out)',
+    }),
+  },
+  {
+    title: 'SyncedCapsule',
+    description: 'A named subset of the closet, with its members',
+  },
+);
+
+export function toSyncedCapsule(
+  capsule: SyncedCapsuleRow,
+): Static<typeof SyncedCapsule> {
   return withoutNulls(capsule);
 }
 

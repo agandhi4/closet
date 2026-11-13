@@ -242,7 +242,11 @@ export interface SharedWardrobeRow {
   permission: SharePermission;
 }
 
-function acceptedSharesWith(userId: number) {
+/**
+ * The shares `userId` has accepted: the wardrobes they see beside their own
+ * (the switchers, and the changes feed's wardrobes, src/web/sync/queries.ts).
+ */
+export function acceptedSharesWith(userId: number) {
   return and(
     eq(wardrobeShare.granteeId, userId),
     isNotNull(wardrobeShare.acceptedAt),

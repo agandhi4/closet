@@ -83,6 +83,12 @@
               {
                 "type": "string",
                 "enum": [
+                  "cursor_expired"
+                ]
+              },
+              {
+                "type": "string",
+                "enum": [
                   "stale"
                 ]
               },
@@ -3759,6 +3765,52 @@
                         }
                       }
                     },
+                    "repairs": {
+                      "type": "array",
+                      "items": {
+                        "title": "Repair",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "day",
+                          "kind",
+                          "note"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "day": {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          "kind": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "repair"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "alteration"
+                                ]
+                              }
+                            ]
+                          },
+                          "note": {
+                            "type": "string"
+                          },
+                          "cost": {
+                            "pattern": "^\\d+\\.\\d{2}$",
+                            "description": "A decimal amount in the household currency",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
                     "capsules": {
                       "type": "array",
                       "items": {
@@ -3835,52 +3887,6 @@
                           "pattern": "^\\d+\\.\\d{2}$",
                           "description": "A decimal amount in the household currency",
                           "type": "string"
-                        }
-                      }
-                    },
-                    "repairs": {
-                      "type": "array",
-                      "items": {
-                        "title": "Repair",
-                        "type": "object",
-                        "required": [
-                          "id",
-                          "day",
-                          "kind",
-                          "note"
-                        ],
-                        "properties": {
-                          "id": {
-                            "type": "integer"
-                          },
-                          "day": {
-                            "format": "date",
-                            "type": "string"
-                          },
-                          "kind": {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "repair"
-                                ]
-                              },
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "alteration"
-                                ]
-                              }
-                            ]
-                          },
-                          "note": {
-                            "type": "string"
-                          },
-                          "cost": {
-                            "pattern": "^\\d+\\.\\d{2}$",
-                            "description": "A decimal amount in the household currency",
-                            "type": "string"
-                          }
                         }
                       }
                     }
@@ -27738,6 +27744,1198 @@
                                 ]
                               }
                             ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/changes": {
+      "get": {
+        "operationId": "listChanges",
+        "summary": "What changed since your last sync",
+        "tags": [
+          "sync"
+        ],
+        "description": "Rows and deletions after `cursor`, oldest first, across your wardrobe and each one shared with you (its garments and capsules only). Apply each page's deletions, then its changes, then keep its `cursor`; call again while `more`. A 410 `cursor_expired` means the feed no longer holds what the cursor needs: sync again from no cursor. A sync from no cursor is a full sync: its pages carry `snapshot`, and after its last one every synced row it did not send, and every wardrobe it did not list, is gone. The garment carries what is stored on it: a garment's wear counts and capsules are yours to derive from the wears and capsules.",
+        "parameters": [
+          {
+            "schema": {
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "description": "The previous page's `cursor`, as it was answered; absent: everything, from the start"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 100,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "description": "How many a page holds: 100 unless asked, at most 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every row and deletion after the cursor, across your wardrobe and each one shared with you",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "ChangesPage",
+                  "description": "Every row and deletion after the cursor, across your wardrobe and each one shared with you",
+                  "type": "object",
+                  "required": [
+                    "changes",
+                    "deletions",
+                    "cursor",
+                    "more"
+                  ],
+                  "properties": {
+                    "changes": {
+                      "type": "array",
+                      "items": {
+                        "description": "A row as it is now: create it, or replace yours whole",
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "required": [
+                              "resource",
+                              "ownerId",
+                              "id",
+                              "revision",
+                              "data"
+                            ],
+                            "properties": {
+                              "resource": {
+                                "type": "string",
+                                "enum": [
+                                  "garment"
+                                ]
+                              },
+                              "ownerId": {
+                                "description": "The wardrobe it belongs to: yours, or one shared with you",
+                                "type": "integer"
+                              },
+                              "id": {
+                                "type": "integer"
+                              },
+                              "clientId": {
+                                "format": "uuid",
+                                "description": "The id your create carried, when it carried one",
+                                "type": "string"
+                              },
+                              "revision": {
+                                "description": "Its owner's revision when it was last written or deleted",
+                                "type": "integer"
+                              },
+                              "data": {
+                                "title": "SyncedGarment",
+                                "description": "A garment as the changes feed carries it: what is stored on it, nothing derived from its wears or capsules. `care` and `repairs` are the owner's own records, never a grantee's to read",
+                                "type": "object",
+                                "required": [
+                                  "id",
+                                  "category",
+                                  "role",
+                                  "status",
+                                  "colors",
+                                  "quantity",
+                                  "condition",
+                                  "properties",
+                                  "careLabel"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "integer"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "category": {
+                                    "type": "string"
+                                  },
+                                  "role": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "top"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "bottom"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "one-piece"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "layer"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "footwear"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "accessory"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "bag"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "none"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "status": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "wishlist"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "closet"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "archived"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "brand": {
+                                    "type": "string"
+                                  },
+                                  "colors": {
+                                    "type": "array",
+                                    "items": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "red"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "pink"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "orange"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "yellow"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "green"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "blue"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "purple"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "black"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "white"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "grey"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "beige"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "brown"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "gold"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "silver"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "pattern"
+                                          ]
+                                        },
+                                        {
+                                          "type": "string",
+                                          "enum": [
+                                            "other"
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "size": {
+                                    "type": "string"
+                                  },
+                                  "price": {
+                                    "pattern": "^\\d+\\.\\d{2}$",
+                                    "description": "A decimal amount in the household currency",
+                                    "type": "string"
+                                  },
+                                  "quantity": {
+                                    "minimum": 1,
+                                    "type": "integer"
+                                  },
+                                  "condition": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "good"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "needs_repair"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "replace_soon"
+                                        ]
+                                      }
+                                    ]
+                                  },
+                                  "photo": {
+                                    "title": "GarmentPhoto",
+                                    "description": "A garment's photo: signed /file URLs, relative to the server, immutable (a new photo, cutout or turn is a new URL). Never build or edit one",
+                                    "type": "object",
+                                    "required": [
+                                      "cutoutStatus",
+                                      "version",
+                                      "originalUrl",
+                                      "thumbUrl"
+                                    ],
+                                    "properties": {
+                                      "cutoutStatus": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "none"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "pending"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "ready"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "failed"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "edited"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "unwanted"
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "version": {
+                                        "type": "integer"
+                                      },
+                                      "originalUrl": {
+                                        "type": "string"
+                                      },
+                                      "thumbUrl": {
+                                        "type": "string"
+                                      },
+                                      "cutoutUrl": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  },
+                                  "notes": {
+                                    "type": "string"
+                                  },
+                                  "acquiredOn": {
+                                    "format": "date",
+                                    "type": "string"
+                                  },
+                                  "replacesGarmentId": {
+                                    "type": "integer"
+                                  },
+                                  "sourceUrl": {
+                                    "type": "string"
+                                  },
+                                  "conditionNote": {
+                                    "type": "string"
+                                  },
+                                  "properties": {
+                                    "title": "GarmentProperties",
+                                    "type": "object",
+                                    "required": [
+                                      "materials",
+                                      "waterResistant"
+                                    ],
+                                    "properties": {
+                                      "type": {
+                                        "type": "string"
+                                      },
+                                      "warmth": {
+                                        "anyOf": [
+                                          {
+                                            "type": "number",
+                                            "enum": [
+                                              1
+                                            ]
+                                          },
+                                          {
+                                            "type": "number",
+                                            "enum": [
+                                              2
+                                            ]
+                                          },
+                                          {
+                                            "type": "number",
+                                            "enum": [
+                                              3
+                                            ]
+                                          },
+                                          {
+                                            "type": "number",
+                                            "enum": [
+                                              4
+                                            ]
+                                          },
+                                          {
+                                            "type": "number",
+                                            "enum": [
+                                              5
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "formality": {
+                                        "anyOf": [
+                                          {
+                                            "type": "number",
+                                            "enum": [
+                                              1
+                                            ]
+                                          },
+                                          {
+                                            "type": "number",
+                                            "enum": [
+                                              2
+                                            ]
+                                          },
+                                          {
+                                            "type": "number",
+                                            "enum": [
+                                              3
+                                            ]
+                                          },
+                                          {
+                                            "type": "number",
+                                            "enum": [
+                                              4
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "materials": {
+                                        "type": "array",
+                                        "items": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "cotton"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "linen"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "wool"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "merino"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "cashmere"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "silk"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "denim"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "leather"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "suede"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "polyester"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "nylon"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "fleece"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "down"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "knit"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "synthetic"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "other"
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "pattern": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "solid"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "stripes"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "check"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "print"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "graphic"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "floral"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "other"
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "fit": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "slim"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "regular"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "relaxed"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "oversized"
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "sleeve": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "sleeveless"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "short"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "three-quarter"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "long"
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "length": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "short"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "knee"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "midi"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "full"
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "fabricWeightGsm": {
+                                        "type": "integer"
+                                      },
+                                      "waterResistant": {
+                                        "type": "boolean"
+                                      }
+                                    }
+                                  },
+                                  "careLabel": {
+                                    "title": "CareLabel",
+                                    "type": "object",
+                                    "properties": {
+                                      "wash": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "hot"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "warm"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "cold"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "hand"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "do_not_wash"
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "bleach": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "any"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "non_chlorine"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "do_not_bleach"
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "dry": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "tumble"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "tumble_low"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "do_not_tumble"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "line"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "flat"
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "iron": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "high"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "medium"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "low"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "do_not_iron"
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "dryClean": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "allowed"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "only"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "never"
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "notes": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  },
+                                  "repairs": {
+                                    "type": "array",
+                                    "items": {
+                                      "title": "Repair",
+                                      "type": "object",
+                                      "required": [
+                                        "id",
+                                        "day",
+                                        "kind",
+                                        "note"
+                                      ],
+                                      "properties": {
+                                        "id": {
+                                          "type": "integer"
+                                        },
+                                        "day": {
+                                          "format": "date",
+                                          "type": "string"
+                                        },
+                                        "kind": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "repair"
+                                              ]
+                                            },
+                                            {
+                                              "type": "string",
+                                              "enum": [
+                                                "alteration"
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        "note": {
+                                          "type": "string"
+                                        },
+                                        "cost": {
+                                          "pattern": "^\\d+\\.\\d{2}$",
+                                          "description": "A decimal amount in the household currency",
+                                          "type": "string"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "care": {
+                                    "title": "SyncedGarmentCare",
+                                    "description": "The owner's own care records as stored: only on their own wardrobe. What the wears and repairs add up to is the client's to derive",
+                                    "type": "object",
+                                    "properties": {
+                                      "washAfterWears": {
+                                        "minimum": 0,
+                                        "type": "integer"
+                                      },
+                                      "lastWashedOn": {
+                                        "format": "date",
+                                        "type": "string"
+                                      },
+                                      "away": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "lent"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "repair"
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "awayNote": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "resource",
+                              "ownerId",
+                              "id",
+                              "revision",
+                              "data"
+                            ],
+                            "properties": {
+                              "resource": {
+                                "type": "string",
+                                "enum": [
+                                  "wear"
+                                ]
+                              },
+                              "ownerId": {
+                                "description": "The wardrobe it belongs to: yours, or one shared with you",
+                                "type": "integer"
+                              },
+                              "id": {
+                                "type": "integer"
+                              },
+                              "clientId": {
+                                "format": "uuid",
+                                "description": "The id your create carried, when it carried one",
+                                "type": "string"
+                              },
+                              "revision": {
+                                "description": "Its owner's revision when it was last written or deleted",
+                                "type": "integer"
+                              },
+                              "data": {
+                                "title": "SyncedWear",
+                                "description": "A garment worn on a day: the owner's own record, never a grantee's to read",
+                                "type": "object",
+                                "required": [
+                                  "id",
+                                  "garmentId",
+                                  "day"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "integer"
+                                  },
+                                  "garmentId": {
+                                    "type": "integer"
+                                  },
+                                  "day": {
+                                    "format": "date",
+                                    "type": "string"
+                                  },
+                                  "calendarEntryId": {
+                                    "type": "integer"
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "resource",
+                              "ownerId",
+                              "id",
+                              "revision",
+                              "data"
+                            ],
+                            "properties": {
+                              "resource": {
+                                "type": "string",
+                                "enum": [
+                                  "capsule"
+                                ]
+                              },
+                              "ownerId": {
+                                "description": "The wardrobe it belongs to: yours, or one shared with you",
+                                "type": "integer"
+                              },
+                              "id": {
+                                "type": "integer"
+                              },
+                              "clientId": {
+                                "format": "uuid",
+                                "description": "The id your create carried, when it carried one",
+                                "type": "string"
+                              },
+                              "revision": {
+                                "description": "Its owner's revision when it was last written or deleted",
+                                "type": "integer"
+                              },
+                              "data": {
+                                "title": "SyncedCapsule",
+                                "description": "A named subset of the closet, with its members",
+                                "type": "object",
+                                "required": [
+                                  "id",
+                                  "name",
+                                  "garmentIds"
+                                ],
+                                "properties": {
+                                  "id": {
+                                    "type": "integer"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "notes": {
+                                    "type": "string"
+                                  },
+                                  "garmentIds": {
+                                    "description": "Every member by id, archived ones included (the capsule views leave those out)",
+                                    "type": "array",
+                                    "items": {
+                                      "type": "integer"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "deletions": {
+                      "description": "Apply them before the page's changes",
+                      "type": "array",
+                      "items": {
+                        "title": "Deletion",
+                        "description": "A row deleted: drop yours, or an unsent create with this `clientId`",
+                        "type": "object",
+                        "required": [
+                          "resource",
+                          "ownerId",
+                          "id",
+                          "revision"
+                        ],
+                        "properties": {
+                          "resource": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "garment"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "wear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "capsule"
+                                ]
+                              }
+                            ]
+                          },
+                          "ownerId": {
+                            "description": "The wardrobe it belongs to: yours, or one shared with you",
+                            "type": "integer"
+                          },
+                          "id": {
+                            "type": "integer"
+                          },
+                          "clientId": {
+                            "format": "uuid",
+                            "description": "The id your create carried, when it carried one",
+                            "type": "string"
+                          },
+                          "revision": {
+                            "description": "Its owner's revision when it was last written or deleted",
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "cursor": {
+                      "description": "Where the next call resumes: send it as `cursor`, even when `more` is false",
+                      "type": "string"
+                    },
+                    "more": {
+                      "description": "Whether another page is waiting now: call again at once",
+                      "type": "boolean"
+                    },
+                    "revokedWardrobes": {
+                      "description": "Owners in your cursor whose wardrobe you no longer see (a share revoked or left): drop their rows",
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "snapshot": {
+                      "description": "On every page of a full sync (one begun without a cursor), until the page where `more` is false. After that page, drop every synced row you were not sent during it, and every wardrobe not in its `wardrobes`: a full sync carries no deletions it has no need of, nor shares you lost. Your creates not yet sent stay",
+                      "type": "object",
+                      "required": [
+                        "wardrobes"
+                      ],
+                      "properties": {
+                        "wardrobes": {
+                          "description": "The wardrobes this full sync covers: yours, then each shared with you",
+                          "type": "array",
+                          "items": {
+                            "type": "integer"
                           }
                         }
                       }
