@@ -148,7 +148,8 @@ npx web-push generate-vapid-keys
 
 ### Prerequisites
 
-- Node (see `.nvmrc`, Node 22) - install via [nvm](https://github.com/nvm-sh/nvm)
+- Node (see `.nvmrc`, Node 22, an exact version: devkit's toolchain-check holds the
+  Dockerfile and workflows to it) - install via [nvm](https://github.com/nvm-sh/nvm)
 - Docker, for Postgres. Development and tests use the shared local
   **pgvault-dev** (a sibling `../pgvault-dev` compose project: Postgres on
   `localhost:5432`, superuser `postgres`, trust auth).
@@ -179,19 +180,31 @@ them afterwards.
 
 ```bash
 npm run start:dev       # tsc --watch + node --watch + tailwind --watch
-npm run build           # tsc (type-checked) to dist/, plus Tailwind, the service worker and the cache key
+npm run build           # clean, tsc -p tsconfig.build.json (type-checked) to dist/, then generate:
+                        # build-info, vendor, Tailwind, the service worker, precompress
 npm run start:prod      # node dist/main.js
-npm run start:test      # the build with background removal stubbed (what Playwright
+npm run start:test      # the build with background removal stubbed (test/support/test-server.ts: what Playwright
                         # and Lighthouse start; no model download)
-npm run test            # Vitest unit tests (test:watch to rerun on change)
-npm run test:int        # Vitest integration tests (real app in-process, scratch Postgres database per file)
+npm run test            # Vitest unit projects (unit, unit-new-york): mocked DB/fs, verifies wiring
+                        # (test:watch reruns on change; test:debug waits for an inspector on :9229)
+npm run test:int        # Vitest integration tests (real app in-process, scratch Postgres database per
+                        # file, cloned from the migrated template; no build): the default place for
+                        # behavior assertions
 npm run test:all        # both Vitest tiers in one run
-npm run test:e2e        # build, then Playwright end-to-end (ten critical-path scenarios; make screenshots for the shots)
+npm run test:e2e        # build, then Playwright end-to-end (all browsers, ten critical-path scenarios;
+                        # make screenshots for the shots); starts start:test on :3000 unless one is
+                        # running, and the PWA scenarios skip unless PWA_ENABLED (test/AGENTS.md)
 npm run test:cov        # both Vitest tiers with v8 coverage (coverage/); the plan's metrics ratchet holds lines and branches
 npm run audit:pages     # every page and action measured as the demo persona, see below
 npm run generate:icons  # regenerate public/assets/icon.png, icon-192.png, icon-512.png and favicon.ico from icon.svg
-npm run check           # format, lint, types, unit + integration in parallel (check:static is the first three)
+npm run lint            # eslint --fix over src, test, scripts; lint:check is the no-fix, cached gate
+npm run format          # prettier --write (never on a bare directory); format:check is the cached gate
+npm run typecheck       # tsc over app, tests and scripts, then the service worker (~3 s cold)
+npm run check           # format, lint, types, unit + integration in parallel (~80 s on 16 cores;
+                        # check:static is the first three; `precommit` is an alias). The plan runs
+                        # the two halves as the jobs make ci-quick and make ci-db
 npm run verify:push     # build + Chromium Playwright (main is verified by the plan's e2e job at deploy)
+npm run precommit:full  # check + verify:push + page audit + lighthouse (minutes)
 npm run maintenance:reconcile [-- --dry-run] [--force]
                         # one storage reconciliation pass (needs `npm run build`; see below)
 npm run maintenance:retrim-thumbs [-- --dry-run]
@@ -210,6 +223,33 @@ so `start:dev` and `start:prod` fetch it once into `./models`; point
 test:int` includes one test with the real model; it runs only when
 `MODELS_PATH` (or `./models`) holds it and is skipped otherwise (CI never
 downloads it).
+
+### The gate's jobs and the git hooks
+
+`scripts/ci/gate_plan.sh` is the plan: the publisher host runs every job of it on
+main (`devkit/bin/check_tree.sh`, at most once per 3 h window) before it ships,
+and a red main files a `main-red` issue. The Makefile targets are thin callers of
+the npm scripts (`ci.yml`'s manual jobs call the same ones), and each brings its
+own throwaway Postgres 18 container, so none needs pgvault-dev.
+
+```bash
+make ci-deps ci-quick         # npm ci; ci-guards, secrets-check, ci-lint, ci-typecheck
+make ci-unit                  # the unit projects
+make ci-db                    # test:cov on Postgres 18 (coverage feeds the metrics ratchet)
+make ci-e2e                   # build + Chromium Playwright, PWA on, a random PORT
+                              # (each of the three holds its budget, 60/110/180 s, and a floor)
+make ci-metrics               # the metrics ratchet, the plan's last job: scripts/ci/metrics.conf
+                              # vs docs/metrics/ratchet.json
+make metrics-tighten          # lock improved numbers into docs/metrics/ratchet.json (same PR)
+make ci-image ci-smoke CI_BUILD_VERSION=<v>   # build the image and boot it (docs/operations.md)
+make review PR=<n>            # one local review round (when Codex is out of budget)
+make merge PR=<n>             # squash-merge once the review rounds allow it
+```
+
+The git hooks are devkit's templates in `.githooks/`: `make install` once per
+checkout or worktree sets `core.hooksPath`, and `make hooks-check` reports a
+repoint. Their steps are `scripts/ci/hooks.conf` (ci-quick plus ci-unit, split
+between pre-commit and pre-push); neither needs Postgres or a browser.
 
 ### Locked out
 

@@ -8,6 +8,7 @@ The root AGENTS.md Workflow section names each step and its non-negotiables; thi
 4. **No pre-merge gate** (devkit 2026-11-02): main is proven at deploy, when the publisher host runs every job of `scripts/ci/gate_plan.sh` on it (`devkit/bin/check_tree.sh`, at most once per 3 h window, a `main-red` issue on red). Run the `ci-*` targets your change touches before you push. Actions runs only the nightly checks and manual runs.
 5. **An independent review** of the PR diff.
 6. **A review round**: comment `@codex review`, or run `make review PR=<n>` (a local `claude -p` round, its record posted on the PR) when Codex is out of budget. Answer each P0/P1 finding once: fix what's valid or reply with the reason it isn't. Docs-only PRs owe no round.
-7. **The merge**: `make merge PR=<n>` (devkit/bin/pr_merge.sh) decides on the review rounds, at most the plan's `DEVKIT_REVIEW_ROUNDS` (3): below the cap a P0/P1 finding wants another round, at the cap only P0 refuses, and P2 and below (P1 too at the cap) are filed as issues. Never `gh pr merge` directly. Merging publishes the image, then deploys.
+7. **The merge**: `make merge PR=<n>` (devkit/bin/pr_merge.sh) decides on the review rounds, at most the plan's `DEVKIT_REVIEW_ROUNDS` (3): below the cap a P0/P1 finding wants another round, at the cap only P0 refuses, and P2 and below (P1 too at the cap) are filed as issues. Never `gh pr merge` directly. Squash merges only: one PR is one commit on `main`, and the merged branch is deleted. Merging publishes the image, then deploys.
+8. **Fix forward**: parallel branches that each pass alone but clash together (duplicate migration numbers) show on main, at check_tree, and are fixed forward there.
 
 The owner may stop any PR (comment or close).
