@@ -70,6 +70,8 @@ The image runs as `node`, **uid/gid 1000** (the Dockerfile's `USER`), never root
 | `/app/data` (`DATA_PATH`)     | photos, `.incoming/`               |
 | `/app/models` (`MODELS_PATH`) | the model's download at first boot |
 
+The opt-in `LOG_FILE` is not a third path the image owns: it must point into a mount you provide that uid 1000 can write (never under `DATA_PATH`). It never creates a directory; one that is missing or unwritable ends in a single `error` line on stdout and a file-less run, the console log unaffected.
+
 ```bash
 # On the host, as root: give uid 1000 both directories (a root-owned one is what the root image's
 # download left). A network share that squashes every client user may refuse the chown and not need it.

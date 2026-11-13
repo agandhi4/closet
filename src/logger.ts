@@ -159,15 +159,30 @@ function jsonOptions(level: LogLevel, version: string): LoggerOptions {
 export function createLogger(
   config: Pick<Config, 'LOG_LEVEL' | 'LOG_FORMAT' | 'LOG_FILE' | 'APP_VERSION'>,
   stdout: DestinationStream = consoleDestination(config.LOG_FORMAT),
+  fileBufferMax = LOG_FILE_BUFFER_MAX,
 ): Logger {
   const level = config.LOG_LEVEL;
   const version = loadBuildInfo(config.APP_VERSION).release;
-  if (!config.LOG_FILE) return pino(jsonOptions(level, version), stdout);
+  // pino-pretty reads pino's numeric levels: only a text console keeps them.
+  const lineOptions =
+    config.LOG_FORMAT === 'text' && !config.LOG_FILE
+      ? options(level, version)
+      : jsonOptions(level, version);
+  if (!config.LOG_FILE) return pino(lineOptions, stdout);
   return pino(
-    jsonOptions(level, version),
+    lineOptions,
     pino.multistream([
       { level, stream: stdout },
-      { level, stream: fileSink(config.LOG_FILE, stdout, level, version) },
+      {
+        level,
+        stream: fileSink(
+          config.LOG_FILE,
+          stdout,
+          level,
+          version,
+          fileBufferMax,
+        ),
+      },
     ]),
   );
 }
@@ -181,6 +196,10 @@ function consoleDestination(format: Config['LOG_FORMAT']): DestinationStream {
       });
 }
 
+// What an unwritten LOG_FILE may hold in memory before lines are dropped: a few
+// seconds of debug logging at most, so a stalled share costs lines, not the heap.
+const LOG_FILE_BUFFER_MAX = 16 * 1024 * 1024;
+
 /**
  * The opt-in file is written asynchronously: a stalled disk or share costs
  * buffered lines, never the event loop (a synchronous log file on NFS froze
@@ -188,21 +207,44 @@ function consoleDestination(format: Config['LOG_FORMAT']): DestinationStream {
  * unhandled ends the process; it is reported to stdout once and the file
  * stops (a destination that failed to open throws on its next write), while
  * the console keeps every line. Lines still buffered at a crash are lost.
+ * Past `bufferMax` unwritten bytes the file drops lines; that is reported
+ * once per stall (until the buffer drains), not per line.
  */
 function fileSink(
   file: string,
   stdout: DestinationStream,
   level: LogLevel,
   version: string,
+  bufferMax: number,
 ): DestinationStream {
-  const sink = pino.destination({ dest: file, sync: false });
+  const sink = pino.destination({
+    dest: file,
+    sync: false,
+    maxLength: bufferMax,
+  });
+  const report = pino(jsonOptions(level, version), stdout).child({
+    logger: 'Logger',
+  });
   let failed = false;
+  let dropping = false;
   sink.on('error', (err: unknown) => {
     if (failed) return;
     failed = true;
-    pino(jsonOptions(level, version), stdout)
-      .child({ logger: 'Logger' })
-      .error({ err, file }, 'LOG_FILE is not writable; its lines are dropped');
+    report.error(
+      { err, file },
+      'LOG_FILE is not writable; its lines are dropped',
+    );
+  });
+  sink.on('drop', () => {
+    if (dropping) return;
+    dropping = true;
+    report.warn(
+      { file, bufferMax },
+      'LOG_FILE is not keeping up; lines are dropped',
+    );
+  });
+  sink.on('drain', () => {
+    dropping = false;
   });
   return {
     write: (line) => {
@@ -211,7 +253,8 @@ function fileSink(
   };
 }
 
-const PRETTY = {
+// Exported for the unit spec of the text console.
+export const PRETTY = {
   singleLine: true,
   colorize: true,
   levelFirst: false,

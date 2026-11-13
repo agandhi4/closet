@@ -2,9 +2,10 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import pino from 'pino';
 import { describe, expect, it } from 'vitest';
 import { LogCapture } from '../test/support/log-capture';
-import { createLogger, createLoggerTo } from './logger';
+import { createLogger, createLoggerTo, PRETTY } from './logger';
 
 describe('createLoggerTo', () => {
   it('never writes a credential header, whoever logs a request', () => {
@@ -205,6 +206,48 @@ describe('createLogger', () => {
         'LOG_FILE is not writable; its lines are dropped',
       ]);
       expect(stdout.messages('info', 'Spec')).toHaveLength(21);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('caps the LOG_FILE buffer and reports the drops once per stall', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'closet-logger-'));
+    try {
+      const stdout = new LogCapture();
+      // A cap below one line: nothing is ever buffered, so nothing drains.
+      const logger = createLogger(
+        { ...base, LOG_FILE: join(dir, 'debug.log') },
+        stdout,
+        1,
+      ).child({ logger: 'Spec' });
+      for (let i = 0; i < 5; i++) logger.info(`line ${i}`);
+      expect(stdout.messages('warn', 'Logger')).toEqual([
+        'LOG_FILE is not keeping up; lines are dropped',
+      ]);
+      expect(stdout.messages('info', 'Spec')).toHaveLength(5);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('prints a readable line with LOG_FORMAT=text: level name and message together', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'closet-logger-'));
+    try {
+      const out = join(dir, 'pretty.txt');
+      // The console destination, pointed at a file so the spec can read it.
+      const logger = createLogger(
+        { ...base, LOG_FORMAT: 'text' },
+        pino.transport({
+          target: 'pino-pretty',
+          options: { ...PRETTY, colorize: false, destination: out },
+        }),
+      );
+      logger.info('format check');
+      await until(async () =>
+        (await readFile(out, 'utf8').catch(() => '')).includes('format check'),
+      );
+      expect(await readFile(out, 'utf8')).toMatch(/INFO.*format check/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
