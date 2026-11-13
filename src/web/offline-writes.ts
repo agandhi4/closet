@@ -1,0 +1,150 @@
+import type {
+  FastifyReply,
+  FastifyRequest,
+  HookHandlerDoneFunction,
+} from 'fastify';
+import type { IsoDate } from '../calendar-date';
+import type { Logger } from '../logger';
+import {
+  dayRefusal,
+  type QueueableKind,
+  type ReplayRefusal,
+} from '../offline-writes';
+import { sessionUserId } from './auth/require-session';
+import { HttpError } from './errors';
+
+declare module 'fastify' {
+  interface FastifyContextConfig {
+    /**
+     * The installed app may queue this write offline and replay it (#178):
+     * the account check below runs on it, and its handler answers a replay
+     * `answerReplay`'s 204. The kind is one of src/offline-writes.ts's
+     * QUEUEABLE_ROUTES, whose pattern must be this route's
+     * (queued-writes.spec.ts).
+     */
+    queueable?: QueueableKind;
+  }
+}
+
+/**
+ * The replay contract of the queued writes (#178, plan section 4), shared
+ * by the five queueable routes (wears, the calendar's worn, trips' packing
+ * ticks). Nothing here is stored: the writes are set-state or guarded by a
+ * unique index, so replaying one twice is a no-op by meaning, and the key
+ * exists for the logs (json-api plan section 2, the same model).
+ *
+ * - `X-Closet-Queued: <user id>` marks a replay, naming the account that
+ *   queued it. A replay for another account than the session's is a 409
+ *   `account`, nothing written (the outbox keeps records per account; this
+ *   is the guard if that ever fails).
+ * - `Idempotency-Key: <record id>`: logged (8 characters), never stored.
+ * - A replay is answered 204 with `X-Closet-Outcome: changed | unchanged`,
+ *   not the page or fragment a tap gets; a refusal keeps its status (404
+ *   gone, 409 refused) and, for a 409 of this contract, names its reason in
+ *   the same header.
+ */
+const QUEUED_HEADER = 'x-closet-queued';
+const IDEMPOTENCY_HEADER = 'idempotency-key';
+const OUTCOME_HEADER = 'X-Closet-Outcome';
+
+const REFUSAL_MESSAGES: Record<ReplayRefusal, string> = {
+  'too-old': 'Too long ago to save: add it from the calendar',
+  future: 'That day has not come yet',
+  account: 'Saved while signed in as someone else',
+};
+
+/** A replay, as the queued-write hook has let it through. */
+export function isReplay(request: FastifyRequest): boolean {
+  return request.headers[QUEUED_HEADER] !== undefined;
+}
+
+/** A replay's answer: whether this request changed anything. */
+export function answerReplay(
+  reply: FastifyReply,
+  changed: boolean,
+): FastifyReply {
+  return reply
+    .status(204)
+    .header(OUTCOME_HEADER, changed ? 'changed' : 'unchanged')
+    .send();
+}
+
+/**
+ * The 409 of this contract to throw, with its reason in `X-Closet-Outcome`
+ * (the error handler keeps the reply's headers), so the outbox can say why
+ * a write was not saved. A tap gets the same 409 page as before.
+ */
+export function replayRefused(
+  reply: FastifyReply,
+  reason: ReplayRefusal,
+  options: { message?: string; logDetail?: string } = {},
+): HttpError {
+  reply.header(OUTCOME_HEADER, reason);
+  return new HttpError(409, options.message ?? REFUSAL_MESSAGES[reason], {
+    logDetail: options.logDetail,
+  });
+}
+
+/**
+ * The day a wear or wash is for: the posted one (the tap's, from a replay)
+ * within the window, else today. Throws the 409 for a day outside it.
+ */
+export function requestedDay(
+  reply: FastifyReply,
+  posted: IsoDate | undefined,
+  today: IsoDate,
+): IsoDate {
+  if (posted === undefined) return today;
+  const refusal = dayRefusal(posted, today);
+  if (refusal)
+    throw replayRefused(reply, refusal, { logDetail: `day ${posted}` });
+  return posted;
+}
+
+/**
+ * What a queueable write's log line adds: ` (replayed, key 1a2b3c4d)`, or
+ * the key alone for a live tap that sent one, or nothing. The key is a
+ * client's header, so only its first characters of [A-Za-z0-9-] are
+ * written.
+ */
+export function replayNote(request: FastifyRequest): string {
+  const key = request.headers[IDEMPOTENCY_HEADER];
+  const shown =
+    typeof key === 'string'
+      ? key.replace(/[^A-Za-z0-9-]/g, '').slice(0, 8)
+      : '';
+  const parts = [
+    ...(isReplay(request) ? ['replayed'] : []),
+    ...(shown ? [`key ${shown}`] : []),
+  ];
+  return parts.length > 0 ? ` (${parts.join(', ')})` : '';
+}
+
+/**
+ * The account check, a root preHandler (createApp): after the web
+ * plugin's session gate, which is preValidation, so a replay without a
+ * session is the gate's 401 as before, and after validation, so a
+ * malformed one is its 400. Only on a route marked `queueable` that a
+ * replay reached; nothing is read.
+ */
+export function createQueuedWriteHook(logger: Logger) {
+  return function checkQueuedAccount(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    done: HookHandlerDoneFunction,
+  ): void {
+    const kind = request.routeOptions.config.queueable;
+    const account = request.headers[QUEUED_HEADER];
+    if (kind === undefined || account === undefined) return done();
+    const userId = sessionUserId(request);
+    if (account === String(userId)) return done();
+    const named =
+      typeof account === 'string' && /^\d{1,10}$/.test(account)
+        ? `account ${account}`
+        : 'a malformed account';
+    logger.warn(
+      `Queued ${kind} for ${named} refused: signed in as user ${userId}${replayNote(request)}`,
+    );
+    done(replayRefused(reply, 'account'));
+  };
+}

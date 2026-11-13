@@ -330,6 +330,13 @@
       "when": 1791917688354,
       "tag": "0046_cutout-request-id",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794545800171,
+      "tag": "0047_outfit-rules",
+      "breakpoints": true
     }
   ]
 }

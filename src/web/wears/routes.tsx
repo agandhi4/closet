@@ -8,7 +8,13 @@ import { todayIn } from '../../calendar-date';
 import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
-import { GarmentParams, OwnerQuery, RowId } from '../schemas';
+import {
+  answerReplay,
+  isReplay,
+  replayNote,
+  requestedDay,
+} from '../offline-writes';
+import { GarmentParams, IsoDateSchema, OwnerQuery, RowId } from '../schemas';
 import { sharedWardrobesOf, type WardrobeRequest } from '../sharing/access';
 import { viewContext } from '../view-context';
 import { garmentGuard, garmentNotFound } from '../wardrobe/garment-access';
@@ -27,9 +33,21 @@ import { WearStatus } from './wear-section';
 
 const NOT_OWNED_YET = 'On the wishlist: not bought yet';
 
+// `day` is a queued tap's own day (#178), else today: requestedDay
+// refuses one outside the replay window (409).
 const WoreTodayBody = Type.Object({
   worn: Type.Union([Type.Literal('1'), Type.Literal('0')]),
+  day: Type.Optional(IsoDateSchema),
+  // The queued create's id (the outbox record's). Accepted and unused
+  // until garment_wear.client_id lands with #196a; the (garment, day)
+  // unique index already makes a retried wear a no-op.
+  clientId: Type.Optional(Type.String({ format: 'uuid' })),
 });
+
+const WashedBody = Type.Union([
+  Type.Object({ day: Type.Optional(IsoDateSchema) }),
+  Type.Null(),
+]);
 
 const AwayBody = Type.Object({
   // '' is back in the closet.
@@ -93,13 +111,17 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     return refusal(garment?.status === 'wishlist' ? 'wishlist' : 'not-found');
   }
 
-  /** The wear status again to htmx; the garment page to a plain post. */
+  /**
+   * A replay's 204 (src/web/offline-writes.ts); the wear status again to
+   * htmx; the garment page to a plain post.
+   */
   async function answer(
     request: FastifyRequest,
     reply: FastifyReply,
-    id: number,
-    ownerId: number,
+    write: { id: number; ownerId: number; changed: boolean },
   ): Promise<FastifyReply> {
+    const { id, ownerId } = write;
+    if (isReplay(request)) return answerReplay(reply, write.changed);
     if (!request.headers['hx-request']) {
       return reply.redirect(garmentUrl(id, undefined), 303);
     }
@@ -115,10 +137,12 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     );
   }
 
-  // Wore today (worn=1) and its undo the same day (worn=0).
+  // Wore today (worn=1) and its undo the same day (worn=0). Queueable
+  // (#178): last write wins, so a replayed undo after a wear unwears.
   app.post(
     '/wardrobe/:id/wear',
     {
+      config: { queueable: 'wear' },
       schema: {
         params: GarmentParams,
         querystring: OwnerQuery,
@@ -129,32 +153,46 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const { id } = request.params;
       const ownerId = await ownWardrobe(request);
       const worn = request.body.worn === '1';
-      const day = today();
+      const day = requestedDay(reply, request.body.day, today());
       const outcome = await setWoreToday(db, {
         garmentId: id,
         ownerId,
         day,
         worn,
       });
-      if (outcome !== 'saved') throw refusal(outcome);
+      if (outcome === 'not-found' || outcome === 'wishlist') {
+        throw refusal(outcome);
+      }
+      const changed = outcome === 'changed';
       logger.info(
-        `Garment ${id} ${worn ? 'worn' : 'wear undone'} on ${day} by user ${ownerId}`,
+        `Garment ${id} ${worn ? 'worn' : 'wear undone'} on ${day} by user ${ownerId}${changed ? '' : ', already so'}${replayNote(request)}`,
       );
-      return answer(request, reply, id, ownerId);
+      return answer(request, reply, { id, ownerId, changed });
     },
   );
 
+  // Queueable (#178); a wash only moves forward (markWashed), so a late
+  // replay of an older one is `unchanged`.
   app.post(
     '/wardrobe/:id/washed',
-    { schema: { params: GarmentParams, querystring: OwnerQuery } },
+    {
+      config: { queueable: 'wash' },
+      schema: {
+        params: GarmentParams,
+        querystring: OwnerQuery,
+        body: WashedBody,
+      },
+    },
     async (request, reply) => {
       const { id } = request.params;
       const ownerId = await ownWardrobe(request);
-      const day = today();
-      const washed = await markWashed(db, ownerId, [id], day);
-      if (washed.length === 0) throw await refusalOf(id, ownerId);
-      logger.info(`Garment ${id} washed on ${day} by user ${ownerId}`);
-      return answer(request, reply, id, ownerId);
+      const day = requestedDay(reply, request.body?.day, today());
+      const [washed] = await markWashed(db, ownerId, [id], day);
+      if (!washed) throw await refusalOf(id, ownerId);
+      logger.info(
+        `Garment ${id} washed on ${day} by user ${ownerId}${washed.changed ? '' : ', already washed then or later'}${replayNote(request)}`,
+      );
+      return answer(request, reply, { id, ownerId, changed: washed.changed });
     },
   );
 

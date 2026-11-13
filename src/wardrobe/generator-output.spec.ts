@@ -12,6 +12,7 @@ import {
 import { goesWith, outfitCount } from './goes-with';
 import { OCCASION_HINTS } from './occasions';
 import {
+  builtInCategoriesOf,
   type Formality,
   GARMENT_COLORS,
   type GarmentColor,
@@ -54,6 +55,8 @@ function closet(key: string, counts: Partial<Record<GarmentRole, number>>) {
       garments.push({
         id: (id += 1 + Math.floor(random.next() * 3)),
         role,
+        category: builtInCategoriesOf(role)[0],
+        type: null,
         colors: [...new Set(colors)],
         pattern: random.chance(0.7) ? 'solid' : pick(PATTERNS),
         formality: random.chance(0.1) ? null : pick(FORMALITY),
@@ -180,7 +183,8 @@ describe('the generator, pinned (#168)', () => {
     expect(digest(page)).toEqual(PINNED.nearMisses);
   });
 
-  it('with a garment locked, and with locks that break a hard rule', () => {
+  // Locks that clash flag their ideas instead (#21): generator.spec.ts.
+  it('with a garment locked', () => {
     const [top] = byRole(PERSON, 'top');
     const locked = generateIdeas({
       ...gallery,
@@ -191,16 +195,6 @@ describe('the generator, pinned (#168)', () => {
       limit: 6,
     });
     expect(digest(locked)).toEqual(PINNED.locked);
-    const [, bottom] = byRole(PERSON, 'bottom');
-    const clash = generateIdeas({
-      ...gallery,
-      seed: 3,
-      locked: [top, bottom],
-      avoid: [[top.id, bottom.id]],
-      offset: 0,
-      limit: 6,
-    });
-    expect(digest(clash)).toEqual(['more false']);
   });
 
   it('a closet small enough to draw every combination', () => {
@@ -219,7 +213,13 @@ describe('the generator, pinned (#168)', () => {
       .slice(0, 16)
       .flatMap((item) => {
         const closetOf = PERSON.filter((g) => g.id !== item.id);
-        const request = { item, closet: closetOf, avoid, seed: item.id };
+        const request = {
+          item,
+          closet: closetOf,
+          avoid,
+          rules: [],
+          seed: item.id,
+        };
         const found = goesWith(request);
         return [
           `${item.id}: ${found.outfits}${found.capped ? '+' : ''}`,
