@@ -10865,6 +10865,2047 @@
           }
         }
       }
+    },
+    "/api/v1/trips": {
+      "get": {
+        "operationId": "listTrips",
+        "summary": "Your trips, upcoming first",
+        "tags": [
+          "trips"
+        ],
+        "description": "Each with its dates, destination, phase and how many outfits and extras it holds. The order moves with the day (a trip ending yesterday is past), so read the list from its first page.",
+        "parameters": [
+          {
+            "schema": {
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "type": "string"
+            },
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "description": "The previous page's `pagination.nextCursor`"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "description": "How many a page holds: 50 unless asked, at most 100"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of your trips: those not over yet first, soonest first, then the past ones, latest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "TripList",
+                  "description": "A page of your trips: those not over yet first, soonest first, then the past ones, latest first",
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "pagination"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "title": "TripListItem",
+                        "description": "One of your trips as a list shows it: GET /trips/{id} has its days, outfits, packing list and extras",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name",
+                          "located",
+                          "startsOn",
+                          "endsOn",
+                          "phase",
+                          "outfitCount",
+                          "extraCount"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "destination": {
+                            "type": "string"
+                          },
+                          "located": {
+                            "type": "boolean"
+                          },
+                          "startsOn": {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          "endsOn": {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          "notes": {
+                            "type": "string"
+                          },
+                          "phase": {
+                            "description": "Where the trip stands on the household's today (GET /me): packing warnings are only for one upcoming or current",
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "upcoming"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "current"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "past"
+                                ]
+                              }
+                            ]
+                          },
+                          "outfitCount": {
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "extraCount": {
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "pagination": {
+                      "title": "Pagination",
+                      "type": "object",
+                      "required": [
+                        "limit"
+                      ],
+                      "properties": {
+                        "nextCursor": {
+                          "type": "string"
+                        },
+                        "limit": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createTrip",
+        "summary": "Creates a trip",
+        "tags": [
+          "trips"
+        ],
+        "description": "Judged as the trip form is: a blank name, an end before the start or more than 60 days is a 400 naming the field. 201 with its `Location`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "NewTrip",
+                "type": "object",
+                "required": [
+                  "name",
+                  "startsOn",
+                  "endsOn"
+                ],
+                "properties": {
+                  "name": {
+                    "maxLength": 80,
+                    "description": "Trimmed; a blank one is a 400 naming `body/name`",
+                    "type": "string"
+                  },
+                  "destination": {
+                    "maxLength": 200,
+                    "description": "Where to, as text; a new one forgets the place a search located (its weather)",
+                    "type": "string"
+                  },
+                  "startsOn": {
+                    "description": "The first day",
+                    "format": "date",
+                    "type": "string"
+                  },
+                  "endsOn": {
+                    "description": "The last day: not before the first, at most 60 days in all",
+                    "format": "date",
+                    "type": "string"
+                  },
+                  "notes": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  "clientId": {
+                    "format": "uuid",
+                    "description": "Your id for this create, for retrying it offline: accepted, not yet stored",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "TripCreated",
+                  "type": "object",
+                  "required": [
+                    "id"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/trips/{id}": {
+      "get": {
+        "operationId": "getTrip",
+        "summary": "One of your trips, with its outfits and packing list",
+        "tags": [
+          "trips"
+        ],
+        "description": "Its days with their outfits, the outfits for any day, the packing list derived from them (copies needed, packed marks, warnings while the trip is ahead or on) and the extras. Another's trip is a 404 like an unknown id.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One of your trips as its page shows it: its days and their outfits, the packing list and the extras",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Trip",
+                  "description": "One of your trips as its page shows it: its days and their outfits, the packing list and the extras",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "name",
+                    "located",
+                    "startsOn",
+                    "endsOn",
+                    "phase",
+                    "days",
+                    "anyDay",
+                    "packing",
+                    "extras"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "destination": {
+                      "type": "string"
+                    },
+                    "located": {
+                      "type": "boolean"
+                    },
+                    "startsOn": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "endsOn": {
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "notes": {
+                      "type": "string"
+                    },
+                    "phase": {
+                      "description": "Where the trip stands on the household's today (GET /me): packing warnings are only for one upcoming or current",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "upcoming"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "current"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "past"
+                          ]
+                        }
+                      ]
+                    },
+                    "days": {
+                      "description": "Every day of the trip, each with its outfits in occasion order",
+                      "type": "array",
+                      "items": {
+                        "title": "TripDay",
+                        "type": "object",
+                        "required": [
+                          "day",
+                          "outfits"
+                        ],
+                        "properties": {
+                          "day": {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          "outfits": {
+                            "type": "array",
+                            "items": {
+                              "title": "TripOutfit",
+                              "type": "object",
+                              "required": [
+                                "id",
+                                "outfitId",
+                                "garments"
+                              ],
+                              "properties": {
+                                "id": {
+                                  "description": "This outfit's place on the trip (DELETE /trips/{id}/outfits/{tripOutfitId}); the same outfit may be on several days",
+                                  "type": "integer"
+                                },
+                                "outfitId": {
+                                  "type": "integer"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "day": {
+                                  "format": "date",
+                                  "type": "string"
+                                },
+                                "occasion": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "all-day"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "workout"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "work"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "daytime"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "evening"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "night-out"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "garments": {
+                                  "type": "array",
+                                  "items": {
+                                    "title": "OutfitGarment",
+                                    "description": "A garment the outfit holds, as its collage shows it, in the order it was built (an empty row is left out): GET /garments/{id} has the rest",
+                                    "type": "object",
+                                    "required": [
+                                      "id",
+                                      "category",
+                                      "role",
+                                      "status"
+                                    ],
+                                    "properties": {
+                                      "id": {
+                                        "type": "integer"
+                                      },
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "category": {
+                                        "type": "string"
+                                      },
+                                      "role": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "top"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "bottom"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "one-piece"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "layer"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "footwear"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "accessory"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "bag"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "none"
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "status": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "wishlist"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "closet"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "archived"
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      "thumbUrl": {
+                                        "type": "string"
+                                      },
+                                      "away": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "lent"
+                                            ]
+                                          },
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "repair"
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                },
+                                "wornTodayEntryId": {
+                                  "type": "integer"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "anyDay": {
+                      "description": "Outfits for the trip but no day of it",
+                      "type": "array",
+                      "items": {
+                        "title": "TripOutfit",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "outfitId",
+                          "garments"
+                        ],
+                        "properties": {
+                          "id": {
+                            "description": "This outfit's place on the trip (DELETE /trips/{id}/outfits/{tripOutfitId}); the same outfit may be on several days",
+                            "type": "integer"
+                          },
+                          "outfitId": {
+                            "type": "integer"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "day": {
+                            "format": "date",
+                            "type": "string"
+                          },
+                          "occasion": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "all-day"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "workout"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "work"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "daytime"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "evening"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "night-out"
+                                ]
+                              }
+                            ]
+                          },
+                          "garments": {
+                            "type": "array",
+                            "items": {
+                              "title": "OutfitGarment",
+                              "description": "A garment the outfit holds, as its collage shows it, in the order it was built (an empty row is left out): GET /garments/{id} has the rest",
+                              "type": "object",
+                              "required": [
+                                "id",
+                                "category",
+                                "role",
+                                "status"
+                              ],
+                              "properties": {
+                                "id": {
+                                  "type": "integer"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "category": {
+                                  "type": "string"
+                                },
+                                "role": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "top"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "bottom"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "one-piece"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "layer"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "footwear"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "accessory"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "bag"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "none"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "status": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "wishlist"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "closet"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "archived"
+                                      ]
+                                    }
+                                  ]
+                                },
+                                "thumbUrl": {
+                                  "type": "string"
+                                },
+                                "away": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "lent"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "repair"
+                                      ]
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "wornTodayEntryId": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    },
+                    "packing": {
+                      "title": "Packing",
+                      "description": "The packing list, derived from the trip's outfits: every garment they hold, once",
+                      "type": "object",
+                      "required": [
+                        "garments",
+                        "packed",
+                        "pieces",
+                        "warned",
+                        "groups"
+                      ],
+                      "properties": {
+                        "garments": {
+                          "description": "Garments on the list",
+                          "type": "integer"
+                        },
+                        "packed": {
+                          "description": "Of them, marked packed",
+                          "type": "integer"
+                        },
+                        "pieces": {
+                          "description": "Pieces to pack: every garment's `pack`",
+                          "type": "integer"
+                        },
+                        "warned": {
+                          "description": "Garments with a warning",
+                          "type": "integer"
+                        },
+                        "groups": {
+                          "description": "Top to toe",
+                          "type": "array",
+                          "items": {
+                            "title": "PackingGroup",
+                            "type": "object",
+                            "required": [
+                              "role",
+                              "garments"
+                            ],
+                            "properties": {
+                              "role": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "top"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "bottom"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "one-piece"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "layer"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "footwear"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "accessory"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "bag"
+                                    ]
+                                  },
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "none"
+                                    ]
+                                  }
+                                ]
+                              },
+                              "garments": {
+                                "type": "array",
+                                "items": {
+                                  "title": "PackingGarment",
+                                  "type": "object",
+                                  "required": [
+                                    "id",
+                                    "category",
+                                    "quantity",
+                                    "outfits",
+                                    "wears",
+                                    "copiesNeeded",
+                                    "pack",
+                                    "packed",
+                                    "warnings"
+                                  ],
+                                  "properties": {
+                                    "id": {
+                                      "description": "The garment: PUT /trips/{id}/packing/{garmentId} ticks it",
+                                      "type": "integer"
+                                    },
+                                    "name": {
+                                      "type": "string"
+                                    },
+                                    "category": {
+                                      "type": "string"
+                                    },
+                                    "quantity": {
+                                      "description": "Copies owned",
+                                      "type": "integer"
+                                    },
+                                    "thumbUrl": {
+                                      "type": "string"
+                                    },
+                                    "outfits": {
+                                      "description": "Trip outfits that hold it",
+                                      "type": "integer"
+                                    },
+                                    "wears": {
+                                      "description": "Its wears on the trip: one per day it is worn, whatever the occasions, and one per outfit for any day",
+                                      "type": "integer"
+                                    },
+                                    "copiesNeeded": {
+                                      "description": "Nothing is washed on the trip: ceil(wears / its wash limit), one for what is never washed",
+                                      "type": "integer"
+                                    },
+                                    "pack": {
+                                      "description": "Copies to pack: the copies needed, up to those owned",
+                                      "type": "integer"
+                                    },
+                                    "packed": {
+                                      "type": "boolean"
+                                    },
+                                    "warnings": {
+                                      "type": "array",
+                                      "items": {
+                                        "title": "PackingWarning",
+                                        "anyOf": [
+                                          {
+                                            "description": "The trip needs `short` more copies than you own",
+                                            "type": "object",
+                                            "required": [
+                                              "kind",
+                                              "short"
+                                            ],
+                                            "properties": {
+                                              "kind": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "too-few"
+                                                ]
+                                              },
+                                              "short": {
+                                                "minimum": 1,
+                                                "type": "integer"
+                                              }
+                                            }
+                                          },
+                                          {
+                                            "description": "Before departure: only `clean` copies are clean now, fewer than to pack",
+                                            "type": "object",
+                                            "required": [
+                                              "kind",
+                                              "clean"
+                                            ],
+                                            "properties": {
+                                              "kind": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "wash"
+                                                ]
+                                              },
+                                              "clean": {
+                                                "minimum": 0,
+                                                "type": "integer"
+                                              }
+                                            }
+                                          },
+                                          {
+                                            "description": "Lent, or at the repair shop",
+                                            "type": "object",
+                                            "required": [
+                                              "kind",
+                                              "reason"
+                                            ],
+                                            "properties": {
+                                              "kind": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "away"
+                                                ]
+                                              },
+                                              "reason": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "lent"
+                                                    ]
+                                                  },
+                                                  {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "repair"
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          },
+                                          {
+                                            "description": "No longer in the closet, though an outfit holds it",
+                                            "type": "object",
+                                            "required": [
+                                              "kind"
+                                            ],
+                                            "properties": {
+                                              "kind": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "archived"
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "extras": {
+                      "type": "array",
+                      "items": {
+                        "title": "TripItem",
+                        "description": "An extra to pack (a charger, the passport), in the order added",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "label",
+                          "packed"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "packed": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateTrip",
+        "summary": "Replaces a trip's name, destination, dates and notes",
+        "tags": [
+          "trips"
+        ],
+        "description": "The trip form's save: every field is sent (one left out is cleared), judged as on create. Outfits on days the new dates leave out move to any day; a new destination forgets the located place.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "TripInput",
+                "description": "The trip's own fields, replaced whole (a field left out is cleared); its outfits and extras stay. Outfits on days the new dates leave out move to any day",
+                "type": "object",
+                "required": [
+                  "name",
+                  "startsOn",
+                  "endsOn"
+                ],
+                "properties": {
+                  "name": {
+                    "maxLength": 80,
+                    "description": "Trimmed; a blank one is a 400 naming `body/name`",
+                    "type": "string"
+                  },
+                  "destination": {
+                    "maxLength": 200,
+                    "description": "Where to, as text; a new one forgets the place a search located (its weather)",
+                    "type": "string"
+                  },
+                  "startsOn": {
+                    "description": "The first day",
+                    "format": "date",
+                    "type": "string"
+                  },
+                  "endsOn": {
+                    "description": "The last day: not before the first, at most 60 days in all",
+                    "format": "date",
+                    "type": "string"
+                  },
+                  "notes": {
+                    "maxLength": 2000,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "description": "The trip's own fields, replaced whole (a field left out is cleared); its outfits and extras stay. Outfits on days the new dates leave out move to any day"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "TripUpdated",
+                  "type": "object",
+                  "required": [
+                    "undated",
+                    "locationCleared"
+                  ],
+                  "properties": {
+                    "undated": {
+                      "minimum": 0,
+                      "description": "Outfits moved to any day, their day outside the new dates",
+                      "type": "integer"
+                    },
+                    "locationCleared": {
+                      "description": "The destination changed: the place it was located at is forgotten",
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteTrip",
+        "summary": "Deletes a trip",
+        "tags": [
+          "trips"
+        ],
+        "description": "Its outfits stay (they are yours, apart from the trip); its extras and packed marks go. A trip already gone is a 404, which a retry may read as done.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/trips/{id}/outfits": {
+      "post": {
+        "operationId": "addTripOutfit",
+        "summary": "Adds an outfit to a trip",
+        "tags": [
+          "trips"
+        ],
+        "description": "A saved outfit (`outfitId`), or an idea's garments (`garmentIds`, saved as an outfit or the one you have of exactly these), for a day of the trip and an occasion, or for any day. 201 when added, 200 `added: false` when it was on that day already (a retry). GET /trips/{id} then lists it and the packing list it changes.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "TripOutfitInput",
+                "description": "An outfit on the trip, for one of its days and an occasion or for any day: either `outfitId` or `garmentIds`. Once a day: adding it again keeps the first occasion. An outfit with pieces to buy is a 409",
+                "type": "object",
+                "properties": {
+                  "outfitId": {
+                    "description": "One of your saved outfits",
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "type": "integer"
+                  },
+                  "garmentIds": {
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "description": "Garments of your closet, saved as an outfit (or the one you have of exactly these)",
+                    "type": "array",
+                    "items": {
+                      "minimum": 1,
+                      "maximum": 2147483647,
+                      "type": "integer"
+                    }
+                  },
+                  "name": {
+                    "maxLength": 255,
+                    "description": "With `garmentIds`: the new outfit's name",
+                    "type": "string"
+                  },
+                  "day": {
+                    "description": "One of the trip's days (else a 400 naming them); absent, any day",
+                    "format": "date",
+                    "type": "string"
+                  },
+                  "occasion": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "all-day"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "workout"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "work"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "daytime"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "evening"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "night-out"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "description": "An outfit on the trip, for one of its days and an occasion or for any day: either `outfitId` or `garmentIds`. Once a day: adding it again keeps the first occasion. An outfit with pieces to buy is a 409"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "TripOutfitAdded",
+                  "type": "object",
+                  "required": [
+                    "outfitId",
+                    "outfitCreated",
+                    "added"
+                  ],
+                  "properties": {
+                    "outfitId": {
+                      "type": "integer"
+                    },
+                    "outfitCreated": {
+                      "type": "boolean"
+                    },
+                    "added": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "TripOutfitAdded",
+                  "type": "object",
+                  "required": [
+                    "outfitId",
+                    "outfitCreated",
+                    "added"
+                  ],
+                  "properties": {
+                    "outfitId": {
+                      "type": "integer"
+                    },
+                    "outfitCreated": {
+                      "type": "boolean"
+                    },
+                    "added": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/trips/{id}/outfits/{tripOutfitId}": {
+      "delete": {
+        "operationId": "removeTripOutfit",
+        "summary": "Takes an outfit off a trip",
+        "tags": [
+          "trips"
+        ],
+        "description": "The outfit itself stays. Garments no other outfit of the trip holds leave the packing list with their packed marks. One already off is a 404.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "tripOutfitId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "TripOutfitRemoved",
+                  "type": "object",
+                  "required": [
+                    "outfitId",
+                    "unpacked"
+                  ],
+                  "properties": {
+                    "outfitId": {
+                      "type": "integer"
+                    },
+                    "unpacked": {
+                      "minimum": 0,
+                      "description": "Packed marks removed with garments no other trip outfit holds",
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/trips/{id}/outfits/{tripOutfitId}/wears": {
+      "post": {
+        "operationId": "wearTripOutfit",
+        "summary": "Wore it today: a trip's \"Wore it\"",
+        "tags": [
+          "trips"
+        ],
+        "description": "Planned on today's calendar for its occasion (all day without one) and marked worn there, once: a repeat is `changed: false`. Only while the trip is on, and only an outfit for today or for any day; else a 409.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "tripOutfitId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "TripOutfitWorn",
+                  "type": "object",
+                  "required": [
+                    "outfitId",
+                    "day",
+                    "occasion",
+                    "entryId",
+                    "changed"
+                  ],
+                  "properties": {
+                    "outfitId": {
+                      "type": "integer"
+                    },
+                    "day": {
+                      "description": "Today",
+                      "format": "date",
+                      "type": "string"
+                    },
+                    "occasion": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "all-day"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "workout"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "work"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "daytime"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "evening"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "night-out"
+                          ]
+                        }
+                      ]
+                    },
+                    "entryId": {
+                      "description": "Its calendar entry today",
+                      "type": "integer"
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/trips/{id}/packing/{garmentId}": {
+      "put": {
+        "operationId": "setTripGarmentPacked",
+        "summary": "Ticks a garment on the packing list, or unticks it",
+        "tags": [
+          "trips"
+        ],
+        "description": "Set-state: a repeat is `changed: false`. A garment the list does not hold (no outfit of the trip has it, or it just left with one) is a 404, which a queued tick may drop.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "PackedInput",
+                "type": "object",
+                "required": [
+                  "packed"
+                ],
+                "properties": {
+                  "packed": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "garmentId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "TripGarmentPacked",
+                  "type": "object",
+                  "required": [
+                    "garmentId",
+                    "packed",
+                    "changed"
+                  ],
+                  "properties": {
+                    "garmentId": {
+                      "type": "integer"
+                    },
+                    "packed": {
+                      "type": "boolean"
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/trips/{id}/items": {
+      "post": {
+        "operationId": "addTripItem",
+        "summary": "Adds an extra to pack",
+        "tags": [
+          "trips"
+        ],
+        "description": "Unpacked. 201 when added, 200 `added: false` when the trip has that label already, in any case (a retry). GET /trips/{id} lists it with its id.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "NewTripItem",
+                "type": "object",
+                "required": [
+                  "label"
+                ],
+                "properties": {
+                  "label": {
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "pattern": "\\S",
+                    "description": "Trimmed; a label the trip has already, in any case, adds nothing",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "TripItemAdded",
+                  "type": "object",
+                  "required": [
+                    "added"
+                  ],
+                  "properties": {
+                    "added": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "TripItemAdded",
+                  "type": "object",
+                  "required": [
+                    "added"
+                  ],
+                  "properties": {
+                    "added": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/trips/{id}/items/{itemId}": {
+      "patch": {
+        "operationId": "setTripItemPacked",
+        "summary": "Ticks an extra, or unticks it",
+        "tags": [
+          "trips"
+        ],
+        "description": "Set-state: a repeat is `changed: false`. An extra removed meanwhile is a 404, which a queued tick may drop.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "PackedInput",
+                "type": "object",
+                "required": [
+                  "packed"
+                ],
+                "properties": {
+                  "packed": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "itemId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "TripItemPacked",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "label",
+                    "packed",
+                    "changed"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "packed": {
+                      "type": "boolean"
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "removeTripItem",
+        "summary": "Removes an extra",
+        "tags": [
+          "trips"
+        ],
+        "description": "One already gone is a 404, which a retry may read as done.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "itemId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/trips/{id}/items/copies": {
+      "post": {
+        "operationId": "copyTripItems",
+        "summary": "Copies another trip's extras",
+        "tags": [
+          "trips"
+        ],
+        "description": "Its labels, unpacked, in its order; those this trip has already are skipped, so a retry adds none. Both trips yours, and not the same one, else a 404.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "TripItemsCopy",
+                "type": "object",
+                "required": [
+                  "fromTripId"
+                ],
+                "properties": {
+                  "fromTripId": {
+                    "description": "Another trip of yours, whose extras' labels are copied unpacked",
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "TripItemsCopied",
+                  "type": "object",
+                  "required": [
+                    "added"
+                  ],
+                  "properties": {
+                    "added": {
+                      "minimum": 0,
+                      "description": "Extras added: labels the trip has already are skipped, so a retry adds none",
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "security": [

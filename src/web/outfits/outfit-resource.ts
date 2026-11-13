@@ -31,7 +31,7 @@ import { DECLINE_NOTE_MAX, SlotCategory } from './schemas';
  * a client reads the rest from GET /garments/{id}.
  */
 
-/** Also a calendar entry's garments (calendar/entry-resource.ts). */
+/** Also a calendar entry's and a trip outfit's garments (calendar/entry-resource.ts, trips/trip-resource.ts). */
 export const OutfitGarmentResource = Type.Object(
   {
     id: Type.Integer(),

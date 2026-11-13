@@ -169,14 +169,17 @@ const OUTER_TRIP_ID = sql.raw('"trip"."id"');
 /**
  * The owner's trips with their outfit and extras counts: those not over by
  * `today` first, soonest first, then the past ones, latest first. One
- * statement (trip_owner_id_starts_on_index).
+ * statement (trip_owner_id_starts_on_index). The page reads them all; the
+ * API a `page` at a time (its offset cursor: the order moves with `today`,
+ * so no keyset would hold across days anyway).
  */
 export async function listTrips(
   db: Db,
   ownerId: number,
   today: IsoDate,
+  page?: { offset: number; limit: number },
 ): Promise<TripSummary[]> {
-  const rows = await db
+  const query = db
     .select({
       ...tripColumns,
       outfits: sql<number>`(select count(*)::int from ${tripOutfit} o where o.trip_id = ${OUTER_TRIP_ID})`,
@@ -189,7 +192,11 @@ export async function listTrips(
       sql`case when ${trip.endsOn} < ${today} then null else ${trip.startsOn} end`,
       desc(trip.startsOn),
       asc(trip.id),
-    );
+    )
+    .$dynamic();
+  const rows = await (page
+    ? query.limit(page.limit).offset(page.offset)
+    : query);
   return rows.map(({ outfits, extras, ...row }) => ({
     ...tripRow(row),
     outfits,

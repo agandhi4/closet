@@ -10,6 +10,7 @@ import { Problem } from '../problem';
 import { API_LIMIT, enforceLimit } from '../security/rate-limit';
 import { API_PREFIX } from '../surface';
 import { todayApiRoutes } from '../today/api-routes';
+import { tripApiRoutes } from '../trips/api-routes';
 import { wardrobeApiRoutes } from '../wardrobe/api-routes';
 import { wearApiRoutes } from '../wears/api-routes';
 import { weekPlanApiRoutes } from '../week-plan/api-routes';
@@ -108,4 +109,5 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
   await app.register(calendarApiRoutes, options);
   await app.register(todayApiRoutes, options);
   await app.register(weekPlanApiRoutes, options);
+  await app.register(tripApiRoutes, options);
 };
