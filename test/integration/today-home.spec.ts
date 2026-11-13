@@ -9,6 +9,9 @@ import {
   outfitCalendar,
   personalAccessToken,
 } from '../../src/db/schema';
+import { selectScalars } from '../../src/db/select-scalars';
+import { addDays } from '../../src/calendar-date';
+import { savedOutfitsSql } from '../../src/web/outfits/queries';
 import { wearIdea } from '../../src/web/today/queries';
 import { decide, markSuggestion } from '../../src/web/wishlist/decisions';
 import {
@@ -444,6 +447,47 @@ describe('Today', () => {
       expect(rowsOf(html)).toEqual([['planned', 'all-day']]);
       expect(html).toContain('✓ Worn');
       expect(html).toContain('name="worn" value="0"');
+    });
+
+    // adoptOutfit only raises an origin (#659): an idea's reuse of a kept
+    // outfit must never send it behind "Worn and planned".
+    it("an idea's reuse of a kept outfit (Wear this, an idea pick for a day) leaves it kept", async () => {
+      await clearToday();
+      const mine = await saveOutfit('Mine', [tops[3], bottoms[2]]);
+      const agents = await saveOutfit('Agent', [tops[3], bottoms[1]]);
+      await asFixture(t.db, (tx) =>
+        tx.update(outfit).set({ origin: 'agent' }).where(eq(outfit.id, agents)),
+      );
+      const day = addDays(t.today(), 2);
+      for (const garmentIds of [
+        [tops[3], bottoms[2]],
+        [tops[3], bottoms[1]],
+      ]) {
+        expect((await wear(garmentIds)).statusCode).toBe(303);
+        const pick = await t.inject({
+          method: 'POST',
+          url: '/outfits/ideas/pick',
+          ...form({ garmentId: garmentIds.map(String), for: `day:${day}` }),
+        });
+        expect(pick.headers.location).toBe(
+          `/calendar?week=${day}&alreadySaved=1`,
+        );
+      }
+      const origins = await t.db
+        .select({ id: outfit.id, origin: outfit.origin })
+        .from(outfit)
+        .where(inArray(outfit.id, [mine, agents]))
+        .orderBy(outfit.id);
+      expect(origins).toEqual([
+        { id: mine, origin: 'person' },
+        { id: agents, origin: 'agent' },
+      ]);
+      const { kept } = await selectScalars(t.db, {
+        kept: savedOutfitsSql(t.owner.id, 'kept'),
+      });
+      expect(kept.map((row) => row.id)).toEqual(
+        expect.arrayContaining([mine, agents]),
+      );
     });
 
     it('a second tap changes nothing: one outfit, one entry, the wears once', async () => {
