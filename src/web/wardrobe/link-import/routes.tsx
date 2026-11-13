@@ -6,7 +6,7 @@ import { t } from '../../i18n';
 import type { WebOptions } from '../../plugin';
 import { renderFragment, renderPage } from '../../render';
 import { loggableUrl } from '../../loggable-url';
-import { LINK_IMPORT_LIMIT, tooManyAttempts } from '../../security/rate-limit';
+import { tooManyAttempts } from '../../security/rate-limit';
 import { garmentGuard } from '../garment-access';
 import { viewContext } from '../../view-context';
 import { resolveDestination } from '../destination';
@@ -19,6 +19,7 @@ import {
   fetchLinkPhoto,
   importLink,
   LinkImportError,
+  type LinkImportLimit,
   type LinkImportRefusal,
   REFUSALS,
 } from './import';
@@ -61,23 +62,21 @@ const LinkPhotoBody = Type.Object({
  * garment, which claims the pending photo; nothing is written to a garment
  * or `file` row before that. Adding is a write to the addressed wardrobe:
  * the owner or a MANAGE grantee (authorizeWardrobe). Both routes that fetch
- * share one per-user rate limit (linkImportLimit).
+ * share one per-user rate limit with the API's import (linkImportLimit).
  */
-export const linkImportRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
-  app,
-  options,
-  done,
-) => {
-  const { db, logger, photos, fetcher } = options;
+export const linkImportRoutes: FastifyPluginCallbackTypebox<
+  WebOptions & LinkImportLimit
+> = (app, options, done) => {
+  const { db, logger, photos, fetcher, linkImportLimit } = options;
   const authorize = garmentGuard(db);
   const importDeps = { db, fetcher, photos, logger };
-  // ONE counter for both routes that fetch: the import and its photo
-  // choice spend the same LINK_IMPORT_LIMIT. Never a route's
+  // `linkImportLimit` is ONE counter for every route that fetches: the
+  // import, its photo choice and the API's import spend the same
+  // LINK_IMPORT_LIMIT (webPlugin builds it). Never a route's
   // `config.rateLimit` beside it: every one of those, and every
   // createRateLimit call, gets a store of its own (LocalStore.child), so
   // each route would allow the full ten. A checker, not route config, also
   // lets the photo choice (an hx-post; htmx swaps no 429) answer its slot.
-  const linkImportLimit = app.createRateLimit(LINK_IMPORT_LIMIT);
   const writeDeps: WardrobeDeps = {
     db,
     photos,

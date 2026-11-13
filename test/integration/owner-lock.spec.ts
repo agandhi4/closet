@@ -4,6 +4,7 @@ import { and, asc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Queryable } from '../../src/db/client';
 import {
+  file,
   garment,
   inspiration,
   outfit,
@@ -35,7 +36,10 @@ import {
 } from '../../src/web/week-plan/queries';
 import { type ReplanDeps, replanToday } from '../../src/web/week-plan/replan';
 import { deleteAccount } from '../../src/web/auth/account';
-import { lockCutoutRowQuery } from '../../src/cutout/queries';
+import {
+  lockCutoutRowQuery,
+  lockCutoutRowsQuery,
+} from '../../src/cutout/queries';
 import { LOCKED_OWNERS_SETTING, ownerLockCte } from '../../src/db/owner-lock';
 import { REPAIR_KINDS } from '../../src/wardrobe/care';
 import {
@@ -57,7 +61,10 @@ import {
   lockGarmentQuery,
   updateGarmentProperties,
 } from '../../src/web/wardrobe/queries';
-import { insertPhotoRow } from '../../src/web/files/queries';
+import {
+  insertPhotoRow,
+  lockOwnersAndPhotoName,
+} from '../../src/web/files/queries';
 import { readGarmentForm } from '../../src/web/wardrobe/garment-input';
 import {
   createGarmentWithPendingPhoto,
@@ -67,7 +74,7 @@ import {
 import { saveInspirationWithPendingPhoto } from '../../src/web/inspiration/queries';
 import { setWoreToday } from '../../src/web/wears/queries';
 import { saveWeekTemplate } from '../../src/web/week-plan/template';
-import { createGarment, jpegPhoto } from './garments';
+import { createGarment, garmentRow, jpegPhoto } from './garments';
 import { createTestApp, type TestApp, asFixture, userIdOf } from './harness';
 import { interleave as interleaveOn } from './interleave';
 import { silentLogger } from './logger';
@@ -101,6 +108,7 @@ interface PlanNode {
   'Parent Relationship'?: string;
   'Relation Name'?: string;
   'Subplan Name'?: string;
+  'CTE Name'?: string;
   'One-Time Filter'?: string;
   Filter?: string;
   Output?: string[];
@@ -162,7 +170,9 @@ describe('the owner lock', () => {
    * row lock: the `owner_lock` CTE locks the user row, and `relation`'s
    * LockRows reads a scan gated on it (a one-time filter, evaluated before
    * the scan returns a row) or computing it in its own output (below the
-   * LockRows, so before the row is locked).
+   * LockRows, so before the row is locked): as an InitPlan, or as a
+   * SubPlan reading the CTE per row (lockCutoutRows' `max` over it reads
+   * every owner on the first row).
    */
   const expectOwnerLockFirst = async (query: SQL, relation: string) => {
     const plan = await planOf(query);
@@ -179,7 +189,8 @@ describe('the owner lock', () => {
         (node) =>
           node['One-Time Filter']?.includes('InitPlan') ||
           outputOf(node).includes('InitPlan') ||
-          outputOf(node).includes('owner_lock'),
+          outputOf(node).includes('owner_lock') ||
+          node['CTE Name'] === 'owner_lock',
       ),
       JSON.stringify(plan),
     ).toBe(true);
@@ -223,7 +234,8 @@ describe('the owner lock', () => {
   const interleave = <A, B>(
     first: (tx: Queryable) => Promise<A>,
     second: () => Promise<B>,
-  ) => interleaveOn(t.db, first, second);
+    meanwhile?: () => Promise<unknown>,
+  ) => interleaveOn(t.db, first, second, meanwhile);
 
   /** A saved outfit of the owner's, of these garments. */
   const outfitOf = async (garmentIds: number[]) => {
@@ -686,7 +698,7 @@ describe('the owner lock', () => {
   });
 
   describe('every synced write takes the owner lock first (#196a)', () => {
-    it('folds it ahead of the row locks of lockGarment, lockTrip, lockMembers and the cutout row', async () => {
+    it('folds it ahead of the row locks of lockGarment, lockTrip, lockMembers and the cutout rows', async () => {
       const lock = ownerLockCte(t.db, t.owner.id);
       await expectOwnerLockFirst(
         lockGarmentQuery(t.db, lock, tops[0], t.owner.id).getSQL(),
@@ -702,6 +714,13 @@ describe('the owner lock', () => {
       );
       await expectOwnerLockFirst(
         lockCutoutRowQuery(t.db, 'photo.webp').getSQL(),
+        'file',
+      );
+      // The retry's batch (#544): its owners are read per row beside the
+      // lock, so the lock must still run below the rows' LockRows, not
+      // above their sort.
+      await expectOwnerLockFirst(
+        lockCutoutRowsQuery(t.db, ['a.webp', 'b.webp']).getSQL(),
         'file',
       );
     });
@@ -836,18 +855,14 @@ describe('the owner lock', () => {
         },
       };
 
-      /** A transaction holding `fileName`'s pending row until `release`. */
-      const holdPendingRow = async (fileName: string) => {
+      /** A third transaction holding what `work` locked until `release`. */
+      const holdOpen = async (work: (tx: Queryable) => Promise<unknown>) => {
         let held!: () => void;
         const holding = new Promise<void>((resolve) => (held = resolve));
         let release!: () => void;
         const released = new Promise<void>((resolve) => (release = resolve));
         const holder = t.db.transaction(async (tx) => {
-          await tx
-            .select({ fileName: pendingPhoto.fileName })
-            .from(pendingPhoto)
-            .where(eq(pendingPhoto.fileName, fileName))
-            .for('update');
+          await work(tx);
           held();
           await released;
         });
@@ -859,6 +874,40 @@ describe('the owner lock', () => {
           },
         };
       };
+
+      const holdPendingRow = (fileName: string) =>
+        holdOpen((tx) =>
+          tx
+            .select({ fileName: pendingPhoto.fileName })
+            .from(pendingPhoto)
+            .where(eq(pendingPhoto.fileName, fileName))
+            .for('update'),
+        );
+
+      /** A third transaction holding a `file` row of `createdById`'s (no garment shows it). */
+      const holdPhotoRowOf = async (createdById: number) => {
+        const id = await asFixture(t.db, (tx) =>
+          insertPhotoRow(tx, {
+            fileName: `${randomUUID()}.webp`,
+            shareableId: randomUUID(),
+            createdOn: new Date().toISOString(),
+            createdById,
+          }),
+        );
+        return holdOpen((tx) =>
+          tx
+            .select({ id: file.id })
+            .from(file)
+            .where(eq(file.id, id))
+            .for('update'),
+        );
+      };
+
+      /** Whether `fileName`'s bytes are still stored. */
+      const stored = (fileName: string) => t.photos.storage.exists(fileName);
+
+      const deleteAccountOf = (userId: number) =>
+        deleteAccount({ db: t.db, photos: t.photos, logger: t.logger }, userId);
 
       describe.each(Object.entries(takers))('%s', (name, take) => {
         const email = (order: string) =>
@@ -875,10 +924,7 @@ describe('the owner lock', () => {
           const row = await holdPendingRow(fileName);
           const taken = take(saver, fileName);
           await expect.poll(lockWaiters).toBe(1);
-          const deletion = deleteAccount(
-            { db: t.db, photos: t.photos, logger: t.logger },
-            saver,
-          );
+          const deletion = deleteAccountOf(saver);
           await expect.poll(lockWaiters).toBe(2);
           await row.release();
           const [answer] = await Promise.all([taken, deletion]);
@@ -887,6 +933,11 @@ describe('the owner lock', () => {
           expect(
             await t.db.$count(pendingPhoto, eq(pendingPhoto.userId, saver)),
           ).toBe(0);
+          // The saved `file` row is the deletion's to unlink (#544): a
+          // delete folded into its lock statement read with the snapshot
+          // from before the wait, missed the row, and the cascade dropped
+          // it with its bytes left behind.
+          expect(await stored(fileName)).toBe(false);
         });
 
         // deleteUserAndFileRows' order, held between its owner lock and its
@@ -924,6 +975,217 @@ describe('the owner lock', () => {
             await t.db.$count(inspiration, eq(inspiration.ownerId, saver)),
           ).toBe(0);
         });
+      });
+
+      // A MANAGE grantee's save of their pending photo into the owner's
+      // wardrobe writes rows of two accounts: the uploader's pending row and
+      // the owner's garment and file row. It locks both, in id order, before
+      // either (lockOwnersAndPhotoName), so each account's deletion and the
+      // save take turns, whichever goes first, and never deadlock (#544).
+      describe("a grantee's save into the owner's wardrobe against either account's deletion", () => {
+        const accounts = async (order: string) => {
+          const { saver: grantee, fileName } = await saverWithPendingPhoto(
+            `grantee-${order}@example.com`,
+          );
+          await t.register(`wardrobe-${order}@example.com`);
+          const owner = await userIdOf(t, `wardrobe-${order}@example.com`);
+          return { grantee, owner, fileName };
+        };
+        const save = (owner: number, grantee: number, fileName: string) =>
+          createGarmentWithPendingPhoto(
+            deps(),
+            owner,
+            grantee,
+            fields(),
+            fileName,
+            'closet',
+          );
+        /** A third transaction holding the photo's name: a save stops behind its account locks. */
+        const holdName = (fileName: string) =>
+          holdOpen((tx) => lockOwnersAndPhotoName(tx, [t.owner.id], fileName));
+
+        // Locking only the owner, the save never held the uploader: the
+        // deletion took the pending row from under it and the save lost
+        // its photo.
+        it("an uploader's deletion waits for the save, which keeps the photo", async () => {
+          const { grantee, owner, fileName } = await accounts('uploader-later');
+          const name = await holdName(fileName);
+          const saved = save(owner, grantee, fileName);
+          await expect.poll(lockWaiters).toBe(1);
+          const deletion = deleteAccountOf(grantee);
+          await expect.poll(lockWaiters).toBe(2);
+          await name.release();
+          const [claimed, photos] = await Promise.all([saved, deletion]);
+          expect(photos).toBe(0);
+          expect(await garmentRow(t, claimed!.id)).toMatchObject({
+            ownerId: owner,
+            photo: { fileName, createdById: owner },
+          });
+          expect(await stored(fileName)).toBe(true);
+        });
+
+        // The deletion stops after its locks, at a photo row of the
+        // grantee's that a third transaction holds. Locking only the
+        // owner, the save took the pending row without waiting.
+        it("a save waits on its uploader's deletion and finds the photo gone", async () => {
+          const { grantee, owner, fileName } = await accounts('uploader-first');
+          const row = await holdPhotoRowOf(grantee);
+          const deletion = deleteAccountOf(grantee);
+          await expect.poll(lockWaiters).toBe(1);
+          const saved = save(owner, grantee, fileName);
+          await expect.poll(lockWaiters).toBe(2);
+          await row.release();
+          const [photos, claimed] = await Promise.all([deletion, saved]);
+          expect(claimed).toBeUndefined();
+          expect(photos).toBe(2);
+          expect(await stored(fileName)).toBe(false);
+          expect(await t.db.$count(garment, eq(garment.ownerId, owner))).toBe(
+            0,
+          );
+        });
+
+        // The save's file row is the owner's: the deletion that waited on
+        // it must see it, under its locks, and return its bytes.
+        it("an owner's deletion waits for the save and deletes its photo", async () => {
+          const { grantee, owner, fileName } = await accounts('owner-later');
+          const name = await holdName(fileName);
+          const saved = save(owner, grantee, fileName);
+          await expect.poll(lockWaiters).toBe(1);
+          const deletion = deleteAccountOf(owner);
+          await expect.poll(lockWaiters).toBe(2);
+          await name.release();
+          const [claimed, photos] = await Promise.all([saved, deletion]);
+          expect(claimed).toBeDefined();
+          expect(photos).toBe(1);
+          expect(await t.db.$count(file, eq(file.fileName, fileName))).toBe(0);
+          expect(await stored(fileName)).toBe(false);
+        });
+
+        // The save locked the grantee, not the owner, once the owner was
+        // gone: it is refused (every account or nothing), and the pending
+        // photo stays the grantee's.
+        it("a save waits on the owner's deletion and refuses, the photo still pending", async () => {
+          const { grantee, owner, fileName } = await accounts('owner-first');
+          const row = await holdPhotoRowOf(owner);
+          const deletion = deleteAccountOf(owner);
+          await expect.poll(lockWaiters).toBe(1);
+          const saved = save(owner, grantee, fileName);
+          await expect.poll(lockWaiters).toBe(2);
+          await row.release();
+          const [photos, claimed] = await Promise.all([deletion, saved]);
+          expect(photos).toBe(1);
+          expect(claimed).toBeUndefined();
+          expect(
+            await t.db.$count(
+              pendingPhoto,
+              eq(pendingPhoto.fileName, fileName),
+            ),
+          ).toBe(1);
+          expect(await stored(fileName)).toBe(true);
+        });
+      });
+
+      // Two deletions whose lock sets overlap: the uploader's takes the
+      // owner showing its photo too. Each takes its whole set in one
+      // statement, in id order, so either may go first.
+      describe.each(['uploader', 'owner'] as const)(
+        "two deletions sharing an owner's lock, the %s's first",
+        (first) => {
+          it('take turns, never a deadlock', async () => {
+            await t.register(`two-uploader-${first}@example.com`);
+            const uploader = await userIdOf(
+              t,
+              `two-uploader-${first}@example.com`,
+            );
+            const cookie = await t.register(`two-owner-${first}@example.com`);
+            const owner = await userIdOf(t, `two-owner-${first}@example.com`);
+            const shown = await createGarment(t, {
+              name: 'Shown',
+              category: 'tops',
+              cookie,
+            });
+            const photoId = await asFixture(t.db, async (tx) => {
+              const id = await insertPhotoRow(tx, {
+                fileName: `${randomUUID()}.webp`,
+                shareableId: randomUUID(),
+                createdOn: new Date().toISOString(),
+                createdById: uploader,
+              });
+              await tx
+                .update(garment)
+                .set({ photoId: id })
+                .where(eq(garment.id, shown));
+              return id;
+            });
+            const [held, second] =
+              first === 'uploader' ? [uploader, owner] : [owner, uploader];
+            // The first deletion stops after its locks, at a photo row of
+            // its account's.
+            const row =
+              first === 'uploader'
+                ? await holdOpen((tx) =>
+                    tx
+                      .select({ id: file.id })
+                      .from(file)
+                      .where(eq(file.id, photoId))
+                      .for('update'),
+                  )
+                : await holdPhotoRowOf(owner);
+            const deletion = deleteAccountOf(held);
+            await expect.poll(lockWaiters).toBe(1);
+            const other = deleteAccountOf(second);
+            await expect.poll(lockWaiters).toBe(2);
+            await row.release();
+            await Promise.all([deletion, other]);
+            expect(
+              await t.db.$count(user, inArray(user.id, [uploader, owner])),
+            ).toBe(0);
+            expect(await t.db.$count(file, eq(file.id, photoId))).toBe(0);
+          });
+        },
+      );
+
+      // The acceptance of #544: a garment comes to show the account's
+      // photo after its deletion's lock read the owner set (no writer
+      // makes such a row since #40; a fixture stands in). The deletes,
+      // under the locks, read the set again, find an owner they did not
+      // lock, and the deletion locks again with it. Folded into the lock's
+      // statement, the delete never saw the row, and the cascade emptied
+      // that owner's photo_id unlocked: the sync guard refused it.
+      it('an account deletion locks again for an owner whose garment came to show its photo while it waited', async () => {
+        await t.register('grew-uploader@example.com');
+        const uploader = await userIdOf(t, 'grew-uploader@example.com');
+        const cookie = await t.register('grew-owner@example.com');
+        const owner = await userIdOf(t, 'grew-owner@example.com');
+        const shown = await createGarment(t, {
+          name: 'Shown later',
+          category: 'tops',
+          cookie,
+        });
+        const [, photos] = await interleave(
+          (tx) => lockOwner(tx, uploader),
+          () => deleteAccountOf(uploader),
+          () =>
+            t.db.transaction(async (tx) => {
+              await lockOwner(tx, owner);
+              const photoId = await insertPhotoRow(tx, {
+                fileName: `${randomUUID()}.webp`,
+                shareableId: randomUUID(),
+                createdOn: new Date().toISOString(),
+                createdById: uploader,
+              });
+              await tx
+                .update(garment)
+                .set({ photoId })
+                .where(eq(garment.id, shown));
+            }),
+        );
+        expect(photos).toBe(1);
+        const [row] = await t.db
+          .select({ photoId: garment.photoId })
+          .from(garment)
+          .where(eq(garment.id, shown));
+        expect(row).toEqual({ photoId: null });
       });
     });
   });

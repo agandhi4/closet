@@ -15,6 +15,7 @@ interface Operation {
   operationId?: string;
   tags?: string[];
   security?: unknown[];
+  requestBody?: { required: boolean; content: Record<string, unknown> };
   responses: Record<string, { content?: Record<string, { schema: unknown }> }>;
 }
 
@@ -74,6 +75,30 @@ describe('the OpenAPI spec', () => {
         });
       }
     }
+  });
+
+  it('leaves out only the bodies that may be absent (#546), and says which are multipart', () => {
+    const bodies = operations(generated as Spec).filter(
+      ([, operation]) => operation.requestBody,
+    );
+    const optional = bodies
+      .filter(([, operation]) => !operation.requestBody!.required)
+      .map(([name]) => name);
+    // Union([Object, Null]): Fastify validates an absent body as null.
+    expect(optional.sort()).toEqual([
+      'POST /api/v1/garments/{id}/clones',
+      'POST /api/v1/garments/{id}/copies',
+    ]);
+    const multipart = bodies
+      .filter(
+        ([, operation]) =>
+          'multipart/form-data' in operation.requestBody!.content,
+      )
+      .map(([name]) => name);
+    expect(multipart.sort()).toEqual([
+      'PUT /api/v1/garments/{id}/photo',
+      'PUT /api/v1/garments/{id}/photo/cutout',
+    ]);
   });
 
   it('asks for the device token everywhere but the sign-in and the spec itself', () => {

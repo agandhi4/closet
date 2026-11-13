@@ -1,30 +1,11 @@
 import { HttpError } from '../../errors';
-import { t } from '../../i18n';
-import { normalizeCategory } from '../../wardrobe/garment';
-import {
-  importLink,
-  type LinkImport,
-  LinkImportError,
-  REFUSALS,
-} from '../../wardrobe/link-import/import';
-import { importedForm } from '../../wardrobe/link-import/prefill';
 import type { FieldErrors } from '../../auth/validation';
+import type { GarmentField } from '../../wardrobe/garment-input';
 import {
-  formPost,
-  type GarmentField,
-  type GarmentFields,
-  type GarmentFormValues,
-  readGarmentForm,
-  withPresets,
-} from '../../wardrobe/garment-input';
-import {
-  createGarment,
-  createGarmentWithPendingPhoto,
-  discardPendingPhoto,
-  type WardrobeDeps,
-  type WithGarment,
-} from '../../wardrobe/writes';
-import type { EntryStatus } from '../../../wardrobe/status';
+  type LinkOverrides,
+  type LinkSaveOptions,
+  saveGarmentFromLink,
+} from '../../wardrobe/link-import/save';
 import type { WardrobeAccess } from '../../sharing/access';
 import type { ToolContext } from '../tool';
 
@@ -39,181 +20,35 @@ export function refusedForm(errors: FieldErrors<GarmentField>): HttpError {
   return new HttpError(400, messages.join('; '));
 }
 
-/** What the caller may say instead of the page. */
-export interface LinkOverrides {
-  url: string;
-  /** Where it lands (the tool's default is the wishlist). */
-  destination: EntryStatus;
-  /** A wishlist item's replaced garment (stored only if the owner's; replacementOf). */
-  replacesGarmentId?: number;
-  name?: string;
-  category?: string;
-  type?: string;
-  size?: string;
-  /** The listed price, '149.00' (the form's own field: it validates it). */
-  price?: string;
-  notes?: string;
-}
-
-/** More rows the save writes with the garment (suggest_garment's provenance, #337). */
-export interface LinkSaveOptions {
-  withGarment?: WithGarment;
-}
-
 /**
- * add_garment_from_link: the link import (#6) and the garment form's save
- * in one step, with nobody to review the form. importLink fetches through
- * the outbound fetcher and stores the first readable photo as the caller's
- * pending photo; importedForm prefills the form as the page does; the
- * caller's overrides replace fields (a new category or type brings its
- * presets, as the form's chips do); then the form's own post goes through
- * readGarmentForm and the save that claims the photo
- * (createGarmentWithPendingPhoto). A refused form discards the photo it
- * fetched. The photo choices the page would offer are not: the first is
- * kept, and the garment page changes it.
- *
- * Lands where the caller says (add_garment_from_link defaults to the
- * wishlist, #18). suggest_garment (#337) saves through it too, the
- * suggestion's provenance written in the garment's transaction
- * (`withGarment`: markSuggestion, whose refusal rolls the garment back).
+ * add_garment_from_link and suggest_garment's save: the link import and
+ * the garment form's save in one step (saveGarmentFromLink, which the
+ * API's link import shares), a refused form as the tool's 400. Lands where
+ * the caller says (add_garment_from_link defaults to the wishlist, #18);
+ * suggest_garment (#337) writes the suggestion's provenance in the
+ * garment's transaction (`withGarment`: markSuggestion, whose refusal rolls
+ * the garment back).
  */
 export async function addGarmentFromLink(
   ctx: ToolContext,
-  { ownerId, isOwner }: Pick<WardrobeAccess, 'ownerId' | 'isOwner'>,
+  access: Pick<WardrobeAccess, 'ownerId' | 'isOwner'>,
   overrides: LinkOverrides,
-  { withGarment }: LinkSaveOptions = {},
+  options: LinkSaveOptions = {},
 ): Promise<{ id: number; notices: string[] }> {
-  const deps: WardrobeDeps = {
-    db: ctx.db,
-    photos: ctx.photos,
-    logger: ctx.webLogger,
-    cutouts: ctx.cutouts,
-  };
-  let imported: LinkImport;
-  try {
-    imported = await importLink(
-      { ...deps, fetcher: ctx.fetcher },
-      overrides.url,
-      ctx.userId,
-    );
-  } catch (error) {
-    if (!(error instanceof LinkImportError)) throw error;
-    ctx.webLogger.warn(
-      `Link import by user ${ctx.userId} (MCP) refused (${error.reason})`,
-    );
-    const refusal = REFUSALS[error.reason];
-    // The fetch's failures are the shop's (502s); a tool call is refused.
-    // The reason leads, so the agent can act on it (`blocked-by-site`: the
-    // shop refuses automated fetches, so another retailer, not a retry; #347).
-    throw new HttpError(
-      refusal.status < 500 ? refusal.status : 422,
-      `${error.reason}: ${t(refusal.message)}`,
-    );
-  }
-  const form = importedForm(imported, overrides.url);
-  const photo = form.link.photo;
-  const posted = formPost(withOverrides(form.values, overrides));
-  const read = readGarmentForm(posted, { owner: isOwner });
-  if (!read.ok) {
-    if (photo) {
-      await discardPendingPhoto(deps, photo, { userId: ctx.userId, ownerId });
-    }
-    throw refusedForm(read.errors);
-  }
-  let id: number | undefined;
-  try {
-    id = await saveImported(deps, ownerId, ctx.userId, read.fields, {
-      photo,
-      destination: overrides.destination,
-      withGarment,
-    });
-  } catch (error) {
-    // A refusal from `withGarment` (suggest_garment's mark) rolled the
-    // garment back: its photo is nobody's, like a refused form's. A
-    // failed discard is logged; the refusal is still the answer.
-    if (photo) {
-      await discardPendingPhoto(deps, photo, {
-        userId: ctx.userId,
-        ownerId,
-      }).catch((discardError: unknown) => {
-        ctx.webLogger.error(
-          { err: discardError },
-          `Pending photo ${photo} of user ${ctx.userId} not discarded after a refused save (MCP)`,
-        );
-      });
-    }
-    throw error;
-  }
-  if (id === undefined) {
-    // Claimed or evicted between the import and the save (the same user's
-    // tenth import meanwhile): nothing was written.
-    throw new HttpError(409, t('linkImport.PHOTO_GONE'));
-  }
-  ctx.webLogger.info(
-    `Garment ${id} added from a link by user ${ctx.userId} into wardrobe ${ownerId} (${overrides.destination}, MCP): ${imported.kind}${photo ? `, photo ${photo}` : ', no photo'}`,
+  const saved = await saveGarmentFromLink(
+    {
+      db: ctx.db,
+      photos: ctx.photos,
+      logger: ctx.webLogger,
+      cutouts: ctx.cutouts,
+      fetcher: ctx.fetcher,
+    },
+    ctx.userId,
+    access,
+    overrides,
+    'MCP',
+    options,
   );
-  return { id, notices: form.link.notices };
-}
-
-/**
- * The imported garment saved in `ownerId`'s wardrobe, claiming its pending
- * photo when it has one; undefined when that photo was claimed or evicted
- * meanwhile (nothing was written).
- */
-async function saveImported(
-  deps: WardrobeDeps,
-  ownerId: number,
-  userId: number,
-  fields: GarmentFields,
-  {
-    photo,
-    destination,
-    withGarment,
-  }: {
-    photo: string | undefined;
-    destination: EntryStatus;
-    withGarment: WithGarment | undefined;
-  },
-): Promise<number | undefined> {
-  if (!photo) {
-    return createGarment(deps, ownerId, fields, destination, withGarment);
-  }
-  const claimed = await createGarmentWithPendingPhoto(
-    deps,
-    ownerId,
-    userId,
-    fields,
-    photo,
-    destination,
-    withGarment,
-  );
-  return claimed?.id;
-}
-
-function withOverrides(
-  values: GarmentFormValues,
-  overrides: LinkOverrides,
-): GarmentFormValues {
-  const category =
-    overrides.category === undefined
-      ? values.category
-      : normalizeCategory(overrides.category);
-  const type = overrides.type ?? values.properties.type;
-  const kindChanged =
-    category !== values.category || type !== values.properties.type;
-  return {
-    ...values,
-    name: overrides.name ?? values.name,
-    category,
-    size: overrides.size ?? values.size,
-    price: overrides.price ?? values.price,
-    notes: overrides.notes ?? values.notes,
-    replaces:
-      overrides.replacesGarmentId === undefined
-        ? values.replaces
-        : String(overrides.replacesGarmentId),
-    properties: kindChanged
-      ? withPresets({ ...values.properties, type }, category)
-      : values.properties,
-  };
+  if (!saved.ok) throw refusedForm(saved.errors);
+  return { id: saved.id, notices: saved.notices };
 }

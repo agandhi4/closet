@@ -1,4 +1,4 @@
-import { eq, type SQL, sql } from 'drizzle-orm';
+import { count, eq, type SQL, sql } from 'drizzle-orm';
 import { CUTOUT_QUEUED_NOTIFY } from '../../cutout/queries';
 import {
   type CutoutStatus,
@@ -6,7 +6,7 @@ import {
   showsCutout,
 } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
-import { ownerLockCte } from '../../db/owner-lock';
+import { ownersLockCte } from '../../db/owner-lock';
 import { file, garment } from '../../db/schema';
 import { currentRequest } from '../../request-context';
 import { unkeyedPhoto } from './image-variant';
@@ -175,36 +175,42 @@ export async function insertPhotoRow(
  * garment's or a look's save, or discarded). A row cannot be locked before
  * it exists, so the name itself is: a transaction-scoped advisory lock,
  * released at commit or rollback. Taken only behind an owner lock
- * (lockOwnerAndPhotoName).
+ * (lockOwnersAndPhotoName).
  */
 function photoNameLock(fileName: string): SQL<void> {
   return sql<void>`pg_advisory_xact_lock(hashtext(${`closet:photo:${fileName}`}))`;
 }
 
 /**
- * The name's lock (photoNameLock) behind `ownerId`'s owner lock in the
- * same statement (src/db/owner-lock.ts): the owner, then the name, before
- * a claim or a discard takes the pending row. The one way to lock a name,
- * so every taker orders the two as account deletion does (the owner
- * before their pending rows): one that held the row and then waited on
- * the owner would deadlock with it, and one that never waited would save a
- * `file` row the deletion's cascade drops without its bytes. False when
- * the owner is gone (locked nothing): their pending rows went with them.
- * Callers: createGarmentWithPendingPhoto and discardPendingPhoto
- * (src/web/wardrobe/writes.ts), saveInspirationWithPendingPhoto
- * (src/web/inspiration/queries.ts).
+ * The name's lock (photoNameLock) behind the owner locks of `accountIds`
+ * in the same statement (ownersLockCte, src/db/owner-lock.ts): every
+ * account whose rows the transaction writes, in id order, then the name,
+ * before a claim or a discard takes the pending row. The accounts are the
+ * pending row's (its uploader: their account deletion deletes it) and,
+ * for a save, the wardrobe's owner (the garment and its `file` row): a
+ * MANAGE grantee's save names both (#544). The one way to lock a name, so
+ * every taker orders itself against each account's deletion: a taker that
+ * held the row and then waited on an account would deadlock with it, and
+ * one that never waited would race it (src/db/AGENTS.md). False unless
+ * every account was locked: one is gone, and their pending rows or their
+ * wardrobe with them. Callers: createGarmentWithPendingPhoto and
+ * discardPendingPhoto (src/web/wardrobe/writes.ts),
+ * saveInspirationWithPendingPhoto (src/web/inspiration/queries.ts).
  */
-export async function lockOwnerAndPhotoName(
+export async function lockOwnersAndPhotoName(
   tx: Queryable,
-  ownerId: number,
+  accountIds: readonly number[],
   fileName: string,
 ): Promise<boolean> {
-  const lock = ownerLockCte(tx, ownerId);
-  const locked = await tx
+  const accounts = [...new Set(accountIds)];
+  const lock = ownersLockCte(tx, accounts);
+  // One row: the aggregate reads (locks) every owner, then its select
+  // list takes the name, once.
+  const [locked] = await tx
     .with(lock)
-    .select({ name: photoNameLock(fileName) })
+    .select({ owners: count(), name: photoNameLock(fileName) })
     .from(lock);
-  return locked.length > 0;
+  return locked.owners === accounts.length;
 }
 
 export async function photoRowExists(

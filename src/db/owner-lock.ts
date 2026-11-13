@@ -1,4 +1,4 @@
-import { count, eq, type SQL, sql } from 'drizzle-orm';
+import { count, eq, inArray, is, SQL, sql } from 'drizzle-orm';
 import type { Queryable } from './client';
 import { user } from './schema';
 
@@ -87,15 +87,33 @@ export function ownerLockCte(db: Queryable, ownerId: number) {
 }
 
 /**
- * ownerLockCte for the owners of a set of rows (`ownerIds`, a subquery of
- * owner ids): each locked, in id order, and marked. A job's write over
- * several owners' rows (the cutout retry) or over a row whose owner it
- * learns from the row (a garment's photo).
+ * ownerLockCte for several owners: each locked, in id order, and marked.
+ * `ownerIds` is a subquery of owner ids (a job's write over several
+ * owners' rows, the cutout retry; a row whose owner it learns from the
+ * row, a garment's photo; account deletion's set) or the ids themselves
+ * (a write into one account's rows from another's: a grantee's save of
+ * their pending photo, lockOwnersAndPhotoName).
+ *
+ * **One global order**: every transaction takes all the owner locks it
+ * will hold in this one statement, ascending, before any other lock. A
+ * transaction that locked some and then another in a later statement
+ * could hold a higher id while waiting on a lower one's holder, which
+ * waits on it (src/db/AGENTS.md, The owner lock's statement).
  */
-export function ownersLockCte(db: Queryable, ownerIds: SQL) {
+export function ownersLockCte(
+  db: Queryable,
+  ownerIds: SQL | readonly number[],
+) {
   return db
     .$with(OWNER_LOCK_CTE)
-    .as(ownerLockSelect(db, sql`${user.id} in (${ownerIds})`));
+    .as(
+      ownerLockSelect(
+        db,
+        is(ownerIds, SQL)
+          ? sql`${user.id} in (${ownerIds})`
+          : inArray(user.id, [...ownerIds]),
+      ),
+    );
 }
 
 /**

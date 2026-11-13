@@ -31,6 +31,14 @@ export const OPERATIONS = [
   'addGarmentCopies',
   'tagGarment',
   'bulkUpdateGarments',
+  // #192c: the photo, the repair log and the link import.
+  'replaceGarmentPhoto',
+  'rotateGarmentPhoto',
+  'saveGarmentCutout',
+  'retryGarmentCutout',
+  'logGarmentRepair',
+  'deleteGarmentRepair',
+  'importGarmentFromLink',
 ] as const;
 export type OperationId = (typeof OPERATIONS)[number];
 
@@ -43,8 +51,6 @@ export function isOperationId(id: string): id is OperationId {
  * 6). An issue leaves this list when its last pending route does.
  */
 type EndpointIssue =
-  /** Wardrobe: garments, photos, link import, tagging. */
-  | '#192'
   /** Outfits, styling, ideas, the calendar, wears, the week plan, selfies. */
   | '#193'
   /** Trips and packing, the wishlist, capsules. */
@@ -102,6 +108,10 @@ const BROWSER_TELEMETRY = {
 const FORM_FRAGMENT = {
   webOnly: "redraws part of a page's form and writes nothing",
 } as const;
+const FORM_STAGING = {
+  webOnly:
+    "stages a photo for the add form a person reviews before saving: the API saves at once (POST /garments, POST /garments/link-imports) and a garment's photo is PUT /garments/{id}/photo (plan section 7)",
+} as const;
 
 type WriteMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -140,18 +150,20 @@ export const PAGE_WRITES: Readonly<
   'POST /wardrobe/:id/clone': { api: 'cloneGarment' },
   'POST /wardrobe/:id/copies': { api: 'addGarmentCopies' },
   'POST /wardrobe/:id/condition': { api: 'setGarmentCondition' },
-  'POST /wardrobe/:id/repairs': { pending: '#192' },
-  'POST /wardrobe/:id/repairs/:repairId/delete': { pending: '#192' },
+  'POST /wardrobe/:id/repairs': { api: 'logGarmentRepair' },
+  'POST /wardrobe/:id/repairs/:repairId/delete': {
+    api: 'deleteGarmentRepair',
+  },
   'POST /wardrobe/:id/tag': { api: 'tagGarment' },
   'POST /wardrobe/bulk': { api: 'bulkUpdateGarments' },
-  'POST /wardrobe/:id/photo': { pending: '#192' },
-  'POST /wardrobe/:id/photo/rotate': { pending: '#192' },
-  'POST /wardrobe/:id/nobg': { pending: '#192' },
-  'POST /wardrobe/:id/cutout/retry': { pending: '#192' },
-  'POST /wardrobe/new/photo': { pending: '#192' },
+  'POST /wardrobe/:id/photo': { api: 'replaceGarmentPhoto' },
+  'POST /wardrobe/:id/photo/rotate': { api: 'rotateGarmentPhoto' },
+  'POST /wardrobe/:id/nobg': { api: 'saveGarmentCutout' },
+  'POST /wardrobe/:id/cutout/retry': { api: 'retryGarmentCutout' },
+  'POST /wardrobe/new/photo': FORM_STAGING,
   'POST /wardrobe/new/drafts/discard': MULTI_ADD,
-  'POST /wardrobe/new/from-link': { pending: '#192' },
-  'POST /wardrobe/new/from-link/photo': { pending: '#192' },
+  'POST /wardrobe/new/from-link': { api: 'importGarmentFromLink' },
+  'POST /wardrobe/new/from-link/photo': FORM_STAGING,
   'POST /wardrobe/orders/:id/add': ORDER_MAIL,
   'POST /wardrobe/orders/:id/dismiss': ORDER_MAIL,
 
@@ -274,7 +286,7 @@ const MUSE_ROUND = {
 export const MCP_WRITES: Readonly<Record<string, ToolParity>> = {
   update_garment: { api: 'updateGarment' },
   add_garment_copy: { api: 'addGarmentCopies' },
-  add_garment_from_link: { pending: '#192' },
+  add_garment_from_link: { api: 'importGarmentFromLink' },
   create_outfit: { pending: '#193' },
   schedule_outfit: { pending: '#193' },
   pick_outfit: { pending: '#193' },

@@ -8,12 +8,13 @@ import { Problem } from '../problem';
 import { API_LIMIT, enforceLimit } from '../security/rate-limit';
 import { API_PREFIX } from '../surface';
 import { wardrobeApiRoutes } from '../wardrobe/api-routes';
+import type { LinkImportLimit } from '../wardrobe/link-import/import';
 import { apiResponses, requireContract } from './contract';
 import spec from './openapi.json';
 import { createDeviceTokenHook, refuseQueryToken } from './token-auth';
 import { jsonApiValidator } from './validator';
 
-export type ApiOptions = WebOptions & SignInLimit;
+export type ApiOptions = WebOptions & SignInLimit & LinkImportLimit;
 
 /**
  * Registers apiPlugin under API_PREFIX (webPlugin, scripts/api-spec.ts).

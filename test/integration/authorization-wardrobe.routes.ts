@@ -134,6 +134,16 @@ export const ROUTES: Route[] = [
       viewer: 'forbidden',
       stranger: 'notFound',
     },
+    // The API saves the import at once (MCP's add_garment_from_link): an
+    // image link names no category, so the request gives one.
+    api: {
+      ok: 201,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/garments/link-imports${q}`,
+        payload: { url: f.shopPhotoUrl, category: 'tops' },
+      }),
+    },
   },
   {
     name: 'POST /wardrobe/new/from-link/photo',
@@ -470,6 +480,26 @@ export const ROUTES: Route[] = [
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: async (f, q) => {
+        const body = await multipart(
+          {},
+          {
+            photo: {
+              data: f.photo,
+              filename: 'photo.jpg',
+              contentType: 'image/jpeg',
+            },
+          },
+        );
+        return {
+          method: 'PUT',
+          url: `/api/v1/garments/${f.garmentId}/photo${q}`,
+          ...body,
+        };
+      },
+    },
   },
   {
     // A turned copy replaces the photo (#199); the snapshot includes
@@ -489,6 +519,14 @@ export const ROUTES: Route[] = [
       manager: ['notFound', 'ok'],
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/garments/${f.garmentId}/photo/rotations${q}`,
+        payload: { direction: 'right' },
+      }),
     },
   },
   {
@@ -519,6 +557,26 @@ export const ROUTES: Route[] = [
       manager: ['notFound', 'ok'],
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: async (f, q) => {
+        const body = await multipart(
+          {},
+          {
+            cutout: {
+              data: f.cutout,
+              filename: 'cutout.png',
+              contentType: 'image/png',
+            },
+          },
+        );
+        return {
+          method: 'PUT',
+          url: `/api/v1/garments/${f.garmentId}/photo/cutout${q}`,
+          ...body,
+        };
+      },
     },
   },
   {
@@ -555,6 +613,13 @@ export const ROUTES: Route[] = [
       manager: ['notFound', 'ok'],
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/garments/${f.garmentId}/photo/cutout/retries${q}`,
+      }),
     },
   },
   // The wishlist (#18): shared like capsules. Without ?ownerId a grantee
@@ -828,6 +893,14 @@ export const ROUTES: Route[] = [
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
     },
+    api: {
+      ok: 201,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/garments/${f.garmentId}/repairs${q}`,
+        payload: { day: f.today, kind: 'alteration', note: 'Planted hem' },
+      }),
+    },
   },
   {
     name: 'POST /wardrobe/:id/repairs/:repairId/delete',
@@ -844,6 +917,13 @@ export const ROUTES: Route[] = [
       manager: ['notFound', 'forbidden'],
       viewer: ['notFound', 'forbidden'],
       stranger: 'notFound',
+    },
+    api: {
+      ok: 204,
+      request: (f, q) => ({
+        method: 'DELETE',
+        url: `/api/v1/garments/${f.garmentId}/repairs/${f.repairId}${q}`,
+      }),
     },
   },
   {

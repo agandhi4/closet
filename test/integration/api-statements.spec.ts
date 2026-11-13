@@ -1,9 +1,18 @@
 import type { InjectOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { deviceToken, SIGN_IN_URL, signInDevice } from './api';
-import { createGarment } from './garments';
+import { failCutout } from './cutouts';
+import { jpeg, type LinkSites, startLinkSites } from './link-sites';
+import {
+  createGarment,
+  jpegPhoto,
+  photoFileName,
+  pngCutout,
+  uploadPhoto,
+} from './garments';
 import {
   createTestApp,
+  multipart,
   recordQueries,
   TEST_PASSWORD,
   type TestApp,
@@ -20,13 +29,16 @@ import {
  */
 
 let t: TestApp;
+let sites: LinkSites;
 
 beforeAll(async () => {
-  t = await createTestApp();
+  sites = await startLinkSites();
+  t = await createTestApp({}, { outboundFetch: sites.outboundFetch });
 });
 
 afterAll(async () => {
-  await t.cleanup();
+  await t?.cleanup();
+  await sites?.close();
 });
 
 async function statementsOf(work: () => Promise<{ statusCode: number }>) {
@@ -296,6 +308,184 @@ describe('API statements per route', () => {
       expect([pageRun.status, apiRun.status]).toEqual(ok);
       expect(apiRun.statements).toBe(pageRun.statements + extra);
     });
+  });
+
+  describe('the photo and the repair log: what their page twins cost (#192c)', () => {
+    let token: string;
+    let photo: Buffer;
+    let cutout: Buffer;
+
+    beforeAll(async () => {
+      token = (await deviceToken(t)).token;
+      [photo, cutout] = await Promise.all([
+        jpegPhoto(320, 240),
+        pngCutout(320, 240),
+      ]);
+    });
+
+    const file = (
+      name: string,
+      data: Buffer,
+      filename: string,
+      contentType: string,
+    ) => multipart({}, { [name]: { data, filename, contentType } });
+
+    /** A garment with a photo (`photo`), its cutout failed too (`failed`), or neither. */
+    type Setup = 'bare' | 'photo' | 'failed';
+
+    /**
+     * Each write's page twin and its API request, each on a garment of its
+     * own: the same domain function, so the same statements. A repair
+     * entry is logged first where the write removes one.
+     */
+    const CASES: {
+      name: string;
+      setup: Setup;
+      ok: [page: number, api: number];
+      page: (
+        id: number,
+        repairId: number,
+      ) => InjectOptions | Promise<InjectOptions>;
+      api: (
+        id: number,
+        repairId: number,
+      ) => InjectOptions | Promise<InjectOptions>;
+    }[] = [
+      {
+        name: 'PUT /garments/{id}/photo (POST /wardrobe/:id/photo)',
+        setup: 'bare',
+        ok: [303, 200],
+        page: async (id) => ({
+          method: 'POST',
+          url: `/wardrobe/${id}/photo`,
+          ...(await file('photo', photo, 'photo.jpg', 'image/jpeg')),
+        }),
+        api: async (id) => ({
+          method: 'PUT',
+          url: `/api/v1/garments/${id}/photo`,
+          ...(await file('photo', photo, 'photo.jpg', 'image/jpeg')),
+        }),
+      },
+      {
+        name: 'POST /garments/{id}/photo/rotations (POST /wardrobe/:id/photo/rotate)',
+        setup: 'photo',
+        ok: [303, 200],
+        page: (id) => ({
+          method: 'POST',
+          url: `/wardrobe/${id}/photo/rotate`,
+          payload: { direction: 'right' },
+        }),
+        api: (id) => ({
+          method: 'POST',
+          url: `/api/v1/garments/${id}/photo/rotations`,
+          payload: { direction: 'right' },
+        }),
+      },
+      {
+        name: 'PUT /garments/{id}/photo/cutout (POST /wardrobe/:id/nobg)',
+        setup: 'photo',
+        ok: [200, 200],
+        page: async (id) => ({
+          method: 'POST',
+          url: `/wardrobe/${id}/nobg`,
+          ...(await file('nobgPhoto', cutout, 'cutout.png', 'image/png')),
+        }),
+        api: async (id) => ({
+          method: 'PUT',
+          url: `/api/v1/garments/${id}/photo/cutout`,
+          ...(await file('cutout', cutout, 'cutout.png', 'image/png')),
+        }),
+      },
+      {
+        name: 'POST /garments/{id}/photo/cutout/retries (POST /wardrobe/:id/cutout/retry)',
+        setup: 'failed',
+        ok: [303, 200],
+        page: (id) => ({
+          method: 'POST',
+          url: `/wardrobe/${id}/cutout/retry`,
+        }),
+        api: (id) => ({
+          method: 'POST',
+          url: `/api/v1/garments/${id}/photo/cutout/retries`,
+        }),
+      },
+      {
+        name: 'POST /garments/{id}/repairs (POST /wardrobe/:id/repairs)',
+        setup: 'bare',
+        ok: [303, 201],
+        page: (id) => ({
+          method: 'POST',
+          url: `/wardrobe/${id}/repairs`,
+          payload: { day: t.today(), kind: 'repair', note: 'Counted' },
+        }),
+        api: (id) => ({
+          method: 'POST',
+          url: `/api/v1/garments/${id}/repairs`,
+          payload: { day: t.today(), kind: 'repair', note: 'Counted' },
+        }),
+      },
+      {
+        name: 'DELETE /garments/{id}/repairs/{repairId} (POST /wardrobe/:id/repairs/:repairId/delete)',
+        setup: 'bare',
+        ok: [303, 204],
+        page: (id, repairId) => ({
+          method: 'POST',
+          url: `/wardrobe/${id}/repairs/${repairId}/delete`,
+        }),
+        api: (id, repairId) => ({
+          method: 'DELETE',
+          url: `/api/v1/garments/${id}/repairs/${repairId}`,
+        }),
+      },
+    ];
+
+    /** A garment as `setup` says, with a repair entry logged on it. */
+    const garmentFor = async (setup: Setup) => {
+      const id = await createGarment(t, { name: 'Counted', category: 'tops' });
+      if (setup !== 'bare') await uploadPhoto(t, id, photo);
+      if (setup === 'failed') await failCutout(t, await photoFileName(t, id));
+      const logged = await t.api(token, {
+        method: 'POST',
+        url: `/api/v1/garments/${id}/repairs`,
+        payload: { day: t.today(), kind: 'repair', note: 'To remove' },
+      });
+      return { id, repairId: logged.json<{ id: number }>().id };
+    };
+
+    it.each(CASES)('$name', async ({ setup, ok, page, api }) => {
+      const [onPage, onApi] = [
+        await garmentFor(setup),
+        await garmentFor(setup),
+      ];
+      const pageRequest = await page(onPage.id, onPage.repairId);
+      const pageRun = await statementsOf(() => t.inject(pageRequest));
+      const apiRequest = await api(onApi.id, onApi.repairId);
+      // A second call of the minute: no last-use write.
+      await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      const apiRun = await statementsOf(() => t.api(token, apiRequest));
+      expect([pageRun.status, apiRun.status]).toEqual(ok);
+      expect(apiRun.statements).toBe(pageRun.statements);
+    });
+  });
+
+  it('POST /garments/link-imports: the token, the pending photo kept, the claim; no read back', async () => {
+    const { token } = await deviceToken(t);
+    sites.serve('/counted.jpg', jpeg(await jpegPhoto(320, 240)));
+    await t.api(token, { method: 'GET', url: '/api/v1/me' });
+    const run = await statementsOf(() =>
+      t.api(token, {
+        method: 'POST',
+        url: '/api/v1/garments/link-imports',
+        payload: { url: sites.url('/counted.jpg'), category: 'tops' },
+      }),
+    );
+    // The token; the fetched photo kept as a pending photo (its own
+    // transaction, keepPendingPhoto); the claim (createGarmentWithPending
+    // Photo: the name's lock, the pending row taken, the file row and the
+    // garment). Its page twin answers the prefilled form unsaved, so no
+    // count compares; its MCP twin (add_garment_from_link, 13) also reads
+    // the garment back and looks for lookalikes.
+    expect(run).toMatchObject({ status: 201, statements: 11 });
   });
 
   it('GET /openapi.json: none', async () => {

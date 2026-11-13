@@ -253,6 +253,14 @@ export function lockCutoutRows(
   tx: Queryable,
   fileNames: readonly string[],
 ): Promise<CutoutRow[]> {
+  return lockCutoutRowsQuery(tx, fileNames);
+}
+
+/** lockCutoutRows' statement, exported for owner-lock.spec.ts, which EXPLAINs it. */
+export function lockCutoutRowsQuery(
+  tx: Queryable,
+  fileNames: readonly string[],
+) {
   // Their garments' owners first, in id order (garmentOwnersOf).
   const lock = ownersLockCte(
     tx,

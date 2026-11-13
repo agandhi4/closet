@@ -21,7 +21,7 @@ import {
 import type { Photos, QuarterTurn } from '../files/photos';
 import {
   insertPhotoRow,
-  lockOwnerAndPhotoName,
+  lockOwnersAndPhotoName,
   type NewPhotoRow,
 } from '../files/queries';
 import type { Logger } from '../../logger';
@@ -332,8 +332,11 @@ export async function createGarmentWithPendingPhoto(
   const claimed =
     photo &&
     (await db.transaction(async (tx): Promise<ClaimedGarment | undefined> => {
-      // The owner first (lockOwnerAndPhotoName says why), then the take.
-      if (!(await lockOwnerAndPhotoName(tx, ownerId, fileName))) {
+      // Both accounts first, in id order (lockOwnersAndPhotoName says
+      // why): the wardrobe's owner, whose garment and file row this
+      // writes, and the uploader, whose pending row it takes (a MANAGE
+      // grantee's, #544). Then the take.
+      if (!(await lockOwnersAndPhotoName(tx, [ownerId, userId], fileName))) {
         return undefined;
       }
       const taken = await takePendingPhoto(tx, fileName, { userId, ownerId });
@@ -368,7 +371,7 @@ export async function createGarmentWithPendingPhoto(
  * row: only a photo of theirs that no garment was saved with goes. Under
  * the name's lock, so a save claiming it at the same moment either wins
  * (nothing is deleted) or finds it gone. The owner locked is the
- * uploader's, whose account deletion deletes the row (lockOwnerAndPhotoName).
+ * uploader's, whose account deletion deletes the row (lockOwnersAndPhotoName).
  * The bytes go after the commit.
  */
 export async function discardPendingPhoto(
@@ -379,7 +382,7 @@ export async function discardPendingPhoto(
 ): Promise<PendingPhoto | undefined> {
   if (parseStoredName(fileName)?.variant !== 'original') return undefined;
   const discarded = await db.transaction(async (tx) =>
-    (await lockOwnerAndPhotoName(tx, scope.userId, fileName))
+    (await lockOwnersAndPhotoName(tx, [scope.userId], fileName))
       ? takePendingPhoto(tx, fileName, scope, options)
       : undefined,
   );
@@ -437,11 +440,11 @@ export async function replacePhoto(
   id: number,
   ownerId: number,
   parts: AsyncIterable<MultipartFile>,
-): Promise<void> {
+): Promise<SwappedCutout> {
   const photo = await deps.photos.storeUploadParts(parts, ownerId);
   if (!photo) throw new HttpError(400, 'No file uploaded');
   // The `request` event: every new photo is queued for its cutout.
-  await swapPhoto(deps, id, ownerId, photo, 'pending');
+  return swapPhoto(deps, id, ownerId, photo, 'pending');
 }
 
 /** The rotate buttons' directions, as clockwise degrees. */
@@ -489,7 +492,7 @@ export async function rotateGarmentPhoto(
   ownerId: number,
   source: GarmentPhoto,
   direction: RotateDirection,
-): Promise<void> {
+): Promise<SwappedCutout> {
   const photoChanged = () => {
     deps.logger.info(
       `Garment ${id} rotate refused: photo ${source.fileName} changed while it was turned`,
@@ -512,7 +515,7 @@ export async function rotateGarmentPhoto(
       }
       throw error;
     });
-  await swapPhoto(
+  const cutout = await swapPhoto(
     deps,
     id,
     ownerId,
@@ -532,7 +535,14 @@ export async function rotateGarmentPhoto(
   deps.logger.info(
     `Garment ${id} photo rotated ${direction} by user ${ownerId}${cutoutKept ? ', its edited cutout with it' : ''}`,
   );
+  return cutout;
 }
+
+/**
+ * The cutout state a swapped-in photo starts in: queued (`pending`), or a
+ * mask turned with it (`edited`). What the API's photo writes answer.
+ */
+export type SwappedCutout = 'pending' | 'edited';
 
 /**
  * The one way a garment's photo is replaced (an upload, a rotate): the new
@@ -548,9 +558,9 @@ async function swapPhoto(
   id: number,
   ownerId: number,
   photo: NewPhotoRow,
-  cutout: 'pending' | 'edited',
+  cutout: SwappedCutout,
   check?: (tx: Queryable, currentPhotoId: number | null) => Promise<void>,
-): Promise<void> {
+): Promise<SwappedCutout> {
   const replaced = await commitWithPhoto(
     deps,
     { ...photo, ...initialCutoutState(cutout) },
@@ -575,6 +585,7 @@ async function swapPhoto(
   } else {
     deps.logger.info(`Garment ${id} photo added: ${photo.fileName}`);
   }
+  return cutout;
 }
 
 /**

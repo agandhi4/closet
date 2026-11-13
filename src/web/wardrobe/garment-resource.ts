@@ -29,6 +29,7 @@ import { imageUrl } from '../files/image-url';
 import { IsoDateSchema } from '../schemas';
 import type { GarmentContext } from './garment-context';
 import type { GarmentDetail, GarmentPhoto, GarmentSummary } from './queries';
+import type { SwappedCutout } from './writes';
 
 /**
  * The API's garment resources (#192a; docs/plans/2026-11-12-json-api.md
@@ -44,7 +45,7 @@ const Money = Type.String({
   description: 'A decimal amount in the household currency',
 });
 
-const GarmentPhotoResource = Type.Object(
+export const GarmentPhotoResource = Type.Object(
   {
     cutoutStatus: literals(CUTOUT_STATUSES),
     /** Bumped by every new photo set; the URLs carry it. */
@@ -62,7 +63,8 @@ const GarmentPhotoResource = Type.Object(
   },
 );
 
-function photoResource(
+/** A garment's photo as the API shows it (also the mask editor's save's answer). */
+export function toGarmentPhoto(
   photo: GarmentPhoto,
 ): Static<typeof GarmentPhotoResource> {
   return {
@@ -120,7 +122,7 @@ export function toGarmentListItem(summary: GarmentSummary): GarmentListItem {
     price: summary.price,
     quantity: summary.quantity,
     condition: summary.condition,
-    photo: summary.photo && photoResource(summary.photo),
+    photo: summary.photo && toGarmentPhoto(summary.photo),
     type: summary.type,
     warmth: summary.warmth,
     formality: summary.formality,
@@ -239,7 +241,7 @@ export function toGarmentResource(
     price: garment.price,
     quantity: garment.quantity,
     condition: garment.condition,
-    photo: garment.photo && photoResource(garment.photo),
+    photo: garment.photo && toGarmentPhoto(garment.photo),
     notes: garment.notes,
     acquiredOn: garment.acquiredOn,
     replacesGarmentId: garment.replacesGarmentId,
@@ -354,4 +356,47 @@ export const GarmentsUpdated = Type.Object(
     skipped: Type.Integer({ minimum: 0 }),
   },
   { title: 'GarmentsUpdated', description: 'How many were set' },
+);
+
+export const GarmentPhotoSaved = Type.Object(
+  {
+    /**
+     * `pending`: queued for its cutout (poll GET /garments/{id}); `edited`:
+     * a mask turned with the photo, nothing to wait for.
+     */
+    cutoutStatus: literals<SwappedCutout>(['pending', 'edited']),
+  },
+  {
+    title: 'GarmentPhotoSaved',
+    description:
+      "The new photo is the garment's: GET /garments/{id} has its URLs",
+  },
+);
+
+export const CutoutRetried = Type.Object(
+  {
+    /** False: the cutout was not failed (pending, ready, edited), so it is left as it is. */
+    requeued: Type.Boolean(),
+  },
+  { title: 'CutoutRetried', description: 'Whether the cutout is queued again' },
+);
+
+export const RepairRef = Type.Object(
+  { id: Type.Integer() },
+  {
+    title: 'RepairRef',
+    description: "The new entry of the garment's repair log",
+  },
+);
+
+export const GarmentImported = Type.Object(
+  {
+    id: Type.Integer(),
+    /** What the import says about itself ("Found the details", "No photo"), as the page shows it. */
+    notices: Type.Array(Type.String()),
+  },
+  {
+    title: 'GarmentImported',
+    description: 'The garment saved from the link: `Location` is its URL',
+  },
 );
