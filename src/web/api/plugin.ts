@@ -3,11 +3,13 @@ import { Type } from '@sinclair/typebox';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { authApiRoutes } from '../auth/api-routes';
 import type { SignInLimit } from '../auth/sign-in';
+import { outfitApiRoutes } from '../outfits/api-routes';
 import type { WebOptions } from '../plugin';
 import { Problem } from '../problem';
 import { API_LIMIT, enforceLimit } from '../security/rate-limit';
 import { API_PREFIX } from '../surface';
 import { wardrobeApiRoutes } from '../wardrobe/api-routes';
+import { wearApiRoutes } from '../wears/api-routes';
 import type { LinkImportLimit } from '../wardrobe/link-import/import';
 import { apiResponses, requireContract } from './contract';
 import spec from './openapi.json';
@@ -98,4 +100,6 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
 
   await app.register(authApiRoutes, options);
   await app.register(wardrobeApiRoutes, options);
+  await app.register(wearApiRoutes, options);
+  await app.register(outfitApiRoutes, options);
 };

@@ -181,6 +181,22 @@ const ReplacesGarmentId = Type.Optional(
 );
 
 /**
+ * `?ownerId=`: a wardrobe shared with the caller; absent, their own. Every
+ * share-aware garment route's query, the owner-only records' too (wears,
+ * washes, away: a grantee naming the owner is a 403, plan section 2).
+ */
+export const OwnerId = Type.Optional(
+  Type.Integer({
+    minimum: 1,
+    maximum: ROW_ID_MAX,
+    description:
+      "A wardrobe shared with you (its owner's id); absent, your own",
+  }),
+);
+
+export const GarmentQuery = Type.Object({ ownerId: OwnerId });
+
+/**
  * POST /garments: a new garment without a photo (the photo is its own
  * upload). `clientId` is accepted for the offline create (plan section 2)
  * and logged, but not yet stored (#196a adds the column), so a retry is

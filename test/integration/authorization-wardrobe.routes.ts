@@ -1,3 +1,4 @@
+import type { InjectOptions } from 'fastify';
 import { multipart } from './harness';
 import {
   type Fixture,
@@ -849,7 +850,8 @@ export const ROUTES: Route[] = [
 
   // Wears, washes and away (#7): the owner's own records about a garment a
   // grantee may see, so `?ownerId=` is a 403 and their own wardrobe a 404.
-  // Plain posts (no htmx): the 303 back to the garment.
+  // Plain posts (no htmx): the 303 back to the garment. Their /api/v1 twins
+  // (#193a) name the day; the wear's undo is authorization-wardrobe.spec.ts'.
   ...(['wear', 'washed', 'away'] as const).map(
     (action): Route => ({
       name: `POST /wardrobe/:id/${action}`,
@@ -871,6 +873,28 @@ export const ROUTES: Route[] = [
         manager: ['notFound', 'forbidden'],
         viewer: ['notFound', 'forbidden'],
         stranger: 'notFound',
+      },
+      api: {
+        ok: 200,
+        request: (f, q) => {
+          const twins: Record<typeof action, InjectOptions> = {
+            wear: {
+              method: 'PUT',
+              url: `/api/v1/garments/${f.garmentId}/wears/${f.today}${q}`,
+            },
+            washed: {
+              method: 'POST',
+              url: `/api/v1/garments/${f.garmentId}/washes${q}`,
+              payload: { day: f.today },
+            },
+            away: {
+              method: 'PUT',
+              url: `/api/v1/garments/${f.garmentId}/away${q}`,
+              payload: { away: 'lent', note: 'Planted note' },
+            },
+          };
+          return twins[action];
+        },
       },
     }),
   ),

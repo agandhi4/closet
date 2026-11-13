@@ -5,8 +5,6 @@ import { AWAY_REASONS } from '../../wardrobe/availability';
 import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
 import { todayIn } from '../../calendar-date';
-import { HttpError } from '../errors';
-import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import {
@@ -16,23 +14,15 @@ import {
   requestedDay,
 } from '../offline-writes';
 import { GarmentParams, IsoDateSchema, OwnerQuery, RowId } from '../schemas';
-import { sharedWardrobesOf, type WardrobeRequest } from '../sharing/access';
+import { actorOf, sharedWardrobesOf } from '../sharing/access';
 import { viewContext } from '../view-context';
-import { garmentGuard, garmentNotFound } from '../wardrobe/garment-access';
-import { findGarment } from '../wardrobe/queries';
+import { garmentAddress, garmentNotFound } from '../wardrobe/garment-access';
 import { garmentUrl, LAUNDRY_PATH } from '../wardrobe/urls';
 import { CARE_NOTE_MAX } from '../wardrobe/garment-input';
 import { LaundryPage } from './laundry-page';
-import {
-  laundryList,
-  markWashed,
-  setAway,
-  setWoreToday,
-  wearStatusOf,
-} from './queries';
+import { laundryList, markWashed, wearStatusOf } from './queries';
+import { putGarmentAway, washGarment, wearGarment } from './wear-actions';
 import { WearStatus } from './wear-section';
-
-const NOT_OWNED_YET = 'On the wishlist: not bought yet';
 
 // `day` is a queued tap's own day (#178), else today: requestedDay
 // refuses one outside the replay window (409).
@@ -84,33 +74,7 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   { db, config, logger },
   done,
 ) => {
-  const authorize = garmentGuard(db);
   const today = () => todayIn(config.timeZone, new Date());
-
-  /** The requester's own wardrobe, or the refusal (see above). */
-  async function ownWardrobe(request: WardrobeRequest): Promise<number> {
-    const { access } = await authorize(request, 'own');
-    return access.ownerId;
-  }
-
-  /**
-   * Why a write found nothing to change: garment `id` is not the owner's
-   * (404), or is a wishlist item, visible but not owned yet: nothing to
-   * wear, wash or lend (409). Each writer refuses both itself, so the
-   * garment is read only on this path: a write that lands looks nothing up
-   * first (#160).
-   */
-  function refusal(outcome: 'not-found' | 'wishlist'): HttpError {
-    return outcome === 'wishlist'
-      ? new HttpError(409, NOT_OWNED_YET)
-      : garmentNotFound();
-  }
-
-  /** refusal for a writer that answers only whether it wrote (markWashed, setAway). */
-  async function refusalOf(id: number, ownerId: number): Promise<HttpError> {
-    const garment = await findGarment(db, id, ownerId);
-    return refusal(garment?.status === 'wishlist' ? 'wishlist' : 'not-found');
-  }
 
   /**
    * A replay's 204 (src/web/offline-writes.ts); the wear status again to
@@ -152,29 +116,14 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
     async (request, reply) => {
       const { id } = request.params;
-      const ownerId = await ownWardrobe(request);
       const worn = request.body.worn === '1';
       const day = requestedDay(reply, request.body.day, today());
-      const { clientId } = request.body;
-      const outcome = await setWoreToday(db, {
-        garmentId: id,
-        ownerId,
-        day,
-        worn,
-        clientId: worn ? clientId : undefined,
-      });
-      if (outcome === 'not-found' || outcome === 'wishlist') {
-        throw refusal(outcome);
-      }
-      if (outcome === 'gone' || outcome === 'client-id-taken') {
-        logger.info(
-          `Garment ${id} wear on ${day} by user ${ownerId} refused: client id ${clientId!.slice(0, 8)} ${outcome === 'gone' ? 'was deleted' : 'names another wear'}${replayNote(request)}`,
-        );
-        throw outcome === 'gone'
-          ? new HttpError(410, t('WEAR_DELETED'))
-          : new HttpError(409, t('WEAR_CLIENT_ID_TAKEN'));
-      }
-      const changed = outcome === 'changed';
+      const { ownerId, changed } = await wearGarment(
+        db,
+        actorOf(request),
+        garmentAddress(request),
+        { day, worn, clientId: worn ? request.body.clientId : undefined },
+      );
       logger.info(
         `Garment ${id} ${worn ? 'worn' : 'wear undone'} on ${day} by user ${ownerId}${changed ? '' : ', already so'}${replayNote(request)}`,
       );
@@ -196,14 +145,17 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
     async (request, reply) => {
       const { id } = request.params;
-      const ownerId = await ownWardrobe(request);
       const day = requestedDay(reply, request.body?.day, today());
-      const [washed] = await markWashed(db, ownerId, [id], day);
-      if (!washed) throw await refusalOf(id, ownerId);
-      logger.info(
-        `Garment ${id} washed on ${day} by user ${ownerId}${washed.changed ? '' : ', already washed then or later'}${replayNote(request)}`,
+      const { ownerId, changed } = await washGarment(
+        db,
+        actorOf(request),
+        garmentAddress(request),
+        day,
       );
-      return answer(request, reply, { id, ownerId, changed: washed.changed });
+      logger.info(
+        `Garment ${id} washed on ${day} by user ${ownerId}${changed ? '' : ', already washed then or later'}${replayNote(request)}`,
+      );
+      return answer(request, reply, { id, ownerId, changed });
     },
   );
 
@@ -218,15 +170,13 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
     async (request, reply) => {
       const { id } = request.params;
-      const ownerId = await ownWardrobe(request);
       const { away, awayNote } = request.body;
-      const saved = await setAway(
+      const { ownerId } = await putGarmentAway(
         db,
-        ownerId,
-        id,
+        actorOf(request),
+        garmentAddress(request),
         away === '' ? null : { reason: away, note: awayNote?.trim() || null },
       );
-      if (!saved) throw await refusalOf(id, ownerId);
       logger.info(
         `Garment ${id} ${away === '' ? 'back in the closet' : `away (${away})`} for user ${ownerId}`,
       );

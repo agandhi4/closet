@@ -22,7 +22,7 @@ import {
 } from '../api/resource';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
-import { GarmentParams, ROW_ID_MAX, RowId } from '../schemas';
+import { GarmentParams, RowId } from '../schemas';
 import { enforceLimit, LINK_IMPORT_LIMIT } from '../security/rate-limit';
 import { actorOf } from '../sharing/access';
 import { API_PREFIX } from '../surface';
@@ -52,9 +52,11 @@ import {
   GarmentClone,
   garmentChangesOf,
   GarmentPatch,
+  GarmentQuery,
   ignoredPaths,
   LinkImportInput,
   NewGarment,
+  OwnerId,
   PhotoUpload,
   refusedGarmentBody,
   refusedRepairBody,
@@ -102,16 +104,6 @@ import { saveGarmentFromLink } from './link-import/save';
 import { bulkSetProperty } from './queries';
 import { readRepairForm, RepairParams } from './repairs';
 import { cloneGarment, createGarment, type WardrobeDeps } from './writes';
-
-/** `?ownerId=`: a wardrobe shared with the caller; absent, their own. */
-const OwnerId = Type.Optional(
-  Type.Integer({
-    minimum: 1,
-    maximum: ROW_ID_MAX,
-    description:
-      "A wardrobe shared with you (its owner's id); absent, your own",
-  }),
-);
 
 const flag = (description: string) =>
   Type.Boolean({ default: false, description });
@@ -162,8 +154,6 @@ const GarmentList = ListOf(GarmentListItem, {
     total: Type.Integer({ minimum: 0 }),
   },
 });
-
-const GarmentQuery = Type.Object({ ownerId: OwnerId });
 
 /** A garment's resource; its writes are paths under it. */
 const GARMENT_PATH = '/garments/:id';
@@ -219,7 +209,12 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       },
     },
     async (request) => {
-      const { ownerId, cursor, limit, ...search } = request.query;
+      const {
+        ownerId,
+        cursor,
+        limit = GRID_PAGE_SIZE,
+        ...search
+      } = request.query;
       const { total, garments, next } = await searchGarments(
         db,
         actorOf(request),

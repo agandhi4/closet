@@ -88,6 +88,7 @@ describe('the OpenAPI spec', () => {
     expect(optional.sort()).toEqual([
       'POST /api/v1/garments/{id}/clones',
       'POST /api/v1/garments/{id}/copies',
+      'PUT /api/v1/garments/{id}/wears/{day}',
     ]);
     const multipart = bodies
       .filter(

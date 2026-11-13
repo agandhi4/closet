@@ -30,6 +30,10 @@ export const ROUTES: Route[] = [
       viewer: 'hidden',
       stranger: 'hidden',
     },
+    api: {
+      ok: 200,
+      request: (_, q) => ({ method: 'GET', url: `/api/v1/outfits${q}` }),
+    },
   },
   {
     // Styling (#42) from a capsule: the addressed wardrobe's capsule. A
@@ -191,6 +195,13 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'GET',
+        url: `/api/v1/outfits/${f.outfitId}${q}`,
+      }),
+    },
   },
   {
     // Only a redirect into Styling (`?outfit=`, below), which checks the
@@ -269,19 +280,28 @@ export const ROUTES: Route[] = [
       viewer: 'notFound',
       stranger: 'notFound',
     },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PATCH',
+        url: `/api/v1/outfits/${f.outfitId}${q}`,
+        payload: { name: 'Renamed' },
+      }),
+    },
   },
   ...(
     [
-      ['love', (f: Fixture) => f.museOutfitId, {}],
+      ['love', (f: Fixture) => f.museOutfitId, {}, { event: 'love' }],
       [
         'dismiss',
         (f: Fixture) => f.museOutfitId,
         { reason: 'style', note: '' },
+        { event: 'decline', reason: 'style' },
       ],
-      ['undo', (f: Fixture) => f.museDeclinedId, {}],
+      ['undo', (f: Fixture) => f.museDeclinedId, {}, { event: 'reconsider' }],
     ] as const
   ).map(
-    ([move, id, payload]): Route => ({
+    ([move, id, payload, reaction]): Route => ({
       name: `POST /outfits/:id/${move}`,
       kind: 'write',
       ok: 303,
@@ -297,6 +317,14 @@ export const ROUTES: Route[] = [
         manager: 'notFound',
         viewer: 'notFound',
         stranger: 'notFound',
+      },
+      api: {
+        ok: 200,
+        request: (f, q) => ({
+          method: 'POST',
+          url: `/api/v1/outfits/${id(f)}/reactions${q}`,
+          payload: reaction,
+        }),
       },
     }),
   ),
@@ -315,6 +343,13 @@ export const ROUTES: Route[] = [
       manager: 'notFound',
       viewer: 'notFound',
       stranger: 'notFound',
+    },
+    api: {
+      ok: 204,
+      request: (f, q) => ({
+        method: 'DELETE',
+        url: `/api/v1/outfits/${f.outfitId}${q}`,
+      }),
     },
   },
   {
@@ -496,6 +531,14 @@ export const ROUTES: Route[] = [
       manager: 'ignored',
       viewer: 'ignored',
       stranger: 'ignored',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/api/v1/garments/washes${q}`,
+        payload: { garmentIds: [f.garmentId], day: f.today },
+      }),
     },
   },
   // Outfit selfies (#19) are the owner's like the calendar: every refusal
