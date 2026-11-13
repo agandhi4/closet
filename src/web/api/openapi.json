@@ -5192,7 +5192,7 @@
         ],
         "description": "Any garment you can see, a VIEW share included: the copy is yours, with its photo. The body changes what differs from the source (absent, the name is \"<name> (cloned)\"). The source's owner-only wash limit is not copied from a share.",
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -6173,7 +6173,7 @@
         ],
         "description": "Its quantity, instead of a new garment (at most 30). Your own wardrobe or a MANAGE share. A wishlist item, an archived garment or one past the cap is a 409. Not idempotent: each call adds.",
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -6406,6 +6406,805 @@
                   ],
                   "properties": {
                     "changed": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/{id}/photo": {
+      "put": {
+        "operationId": "replaceGarmentPhoto",
+        "summary": "Uploads a garment's photo, replacing the one it has",
+        "tags": [
+          "photos"
+        ],
+        "description": "multipart/form-data with one `photo` part, read as the photo sheet reads it (a second file is a 413; an image it cannot read, or one past 64 megapixels, a 400). Your own wardrobe or a MANAGE share, checked before the upload is read. The background removal follows: poll GET /garments/{id} until `photo.cutoutStatus` is no longer `pending`. Each call stores a new photo, which replaces the last.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "title": "GarmentPhotoUpload",
+                "type": "object",
+                "required": [
+                  "photo"
+                ],
+                "properties": {
+                  "photo": {
+                    "format": "binary",
+                    "description": "JPEG, PNG, WebP, HEIC or AVIF, at most 64 megapixels; stored at 1080 px",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The new photo is the garment's: GET /garments/{id} has its URLs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "GarmentPhotoSaved",
+                  "description": "The new photo is the garment's: GET /garments/{id} has its URLs",
+                  "type": "object",
+                  "required": [
+                    "cutoutStatus"
+                  ],
+                  "properties": {
+                    "cutoutStatus": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "pending"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "edited"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/{id}/photo/rotations": {
+      "post": {
+        "operationId": "rotateGarmentPhoto",
+        "summary": "Turns a garment's photo a quarter",
+        "tags": [
+          "photos"
+        ],
+        "description": "A turned copy replaces the photo (the original is never changed): an edited cutout turns with it, any other is made again. Your own wardrobe or a MANAGE share; a garment without a photo is a 400. A photo replaced or a mask saved meanwhile is a 409: read the garment and turn again. Not idempotent: each call turns.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "GarmentPhotoRotation",
+                "description": "A quarter turn: left anticlockwise, right clockwise",
+                "type": "object",
+                "required": [
+                  "direction"
+                ],
+                "properties": {
+                  "direction": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "left"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "right"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "description": "A quarter turn: left anticlockwise, right clockwise"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The new photo is the garment's: GET /garments/{id} has its URLs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "GarmentPhotoSaved",
+                  "description": "The new photo is the garment's: GET /garments/{id} has its URLs",
+                  "type": "object",
+                  "required": [
+                    "cutoutStatus"
+                  ],
+                  "properties": {
+                    "cutoutStatus": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "pending"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "edited"
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/{id}/photo/cutout": {
+      "put": {
+        "operationId": "saveGarmentCutout",
+        "summary": "Saves an edited cutout of a garment's photo",
+        "tags": [
+          "photos"
+        ],
+        "description": "The mask editor's save: multipart/form-data with one `cutout` part, which replaces the cutout the server made. Your own wardrobe or a MANAGE share; a garment without a photo, or no part, is a 400; a photo replaced meanwhile a 404.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "title": "GarmentCutoutUpload",
+                "type": "object",
+                "required": [
+                  "cutout"
+                ],
+                "properties": {
+                  "cutout": {
+                    "format": "binary",
+                    "description": "The garment on a transparent background (a PNG with alpha), the original photo's size",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A garment's photo: signed /file URLs, relative to the server, immutable (a new photo, cutout or turn is a new URL). Never build or edit one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "GarmentPhoto",
+                  "description": "A garment's photo: signed /file URLs, relative to the server, immutable (a new photo, cutout or turn is a new URL). Never build or edit one",
+                  "type": "object",
+                  "required": [
+                    "cutoutStatus",
+                    "version",
+                    "originalUrl",
+                    "thumbUrl"
+                  ],
+                  "properties": {
+                    "cutoutStatus": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "none"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "pending"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "ready"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "failed"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "edited"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "unwanted"
+                          ]
+                        }
+                      ]
+                    },
+                    "version": {
+                      "type": "integer"
+                    },
+                    "originalUrl": {
+                      "type": "string"
+                    },
+                    "thumbUrl": {
+                      "type": "string"
+                    },
+                    "cutoutUrl": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/{id}/photo/cutout/retries": {
+      "post": {
+        "operationId": "retryGarmentCutout",
+        "summary": "Queues a failed cutout again",
+        "tags": [
+          "photos"
+        ],
+        "description": "\"Try again\" on a failed background removal. Idempotent: a cutout that is not failed (pending, ready, edited) is left as it is, `requeued` false. Your own wardrobe or a MANAGE share; a garment without a photo is a 400.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether the cutout is queued again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "CutoutRetried",
+                  "description": "Whether the cutout is queued again",
+                  "type": "object",
+                  "required": [
+                    "requeued"
+                  ],
+                  "properties": {
+                    "requeued": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/{id}/repairs": {
+      "post": {
+        "operationId": "logGarmentRepair",
+        "summary": "Logs a repair or alteration on a garment",
+        "tags": [
+          "garments"
+        ],
+        "description": "The owner's own record: a share, MANAGE included, is a 403 (a 404 without `ownerId`), and a wishlist item a 409 (not bought yet). A day after today is a 400. The cost counts in the garment's cost per wear.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "RepairInput",
+                "type": "object",
+                "required": [
+                  "day",
+                  "kind",
+                  "note"
+                ],
+                "properties": {
+                  "day": {
+                    "format": "date",
+                    "description": "The household day it was done: today or before",
+                    "type": "string"
+                  },
+                  "kind": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "repair"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "alteration"
+                        ]
+                      }
+                    ]
+                  },
+                  "note": {
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "What was done",
+                    "type": "string"
+                  },
+                  "cost": {
+                    "pattern": "^\\d{1,8}(\\.\\d{1,2})?$",
+                    "description": "A decimal amount in the household currency, e.g. \"49.90\"",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "The new entry of the garment's repair log",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "RepairRef",
+                  "description": "The new entry of the garment's repair log",
+                  "type": "object",
+                  "required": [
+                    "id"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/{id}/repairs/{repairId}": {
+      "delete": {
+        "operationId": "deleteGarmentRepair",
+        "summary": "Removes an entry from a garment's repair log",
+        "tags": [
+          "garments"
+        ],
+        "description": "The owner only, as logging one. An entry already gone, or another garment's, is a 404, which a retry may read as done.",
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "path",
+            "name": "repairId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed"
+          },
+          "4XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "A problem (RFC 9457): switch on `code`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/garments/link-imports": {
+      "post": {
+        "operationId": "importGarmentFromLink",
+        "summary": "Adds a garment from a product link",
+        "tags": [
+          "garments"
+        ],
+        "description": "Fetches the page (or an image link) and saves the garment as the link import prefills it: name, brand, colours, category, type, materials, price and the first readable photo (its background removal follows). Your own wardrobe or a MANAGE share. Rate limited with the page's link import: 10 a minute between them, then a 429 with Retry-After. A refused fetch is a 400 or 422 whose detail leads with its reason (`blocked-by-site`: the shop refuses automated fetches, so try another retailer, never again); a form the prefill and the fields given cannot save (no category) is a 400 naming the field.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "LinkImportInput",
+                "description": "Lands in the closet unless `destination` says the wishlist. Any field given replaces what the page says (give `category` when the page does not make it clear; an image link never does); the rest is the link import's prefill, saved by the garment form's rules",
+                "type": "object",
+                "required": [
+                  "url"
+                ],
+                "properties": {
+                  "url": {
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "description": "A product page or an image, http(s); text around the link (a share sheet's \"Title https://…\") is read for it",
+                    "type": "string"
+                  },
+                  "destination": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "closet"
+                        ]
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "wishlist"
+                        ]
+                      }
+                    ]
+                  },
+                  "replacesGarmentId": {
+                    "minimum": 1,
+                    "maximum": 2147483647,
+                    "description": "The garment of this wardrobe a wishlist item would replace: `destination` wishlist only (another wardrobe's is not stored)",
+                    "type": "integer"
+                  },
+                  "name": {
+                    "maxLength": 200,
+                    "type": "string"
+                  },
+                  "category": {
+                    "minLength": 1,
+                    "maxLength": 60,
+                    "description": "tops, bottoms, dresses, outerwear, footwear, accessories, bags, other, or your own; a new role drops the properties it does not have",
+                    "type": "string"
+                  },
+                  "properties": {
+                    "title": "LinkImportProperties",
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "maxLength": 40,
+                        "description": "A type of the category; it presets warmth, formality, sleeve and length",
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "size": {
+                    "maxLength": 40,
+                    "type": "string"
+                  },
+                  "price": {
+                    "pattern": "^\\d{1,8}(\\.\\d{1,2})?$",
+                    "description": "A decimal amount in the household currency, e.g. \"49.90\"",
+                    "type": "string"
+                  },
+                  "notes": {
+                    "maxLength": 4000,
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "description": "Lands in the closet unless `destination` says the wishlist. Any field given replaces what the page says (give `category` when the page does not make it clear; an image link never does); the rest is the link import's prefill, saved by the garment form's rules"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "minimum": 1,
+              "maximum": 2147483647,
+              "type": "integer"
+            },
+            "in": "query",
+            "name": "ownerId",
+            "required": false,
+            "description": "A wardrobe shared with you (its owner's id); absent, your own"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "The garment saved from the link: `Location` is its URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "GarmentImported",
+                  "description": "The garment saved from the link: `Location` is its URL",
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "notices"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "notices": {
                       "type": "array",
                       "items": {
                         "type": "string"

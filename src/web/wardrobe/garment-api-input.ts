@@ -10,6 +10,7 @@ import {
   CARE_DRY_CLEAN,
   CARE_IRON,
   CARE_WASH,
+  REPAIR_KINDS,
 } from '../../wardrobe/care';
 import {
   CONDITIONS,
@@ -22,10 +23,11 @@ import {
   SLEEVES,
   WARMTHS,
 } from '../../wardrobe/properties';
-import { ENTRY_STATUSES } from '../../wardrobe/status';
+import { ENTRY_STATUSES, type EntryStatus } from '../../wardrobe/status';
 import { literals, Nullable } from '../api/resource';
 import type { FieldErrors } from '../auth/validation';
 import { HttpError } from '../errors';
+import { t } from '../i18n';
 import { IsoDateSchema, ROW_ID_MAX, RowId } from '../schemas';
 import type { GarmentChanges, PropertyChanges } from './garment-changes';
 import {
@@ -40,6 +42,9 @@ import {
 } from './garment-input';
 import { OWNED_STATUSES } from './garment-actions';
 import type { BulkChange, TagBody } from './grid-schemas';
+import { LINK_INPUT_MAX } from './link-import/import';
+import type { RepairField } from './repairs';
+import type { RotateDirection } from './writes';
 
 /**
  * The API's garment write bodies (#192b; docs/plans/2026-11-12-json-api.md
@@ -164,6 +169,17 @@ export const GarmentPatch = Type.Object(
 );
 export type GarmentPatch = Static<typeof GarmentPatch>;
 
+const Destination = Type.Optional(literals(ENTRY_STATUSES));
+
+const ReplacesGarmentId = Type.Optional(
+  Type.Integer({
+    minimum: 1,
+    maximum: ROW_ID_MAX,
+    description:
+      "The garment of this wardrobe a wishlist item would replace: `destination` wishlist only (another wardrobe's is not stored)",
+  }),
+);
+
 /**
  * POST /garments: a new garment without a photo (the photo is its own
  * upload). `clientId` is accepted for the offline create (plan section 2)
@@ -174,15 +190,8 @@ export const NewGarment = Type.Object(
   {
     category: Category(),
     ...fields,
-    destination: Type.Optional(literals(ENTRY_STATUSES)),
-    replacesGarmentId: Type.Optional(
-      Type.Integer({
-        minimum: 1,
-        maximum: ROW_ID_MAX,
-        description:
-          "The garment of this wardrobe a wishlist item would replace: `destination` wishlist only (another wardrobe's is not stored)",
-      }),
-    ),
+    destination: Destination,
+    replacesGarmentId: ReplacesGarmentId,
     clientId: Type.Optional(
       Type.String({
         format: 'uuid',
@@ -289,19 +298,27 @@ const POINTER_OF_FIELD: Record<GarmentField, string> = {
   quantity: '/quantity',
 };
 
-/**
- * The form's refusal as the API's 400: `errors` names each field as a
- * schema validation does (`body/<pointer>`), with the message the form
- * shows under it; `detail` joins them.
- */
+/** The garment form's refusal as the API's 400 (refusedBody). */
 export function refusedGarmentBody(
   errors: FieldErrors<GarmentField>,
 ): HttpError {
+  return refusedBody(errors, POINTER_OF_FIELD);
+}
+
+/**
+ * A form reader's refusal as the API's 400: `errors` names each field as
+ * a schema validation does (`body/<pointer>`, where the JSON body holds
+ * it), with the message the form shows under it; `detail` joins them.
+ */
+function refusedBody<Field extends string>(
+  errors: FieldErrors<Field>,
+  pointerOf: Record<Field, string>,
+): HttpError {
   const validation = (
-    Object.entries(errors) as [GarmentField, string[] | undefined][]
+    Object.entries(errors) as [Field, string[] | undefined][]
   ).flatMap(([field, messages = []]) =>
     messages.map((message) => ({
-      path: `body${POINTER_OF_FIELD[field]}`,
+      path: `body${pointerOf[field]}`,
       message,
     })),
   );
@@ -313,6 +330,21 @@ export function refusedGarmentBody(
       logDetail: `refused fields: ${Object.keys(errors).join(', ')}`,
     },
   );
+}
+
+/**
+ * A wishlist item's replaced garment, given for anywhere else: a 400
+ * naming the field (POST /garments, POST /garments/link-imports).
+ */
+export function refuseReplacesOffWishlist(
+  destination: EntryStatus,
+  replacesGarmentId: number | undefined,
+): void {
+  if (replacesGarmentId === undefined || destination === 'wishlist') return;
+  const message = t('api.REPLACES_ON_WISHLIST_ONLY');
+  throw new HttpError(400, message, {
+    validation: [{ path: 'body/replacesGarmentId', message }],
+  });
 }
 
 /** PUT /garments/{id}/status (putGarmentStatus). */
@@ -428,3 +460,110 @@ export function bulkChangeOf({ ids, ...change }: Static<typeof BulkInput>): {
 } {
   return { ids, change };
 }
+
+/** PUT /garments/{id}/photo: the photo sheet's upload, as multipart parts. */
+export const PhotoUpload = Type.Object(
+  {
+    photo: Type.String({
+      format: 'binary',
+      description:
+        'JPEG, PNG, WebP, HEIC or AVIF, at most 64 megapixels; stored at 1080 px',
+    }),
+  },
+  { title: 'GarmentPhotoUpload' },
+);
+
+/** PUT /garments/{id}/photo/cutout: the mask editor's save, as multipart parts. */
+export const CutoutUpload = Type.Object(
+  {
+    cutout: Type.String({
+      format: 'binary',
+      description:
+        "The garment on a transparent background (a PNG with alpha), the original photo's size",
+    }),
+  },
+  { title: 'GarmentCutoutUpload' },
+);
+
+/** POST /garments/{id}/photo/rotations: the photo sheet's quarter turn. */
+export const RotateInput = Type.Object(
+  {
+    direction: literals<RotateDirection>(['left', 'right']),
+  },
+  {
+    title: 'GarmentPhotoRotation',
+    description: 'A quarter turn: left anticlockwise, right clockwise',
+  },
+);
+
+/** POST /garments/{id}/repairs: the repair log's entry, as its form takes it. */
+export const RepairInput = Type.Object(
+  {
+    day: Type.String({
+      format: 'date',
+      description: 'The household day it was done: today or before',
+    }),
+    kind: literals(REPAIR_KINDS),
+    note: Type.String({
+      minLength: 1,
+      maxLength: CARE_NOTE_MAX,
+      description: 'What was done',
+    }),
+    cost: Type.Optional(MoneyInput),
+  },
+  { title: 'RepairInput' },
+);
+
+/** A repair form field readRepairForm refused, where the JSON body holds it. */
+const POINTER_OF_REPAIR_FIELD: Record<RepairField, string> = {
+  day: '/day',
+  note: '/note',
+  cost: '/cost',
+};
+
+/** The repair form's refusal as the API's 400 (a day after today, a blank note). */
+export function refusedRepairBody(errors: FieldErrors<RepairField>): HttpError {
+  return refusedBody(errors, POINTER_OF_REPAIR_FIELD);
+}
+
+/**
+ * POST /garments/link-imports: the link, and what the caller says instead
+ * of the page (MCP's add_garment_from_link takes the same).
+ */
+export const LinkImportInput = Type.Object(
+  {
+    url: Type.String({
+      minLength: 1,
+      maxLength: LINK_INPUT_MAX,
+      description:
+        'A product page or an image, http(s); text around the link (a share sheet\'s "Title https://…") is read for it',
+    }),
+    destination: Destination,
+    replacesGarmentId: ReplacesGarmentId,
+    name: Type.Optional(Type.String({ maxLength: NAME_MAX })),
+    category: Type.Optional(Category({ minLength: 1 })),
+    properties: Type.Optional(
+      Type.Object(
+        {
+          type: Type.Optional(
+            Type.String({
+              maxLength: 40,
+              description:
+                'A type of the category; it presets warmth, formality, sleeve and length',
+            }),
+          ),
+        },
+        { title: 'LinkImportProperties' },
+      ),
+    ),
+    size: Type.Optional(Type.String({ maxLength: SIZE_MAX })),
+    price: Type.Optional(MoneyInput),
+    notes: Type.Optional(Type.String({ maxLength: TEXT_MAX })),
+  },
+  {
+    title: 'LinkImportInput',
+    description:
+      "Lands in the closet unless `destination` says the wishlist. Any field given replaces what the page says (give `category` when the page does not make it clear; an image link never does); the rest is the link import's prefill, saved by the garment form's rules",
+  },
+);
+export type LinkImportInput = Static<typeof LinkImportInput>;

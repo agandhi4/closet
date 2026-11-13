@@ -4,7 +4,6 @@ import { readdir } from 'node:fs/promises';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { TokenKind } from '../../src/credential-names';
-import { recordCutoutEvent } from '../../src/cutout/queries';
 import {
   optionGroup,
   orderItem,
@@ -45,6 +44,7 @@ import {
 } from './harness';
 import { jpeg, type LinkSites, startLinkSites } from './link-sites';
 import { deviceToken } from './api';
+import { failCutout } from './cutouts';
 import { mintToken } from './mcp';
 import { addLook } from './inspiration';
 import { planEntry, takeSelfie } from './selfies';
@@ -580,21 +580,8 @@ export function describeMatrix(
       const outfitName = `Look ${tag}`;
       const garmentId = await createGarment(t, { name: garmentName, cookie });
       await uploadPhoto(t, garmentId, photo, cookie);
-      // Its cutout failed (no queue runs here), so "Try again" requeues it:
-      // a job taken and failed through the cutout's state machine.
-      const fileName = await photoFileName(t, garmentId);
-      const started = await recordCutoutEvent(t.db, fileName, {
-        type: 'start',
-        worker: 'authorization-matrix',
-      });
-      if (!started.ok || started.state.jobVersion === null) {
-        throw new Error(`The cutout of ${fileName} did not start`);
-      }
-      const failed = await recordCutoutEvent(t.db, fileName, {
-        type: 'fail',
-        jobVersion: started.state.jobVersion,
-      });
-      if (!failed.ok) throw new Error(`The cutout of ${fileName} did not fail`);
+      // Its cutout failed (no queue runs here), so "Try again" requeues it.
+      await failCutout(t, await photoFileName(t, garmentId));
       const wishlistName = `Wish ${tag}`;
       const brand = `Brand ${tag}`;
       const wishlistId = await createWishlistItem(t, {

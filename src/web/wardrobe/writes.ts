@@ -440,11 +440,11 @@ export async function replacePhoto(
   id: number,
   ownerId: number,
   parts: AsyncIterable<MultipartFile>,
-): Promise<void> {
+): Promise<SwappedCutout> {
   const photo = await deps.photos.storeUploadParts(parts, ownerId);
   if (!photo) throw new HttpError(400, 'No file uploaded');
   // The `request` event: every new photo is queued for its cutout.
-  await swapPhoto(deps, id, ownerId, photo, 'pending');
+  return swapPhoto(deps, id, ownerId, photo, 'pending');
 }
 
 /** The rotate buttons' directions, as clockwise degrees. */
@@ -492,7 +492,7 @@ export async function rotateGarmentPhoto(
   ownerId: number,
   source: GarmentPhoto,
   direction: RotateDirection,
-): Promise<void> {
+): Promise<SwappedCutout> {
   const photoChanged = () => {
     deps.logger.info(
       `Garment ${id} rotate refused: photo ${source.fileName} changed while it was turned`,
@@ -515,7 +515,7 @@ export async function rotateGarmentPhoto(
       }
       throw error;
     });
-  await swapPhoto(
+  const cutout = await swapPhoto(
     deps,
     id,
     ownerId,
@@ -535,7 +535,14 @@ export async function rotateGarmentPhoto(
   deps.logger.info(
     `Garment ${id} photo rotated ${direction} by user ${ownerId}${cutoutKept ? ', its edited cutout with it' : ''}`,
   );
+  return cutout;
 }
+
+/**
+ * The cutout state a swapped-in photo starts in: queued (`pending`), or a
+ * mask turned with it (`edited`). What the API's photo writes answer.
+ */
+export type SwappedCutout = 'pending' | 'edited';
 
 /**
  * The one way a garment's photo is replaced (an upload, a rotate): the new
@@ -551,9 +558,9 @@ async function swapPhoto(
   id: number,
   ownerId: number,
   photo: NewPhotoRow,
-  cutout: 'pending' | 'edited',
+  cutout: SwappedCutout,
   check?: (tx: Queryable, currentPhotoId: number | null) => Promise<void>,
-): Promise<void> {
+): Promise<SwappedCutout> {
   const replaced = await commitWithPhoto(
     deps,
     { ...photo, ...initialCutoutState(cutout) },
@@ -578,6 +585,7 @@ async function swapPhoto(
   } else {
     deps.logger.info(`Garment ${id} photo added: ${photo.fileName}`);
   }
+  return cutout;
 }
 
 /**

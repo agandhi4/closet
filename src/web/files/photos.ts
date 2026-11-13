@@ -12,7 +12,7 @@ import {
   type CutoutRow,
   lockCutoutRow,
 } from '../../cutout/queries';
-import type { CutoutEvent, Transition } from '../../cutout/state';
+import type { CutoutEvent, CutoutStatus, Transition } from '../../cutout/state';
 import type { Db } from '../../db/client';
 import { HttpError } from '../errors';
 import { NotServed } from '../refusals';
@@ -128,6 +128,15 @@ export interface StoreImageOptions {
 
 /** A garment photo's rotation (POST /wardrobe/:id/photo/rotate), clockwise degrees. */
 export type QuarterTurn = 90 | 270;
+
+/**
+ * The photo after the mask editor's save (saveEditedCutout): its new
+ * variant set, the version its URLs carry and the cutout state it is in.
+ */
+export type EditedCutout = SignablePhotoRef & {
+  version: number;
+  cutoutStatus: CutoutStatus;
+};
 
 /**
  * The source side of a transcode failed (undecodable bytes, truncated
@@ -513,7 +522,7 @@ export class Photos {
   async saveEditedCutout(
     stream: Readable,
     originalFileName: string,
-  ): Promise<SignablePhotoRef | undefined> {
+  ): Promise<EditedCutout | undefined> {
     const bytes = await this.encodeUpload(
       stream,
       originalTransformer(decoder()),
@@ -529,10 +538,15 @@ export class Photos {
       );
       return undefined;
     }
-    const { version, variantKey } = outcome.state;
+    const { version, variantKey, status } = outcome.state;
     // A garment's photo: the mask editor edits only those (never a selfie,
     // `unwanted`, which the machine refuses an edit).
-    return readPhotoRef({ fileName: originalFileName, version, variantKey });
+    return readPhotoRef({
+      fileName: originalFileName,
+      version,
+      variantKey,
+      cutoutStatus: status,
+    });
   }
 
   /**

@@ -307,7 +307,11 @@ describe('Photos.saveEditedCutout', () => {
 
     await expect(
       photos.saveEditedCutout(Readable.from(await strip()), 'a.webp'),
-    ).resolves.toMatchObject({ fileName: 'a.webp', version: 2 });
+    ).resolves.toMatchObject({
+      fileName: 'a.webp',
+      version: 2,
+      cutoutStatus: 'edited',
+    });
     const key = writtenKey();
     expect(key).toMatch(/^[0-9a-f]{12}$/);
     // From the cutout: transparent above the strip, as the original is not.

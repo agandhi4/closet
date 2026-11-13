@@ -3,7 +3,7 @@ import { type CutoutOutcome, recordCutoutEvent } from '../../cutout/queries';
 import { QUANTITY_MAX } from '../../wardrobe/availability';
 import type { GarmentStatus } from '../../wardrobe/status';
 import { HttpError } from '../errors';
-import type { SignablePhotoRef } from '../files/image-url';
+import type { EditedCutout } from '../files/photos';
 import { t } from '../i18n';
 import { NotFound } from '../refusals';
 import type { Actor, AuthorizedWardrobe } from '../sharing/access';
@@ -30,6 +30,7 @@ import {
   replacePhoto,
   type RotateDirection,
   rotateGarmentPhoto,
+  type SwappedCutout,
   type WardrobeDeps,
 } from './writes';
 
@@ -318,15 +319,20 @@ export async function replaceGarmentPhoto(
   actor: Actor,
   address: GarmentAddress,
   parts: AsyncIterable<MultipartFile>,
-): Promise<AuthorizedWardrobe> {
+): Promise<AuthorizedWardrobe & { cutoutStatus: SwappedCutout }> {
   const { garment, ...wardrobe } = await requireGarment(
     deps.db,
     actor,
     address,
     'manage',
   );
-  await replacePhoto(deps, garment.id, wardrobe.access.ownerId, parts);
-  return wardrobe;
+  const cutoutStatus = await replacePhoto(
+    deps,
+    garment.id,
+    wardrobe.access.ownerId,
+    parts,
+  );
+  return { ...wardrobe, cutoutStatus };
 }
 
 /** The photo sheet's quarter turn (rotateGarmentPhoto; a photo changed meanwhile is its 409). */
@@ -335,16 +341,16 @@ export async function turnGarmentPhoto(
   actor: Actor,
   address: GarmentAddress,
   direction: RotateDirection,
-): Promise<AuthorizedWardrobe> {
+): Promise<AuthorizedWardrobe & { cutoutStatus: SwappedCutout }> {
   const { photo, ...wardrobe } = await photoToChange(deps.db, actor, address);
-  await rotateGarmentPhoto(
+  const cutoutStatus = await rotateGarmentPhoto(
     deps,
     address.id,
     wardrobe.access.ownerId,
     photo,
     direction,
   );
-  return wardrobe;
+  return { ...wardrobe, cutoutStatus };
 }
 
 /**
@@ -376,7 +382,7 @@ export async function saveEditedGarmentCutout(
   actor: Actor,
   address: GarmentAddress,
   upload: () => Promise<MultipartFile | undefined>,
-): Promise<SignablePhotoRef> {
+): Promise<EditedCutout> {
   const { photo } = await photoToChange(deps.db, actor, address);
   const part = await upload();
   if (!part) throw new HttpError(400, 'No file uploaded');

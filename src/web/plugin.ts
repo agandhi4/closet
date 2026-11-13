@@ -6,7 +6,7 @@ import { authRoutes } from './auth/routes';
 import { tokenRoutes } from './auth/token-routes';
 import { sizesRoutes } from './sizes/routes';
 import { mcpRoutes } from './mcp/routes';
-import { SIGN_IN_LIMIT } from './security/rate-limit';
+import { LINK_IMPORT_LIMIT, SIGN_IN_LIMIT } from './security/rate-limit';
 import type { SessionTokens } from './auth/tokens';
 import { calendarRoutes } from './calendar/routes';
 import { capsuleRoutes } from './capsules/routes';
@@ -155,10 +155,14 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
 ) => {
   const { logger } = options;
   app.addHook('preValidation', createSessionHook(logger));
-  // The two sign-in doors' one SIGN_IN_LIMIT budget (src/web/auth/sign-in.ts).
-  const signIn = {
+  // The budgets a page and its API twin share, one checker each: the two
+  // sign-in doors' SIGN_IN_LIMIT (src/web/auth/sign-in.ts), and the link
+  // imports' LINK_IMPORT_LIMIT (the page's import and photo choice, the
+  // API's import).
+  const shared = {
     ...options,
     signInLimit: app.createRateLimit(SIGN_IN_LIMIT),
+    linkImportLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
   };
 
   await app.register(healthRoutes, options);
@@ -167,7 +171,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(gridRoutes, options);
   await app.register(garmentRoutes, options);
   await app.register(photoRoutes, options);
-  await app.register(linkImportRoutes, options);
+  await app.register(linkImportRoutes, shared);
   await app.register(capsuleRoutes, options);
   await app.register(wishlistRoutes, options);
   await app.register(inboxRoutes, options);
@@ -185,7 +189,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(stylingRoutes, options);
   await app.register(galleryRoutes, options);
   await app.register(inspirationRoutes, options);
-  await app.register(authRoutes, signIn);
+  await app.register(authRoutes, shared);
   await app.register(tokenRoutes, options);
   await app.register(sizesRoutes, options);
   await app.register(sharingRoutes, options);
@@ -204,7 +208,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   // The bearer surfaces (src/web/surface.ts): the session gate above passes
   // them, each authenticates its own kind of token.
   await app.register(mcpRoutes, options);
-  await registerApi(app, signIn);
+  await registerApi(app, shared);
   const { vapid } = options.config;
   if (vapid && options.push) {
     await app.register(pushRoutes, {

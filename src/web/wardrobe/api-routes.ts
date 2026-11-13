@@ -23,6 +23,7 @@ import {
 import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { GarmentParams, ROW_ID_MAX, RowId } from '../schemas';
+import { enforceLimit, LINK_IMPORT_LIMIT } from '../security/rate-limit';
 import { actorOf } from '../sharing/access';
 import { API_PREFIX } from '../surface';
 import { destinationValues } from './destination';
@@ -31,21 +32,35 @@ import {
   addGarmentCopies,
   deleteOwnGarment,
   editGarment,
+  garmentToMend,
+  logRepair,
   putGarmentStatus,
+  removeRepair,
+  replaceGarmentPhoto,
+  retryGarmentCutout,
+  saveEditedGarmentCutout,
   setGarmentCondition,
   tagGarment,
+  turnGarmentPhoto,
 } from './garment-actions';
 import {
   BulkInput,
   bulkChangeOf,
   ConditionInput,
   CopiesInput,
+  CutoutUpload,
   GarmentClone,
   garmentChangesOf,
   GarmentPatch,
   ignoredPaths,
+  LinkImportInput,
   NewGarment,
+  PhotoUpload,
   refusedGarmentBody,
+  refusedRepairBody,
+  refuseReplacesOffWishlist,
+  RepairInput,
+  RotateInput,
   StatusInput,
   tagBodyOf,
   TagsInput,
@@ -61,21 +76,30 @@ import {
   storedFormValues,
 } from './garment-input';
 import {
+  CutoutRetried,
   Garment,
   GarmentCondition,
+  GarmentImported,
   GarmentListItem,
+  GarmentPhotoResource,
+  GarmentPhotoSaved,
   GarmentQuantity,
   GarmentRef,
   GarmentsUpdated,
   GarmentStatusAnswer,
   GarmentTagged,
   GarmentUpdated,
+  RepairRef,
   toGarmentListItem,
+  toGarmentPhoto,
   toGarmentResource,
 } from './garment-resource';
 import { searchFilters } from './garment-search';
 import { GRID_PAGE_SIZE } from './grid-page-size';
+import { linkIn, REFUSALS } from './link-import/import';
+import { saveGarmentFromLink } from './link-import/save';
 import { bulkSetProperty } from './queries';
+import { readRepairForm, RepairParams } from './repairs';
 import { cloneGarment, createGarment, type WardrobeDeps } from './writes';
 
 /** `?ownerId=`: a wardrobe shared with the caller; absent, their own. */
@@ -144,9 +168,10 @@ const GarmentQuery = Type.Object({ ownerId: OwnerId });
 const GARMENT_PATH = '/garments/:id';
 
 /**
- * The wardrobe's API routes (#192a reads, #192b writes; plan section 6),
- * registered by apiPlugin under /api/v1, each calling what its page twin
- * calls (operations.ts names the twin). The photo's are #192c.
+ * The wardrobe's API routes (#192a reads, #192b writes, #192c the photo,
+ * the repair log and the link import; plan section 6), registered by
+ * apiPlugin under /api/v1, each calling what its page twin calls
+ * (operations.ts names the twin).
  *  - GET /garments: the wardrobe's closet, filtered and paged as the grid
  *    (searchGarments, MCP's search_garments): one statement for the page
  *    and one for the count, after the token's.
@@ -156,6 +181,11 @@ const GARMENT_PATH = '/garments/:id';
  *  - The writes (garment-actions.ts, or the page's guard and writer): a
  *    JSON body (garment-api-input.ts) saved by the garment form's rules,
  *    answering what changed, never the garment read again.
+ *  - The photo's: multipart parts read by the handler after the garment is
+ *    judged (so a refused upload stores nothing), documented through
+ *    `multipartBody`, never a `body` schema.
+ *  - The link import: the page's budget (linkImportLimit) and MCP's save
+ *    (saveGarmentFromLink), answering the new garment.
  * A grantee's `?ownerId=` share rides in the token's read (#170), so none
  * costs more than its page twin but PATCH, which reads the garment it
  * merges into (as update_garment does).
@@ -165,7 +195,7 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
   options,
   done,
 ) => {
-  const { db, config, logger } = options;
+  const { db, config, logger, fetcher, linkImportLimit } = options;
   const authorize = garmentGuard(db);
   const deps: WardrobeDeps = {
     db,
@@ -258,12 +288,7 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         clientId,
         ...body
       } = request.body;
-      if (replacesGarmentId !== undefined && destination !== 'wishlist') {
-        const message = t('api.REPLACES_ON_WISHLIST_ONLY');
-        throw new HttpError(400, message, {
-          validation: [{ path: 'body/replacesGarmentId', message }],
-        });
-      }
+      refuseReplacesOffWishlist(destination, replacesGarmentId);
       const form = readNewGarment(
         destinationValues(
           { to: destination, replaces: replacesGarmentId },
@@ -553,6 +578,239 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         `Bulk ${change.property} by user ${actorOf(request).userId} in wardrobe ${access.ownerId} (API): ${result.updated} set, ${result.skipped} skipped, ${ids.length} named`,
       );
       return result;
+    },
+  );
+
+  app.put(
+    `${GARMENT_PATH}/photo`,
+    {
+      schema: {
+        operationId: 'replaceGarmentPhoto',
+        tags: ['photos'],
+        summary: "Uploads a garment's photo, replacing the one it has",
+        description:
+          'multipart/form-data with one `photo` part, read as the photo sheet reads it (a second file is a 413; an image it cannot read, or one past 64 megapixels, a 400). Your own wardrobe or a MANAGE share, checked before the upload is read. The background removal follows: poll GET /garments/{id} until `photo.cutoutStatus` is no longer `pending`. Each call stores a new photo, which replaces the last.',
+        params: GarmentParams,
+        querystring: GarmentQuery,
+        multipartBody: PhotoUpload,
+        response: apiResponses({ 200: GarmentPhotoSaved }),
+      },
+    },
+    async (request) => {
+      // One file: the photo sheet's second part (pages from before
+      // server-side removal sent the browser's cutout) is no client's here.
+      const { access, cutoutStatus } = await replaceGarmentPhoto(
+        deps,
+        actorOf(request),
+        garmentAddress(request),
+        request.files({ limits: { files: 1 } }),
+      );
+      logger.info(
+        `Garment ${request.params.id} photo uploaded by user ${actorOf(request).userId} in wardrobe ${access.ownerId} (API)`,
+      );
+      return { cutoutStatus };
+    },
+  );
+
+  app.post(
+    `${GARMENT_PATH}/photo/rotations`,
+    {
+      schema: {
+        operationId: 'rotateGarmentPhoto',
+        tags: ['photos'],
+        summary: "Turns a garment's photo a quarter",
+        description:
+          'A turned copy replaces the photo (the original is never changed): an edited cutout turns with it, any other is made again. Your own wardrobe or a MANAGE share; a garment without a photo is a 400. A photo replaced or a mask saved meanwhile is a 409: read the garment and turn again. Not idempotent: each call turns.',
+        params: GarmentParams,
+        querystring: GarmentQuery,
+        body: RotateInput,
+        response: apiResponses({ 200: GarmentPhotoSaved }),
+      },
+    },
+    async (request) => {
+      const { cutoutStatus } = await turnGarmentPhoto(
+        deps,
+        actorOf(request),
+        garmentAddress(request),
+        request.body.direction,
+      );
+      return { cutoutStatus };
+    },
+  );
+
+  app.put(
+    `${GARMENT_PATH}/photo/cutout`,
+    {
+      schema: {
+        operationId: 'saveGarmentCutout',
+        tags: ['photos'],
+        summary: "Saves an edited cutout of a garment's photo",
+        description:
+          "The mask editor's save: multipart/form-data with one `cutout` part, which replaces the cutout the server made. Your own wardrobe or a MANAGE share; a garment without a photo, or no part, is a 400; a photo replaced meanwhile a 404.",
+        params: GarmentParams,
+        querystring: GarmentQuery,
+        multipartBody: CutoutUpload,
+        response: apiResponses({ 200: GarmentPhotoResource }),
+      },
+    },
+    async (request) => {
+      const edited = await saveEditedGarmentCutout(
+        deps,
+        actorOf(request),
+        garmentAddress(request),
+        () => request.file(),
+      );
+      logger.info(
+        `Garment ${request.params.id} cutout replaced by user ${actorOf(request).userId}, photo version ${edited.version} (API)`,
+      );
+      return toGarmentPhoto(edited);
+    },
+  );
+
+  app.post(
+    `${GARMENT_PATH}/photo/cutout/retries`,
+    {
+      schema: {
+        operationId: 'retryGarmentCutout',
+        tags: ['photos'],
+        summary: 'Queues a failed cutout again',
+        description:
+          '"Try again" on a failed background removal. Idempotent: a cutout that is not failed (pending, ready, edited) is left as it is, `requeued` false. Your own wardrobe or a MANAGE share; a garment without a photo is a 400.',
+        params: GarmentParams,
+        querystring: GarmentQuery,
+        response: apiResponses({ 200: CutoutRetried }),
+      },
+    },
+    async (request) => {
+      const { id } = request.params;
+      const { outcome } = await retryGarmentCutout(
+        deps,
+        actorOf(request),
+        garmentAddress(request),
+      );
+      if (outcome.ok) {
+        logger.info(
+          `Garment ${id} cutout requeued by user ${actorOf(request).userId} (API)`,
+        );
+      } else {
+        logger.info(
+          `Garment ${id} cutout retry ignored (${outcome.reason}) (API)`,
+        );
+      }
+      return { requeued: outcome.ok };
+    },
+  );
+
+  app.post(
+    `${GARMENT_PATH}/repairs`,
+    {
+      schema: {
+        operationId: 'logGarmentRepair',
+        tags: ['garments'],
+        summary: 'Logs a repair or alteration on a garment',
+        description:
+          "The owner's own record: a share, MANAGE included, is a 403 (a 404 without `ownerId`), and a wishlist item a 409 (not bought yet). A day after today is a 400. The cost counts in the garment's cost per wear.",
+        params: GarmentParams,
+        querystring: GarmentQuery,
+        body: RepairInput,
+        response: apiResponses({ 201: RepairRef }),
+      },
+    },
+    async (request, reply) => {
+      const actor = actorOf(request);
+      const address = garmentAddress(request);
+      // Judged before the entry, as the page does: a refusal names the
+      // garment, never the entry's fields.
+      await garmentToMend(db, actor, address);
+      const form = readRepairForm(
+        request.body,
+        todayIn(config.timeZone, new Date()),
+      );
+      if (!form.ok) throw refusedRepairBody(form.errors);
+      const repairId = await logRepair(db, actor, address, form.entry);
+      logger.info(
+        `Repair ${repairId} (${form.entry.kind}, ${form.entry.day}${form.entry.cost === null ? '' : `, cost ${form.entry.cost}`}) logged on garment ${address.id} by user ${actor.userId} (API)`,
+      );
+      return reply.status(201).send({ id: repairId });
+    },
+  );
+
+  app.delete(
+    `${GARMENT_PATH}/repairs/:repairId`,
+    {
+      schema: {
+        operationId: 'deleteGarmentRepair',
+        tags: ['garments'],
+        summary: "Removes an entry from a garment's repair log",
+        description:
+          "The owner only, as logging one. An entry already gone, or another garment's, is a 404, which a retry may read as done.",
+        params: RepairParams,
+        querystring: GarmentQuery,
+        response: apiResponses({ 204: Type.Null({ description: 'Removed' }) }),
+      },
+    },
+    async (request, reply) => {
+      const { id, repairId } = request.params;
+      await removeRepair(
+        db,
+        actorOf(request),
+        garmentAddress(request),
+        repairId,
+      );
+      logger.info(
+        `Repair ${repairId} removed from garment ${id} by user ${actorOf(request).userId} (API)`,
+      );
+      return reply.status(204).send(null);
+    },
+  );
+
+  app.post(
+    '/garments/link-imports',
+    {
+      schema: {
+        operationId: 'importGarmentFromLink',
+        tags: ['garments'],
+        summary: 'Adds a garment from a product link',
+        description: `Fetches the page (or an image link) and saves the garment as the link import prefills it: name, brand, colours, category, type, materials, price and the first readable photo (its background removal follows). Your own wardrobe or a MANAGE share. Rate limited with the page's link import: ${LINK_IMPORT_LIMIT.max} a minute between them, then a 429 with Retry-After. A refused fetch is a 400 or 422 whose detail leads with its reason (\`blocked-by-site\`: the shop refuses automated fetches, so try another retailer, never again); a form the prefill and the fields given cannot save (no category) is a 400 naming the field.`,
+        querystring: GarmentQuery,
+        body: LinkImportInput,
+        response: apiResponses({ 201: GarmentImported }),
+      },
+    },
+    async (request, reply) => {
+      // The wardrobe before the budget, so a refused call spends none of it.
+      const { access, viewOwner } = await authorize(request, 'manage');
+      const userId = actorOf(request).userId;
+      await enforceLimit(linkImportLimit, request, {
+        logger,
+        who: `user ${userId}`,
+      });
+      const {
+        url,
+        destination = 'closet',
+        properties,
+        ...fields
+      } = request.body;
+      refuseReplacesOffWishlist(destination, fields.replacesGarmentId);
+      const link = linkIn(url);
+      if (!link) {
+        const message = t(REFUSALS['no-link'].message);
+        throw new HttpError(400, message, {
+          validation: [{ path: 'body/url', message }],
+        });
+      }
+      const saved = await saveGarmentFromLink(
+        { ...deps, fetcher },
+        userId,
+        access,
+        { ...fields, url: link, destination, type: properties?.type },
+        'API',
+      );
+      if (!saved.ok) throw refusedGarmentBody(saved.errors);
+      return reply
+        .status(201)
+        .header('Location', apiGarmentUrl(saved.id, viewOwner))
+        .send({ id: saved.id, notices: saved.notices });
     },
   );
 
