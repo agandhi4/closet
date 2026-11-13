@@ -9,6 +9,7 @@ import {
   sql,
 } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
+import { lockedOwnerId, ownerLockCte } from '../../db/owner-lock';
 import { garment, outfitRule, styleProfile } from '../../db/schema';
 import {
   type OutfitRule,
@@ -47,9 +48,11 @@ export async function saveStyleProfile(
   userId: number,
   fields: StyleProfileFields,
 ): Promise<void> {
+  const lock = ownerLockCte(db, userId);
   await db
+    .with(lock)
     .insert(styleProfile)
-    .values({ userId, ...fields })
+    .values({ userId: lockedOwnerId(lock), ...fields })
     .onConflictDoUpdate({
       target: styleProfile.userId,
       set: { ...fields, updatedAt: sql`now()` },

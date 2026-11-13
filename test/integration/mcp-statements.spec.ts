@@ -25,6 +25,7 @@ import {
   recordQueries,
   type TestApp,
   userIdOf,
+  asFixture,
 } from './harness';
 import {
   html,
@@ -231,10 +232,12 @@ describe('MCP statements per tool (#172)', () => {
       .from(wardrobeShare)
       .where(eq(wardrobeShare.granteeId, ids.theo));
     ids.dana = share.danaId;
-    const [danas] = await t.db
-      .insert(capsule)
-      .values({ ownerId: ids.dana, name: 'Dana’s own' })
-      .returning({ id: capsule.id });
+    const [danas] = await asFixture(t.db, (tx) =>
+      tx
+        .insert(capsule)
+        .values({ ownerId: ids.dana, name: 'Dana’s own' })
+        .returning({ id: capsule.id }),
+    );
     ids.danaCapsule = danas.id;
   }
 

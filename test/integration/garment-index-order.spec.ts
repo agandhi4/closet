@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { gridPage } from '../../src/web/wardrobe/queries';
 import { recordStatements } from '../support/query-recorder';
-import { createTestApp, type TestApp, userIdOf } from './harness';
+import { createTestApp, type TestApp, userIdOf, asFixture } from './harness';
 
 interface PlanNode {
   'Node Type': string;
@@ -40,11 +40,13 @@ describe('garment keyset index order', () => {
     // 3,000 garments, one in twenty the owner's, their ids spread among the
     // neighbour's: enough that a seq scan or a backward garment_pkey scan
     // costs visibly more than the index.
-    await t.db.execute(sql`
-      insert into garment (owner_id, shareable_id, category)
-      select case when n % 20 = 0 then ${owner}::int else ${neighbour}::int end,
-             'index-order-' || n, 'tops'
-      from generate_series(1, 3000) n`);
+    await asFixture(t.db, (tx) =>
+      tx.execute(sql`
+        insert into garment (owner_id, shareable_id, category)
+        select case when n % 20 = 0 then ${owner}::int else ${neighbour}::int end,
+               'index-order-' || n, 'tops'
+        from generate_series(1, 3000) n`),
+    );
     await t.db.execute(sql`analyze garment`);
 
     const { statements } = await recordStatements(() =>

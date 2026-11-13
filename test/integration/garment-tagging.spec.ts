@@ -1,7 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garment } from '../../src/db/schema';
-import { createTestApp, recordQueries, type TestApp } from './harness';
+import {
+  createTestApp,
+  recordQueries,
+  type TestApp,
+  asFixture,
+} from './harness';
 import {
   expectFragment,
   expectNativePostForms,
@@ -272,10 +277,12 @@ describe('tagging mode', () => {
     // Type and warmth set, formality missing: on the card with two chips
     // checked, which the form posts on Next as on every tap.
     const id = await create({ name: 'Half tee', category: 'tops' });
-    await t.db
-      .update(garment)
-      .set({ type: 't-shirt', warmth: 3, formality: null })
-      .where(eq(garment.id, id));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(garment)
+        .set({ type: 't-shirt', warmth: 3, formality: null })
+        .where(eq(garment.id, id)),
+    );
     const before = await row(id);
     t.logs.clear();
 

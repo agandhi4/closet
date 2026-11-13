@@ -1,5 +1,17 @@
-import { and, asc, count, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  eq,
+  inArray,
+  isNull,
+  lt,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import type { Db, Queryable } from '../db/client';
+import { ownersLockCte } from '../db/owner-lock';
 import { file, garment } from '../db/schema';
 import { currentRequest } from '../request-context';
 import { CUTOUT_TIMEOUT_MS } from './runner';
@@ -33,6 +45,12 @@ export const CUTOUT_LEASE_MS = 5 * CUTOUT_TIMEOUT_MS;
 export interface CutoutRow extends CutoutState {
   id: number;
   fileName: string;
+  /**
+   * The owner of the garment showing the photo, as locked or read with the
+   * row (lockCutoutRow); null when no garment shows it. applyCutoutEvent
+   * writes only while that is still so.
+   */
+  lockedOwner: number | null;
 }
 
 /**
@@ -68,17 +86,62 @@ const stateColumns = {
   variantKey: file.variantKey,
 };
 
-/** The photo's cutout state, its row locked until the transaction ends. */
+/**
+ * The owners of the garments showing these photos: a garment's photo row
+ * is synced data (its version and cutout status), so its writers take that
+ * owner's lock first (src/db/owner-lock.ts). A selfie's, a look's or an
+ * orphan's photo has none, and its writes lock no owner.
+ *
+ * A photo's owner never changes while another transaction can see it: a
+ * garment only ever points at a `file` row its own transaction inserted
+ * (replacePhotoRow, a pending photo's claim, a clone), and the row goes in
+ * the transaction that stops pointing at it. So the owner read before the
+ * lock is the owner under it; applyCutoutEvent still checks, in its write.
+ */
+function garmentOwnersOf(fileIds: SQL): SQL {
+  return sql`select ${garment.ownerId} from ${garment} where ${garment.photoId} in (${fileIds})`;
+}
+
+/**
+ * The owner of the garment showing the statement's `file` row. Written
+ * with its tables: Drizzle drops them from a single-table select's SQL
+ * fields (src/db/AGENTS.md), which would compare garment's own columns.
+ */
+const garmentOwnerSql = sql<
+  number | null
+>`(select g.owner_id from ${garment} g where g.photo_id = ${sql.raw('"file"."id"')})`;
+
+/**
+ * The photo's cutout state, its row locked until the transaction ends, its
+ * garment's owner locked before it (garmentOwnersOf). `lockedOwner` is the
+ * owner locked, null without one: computed in the scan below the row's
+ * LockRows, so the owner lock comes first (owner-lock.spec.ts EXPLAINs it).
+ */
 export async function lockCutoutRow(
   tx: Queryable,
   fileName: string,
 ): Promise<CutoutRow | undefined> {
-  const [row] = await tx
-    .select(stateColumns)
+  const [row] = await lockCutoutRowQuery(tx, fileName);
+  return row;
+}
+
+/** lockCutoutRow's statement, exported for owner-lock.spec.ts. */
+export function lockCutoutRowQuery(tx: Queryable, fileName: string) {
+  const lock = ownersLockCte(
+    tx,
+    garmentOwnersOf(
+      sql`select ${file.id} from ${file} where ${file.fileName} = ${fileName}`,
+    ),
+  );
+  return tx
+    .with(lock)
+    .select({
+      ...stateColumns,
+      lockedOwner: sql<number | null>`(select max(l.id) from ${lock} l)`,
+    })
     .from(file)
     .where(eq(file.fileName, fileName))
-    .for('update');
-  return row;
+    .for('update', { of: file });
 }
 
 /**
@@ -112,13 +175,28 @@ export async function applyCutoutEvent(
         cutoutRequestId: currentRequest()?.requestId ?? null,
       }),
     })
-    .where(eq(file.id, row.id));
+    .where(
+      and(
+        eq(file.id, row.id),
+        // The photo's garment owner is the one locked (lockCutoutRow),
+        // read again by this statement under the row's lock.
+        sql`${garmentOwnerSql} is not distinct from ${row.lockedOwner}`,
+      ),
+    );
   // A released row is claimable again: tell the other servers, rather than
   // leave it to their poll.
-  if (next.queued || event.type === 'release') {
-    await update.returning({ notified: CUTOUT_QUEUED_NOTIFY });
-  } else {
-    await update;
+  const written = await update.returning({
+    notified:
+      next.queued || event.type === 'release'
+        ? CUTOUT_QUEUED_NOTIFY
+        : sql<string>`''`,
+  });
+  if (written.length === 0) {
+    // garmentOwnersOf says why this cannot happen; written anyway, it
+    // would be a synced write without its owner's lock.
+    throw new Error(
+      `Photo ${row.fileName} changed owner under its row lock: ${event.type} not written`,
+    );
   }
   return next;
 }
@@ -175,12 +253,28 @@ export function lockCutoutRows(
   tx: Queryable,
   fileNames: readonly string[],
 ): Promise<CutoutRow[]> {
+  // Their garments' owners first, in id order (garmentOwnersOf).
+  const lock = ownersLockCte(
+    tx,
+    garmentOwnersOf(
+      sql`select ${file.id} from ${file} where ${inArray(file.fileName, [...fileNames])}`,
+    ),
+  );
   return tx
-    .select(stateColumns)
+    .with(lock)
+    .select({
+      ...stateColumns,
+      // The lock's own column is what runs it, in the scan below the
+      // rows' LockRows (as lockCutoutRow's); each row's owner is read
+      // beside it.
+      lockedOwner: sql<
+        number | null
+      >`(select max(l.id) from ${lock} l where l.id = ${garmentOwnerSql})`,
+    })
     .from(file)
     .where(inArray(file.fileName, [...fileNames]))
     .orderBy(asc(file.id))
-    .for('update');
+    .for('update', { of: file });
 }
 
 /** applyCutoutEvent in a transaction of its own, for events that bring no bytes. */
@@ -235,6 +329,9 @@ export function claimNextCutout(
         requestedAt: file.cutoutRequestedAt,
         requestId: file.cutoutRequestId,
         garmentId: garment.id,
+        // Read, not locked: start changes neither the version nor the
+        // status, so it is no synced write (garmentOwnersOf).
+        lockedOwner: garment.ownerId,
       })
       .from(file)
       .leftJoin(garment, eq(garment.photoId, file.id))

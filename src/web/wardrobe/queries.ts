@@ -20,6 +20,12 @@ import { alias, type PgUpdateSetSource } from 'drizzle-orm/pg-core';
 import { randomUUID } from 'node:crypto';
 import type { CutoutStatus } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
+import {
+  lockedOwnerId,
+  ownerLockCte,
+  ownerLocked,
+  type OwnerLockCte,
+} from '../../db/owner-lock';
 import { file, garment } from '../../db/schema';
 import type { AwayReason } from '../../wardrobe/availability';
 import type { CareLabel, CareWash } from '../../wardrobe/care';
@@ -535,8 +541,10 @@ export async function findGarment(
 }
 
 /**
- * The garment's photo row id inside a write transaction, the garment
- * locked so two writes to one garment take turns (not the `file` row: a
+ * The garment's photo row id inside a write transaction, the owner then the
+ * garment locked in one statement (the owner lock first, as every synced
+ * write takes it: src/db/owner-lock.ts), so two writes to one garment take
+ * turns (not the `file` row: a
  * cutout swap may hold it, so its variant key comes from the delete that
  * waits for it, deletePhotoRow). Undefined when the garment is not in
  * `ownerId`'s wardrobe (any more), or, given `status`, no longer has it: a
@@ -549,7 +557,21 @@ export async function lockGarment(
   ownerId: number,
   status?: GarmentStatus,
 ): Promise<{ photoId: number | null } | undefined> {
-  const [row] = await tx
+  const lock = ownerLockCte(tx, ownerId);
+  const [row] = await lockGarmentQuery(tx, lock, id, ownerId, status);
+  return row;
+}
+
+/** lockGarment's statement, exported for owner-lock.spec.ts, which EXPLAINs it. */
+export function lockGarmentQuery(
+  tx: Queryable,
+  lock: OwnerLockCte,
+  id: number,
+  ownerId: number,
+  status?: GarmentStatus,
+) {
+  return tx
+    .with(lock)
     .select({ photoId: garment.photoId })
     .from(garment)
     .where(
@@ -557,10 +579,10 @@ export async function lockGarment(
         eq(garment.id, id),
         eq(garment.ownerId, ownerId),
         status && eq(garment.status, status),
+        ownerLocked(tx, lock),
       ),
     )
     .for('update', { of: garment });
-  return row;
 }
 
 const replaced = alias(garment, 'replaced');
@@ -621,14 +643,16 @@ export async function insertGarment(
   photoId: number | null,
   status: EntryStatus,
 ): Promise<number> {
+  const lock = ownerLockCte(tx, ownerId);
   const [row] = await tx
+    .with(lock)
     .insert(garment)
     .values({
       ...storedFields(tx, ownerId, fields),
       status,
       // Share links address garments by this (the /share page).
       shareableId: randomUUID(),
-      ownerId,
+      ownerId: lockedOwnerId(lock),
       photoId,
     })
     .returning({ id: garment.id });
@@ -646,10 +670,18 @@ async function updateOwnedGarment(
   ownerId: number,
   values: PgUpdateSetSource<typeof garment>,
 ): Promise<boolean> {
+  const lock = ownerLockCte(db, ownerId);
   const updated = await db
+    .with(lock)
     .update(garment)
     .set(values)
-    .where(and(eq(garment.id, id), eq(garment.ownerId, ownerId)))
+    .where(
+      and(
+        eq(garment.id, id),
+        eq(garment.ownerId, ownerId),
+        ownerLocked(db, lock),
+      ),
+    )
     .returning({ id: garment.id });
   return updated.length > 0;
 }
@@ -739,7 +771,9 @@ export function deleteGarment(
   status?: GarmentStatus,
 ): Promise<DeleteOutcome> {
   return db.transaction(async (tx): Promise<DeleteOutcome> => {
+    const lock = ownerLockCte(tx, ownerId);
     const [deleted] = await tx
+      .with(lock)
       .delete(garment)
       .where(
         and(
@@ -747,6 +781,7 @@ export function deleteGarment(
           eq(garment.ownerId, ownerId),
           status && eq(garment.status, status),
           not(isSuggestionOnWishlist),
+          ownerLocked(tx, lock),
         ),
       )
       .returning({ photoId: garment.photoId, status: garment.status });
@@ -786,14 +821,22 @@ export function bulkSetProperty(
   change: BulkChange,
 ): Promise<{ updated: number; skipped: number }> {
   return db.transaction(async (tx) => {
+    const lock = ownerLockCte(tx, ownerId);
     const rows = await tx
+      .with(lock)
       .select({
         id: garment.id,
         category: garment.category,
         materials: garment.materials,
       })
       .from(garment)
-      .where(and(eq(garment.ownerId, ownerId), inArray(garment.id, ids)))
+      .where(
+        and(
+          eq(garment.ownerId, ownerId),
+          inArray(garment.id, ids),
+          ownerLocked(tx, lock),
+        ),
+      )
       // Id order, as a pick locks them (pickedGarments): two multi-row
       // lockers taking rows in different orders can deadlock.
       .orderBy(garment.id)

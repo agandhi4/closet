@@ -21,7 +21,7 @@ import {
   pngCutout,
   uploadPhoto,
 } from './garments';
-import { createTestApp, TestApp } from './harness';
+import { createTestApp, TestApp, asFixture } from './harness';
 import { silentLogger } from './logger';
 import { planEntry, takeSelfie } from './selfies';
 
@@ -51,20 +51,24 @@ describe('storage reconciliation', () => {
   };
 
   const ageRow = async (fileName: string, ageMs: number) => {
-    await t.db
-      .update(file)
-      .set({ createdOn: new Date(Date.now() - ageMs).toISOString() })
-      .where(eq(file.fileName, fileName));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(file)
+        .set({ createdOn: new Date(Date.now() - ageMs).toISOString() })
+        .where(eq(file.fileName, fileName)),
+    );
   };
 
   const orphanRow = async (ageMs: number) => {
     const fileName = `${randomUUID()}.webp`;
-    await t.db.insert(file).values({
-      fileName,
-      shareableId: randomUUID(),
-      createdOn: new Date(Date.now() - ageMs).toISOString(),
-      createdById: t.owner.id,
-    });
+    await asFixture(t.db, (tx) =>
+      tx.insert(file).values({
+        fileName,
+        shareableId: randomUUID(),
+        createdOn: new Date(Date.now() - ageMs).toISOString(),
+        createdById: t.owner.id,
+      }),
+    );
     return fileName;
   };
 
@@ -310,10 +314,12 @@ describe('storage reconciliation and outfit selfies', () => {
 
   const age = async (fileName: string, ageMs: number) => {
     const then = new Date(Date.now() - ageMs);
-    await t.db
-      .update(file)
-      .set({ createdOn: then.toISOString() })
-      .where(eq(file.fileName, fileName));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(file)
+        .set({ createdOn: then.toISOString() })
+        .where(eq(file.fileName, fileName)),
+    );
     const stored = await readdir(t.dataPath);
     for (const variant of ['original', 'nobg', 'thumb'] as const) {
       const name = variantFileName(fileName, variant);
@@ -361,12 +367,14 @@ describe('storage reconciliation and outfit selfies', () => {
 
     // A real orphan: a `file` row nothing references, with its bytes.
     const orphan = `${randomUUID()}.webp`;
-    await t.db.insert(file).values({
-      fileName: orphan,
-      shareableId: randomUUID(),
-      createdOn: new Date().toISOString(),
-      createdById: t.owner.id,
-    });
+    await asFixture(t.db, (tx) =>
+      tx.insert(file).values({
+        fileName: orphan,
+        shareableId: randomUUID(),
+        createdOn: new Date().toISOString(),
+        createdById: t.owner.id,
+      }),
+    );
     await writeFile(join(t.dataPath, orphan), 'bytes of an orphan');
     for (const name of [entrySelfie.fileName, kept.fileName, orphan]) {
       await age(name, 3 * DAY_MS);

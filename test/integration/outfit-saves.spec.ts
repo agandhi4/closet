@@ -9,6 +9,7 @@ import {
   weekPlanEntry,
 } from '../../src/db/schema';
 import { addDays } from '../../src/calendar-date';
+import { ownerTransaction } from '../../src/web/auth/queries';
 import { replaceEntryOutfit } from '../../src/web/calendar/replace';
 import { OutfitGarmentsGone } from '../../src/web/outfits/gone-garments';
 import { pickIdea } from '../../src/web/outfits/pick';
@@ -20,7 +21,7 @@ import {
   recordAutoEntry,
 } from '../../src/web/week-plan/queries';
 import { createWishlistItem } from './garments';
-import { createTestApp, hasText, type TestApp } from './harness';
+import { createTestApp, hasText, type TestApp, asFixture } from './harness';
 import { interleave } from './interleave';
 import { callTool, createAccessToken, tool } from './mcp';
 
@@ -141,12 +142,14 @@ describe('outfit saves', () => {
   // Every case starts without outfits or batches, the closet whole (a
   // plain delete is fine: nothing here is worn history).
   beforeEach(async () => {
-    await t.db.delete(outfit);
-    await t.db.delete(weekPlan);
-    await t.db
-      .update(garment)
-      .set({ status: 'closet' })
-      .where(eq(garment.ownerId, t.owner.id));
+    await asFixture(t.db, (tx) => tx.delete(outfit));
+    await asFixture(t.db, (tx) => tx.delete(weekPlan));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(garment)
+        .set({ status: 'closet' })
+        .where(eq(garment.ownerId, t.owner.id)),
+    );
   });
 
   describe('one outfit per garment set, whichever save commits first', () => {
@@ -223,8 +226,9 @@ describe('outfit saves', () => {
             name: 'Friday',
             slots: look().map((garmentId) => ({ category: 'tops', garmentId })),
           }),
+        // As "Plan my week" writes: under the owner lock, which it waits on.
         () =>
-          t.db.transaction(async (tx) => {
+          ownerTransaction(t.db, t.owner.id, 'planMyWeek', async (tx) => {
             const weekPlanId = await createWeekPlan(tx, t.owner.id);
             const picked = await pickIdea(tx, t.owner.id, {
               garmentIds: look(),
@@ -265,17 +269,18 @@ describe('outfit saves', () => {
       });
       if (planned === 'not-found') throw new Error('refused');
       // The planner made it: a batch row says it created the outfit.
-      const weekPlanId = await createWeekPlan(t.db, t.owner.id);
       const [entry] = await t.db
         .select({ id: outfitCalendar.id })
         .from(outfitCalendar)
         .where(eq(outfitCalendar.outfitId, planned.id));
-      await recordAutoEntry(t.db, {
-        entryId: entry.id,
-        weekPlanId,
-        outfitCreated: true,
-        needs: null,
-      });
+      await asFixture(t.db, async (tx) =>
+        recordAutoEntry(tx, {
+          entryId: entry.id,
+          weekPlanId: await createWeekPlan(tx, t.owner.id),
+          outfitCreated: true,
+          needs: null,
+        }),
+      );
       const res = await formSave([shoes, top, bottom], {
         name: 'Renamed?',
         notes: 'ignored',

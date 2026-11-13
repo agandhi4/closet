@@ -8,7 +8,7 @@ import {
 import { MAX_OPTIONS_PER_GROUP } from '../../src/wardrobe/suggestions';
 import { markSuggestion } from '../../src/web/wishlist/decisions';
 import { createWishlistItem } from './garments';
-import { createTestApp, type TestApp } from './harness';
+import { createTestApp, type TestApp, asFixture } from './harness';
 import {
   html,
   jpeg,
@@ -86,10 +86,12 @@ describe('suggest_garment, judged again as it writes', () => {
       category: 'outerwear',
       sourceUrl: `${url.replace('http://', 'https://www.')}?srsltid=x`,
     });
-    await t.db
-      .update(garment)
-      .set({ dismissedAt: new Date(), dismissedReason: 'style' })
-      .where(eq(garment.id, own));
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(garment)
+        .set({ dismissedAt: new Date(), dismissedReason: 'style' })
+        .where(eq(garment.id, own)),
+    );
     const refused = await callTool(t, token, 'suggest_garment', {
       url,
       groupId,

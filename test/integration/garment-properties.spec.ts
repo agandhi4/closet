@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garment } from '../../src/db/schema';
 import { createGarment } from './garments';
-import { createTestApp, type TestApp } from './harness';
+import { createTestApp, type TestApp, asFixture } from './harness';
 import {
   expectFragment,
   expectNativePostForms,
@@ -225,8 +225,10 @@ describe('garment properties', () => {
       // Drizzle wraps the driver's error; the violation is its cause:
       // check_violation (23514) on the column's own constraint.
       await expect(
-        t.db.execute(
-          sql`update garment set ${sql.identifier(column)} = ${value} where id = ${id}`,
+        asFixture(t.db, (tx) =>
+          tx.execute(
+            sql`update garment set ${sql.identifier(column)} = ${value} where id = ${id}`,
+          ),
         ),
       ).rejects.toMatchObject({
         cause: { code: '23514', constraint: `garment_${column}_check` },

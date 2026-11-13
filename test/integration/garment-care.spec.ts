@@ -3,7 +3,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garment, garmentRepair } from '../../src/db/schema';
 import { addDays } from '../../src/calendar-date';
 import { createGarment, createWishlistItem } from './garments';
-import { createTestApp, type TestApp, unescapeHtml } from './harness';
+import {
+  createTestApp,
+  type TestApp,
+  unescapeHtml,
+  asFixture,
+} from './harness';
 import { createAccessToken, tool } from './mcp';
 import {
   expectFragment,
@@ -111,8 +116,10 @@ describe('the care label and the repair log', () => {
       expect(res.statusCode).toBe(400);
       const id = await createGarment(t, { name: 'Target', category: 'tops' });
       await expect(
-        t.db.execute(
-          sql`update garment set care_wash = 'boil' where id = ${id}`,
+        asFixture(t.db, (tx) =>
+          tx.execute(
+            sql`update garment set care_wash = 'boil' where id = ${id}`,
+          ),
         ),
       ).rejects.toMatchObject({
         cause: { code: '23514', constraint: 'garment_care_wash_check' },

@@ -4,7 +4,7 @@ import { garment, garmentWear } from '../../src/db/schema';
 import { addDays } from '../../src/calendar-date';
 import { acceptInvite, createInvite } from '../../src/web/sharing/queries';
 import { createGarment, createWishlistItem } from './garments';
-import { createTestApp, type TestApp, userIdOf } from './harness';
+import { createTestApp, type TestApp, userIdOf, asFixture } from './harness';
 import { callTool, createAccessToken, tool } from './mcp';
 
 /**
@@ -61,18 +61,24 @@ describe('MCP get_wardrobe', () => {
       category: 'outerwear',
     });
     wishlisted = await createWishlistItem(t, { name: 'Wanted shirt' });
-    await t.db
-      .update(garment)
-      .set({ status: 'archived' })
-      .where(eq(garment.id, archived));
-    await t.db.update(garment).set({ quantity: 3 }).where(eq(garment.id, worn));
-    await t.db.insert(garmentWear).values(
-      [5, 2].map((days) => ({
-        garmentId: worn,
-        ownerId: t.owner.id,
-        day: addDays(t.today(), -days),
-        outfitCalendarId: null,
-      })),
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(garment)
+        .set({ status: 'archived' })
+        .where(eq(garment.id, archived)),
+    );
+    await asFixture(t.db, (tx) =>
+      tx.update(garment).set({ quantity: 3 }).where(eq(garment.id, worn)),
+    );
+    await asFixture(t.db, (tx) =>
+      tx.insert(garmentWear).values(
+        [5, 2].map((days) => ({
+          garmentId: worn,
+          ownerId: t.owner.id,
+          day: addDays(t.today(), -days),
+          outfitCalendarId: null,
+        })),
+      ),
     );
 
     token = await createAccessToken(t);
