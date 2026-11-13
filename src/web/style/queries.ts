@@ -42,6 +42,28 @@ export function styleProfileSql(
     from ${styleProfile} where ${eq(styleProfile.userId, userId)})`;
 }
 
+/**
+ * The style profiles of these users (one row per user, keyed by it), in
+ * one statement: the changes feed's page (src/web/sync/feed.ts), which
+ * read the ids from the owner's own wardrobe in the same snapshot (the
+ * style profile is owner-only).
+ */
+export function styleProfilesByUserIds(
+  db: Queryable,
+  userIds: readonly number[],
+): Promise<(StyleProfileFields & { userId: number })[]> {
+  return db
+    .select({
+      userId: styleProfile.userId,
+      styles: styleProfile.styles,
+      budget: styleProfile.budget,
+      palette: styleProfile.palette,
+      notes: styleProfile.notes,
+    })
+    .from(styleProfile)
+    .where(inArray(styleProfile.userId, [...userIds]));
+}
+
 /** The one writer of a style profile (the page's post and the seed): the row upserted. */
 export async function saveStyleProfile(
   db: Queryable,

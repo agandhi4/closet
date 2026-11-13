@@ -1,15 +1,43 @@
 import type { Static, TSchema } from '@sinclair/typebox';
 import type { Db, Queryable } from '../../db/client';
 import { SYNC_ROOTS, type SyncResource } from '../../db/sync-tables';
+import {
+  SyncedCalendarEntry,
+  toSyncedCalendarEntry,
+} from '../calendar/entry-resource';
+import { entriesByIds } from '../calendar/queries';
 import { capsulesByIds } from '../capsules/queries';
 import { SyncedCapsule, toSyncedCapsule } from '../capsules/capsule-resource';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
+import { outfitsByIds } from '../outfits/queries';
+import { SyncedOutfit, toSyncedOutfit } from '../outfits/outfit-resource';
+import { selfiesByIds } from '../selfies/queries';
+import { SyncedSelfie, toSyncedSelfie } from '../selfies/selfie-resource';
 import type { Actor } from '../sharing/access';
+import { brandSizesByIds, measurementsByUserIds } from '../sizes/queries';
+import {
+  BrandSizeResource,
+  SyncedMeasurements,
+  toBrandSizeResource,
+  toSyncedMeasurements,
+} from '../sizes/sizes-resource';
+import { styleProfilesByUserIds } from '../style/queries';
+import {
+  StyleProfileValues,
+  toStyleProfileValues,
+} from '../style/style-resource';
+import { tripsByIds } from '../trips/queries';
+import { SyncedTrip, toSyncedTrip } from '../trips/trip-resource';
 import { SyncedGarment, toSyncedGarment } from '../wardrobe/garment-resource';
 import { garmentsByIds } from '../wardrobe/queries';
 import { wearsByIds } from '../wears/queries';
 import { SyncedWear, toSyncedWear } from '../wears/wear-resource';
+import { weekPlansByIds } from '../week-plan/queries';
+import {
+  SyncedWeekPlan,
+  toSyncedWeekPlan,
+} from '../week-plan/week-plan-resource';
 import {
   type ChangesCursor,
   endOf,
@@ -71,32 +99,13 @@ function feedEntry<S extends TSchema>(entry: {
 }
 
 /**
- * The synced roots the feed does not carry yet: #608 registers each in
- * FEED and empties this list (feed.spec.ts holds the two to SYNC_ROOTS).
- */
-export const PENDING_FEED_RESOURCES = [
-  'outfit',
-  'outfit_calendar',
-  'selfie',
-  'trip',
-  'week_plan',
-  'brand_size',
-  'style_profile',
-  'body_measurements',
-] as const satisfies readonly SyncResource[];
-
-type FeedResource = Exclude<
-  SyncResource,
-  (typeof PENDING_FEED_RESOURCES)[number]
->;
-
-/**
  * Every resource the feed carries, by its table (src/db/sync-tables.ts): a
- * new synced root fails tsc here until it is registered or listed pending.
- * Adding one is an entry: its batched by-id reader beside its per-id one,
- * and its feed shape beside its API resource.
+ * new synced root fails tsc here until it is registered. Adding one is an
+ * entry: its batched by-id reader beside its per-id one, and its feed shape
+ * beside its API resource. `shared` follows src/web/sharing/AGENTS.md's
+ * share-aware list: everything but garments and capsules is the owner's.
  */
-export const FEED: Readonly<Record<FeedResource, FeedEntry>> = {
+export const FEED: Readonly<Record<SyncResource, FeedEntry>> = {
   garment: feedEntry({
     name: 'garment',
     shared: true,
@@ -127,28 +136,101 @@ export const FEED: Readonly<Record<FeedResource, FeedEntry>> = {
         data: toSyncedCapsule(row),
       })),
   }),
+  // Muse's proposals included: the owner's to react to (decided on #607).
+  outfit: feedEntry({
+    name: 'outfit',
+    shared: false,
+    schema: SyncedOutfit,
+    read: async (db, ids) =>
+      (await outfitsByIds(db, ids)).map((row) => ({
+        id: row.id,
+        data: toSyncedOutfit(row),
+      })),
+  }),
+  outfit_calendar: feedEntry({
+    name: 'calendarEntry',
+    shared: false,
+    schema: SyncedCalendarEntry,
+    read: async (db, ids) =>
+      (await entriesByIds(db, ids)).map((row) => ({
+        id: row.id,
+        data: toSyncedCalendarEntry(row),
+      })),
+  }),
+  selfie: feedEntry({
+    name: 'selfie',
+    shared: false,
+    schema: SyncedSelfie,
+    read: async (db, ids) =>
+      (await selfiesByIds(db, ids)).map((row) => ({
+        id: row.id,
+        data: toSyncedSelfie(row),
+      })),
+  }),
+  trip: feedEntry({
+    name: 'trip',
+    shared: false,
+    schema: SyncedTrip,
+    read: async (db, ids) =>
+      (await tripsByIds(db, ids)).map((row) => ({
+        id: row.id,
+        data: toSyncedTrip(row),
+      })),
+  }),
+  week_plan: feedEntry({
+    name: 'weekPlan',
+    shared: false,
+    schema: SyncedWeekPlan,
+    read: async (db, ids) =>
+      (await weekPlansByIds(db, ids)).map((row) => ({
+        id: row.id,
+        data: toSyncedWeekPlan(row),
+      })),
+  }),
+  brand_size: feedEntry({
+    name: 'brandSize',
+    shared: false,
+    schema: BrandSizeResource,
+    read: async (db, ids) =>
+      (await brandSizesByIds(db, ids)).map((row) => ({
+        id: row.id,
+        data: toBrandSizeResource(row),
+      })),
+  }),
+  // The one-row-per-user tables: the change's id is the user's.
+  style_profile: feedEntry({
+    name: 'styleProfile',
+    shared: false,
+    schema: StyleProfileValues,
+    read: async (db, ids) =>
+      (await styleProfilesByUserIds(db, ids)).map(({ userId, ...profile }) => ({
+        id: userId,
+        data: toStyleProfileValues(profile),
+      })),
+  }),
+  body_measurements: feedEntry({
+    name: 'measurements',
+    shared: false,
+    schema: SyncedMeasurements,
+    read: async (db, ids) =>
+      (await measurementsByUserIds(db, ids)).map((row) => ({
+        id: row.userId,
+        data: toSyncedMeasurements(row),
+      })),
+  }),
 };
 
-function isFeedResource(table: SyncResource): table is FeedResource {
-  return table in FEED;
-}
-
-const OWN_ROOTS: readonly FeedRoot[] = SYNC_ROOTS.filter((root) =>
-  isFeedResource(root.table),
-);
-const SHARED_ROOTS = OWN_ROOTS.filter(
-  (root) => isFeedResource(root.table) && FEED[root.table].shared,
-);
+const OWN_ROOTS: readonly FeedRoot[] = SYNC_ROOTS;
+const SHARED_ROOTS = OWN_ROOTS.filter((root) => FEED[root.table].shared);
 
 /**
- * Which resources a cursor was answered with, one bit per SYNC_ROOTS entry
- * registered: a cursor from before a resource joined the feed never saw
- * that resource's rows below its positions, so it is expired (a full sync)
- * rather than silently missing them.
+ * Which resources a cursor was answered with, one bit per SYNC_ROOTS entry:
+ * a cursor from before a root joined the feed never saw that resource's
+ * rows below its positions, so it is expired (a full sync) rather than
+ * silently missing them. #608 registering the last eight moved it once.
  */
 export const FEED_COVERAGE = SYNC_ROOTS.reduce(
-  (bits, root, index) =>
-    isFeedResource(root.table) ? bits | (1 << index) : bits,
+  (bits, _root, index) => bits | (1 << index),
   0,
 );
 
@@ -249,19 +331,12 @@ export async function readChanges(
 
 function itemOf(item: FeedItem): Item {
   return {
-    resource: entryOf(item.resource).name,
+    resource: FEED[item.resource].name,
     ownerId: item.ownerId,
     id: item.id,
     ...(item.clientId !== null && { clientId: item.clientId }),
     revision: item.revision,
   };
-}
-
-function entryOf(resource: SyncResource): FeedEntry {
-  if (!isFeedResource(resource)) {
-    throw new Error(`The feed read ${resource}, which it does not carry`);
-  }
-  return FEED[resource];
 }
 
 /** Each resource's rows on the page, by id: one statement per resource. */
@@ -277,7 +352,7 @@ async function hydrate(
   }
   const data = new Map<SyncResource, Map<number, unknown>>();
   for (const [resource, ids] of idsOf) {
-    const rows = await entryOf(resource).read(db, ids, viewerId);
+    const rows = await FEED[resource].read(db, ids, viewerId);
     data.set(resource, new Map(rows.map((row) => [row.id, row.data])));
   }
   return data;

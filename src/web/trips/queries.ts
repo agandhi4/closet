@@ -1,10 +1,20 @@
-import { and, asc, desc, eq, isNotNull, type SQL, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  type SQL,
+  sql,
+} from 'drizzle-orm';
 import type { Db, Queryable } from '../../db/client';
 import { lockedOwnerId, ownerLockCte, ownerLocked } from '../../db/owner-lock';
 import {
   outfit,
   outfitCalendar,
   trip,
+  tripGarmentPacked,
   tripItem,
   tripOutfit,
 } from '../../db/schema';
@@ -853,4 +863,67 @@ export function tripsWithItemsSql(
     )
     from ${others} other
   )`;
+}
+
+// ---- The changes feed ------------------------------------------------------------
+
+/** A trip's outfit as stored: the outfit, and the day and occasion it is for. */
+export interface StoredTripOutfit {
+  id: number;
+  outfitId: number;
+  day: IsoDate | null;
+  occasion: Occasion | null;
+}
+
+/** A trip as the changes feed carries it (tripsByIds, trip-resource.ts). */
+export interface SyncedTripRow extends TripRow {
+  outfits: StoredTripOutfit[];
+  extras: TripItemRow[];
+  /** Every packed mark, by garment id: a mark whose garment left the list is ignored by the reads. */
+  packedGarmentIds: number[];
+}
+
+/**
+ * The trips with these ids, each with its outfits, extras and packed marks,
+ * in one statement whatever their owners (the changes feed's page,
+ * src/web/sync/feed.ts, which read the ids from the owner's own wardrobe
+ * in the same snapshot: trips are owner-only). Each of the three tables is
+ * the trip's sync child, so a tick or an outfit added resends the trip.
+ */
+export async function tripsByIds(
+  db: Queryable,
+  ids: readonly number[],
+): Promise<SyncedTripRow[]> {
+  const rows = await db
+    .select({
+      ...tripColumns,
+      outfits: sql<StoredTripOutfit[]>`(
+        select coalesce(json_agg(json_build_object(
+          'id', ${tripOutfit.id},
+          'outfitId', ${tripOutfit.outfitId},
+          'day', ${tripOutfit.day},
+          'occasion', ${tripOutfit.occasion}
+        ) order by ${tripOutfit.id}), '[]')
+        from ${tripOutfit} where ${tripOutfit.tripId} = ${trip.id}
+      )`,
+      extras: sql<TripItemRow[]>`(
+        select coalesce(json_agg(json_build_object(
+          'id', ${tripItem.id}, 'label', ${tripItem.label}, 'packed', ${tripItem.packed}
+        ) order by ${tripItem.id}), '[]')
+        from ${tripItem} where ${tripItem.tripId} = ${trip.id}
+      )`,
+      packedGarmentIds: sql<number[]>`array(
+        select ${tripGarmentPacked.garmentId} from ${tripGarmentPacked}
+        where ${tripGarmentPacked.tripId} = ${trip.id}
+        order by ${tripGarmentPacked.garmentId}
+      )`,
+    })
+    .from(trip)
+    .where(inArray(trip.id, [...ids]));
+  return rows.map(({ outfits, extras, packedGarmentIds, ...columns }) => ({
+    ...tripRow(columns),
+    outfits,
+    extras,
+    packedGarmentIds,
+  }));
 }

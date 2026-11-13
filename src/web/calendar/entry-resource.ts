@@ -13,7 +13,11 @@ import {
 import { IsoDateSchema, RowId } from '../schemas';
 import { SelfiePhoto, toSelfiePhoto } from '../selfies/selfie-resource';
 import type { CalendarEntry } from './calendar-view';
-import { MAX_CALENDAR_DAYS, type ScheduleOutcome } from './queries';
+import {
+  type EntryRow,
+  MAX_CALENDAR_DAYS,
+  type ScheduleOutcome,
+} from './queries';
 import type { Replaced, ReplacementChoice } from './replace';
 
 /**
@@ -75,6 +79,42 @@ export function toCalendarEntryResource(
       ...withoutNulls({ name: entry.outfit.name }),
       garments: entry.outfit.garments.map(toOutfitGarment),
     },
+  };
+}
+
+/**
+ * The changes feed's calendar entry (#196b-2, GET /changes): its own
+ * columns, the outfit by id. No `outfit` name or garments (the outfit's,
+ * whose edits never move the entry's revision) and no `selfieId` or
+ * `selfiePhoto` (the selfie names its entry, and a selfie removed moves
+ * only the selfie).
+ */
+export const SyncedCalendarEntry = Type.Object(
+  {
+    id: Type.Integer(),
+    day: IsoDateSchema,
+    occasion: Occasion,
+    worn: Type.Boolean(),
+    plannedBy: CalendarEntryResource.properties.plannedBy,
+    outfitId: Type.Integer(),
+  },
+  {
+    title: 'SyncedCalendarEntry',
+    description:
+      'An outfit planned on a day for an occasion: its outfit and its selfie are their own resources',
+  },
+);
+
+export function toSyncedCalendarEntry(
+  entry: EntryRow,
+): Static<typeof SyncedCalendarEntry> {
+  return {
+    id: entry.id,
+    day: entry.day,
+    occasion: entry.occasion,
+    worn: entry.worn,
+    plannedBy: entry.plannedBy,
+    outfitId: entry.outfitId,
   };
 }
 

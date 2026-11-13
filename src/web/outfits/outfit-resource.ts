@@ -19,6 +19,7 @@ import {
   type OutfitGarment,
   type OutfitPageDetail,
   type SlotInput,
+  type SyncedOutfitRow,
   type ToolOutfit,
 } from './queries';
 import { piecesToBuy } from './references';
@@ -150,6 +151,65 @@ export function toOutfitResource({ outfit, entries }: OutfitContext): Outfit {
     ...toOutfitFields(outfit),
     planned: entries.planned,
     worn: entries.worn.map(({ entryId, day }) => ({ entryId, day })),
+  };
+}
+
+/**
+ * The changes feed's outfit (#196b-2, GET /changes): its stored fields and
+ * rows. No `garments` or `toBuy` (each garment's name, photo, status and
+ * whereabouts are the garment's, whose edits never move the outfit's
+ * revision: the client draws them from its garments), no proposal `agent`
+ * (the token's name) and no `planned` or `worn` (the calendar entries'
+ * own). Muse's proposals are in it, with their reaction: the owner's feed
+ * only, as every outfit.
+ */
+export const SyncedOutfit = Type.Object(
+  {
+    id: Type.Integer(),
+    name: Type.Optional(Type.String()),
+    notes: Type.Optional(Type.String()),
+    slots: Type.Array(
+      Type.Object(
+        {
+          category: Type.String(),
+          garmentId: Type.Optional(
+            Type.Integer({ description: 'Absent: a row kept empty' }),
+          ),
+        },
+        { title: 'SyncedOutfitSlot' },
+      ),
+      { description: 'Its rows top to toe, as built' },
+    ),
+    proposal: Type.Optional(
+      Type.Object(
+        {
+          reaction: literals(LOOK_REACTIONS),
+          note: Type.Optional(Type.String()),
+          ownerNote: Type.Optional(Type.String()),
+          dismissedReason: Type.Optional(literals(OUTFIT_DISMISS_REASONS)),
+        },
+        {
+          title: 'SyncedOutfitProposal',
+          description: 'Your agent proposed it: its note and your reaction',
+        },
+      ),
+    ),
+  },
+  {
+    title: 'SyncedOutfit',
+    description:
+      "One of your outfits as stored: its rows name garments by id; what each looks like and whether it is bought yet is the garment's",
+  },
+);
+
+export function toSyncedOutfit(
+  row: SyncedOutfitRow,
+): Static<typeof SyncedOutfit> {
+  return {
+    id: row.id,
+    ...withoutNulls({ name: row.name, notes: row.notes }),
+    slots: row.slots.map((slot) => withoutNulls(slot)),
+    ...(row.proposal && { proposal: withoutNulls(row.proposal) }),
   };
 }
 
