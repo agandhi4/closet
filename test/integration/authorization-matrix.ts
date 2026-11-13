@@ -43,6 +43,7 @@ import {
   userIdOf,
 } from './harness';
 import { jpeg, type LinkSites, startLinkSites } from './link-sites';
+import { deviceToken } from './api';
 import { mintToken } from './mcp';
 import { addLook } from './inspiration';
 import { planEntry, takeSelfie } from './selfies';
@@ -229,6 +230,21 @@ export interface Route {
   expect: Record<SignedIn, Outcome | Outcome[]>;
   /** A signed-out visitor's outcome when it is not the login redirect. */
   anonymous?: Outcome;
+  /**
+   * The route's /api/v1 twin (#191: its page route's operation in
+   * src/web/api/operations.ts, which api-parity.spec.ts holds this to).
+   * Every case replays on it with the actor's device token (anonymous: none)
+   * and must answer the same outcome: `ok` the twin's own success status,
+   * `login` a 401, a refusal the page's status. A clone's twin answers the
+   * new garment as JSON with its `id`.
+   */
+  api?: {
+    ok: number;
+    request: (
+      f: Fixture,
+      ownerQuery: string,
+    ) => InjectOptions | Promise<InjectOptions>;
+  };
 }
 
 export const BOTH: Via[] = ['own', 'ownerId'];
@@ -340,9 +356,34 @@ const TABLES = [
   'inspiration_piece',
 ];
 
+/** The page, or the route's /api/v1 twin (Route.api) with a device token. */
+type Surface = 'page' | 'api';
+
+/**
+ * Columns a credential stamps on every use, which no request writes: a
+ * device token's last use (each API twin's case), as a session has none.
+ * The snapshots leave them out, so a refused API request changed nothing.
+ */
+const BOOKKEEPING: Record<string, string[]> = {
+  personal_access_token: ['last_used_at'],
+};
+
+/** A table's row `r` as jsonb, without its bookkeeping columns. */
+const rowOf = (table: string): string => {
+  const columns = BOOKKEEPING[table];
+  return columns
+    ? `to_jsonb(r) - '{${columns.join(',')}}'::text[]`
+    : 'to_jsonb(r)';
+};
+
+/** The same as text for a digest: the row's own text where nothing is left out. */
+const rowText = (table: string): string =>
+  table in BOOKKEEPING ? `(${rowOf(table)})::text` : 'r::text';
+
 interface Case {
   title: string;
   route: Route;
+  surface: Surface;
   actor: ActorName;
   via: Via;
   outcome: Outcome;
@@ -350,24 +391,29 @@ interface Case {
 
 const casesOf = (routes: Route[]): Case[] =>
   routes.flatMap((route) =>
-    route.vias.flatMap((via, i) =>
-      (['owner', 'manager', 'viewer', 'stranger', 'anonymous'] as const).map(
-        (actor): Case => {
-          const expected =
-            actor === 'anonymous'
-              ? (route.anonymous ?? 'login')
-              : route.expect[actor];
-          const outcome = Array.isArray(expected) ? expected[i] : expected;
-          const where = via === 'ownerId' ? ' ?ownerId=<owner>' : '';
-          return {
-            title: `${route.name}${where} as ${actor}: ${outcome}`,
-            route,
-            actor,
-            via,
-            outcome,
-          };
-        },
-      ),
+    (route.api ? (['page', 'api'] as const) : (['page'] as const)).flatMap(
+      (surface) =>
+        route.vias.flatMap((via, i) =>
+          (
+            ['owner', 'manager', 'viewer', 'stranger', 'anonymous'] as const
+          ).map((actor): Case => {
+            const expected =
+              actor === 'anonymous'
+                ? (route.anonymous ?? 'login')
+                : route.expect[actor];
+            const outcome = Array.isArray(expected) ? expected[i] : expected;
+            const where = via === 'ownerId' ? ' ?ownerId=<owner>' : '';
+            const twin = surface === 'api' ? ' (api)' : '';
+            return {
+              title: `${route.name}${twin}${where} as ${actor}: ${outcome}`,
+              route,
+              surface,
+              actor,
+              via,
+              outcome,
+            };
+          }),
+        ),
     ),
   );
 
@@ -375,9 +421,20 @@ const casesOf = (routes: Route[]): Case[] =>
  * What an extra test beside a group's matrix reads, set by the matrix's
  * beforeAll (read it inside a test, never at collection).
  */
+/**
+ * A signed-in actor's id, email and session; with a device token too when
+ * the group has an API twin (Route.api). The anonymous visitor has none.
+ */
+interface MatrixActor {
+  id?: number;
+  email?: string;
+  cookie?: string;
+  token?: string;
+}
+
 export interface Matrix {
   t: TestApp;
-  actors: Record<ActorName, { id?: number; cookie?: string }>;
+  actors: Record<ActorName, MatrixActor>;
   /** The fixture the read-only and refused cases share. */
   shared: Fixture;
 }
@@ -409,7 +466,7 @@ export function describeMatrix(
 ): void {
   describe(`authorization matrix: ${group}`, () => {
     let t: TestApp;
-    const actors = {} as Record<ActorName, { id?: number; cookie?: string }>;
+    const actors = {} as Record<ActorName, MatrixActor>;
     /** Read-only and refused cases share it; successful writes get their own. */
     let shared: Fixture;
     let photo: Buffer;
@@ -422,7 +479,7 @@ export function describeMatrix(
     const signUp = async (email: string) => {
       const cookie = await t.register(email);
       const id = await userIdOf(t, email);
-      return { id, cookie };
+      return { id, email, cookie };
     };
 
     /** A new open invite link to the owner's wardrobe; its token. */
@@ -843,7 +900,7 @@ export function describeMatrix(
         sql.raw(
           TABLES.map(
             (table) =>
-              `select '${table}' as name, md5(coalesce(string_agg(r::text, E'\\n' order by r::text), '')) as digest from "${table}" r`,
+              `select '${table}' as name, md5(coalesce(string_agg(${rowText(table)}, E'\\n' order by ${rowText(table)}), '')) as digest from "${table}" r`,
           ).join(' union all '),
         ),
       );
@@ -867,12 +924,12 @@ export function describeMatrix(
       const lines = await Promise.all(
         changed.map(async (table) => {
           if (table === 'stored') return ['stored photo files changed'];
-          const result = await t.db.execute<Record<string, unknown>>(
-            sql.raw(`select * from "${table}"`),
+          const result = await t.db.execute<{ row: unknown }>(
+            sql.raw(`select ${rowOf(table)} as row from "${table}" r`),
           );
           return [
             `${table} changed; now:`,
-            ...result.rows.map((row) => `  ${JSON.stringify(row)}`),
+            ...result.rows.map(({ row }) => `  ${JSON.stringify(row)}`),
           ];
         }),
       );
@@ -887,10 +944,12 @@ export function describeMatrix(
     const allRows = async (): Promise<string[]> => {
       const rows = await Promise.all(
         TABLES.map(async (table) => {
-          const result = await t.db.execute<Record<string, unknown>>(
-            sql.raw(`select * from "${table}"`),
+          const result = await t.db.execute<{ row: unknown }>(
+            sql.raw(`select ${rowOf(table)} as row from "${table}" r`),
           );
-          return result.rows.map((row) => `${table} ${JSON.stringify(row)}`);
+          return result.rows.map(
+            ({ row }) => `${table} ${JSON.stringify(row)}`,
+          );
         }),
       );
       const stored = (await readdir(t.dataPath))
@@ -899,11 +958,14 @@ export function describeMatrix(
       return [...rows.flat(), ...stored].sort();
     };
 
+    /** A page request with the actor's session, or a twin's with their device token. */
     const send = (
+      surface: Surface,
       actor: ActorName,
       request: InjectOptions,
     ): Promise<LightMyRequestResponse> => {
-      const { cookie } = actors[actor];
+      const { cookie, token } = actors[actor];
+      if (surface === 'api') return t.api(token, request);
       return t.inject({
         ...request,
         headers: { ...request.headers, ...(cookie ? { cookie } : {}) },
@@ -919,43 +981,63 @@ export function describeMatrix(
       unauthorized: 401,
     };
 
+    /** The case's request and success status on its surface. */
+    const onSurface = async (
+      { route, surface }: Pick<Case, 'route' | 'surface'>,
+      fixture: Fixture,
+      ownerQuery: string,
+    ): Promise<{ ok: number; request: InjectOptions }> => {
+      const twin = surface === 'api' ? route.api! : route;
+      return { ok: twin.ok, request: await twin.request(fixture, ownerQuery) };
+    };
+
     /**
-     * The answer: a success's status (a read that shows its subject names
-     * it), or a refusal's, leaking nothing.
+     * The answer: a success's status (a page read that shows its subject
+     * names it), or a refusal's, leaking nothing. On the API a signed-out
+     * request is the 401 every refused token gets, never the login redirect.
      */
     const expectAnswer = (
-      route: Route,
-      outcome: Outcome,
+      { route, surface, outcome }: Case,
+      ok: number,
       res: LightMyRequestResponse,
       secret: string,
     ) => {
       if (outcome === 'ok') {
-        expect(res.statusCode).toBe(route.ok);
-        if (route.kind === 'read' && route.shows) {
+        expect(res.statusCode).toBe(ok);
+        if (surface === 'page' && route.kind === 'read' && route.shows) {
           expect(res.body).toContain(secret);
         }
         return;
       }
-      expect(res.statusCode).toBe(
-        outcome === 'ignored' ? route.ok : REFUSED_STATUS[outcome],
-      );
-      if (outcome === 'login') expect(res.headers.location).toBe(LOGIN_PATH);
+      if (outcome === 'ignored') expect(res.statusCode).toBe(ok);
+      else if (surface === 'api' && outcome === 'login') {
+        expect(res.statusCode).toBe(401);
+      } else expect(res.statusCode).toBe(REFUSED_STATUS[outcome]);
+      if (surface === 'page' && outcome === 'login') {
+        expect(res.headers.location).toBe(LOGIN_PATH);
+      }
       expect(res.body).not.toContain(secret);
     };
 
-    /** A clone lands in the requester's wardrobe and only adds rows. */
+    /**
+     * A clone lands in the requester's wardrobe and only adds rows: the page
+     * redirects to the new garment, the twin answers it with its `id`.
+     */
     const expectCloned = async (
-      route: Route,
-      actor: ActorName,
+      { surface, actor }: Case,
+      ok: number,
       request: InjectOptions,
     ) => {
       const before = await allRows();
-      const res = await send(actor, request);
+      const res = await send(surface, actor, request);
       const after = await allRows();
-      expect(res.statusCode).toBe(route.ok);
-      const cloneId = Number(
-        /^\/wardrobe\/(\d+)$/.exec(res.headers.location as string)?.[1],
-      );
+      expect(res.statusCode).toBe(ok);
+      const cloneId =
+        surface === 'api'
+          ? res.json<{ id: number }>().id
+          : Number(
+              /^\/wardrobe\/(\d+)$/.exec(res.headers.location as string)?.[1],
+            );
       const clone = await garmentRow(t, cloneId);
       expect(clone?.ownerId).toBe(actors[actor].id);
       // Added rows only: nothing that existed (the source) was modified.
@@ -983,6 +1065,19 @@ export function describeMatrix(
       actors.anonymous = {};
       await share('manager', 'MANAGE');
       await share('viewer', 'VIEW');
+      // Each signed-in actor's device, for the API twins' cases only: a
+      // sign-in costs a bcrypt comparison.
+      if (routes.some(({ api }) => api)) {
+        for (const actor of [
+          'owner',
+          'manager',
+          'viewer',
+          'stranger',
+        ] as const) {
+          const { email } = actors[actor];
+          actors[actor].token = (await deviceToken(t, { email })).token;
+        }
+      }
       shared = await createFixture();
       Object.assign(results, { t, actors, shared });
     });
@@ -993,34 +1088,31 @@ export function describeMatrix(
       await features?.close();
     });
 
-    it.each(casesOf(routes))(
-      '$title',
-      async ({ route, actor, via, outcome }) => {
-        const mutates = outcome === 'ok' && route.kind === 'write';
-        const fixture = mutates ? await createFixture() : shared;
-        const secret = route.secret(fixture);
-        const ownerQuery =
-          via === 'ownerId' ? `?ownerId=${actors.owner.id}` : '';
-        const request = await route.request(fixture, ownerQuery);
+    it.each(casesOf(routes))('$title', async (matrixCase) => {
+      const { route, surface, actor, via, outcome } = matrixCase;
+      const mutates = outcome === 'ok' && route.kind === 'write';
+      const fixture = mutates ? await createFixture() : shared;
+      const secret = route.secret(fixture);
+      const ownerQuery = via === 'ownerId' ? `?ownerId=${actors.owner.id}` : '';
+      const { ok, request } = await onSurface(matrixCase, fixture, ownerQuery);
 
-        if (outcome === 'ok' && route.kind === 'clone') {
-          await expectCloned(route, actor, request);
-          return;
-        }
+      if (outcome === 'ok' && route.kind === 'clone') {
+        await expectCloned(matrixCase, ok, request);
+        return;
+      }
 
-        const before = await snapshot();
-        const res = await send(actor, request);
-        const changed = changedTables(before, await snapshot());
+      const before = await snapshot();
+      const res = await send(surface, actor, request);
+      const changed = changedTables(before, await snapshot());
 
-        expectAnswer(route, outcome, res, secret);
-        // A successful write changed something; nothing else changes a row.
-        if (outcome === 'ok' && route.kind === 'write') {
-          expect(changed).not.toEqual([]);
-          return;
-        }
-        expect(await changedRows(changed)).toEqual([]);
-      },
-    );
+      expectAnswer(matrixCase, ok, res, secret);
+      // A successful write changed something; nothing else changes a row.
+      if (mutates) {
+        expect(changed).not.toEqual([]);
+        return;
+      }
+      expect(await changedRows(changed)).toEqual([]);
+    });
 
     extras?.(results);
   });

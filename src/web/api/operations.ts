@@ -1,0 +1,265 @@
+/**
+ * The API's parity manifest (#191; docs/plans/2026-11-12-json-api.md
+ * section 5): every /api/v1 operation, and how every page write route and
+ * every MCP write tool relates to one. A feature is done when its domain
+ * function has a page caller, an API caller, and an MCP caller where an
+ * agent needs it (AGENTS.md). test/integration/api-parity.spec.ts holds the
+ * app to this file.
+ */
+
+/**
+ * Every /api/v1 route's operationId. apiPlugin refuses a route whose id is
+ * not here (requireContract), so a twin below can name only a real one, and
+ * a typo fails tsc.
+ */
+export const OPERATIONS = ['getOpenApi', 'signIn', 'signOut', 'getMe'] as const;
+export type OperationId = (typeof OPERATIONS)[number];
+
+export function isOperationId(id: string): id is OperationId {
+  return (OPERATIONS as readonly string[]).includes(id);
+}
+
+/**
+ * The endpoint issues that will give a pending route its twin (plan section
+ * 6). An issue leaves this list when its last pending route does.
+ */
+type EndpointIssue =
+  /** Wardrobe: garments, photos, link import, tagging. */
+  | '#192'
+  /** Outfits, styling, ideas, the calendar, wears, the week plan, selfies. */
+  | '#193'
+  /** Trips and packing, the wishlist, capsules. */
+  | '#194'
+  /** Today, insights, sizes, the style profile, weather, shared wardrobes. */
+  | '#195';
+
+/**
+ * How a write relates to the API, exactly one of:
+ *  - `api`: the twin's operationId; its matrix cases replay on the twin
+ *    (the matrix route's `api`) and must answer the same outcome;
+ *  - `webOnly`: why a native client never gets it (plan section 6, owner
+ *    decision 9: step-up credentials, sharing admin, exports, the browser's
+ *    own plumbing);
+ *  - `pending`: the endpoint issue that adds its twin.
+ */
+export type Parity =
+  | { readonly api: OperationId }
+  | { readonly webOnly: string }
+  | { readonly pending: EndpointIssue };
+
+/**
+ * MCP's view: a tool's API twin, the endpoint issue that adds it, or why
+ * only an agent calls it (Muse's provenance-carrying suggestions). Listed,
+ * not required: MCP and API parity is not retrofitted (#191).
+ */
+export type ToolParity =
+  | { readonly api: OperationId }
+  | { readonly agentOnly: string }
+  | { readonly pending: EndpointIssue };
+
+// The web-only reasons (plan section 6, owner decision 9), each said once.
+const STEP_UP = {
+  webOnly:
+    'step-up: changes or hands out a credential behind the current password, which a token never stands in for',
+} as const;
+const AGENT_ACCESS = {
+  webOnly:
+    'agent access and the Devices list: managing the credentials themselves',
+} as const;
+const SHARING_ADMIN = {
+  webOnly: 'sharing admin: invites, accepting, declining and removing a share',
+} as const;
+const ORDER_MAIL = {
+  webOnly: 'the order-email import: a review list of the household inbox',
+} as const;
+const MULTI_ADD = { webOnly: 'the multi-add drafts (plan section 6)' } as const;
+const WEB_PUSH = {
+  webOnly:
+    "Web Push: the browser's subscription and its reminders (a native client's push is APNs, #197)",
+} as const;
+const BROWSER_TELEMETRY = {
+  webOnly: "the browser's own telemetry: web vitals and client errors",
+} as const;
+const FORM_FRAGMENT = {
+  webOnly: "redraws part of a page's form and writes nothing",
+} as const;
+
+type WriteMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+/**
+ * Every page route that is not a GET, keyed `METHOD /template` as Fastify
+ * registered it (every optional feature on), a POST that only renders
+ * included. A new one fails the parity spec until it is classified here; a
+ * removed one fails until its line goes.
+ */
+export const PAGE_WRITES: Readonly<
+  Record<`${WriteMethod} /${string}`, Parity>
+> = {
+  // Account and credentials.
+  'POST /auth/login': { api: 'signIn' },
+  'POST /auth/logout': { api: 'signOut' },
+  'POST /auth/register': {
+    webOnly:
+      'account creation: a native client signs in to an account made here',
+  },
+  'POST /auth/validate/register': FORM_FRAGMENT,
+  'POST /auth/validate/update-email': FORM_FRAGMENT,
+  'POST /auth/change-password': STEP_UP,
+  'POST /auth/update-email': STEP_UP,
+  'POST /auth/delete-account': STEP_UP,
+  'POST /auth/tokens': STEP_UP,
+  'POST /auth/tokens/:id/revoke': AGENT_ACCESS,
+  'POST /auth/devices/:id/revoke': AGENT_ACCESS,
+
+  // The wardrobe.
+  'POST /wardrobe': { pending: '#192' },
+  'POST /wardrobe/properties-fragment': FORM_FRAGMENT,
+  'POST /wardrobe/:id': { pending: '#192' },
+  'DELETE /wardrobe/:id': { pending: '#192' },
+  'POST /wardrobe/:id/archive': { pending: '#192' },
+  'POST /wardrobe/:id/restore': { pending: '#192' },
+  'POST /wardrobe/:id/clone': { pending: '#192' },
+  'POST /wardrobe/:id/copies': { pending: '#192' },
+  'POST /wardrobe/:id/condition': { pending: '#192' },
+  'POST /wardrobe/:id/repairs': { pending: '#192' },
+  'POST /wardrobe/:id/repairs/:repairId/delete': { pending: '#192' },
+  'POST /wardrobe/:id/tag': { pending: '#192' },
+  'POST /wardrobe/bulk': { pending: '#192' },
+  'POST /wardrobe/:id/photo': { pending: '#192' },
+  'POST /wardrobe/:id/photo/rotate': { pending: '#192' },
+  'POST /wardrobe/:id/nobg': { pending: '#192' },
+  'POST /wardrobe/:id/cutout/retry': { pending: '#192' },
+  'POST /wardrobe/new/photo': { pending: '#192' },
+  'POST /wardrobe/new/drafts/discard': MULTI_ADD,
+  'POST /wardrobe/new/from-link': { pending: '#192' },
+  'POST /wardrobe/new/from-link/photo': { pending: '#192' },
+  'POST /wardrobe/orders/:id/add': ORDER_MAIL,
+  'POST /wardrobe/orders/:id/dismiss': ORDER_MAIL,
+
+  // Wears, washes and away.
+  'POST /wardrobe/:id/wear': { pending: '#193' },
+  'POST /wardrobe/:id/washed': { pending: '#193' },
+  'POST /wardrobe/:id/away': { pending: '#193' },
+  'POST /laundry': { pending: '#193' },
+  'POST /today/wear': { pending: '#193' },
+
+  // Outfits, styling and ideas.
+  'POST /outfits': { pending: '#193' },
+  'POST /outfits/:id': { pending: '#193' },
+  'DELETE /outfits/:id': { pending: '#193' },
+  'POST /outfits/:id/love': { pending: '#193' },
+  'POST /outfits/:id/dismiss': { pending: '#193' },
+  'POST /outfits/:id/undo': { pending: '#193' },
+  'POST /styling': { pending: '#193' },
+  'POST /outfits/ideas/pick': { pending: '#193' },
+  'POST /outfits/ideas/avoid': { pending: '#193' },
+  'POST /outfits/ideas/allow': { pending: '#193' },
+  'POST /outfits/ideas/feedback': { pending: '#193' },
+
+  // Saved looks (#22): outfits' inspiration, so outfits' endpoint issue.
+  'POST /inspiration': { pending: '#193' },
+  'POST /inspiration/link': { pending: '#193' },
+  'POST /inspiration/:id': { pending: '#193' },
+  'POST /inspiration/:id/delete': { pending: '#193' },
+  'POST /inspiration/:id/photo': { pending: '#193' },
+  'POST /inspiration/:id/pieces': { pending: '#193' },
+  'POST /inspiration/:id/pieces/:position': { pending: '#193' },
+  'POST /inspiration/:id/pieces/:position/delete': { pending: '#193' },
+
+  // The calendar, the week plan and selfies.
+  'POST /calendar': { pending: '#193' },
+  'POST /calendar/:id/delete': { pending: '#193' },
+  'POST /calendar/:id/worn': { pending: '#193' },
+  'POST /calendar/:id/selfie': { pending: '#193' },
+  'POST /selfies/:id/delete': { pending: '#193' },
+  'POST /calendar/plan-week': { pending: '#193' },
+  'POST /calendar/plan-week/:id/undo': { pending: '#193' },
+  'POST /auth/profile/week': { pending: '#193' },
+
+  // Trips and packing.
+  'POST /trips': { pending: '#194' },
+  'POST /trips/:id': { pending: '#194' },
+  'DELETE /trips/:id': { pending: '#194' },
+  'POST /trips/:id/destination': { pending: '#194' },
+  'POST /trips/:id/outfits': { pending: '#194' },
+  'POST /trips/:id/outfits/:tripOutfitId/delete': { pending: '#194' },
+  'POST /trips/:id/outfits/:tripOutfitId/wear': { pending: '#194' },
+  'POST /trips/:id/items': { pending: '#194' },
+  'POST /trips/:id/items/copy': { pending: '#194' },
+  'POST /trips/:id/items/packed': { pending: '#194' },
+  'POST /trips/:id/items/:itemId/delete': { pending: '#194' },
+  'POST /trips/:id/packed': { pending: '#194' },
+
+  // The wishlist (Muse's inbox).
+  'POST /wardrobe/:id/choose': { pending: '#194' },
+  'POST /wardrobe/:id/dismiss': { pending: '#194' },
+  'POST /wardrobe/:id/undo': { pending: '#194' },
+  'POST /wardrobe/:id/bought': { pending: '#194' },
+  'POST /wardrobe/:id/returned': { pending: '#194' },
+  'POST /wardrobe/wishlist/needs/:id/dismiss': { pending: '#194' },
+  'POST /wardrobe/wishlist/needs/:id/undo': { pending: '#194' },
+  'POST /wardrobe/wishlist/seen': { pending: '#194' },
+
+  // Capsules.
+  'POST /capsules': { pending: '#194' },
+  'POST /capsules/:id': { pending: '#194' },
+  'DELETE /capsules/:id': { pending: '#194' },
+  'POST /capsules/:id/garments': { pending: '#194' },
+  'POST /wardrobe/:id/capsules': { pending: '#194' },
+
+  // Sizes, the style profile, the weather.
+  'POST /auth/profile/sizes/measurements': { pending: '#195' },
+  'POST /auth/profile/sizes/unit': { pending: '#195' },
+  'POST /auth/profile/sizes/brands': { pending: '#195' },
+  'POST /auth/profile/sizes/brands/:id': { pending: '#195' },
+  'POST /auth/profile/sizes/brands/:id/delete': { pending: '#195' },
+  'POST /auth/profile/style': { pending: '#195' },
+  'POST /auth/profile/style/rules': { pending: '#195' },
+  'POST /auth/profile/style/rules/:id/delete': { pending: '#195' },
+  'POST /weather/home': { pending: '#195' },
+  'POST /weather/home/clear': { pending: '#195' },
+  'POST /weather/here': { pending: '#195' },
+  'POST /weather/here/clear': { pending: '#195' },
+  'POST /weather/unit': { pending: '#195' },
+  'POST /weather/feedback': { pending: '#195' },
+  'POST /weather/offset/reset': { pending: '#195' },
+
+  // Sharing admin.
+  'POST /wardrobe-share/create-invite-link': SHARING_ADMIN,
+  'POST /wardrobe-share/invite/:token/accept': SHARING_ADMIN,
+  'POST /wardrobe-share/invite/:token/decline': SHARING_ADMIN,
+  'POST /wardrobe-share/:id/remove': SHARING_ADMIN,
+
+  // The browser's plumbing.
+  'POST /push/subscribe': WEB_PUSH,
+  'POST /push/unsubscribe': WEB_PUSH,
+  'POST /push/test': WEB_PUSH,
+  'POST /push/reminders': WEB_PUSH,
+  'POST /push/reminders/form': WEB_PUSH,
+  'POST /metrics/vitals': BROWSER_TELEMETRY,
+  'POST /errors/client': BROWSER_TELEMETRY,
+};
+
+const MUSE_ROUND = {
+  agentOnly:
+    "Muse's suggestion round: what the agent proposes carries its token, and the owner decides it in the inbox",
+} as const;
+
+/** Every MCP tool with `writes: true`, by name (src/web/mcp/tools/). */
+export const MCP_WRITES: Readonly<Record<string, ToolParity>> = {
+  update_garment: { pending: '#192' },
+  add_garment_copy: { pending: '#192' },
+  add_garment_from_link: { pending: '#192' },
+  create_outfit: { pending: '#193' },
+  schedule_outfit: { pending: '#193' },
+  pick_outfit: { pending: '#193' },
+  mark_worn: { pending: '#193' },
+  mark_washed: { pending: '#193' },
+  plan_week: { pending: '#193' },
+  set_capsule_membership: { pending: '#194' },
+  plan_trip_outfit: { pending: '#194' },
+  create_option_group: MUSE_ROUND,
+  suggest_garment: MUSE_ROUND,
+  suggest_outfit: MUSE_ROUND,
+  finish_round: MUSE_ROUND,
+};

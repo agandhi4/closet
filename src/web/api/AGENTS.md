@@ -37,12 +37,21 @@
 - **Logging** (logger `Api`): sign-ins with user, token row id and address; failures as user N or "an unknown email"; refused credentials with their reason and address; sign-outs. Never the token, the password or the device name. The `Http` access line on `api` and `mcp` carries `user_id` and `token_id` (the row id).
 - **Tests**: `t.api(token, request)` (harness: no cookie, no Origin) and `deviceToken`/`signInDevice`/`expectProblem` (`test/integration/api.ts`). `api.spec.ts` covers the surface, the credential and every refusal; `api-statements.spec.ts` pins each route's statements (sign-in 6 like its twin `POST /auth/tokens`, `/me` 1 plus the last-use write, sign-out 3, the spec 0). Each area's API cases join its existing `authorization-<group>.spec.ts` as a third via.
 
+## Parity (#191)
+
+A feature is done when its domain function has a page caller, an API caller, and an MCP caller where an agent needs it (plan section 5). `operations.ts` is the reviewed manifest; `test/integration/api-parity.spec.ts` holds the app to it.
+
+- **`OPERATIONS`** lists every `/api/v1` operationId; `requireContract` refuses a route whose id is not there, so a twin names only a real operation.
+- **`PAGE_WRITES`** classifies every page route that is not a GET (`METHOD /template`, every feature on; a POST that only renders too) as exactly one of `{ api: '<operationId>' }`, `{ webOnly: '<reason>' }` (the plan's section 6 list; each reason a named constant, said once) or `{ pending: '#192'..'#195' }`. **`MCP_WRITES`** does the same for every tool with `writes: true` (`agentOnly` for Muse's round), listed but not required to have a twin.
+- The spec fails on a route or tool nobody classified, a line whose route or tool is gone, and a twin no API route declares. An area PR that adds a twin turns its `pending` lines into `api` in the same change.
+- **Refusal parity**: a matrix route (`authorization-<group>.routes.ts`) whose page route has a twin must carry `api: { ok, request }`, which must reach that operation. Its group's matrix then replays every case on the twin with each actor's device token: the same outcome, `login` being the API's 401 (`docs/testing-integration.md`).
+
 ## Adding an API route
 
-1. Write it in `src/web/<feature>/api-routes.ts`, a `FastifyPluginCallbackTypebox<ApiOptions>` registered in `apiPlugin`, calling the same domain function the page calls (parse, call, map). The user is `request.accessToken!.user.id`. A public route says `config: { public: true }` and `schema.security: []`.
+1. Add its operationId to `OPERATIONS` and turn its page twin's `pending` line into `api` (`operations.ts`). Write it in `src/web/<feature>/api-routes.ts`, a `FastifyPluginCallbackTypebox<ApiOptions>` registered in `apiPlugin`, calling the same domain function the page calls (parse, call, map). The user is `request.accessToken!.user.id`. A public route says `config: { public: true }` and `schema.security: []`.
 2. Declare `operationId` (camelCase, unique), `tags`, a `summary`, the TypeBox `body`/`querystring`/`params`, and `response: apiResponses({ 200: Resource })`. Resource schemas carry `title` and `description`. Fastify serializes through them, so an unlisted column never leaves. `requireContract` refuses the route at boot without them.
 3. JSON is camelCase and leaves out nulls. A household day is `YYYY-MM-DD`, an instant ISO 8601 with `Z`, money a decimal string, and lists `{ data, pagination }` (plan section 2).
-4. `npm run api:spec` and commit `src/web/api/openapi.json` in the same PR. Pin the route's statements in `api-statements.spec.ts`.
+4. `npm run api:spec` and commit `src/web/api/openapi.json` in the same PR. Pin the route's statements in `api-statements.spec.ts`. Give each matrix route of its page twin an `api` request.
 
 ## Gotchas
 
