@@ -60,6 +60,9 @@ export async function waitForBlockedOn(
  * in a transaction held open once it has written, `second` starts and must
  * then wait on the first's lock (waitForBlockedOn), then `meanwhile` runs (a third write
  * committed while the second waits), then the first commits. Answers both.
+ * A second write that settles without ever waiting fails the call at once
+ * (no deadline: the race against it is what ends the wait), and the holder's
+ * transaction is always released.
  * A first writer that fails ends the wait at once instead of hanging.
  * Used by every spec that proves two writers take turns on a lock
  * (owner-lock, access-tokens, push-revocation and others: grep interleave).
@@ -84,11 +87,32 @@ export async function interleave<A, B>(
   });
   await Promise.race([written, a]);
   const b = second();
-  await waitForBlockedOn(db, holderPid);
+  // Settled before any backend blocked: the second write never queued behind
+  // the holder, so the race this helper exists to prove did not happen.
+  const secondSettled = b.then(
+    (value) => ({ value }),
+    (error: unknown) => ({ error }),
+  );
   try {
+    const outcome = await Promise.race([
+      waitForBlockedOn(db, holderPid).then(() => null),
+      secondSettled,
+    ]);
+    if (outcome) {
+      const result =
+        'error' in outcome
+          ? `rejected with ${String(outcome.error)}`
+          : `resolved with ${JSON.stringify(outcome.value)}`;
+      throw new Error(
+        `the second write never waited on the first's lock: lock ordering regressed? The second ${result}`,
+      );
+    }
     await meanwhile?.();
   } finally {
     release();
+    // The holder's transaction ends (and its connection returns to the pool)
+    // even when the wait failed; its own failure is not this call's to hide.
+    await a.catch(() => undefined);
   }
   return Promise.all([a, b]);
 }
