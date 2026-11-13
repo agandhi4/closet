@@ -234,6 +234,14 @@ export interface Fixture {
    * 20-odd times; the walk paces each token's budget (budget.ts).
    */
   mcpTokens: string[];
+  /**
+   * An agent token for `userId` through the writer, as Agent Access mints
+   * one, with the hash the page would have checked the password against.
+   */
+  mintToken: (
+    userId: number,
+    name: string,
+  ) => Promise<TokensModule.CreateTokenResult>;
   /** Every tool /mcp offers (tools/list): the coverage check's list. */
   mcpTools: () => Promise<string[]>;
   close: () => Promise<void>;
@@ -496,6 +504,22 @@ export async function createFixture(options: {
     if (!row) throw new Error(`No account ${email}`);
     return row.id;
   };
+  const mintToken = async (id: number, name: string) => {
+    const [row] = await closet.db
+      .select({ password: build.schema.user.password })
+      .from(build.schema.user)
+      .where(eq(build.schema.user.id, id));
+    if (!row) throw new Error(`No account ${id}`);
+    return build.tokens.createToken(
+      { db: closet.db, logger },
+      {
+        userId: id,
+        kind: 'mcp',
+        name,
+        verifiedPassword: row.password,
+      },
+    );
+  };
   let accounts = 0;
   const newAccount = async (): Promise<Actor> => {
     accounts += 1;
@@ -542,11 +566,7 @@ export async function createFixture(options: {
     const pushEndpoint = await subscribePhone(build, closet, send, theo.id);
     const mcpTokens: string[] = [];
     for (let i = 1; i <= MCP_TOKENS; i++) {
-      const created = await build.tokens.createToken(
-        closet.db,
-        theo.id,
-        `Page audit ${i}`,
-      );
+      const created = await mintToken(theo.id, `Page audit ${i}`);
       if (!created.created) throw new Error('Theo has too many tokens');
       mcpTokens.push(created.token);
     }
@@ -592,6 +612,7 @@ export async function createFixture(options: {
       injectOptions,
       newAccount,
       mcpTokens,
+      mintToken,
       mcpTools: async () => {
         const res = await send(
           {

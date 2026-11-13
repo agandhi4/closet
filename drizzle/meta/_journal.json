@@ -337,6 +337,13 @@
       "when": 1794545800171,
       "tag": "0047_outfit-rules",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794553920460,
+      "tag": "0048_token-kind",
+      "breakpoints": true
     }
   ]
 }

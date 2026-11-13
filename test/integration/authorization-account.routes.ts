@@ -5,6 +5,7 @@ import {
   OWNER_SIZE_NOTE,
   sizeNote,
   calendarEntry,
+  OWNER_DEVICE_NAME,
   OWNER_TOKEN_NAME,
   styleNote,
 } from './authorization-matrix';
@@ -236,11 +237,50 @@ export const ROUTES: Route[] = [
       method: 'POST',
       url: `/auth/tokens/${await f.ownerToken()}/revoke`,
     }),
+    // Anyone else's revoke lands on their own page with "already revoked"
+    // (#189: a stale tab's tap is no error page), alike for every id.
     expect: {
       owner: 'ok',
-      manager: 'notFound',
-      viewer: 'notFound',
-      stranger: 'notFound',
+      manager: 'ignored',
+      viewer: 'ignored',
+      stranger: 'ignored',
+    },
+  },
+  // Profile › Devices (#189): a native client's sign-in, the account's like
+  // its agent tokens.
+  {
+    name: 'GET /auth/profile (the devices)',
+    kind: 'read',
+    ok: 200,
+    secret: () => OWNER_DEVICE_NAME,
+    shows: true,
+    vias: ['own'],
+    request: async (f) => {
+      await f.ownerToken('device');
+      return { method: 'GET', url: '/auth/profile' };
+    },
+    expect: {
+      owner: 'ok',
+      manager: 'hidden',
+      viewer: 'hidden',
+      stranger: 'hidden',
+    },
+  },
+  {
+    name: 'POST /auth/devices/:id/revoke',
+    kind: 'write',
+    ok: 303,
+    secret: () => OWNER_DEVICE_NAME,
+    vias: ['own'],
+    request: async (f) => ({
+      method: 'POST',
+      url: `/auth/devices/${await f.ownerToken('device')}/revoke`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'ignored',
+      viewer: 'ignored',
+      stranger: 'ignored',
     },
   },
   {

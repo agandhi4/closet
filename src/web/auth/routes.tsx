@@ -16,7 +16,7 @@ import { findWeatherSettings } from '../weather/queries';
 import { deleteAccount } from './account';
 import { InlineErrors } from './form';
 import { LOGOUT_PATH } from './logout';
-import { PROFILE_PATH } from './urls';
+import { PROFILE_PATH, revokeNotice } from './urls';
 import {
   ChangePasswordPage,
   DeleteAccountPage,
@@ -62,6 +62,9 @@ import {
 // no value is a 400.
 const ProfileQuery = Type.Object({
   passwordChanged: Type.Optional(Type.String()),
+  // Profile › Devices' revoke redirect (1: signed out, 0: nothing to sign
+  // out); anything else shows nothing.
+  deviceRevoked: Type.Optional(Type.String()),
   // The week template's saved toast (#16, src/web/week-plan).
   weekSaved: Type.Optional(Type.String()),
   // Why an invite could not be accepted (Sharing, src/web/sharing).
@@ -236,6 +239,7 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           findWeekTemplate(db, id),
           weather && findWeatherSettings(db, id),
           sharesOf(db, id),
+          // Both kinds in one statement: Agent Access and Devices split it.
           listTokens(db, id),
           findMeasurements(db, id),
           brandSizesOf(db, id),
@@ -258,7 +262,12 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             origin: requestOrigin(request),
             refusal: parseRefusal(query[SHARE_ERROR_PARAM]),
           }}
-          tokens={tokenList}
+          tokens={tokenList.filter((token) => token.kind === 'mcp')}
+          devices={{
+            tokens: tokenList.filter((token) => token.kind === 'device'),
+            timeZone: config.timeZone,
+            notice: revokeNotice(query.deviceRevoked),
+          }}
           sizes={{ measurements, brands }}
         />,
       );
@@ -364,15 +373,12 @@ export const authRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         account: updated,
         revokedTokens,
         revokedDevices,
-      } = await setPassword(
-        db,
-        id,
-        body.newPassword,
-        body.pushEndpoint || undefined,
-      );
+      } = await setPassword(db, id, body.newPassword, {
+        endpoint: body.pushEndpoint || undefined,
+      });
       setSessionCookie(reply, tokens.issue(updated));
       logger.info(
-        `Password changed for user ${id}: other sessions, ${revokedTokens} access tokens and ${revokedDevices} other push devices revoked`,
+        `Password changed for user ${id}: other sessions, ${revokedTokens.mcp} MCP tokens, ${revokedTokens.device} device tokens and ${revokedDevices} other push devices revoked`,
       );
       return reply.redirect(`${PROFILE_PATH}?passwordChanged=1`, 302);
     },

@@ -150,7 +150,8 @@ export async function devicesOfUsers(
  *
  * The statement, returning a row per device removed. Callers:
  * updatePasswordHash (the change-password route and `user:set-password`),
- * as a CTE of the password's own statement, and revokeDevices.
+ * as a CTE of the revocation statement in the password's transaction,
+ * and revokeDevices.
  */
 export function revokeDevicesStatement(
   db: Queryable,
