@@ -1,18 +1,13 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { sessionUserId } from '../auth/require-session';
 import { todayIn } from '../../calendar-date';
-import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
-import {
-  garmentGuard,
-  garmentNotFound,
-  type GarmentRequest,
-} from './garment-access';
+import { actorOf } from '../sharing/access';
+import { garmentAddress } from './garment-access';
+import { garmentToMend, logRepair, removeRepair } from './garment-actions';
 import { renderGarmentForm } from './render-form';
 import { REPAIRS_ANCHOR } from './repair-log';
 import {
-  addRepair,
-  deleteRepair,
   RepairBody,
   RepairParams,
   readRepairForm,
@@ -22,32 +17,18 @@ import { garmentUrl } from './urls';
 import { GarmentParams, OwnerQuery } from '../schemas';
 import { storedFormValues } from './garment-input';
 
-const NOT_OWNED_YET = 'On the wishlist: not bought yet';
-
 /**
  * The repair and alteration log's writes (#23; docs/plans/2026-09-26-
  * wardrobe-features.md, section 17), from the edit page's editor
- * (repair-log.tsx). The owner's own record, like wears: a garment in a
- * shared wardrobe is refused to a grantee (403 with `?ownerId=`, where they
- * can see it; 404 without, where it is not in their wardrobe), and a
- * wishlist item is not owned yet (409). Native posts: a refused entry
- * re-renders the edit page (400) with its messages.
+ * (repair-log.tsx). The owner's own record, like wears (garmentToMend says
+ * who is refused). Native posts: a refused entry re-renders the edit page
+ * (400) with its messages.
  */
 export const repairRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
   { db, config, logger },
   done,
 ) => {
-  const authorize = garmentGuard(db);
-  /** The requester's own owned garment `/:id`, or the refusal (see above). */
-  async function ownGarment(request: GarmentRequest) {
-    const { garment } = await authorize.garment(request, 'own');
-    if (garment.status === 'wishlist') {
-      throw new HttpError(409, NOT_OWNED_YET);
-    }
-    return garment;
-  }
-
   /** The edit page's editor, where the writes send the person back. */
   const editorUrl = (id: number) =>
     `${garmentUrl(id, undefined, '/edit')}#${REPAIRS_ANCHOR}`;
@@ -65,7 +46,10 @@ export const repairRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const { id } = request.params;
       const userId = sessionUserId(request);
-      const garment = await ownGarment(request);
+      const actor = actorOf(request);
+      const address = garmentAddress(request);
+      // Read before the entry is parsed: a refused one draws the edit page.
+      const { garment } = await garmentToMend(db, actor, address);
       const today = todayIn(config.timeZone, new Date());
       const form = readRepairForm(request.body, today);
       if (!form.ok) {
@@ -85,9 +69,7 @@ export const repairRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           400,
         );
       }
-      const repairId = await addRepair(db, userId, id, form.entry);
-      // Deleted, or moved to the wishlist, since it was read above.
-      if (repairId === undefined) throw garmentNotFound();
+      const repairId = await logRepair(db, actor, address, form.entry);
       logger.info(
         `Repair ${repairId} (${form.entry.kind}, ${form.entry.day}${form.entry.cost === null ? '' : `, cost ${form.entry.cost}`}) logged on garment ${id} by user ${userId}`,
       );
@@ -104,13 +86,14 @@ export const repairRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     { schema: { params: RepairParams, querystring: OwnerQuery } },
     async (request, reply) => {
       const { id, repairId } = request.params;
-      const userId = sessionUserId(request);
-      await ownGarment(request);
-      if (!(await deleteRepair(db, userId, id, repairId))) {
-        throw new HttpError(404, 'Repair not found');
-      }
+      await removeRepair(
+        db,
+        actorOf(request),
+        garmentAddress(request),
+        repairId,
+      );
       logger.info(
-        `Repair ${repairId} removed from garment ${id} by user ${userId}`,
+        `Repair ${repairId} removed from garment ${id} by user ${sessionUserId(request)}`,
       );
       return reply.redirect(editorUrl(id), 303);
     },

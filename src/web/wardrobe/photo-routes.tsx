@@ -1,20 +1,21 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
-import { recordCutoutEvent } from '../../cutout/queries';
 import { sessionUserId } from '../auth/require-session';
-import { HttpError } from '../errors';
 import { imageUrl } from '../files/image-url';
-import {
-  draftsHeld,
-  MAX_DRAFTS_PER_USER,
-  pendingPhotoOf,
-} from '../files/pending-photos';
+import { draftsHeld, MAX_DRAFTS_PER_USER } from '../files/pending-photos';
 import type { WebOptions } from '../plugin';
 import { renderFragment } from '../render';
-import { garmentGuard, type GarmentRequest } from './garment-access';
+import { actorOf } from '../sharing/access';
+import { garmentAddress, garmentGuard } from './garment-access';
+import {
+  replaceGarmentPhoto,
+  retryGarmentCutout,
+  saveEditedGarmentCutout,
+  turnGarmentPhoto,
+} from './garment-actions';
 import { GarmentPhotoView } from './garment-page';
 import { batchEnd } from './draft-redirects';
 import { nextDraft } from './draft-queue';
-import { draftNotFound } from './render-form';
+import { refuseOtherWardrobesDraft } from './render-form';
 import {
   DRAFT_DISCARD_PATH,
   draftUrl,
@@ -25,8 +26,6 @@ import {
 } from './urls';
 import {
   discardPendingPhoto,
-  replacePhoto,
-  rotateGarmentPhoto,
   stagePhotoUploads,
   type WardrobeDeps,
 } from './writes';
@@ -52,16 +51,6 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     logger,
     cutouts: options.cutouts,
   };
-
-  /** The garment's photo for a change to it (owner or MANAGE): a 400 for a garment without one. */
-  async function photoToChange(request: GarmentRequest) {
-    const { access, viewOwner, garment } = await authorize.garment(
-      request,
-      'manage',
-    );
-    if (!garment.photo) throw new HttpError(400, 'Garment has no photo');
-    return { access, viewOwner, photo: garment.photo };
-  }
 
   // The add sheet's camera and library (#97): the photo, stored as the
   // requester's pending photo (stagePhotoUploads: the upload path every
@@ -116,12 +105,7 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       });
       const draft = discarded?.draft;
       // Nothing taken: a draft of another wardrobe is a 404, as on the form.
-      if (
-        !draft &&
-        (await pendingPhotoOf(db, photo, scope)) === 'otherWardrobe'
-      ) {
-        throw draftNotFound();
-      }
+      if (!draft) await refuseOtherWardrobesDraft(db, photo, scope);
       const next = draft && nextDraft(draft.waiting, draft.position);
       return reply.redirect(
         next
@@ -162,16 +146,16 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/cutout/retry',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { viewOwner, photo } = await photoToChange(request);
       const { id } = request.params;
-      const outcome = await recordCutoutEvent(db, photo.fileName, {
-        type: 'retry',
-      });
+      const { viewOwner, outcome } = await retryGarmentCutout(
+        deps,
+        actorOf(request),
+        garmentAddress(request),
+      );
       if (outcome.ok) {
         logger.info(
           `Garment ${id} cutout requeued by user ${sessionUserId(request)}`,
         );
-        options.cutouts.wake();
       } else {
         logger.info(`Garment ${id} cutout retry ignored (${outcome.reason})`);
       }
@@ -190,12 +174,11 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/photo',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access, viewOwner } = await authorize.garment(request, 'manage');
       const { id } = request.params;
-      await replacePhoto(
+      const { viewOwner } = await replaceGarmentPhoto(
         deps,
-        id,
-        access.ownerId,
+        actorOf(request),
+        garmentAddress(request),
         request.files({ limits: { files: 2 } }),
       );
       const saved = garmentUrl(id, viewOwner, '', { photoSaved: 1 });
@@ -221,13 +204,11 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const { access, viewOwner, photo } = await photoToChange(request);
       const { id } = request.params;
-      await rotateGarmentPhoto(
+      const { viewOwner } = await turnGarmentPhoto(
         deps,
-        id,
-        access.ownerId,
-        photo,
+        actorOf(request),
+        garmentAddress(request),
         request.body.direction,
       );
       return reply.redirect(
@@ -246,16 +227,13 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     '/wardrobe/:id/nobg',
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { photo } = await photoToChange(request);
       const { id } = request.params;
-      const part = await request.file();
-      if (!part) throw new HttpError(400, 'No file uploaded');
-      const edited = await options.photos.saveEditedCutout(
-        part.file,
-        photo.fileName,
+      const edited = await saveEditedGarmentCutout(
+        deps,
+        actorOf(request),
+        garmentAddress(request),
+        () => request.file(),
       );
-      // Its row went (a delete or a photo replaced) after the garment was read.
-      if (!edited) throw new HttpError(404);
       logger.info(
         `Garment ${id} cutout replaced, photo version ${edited.version}`,
       );

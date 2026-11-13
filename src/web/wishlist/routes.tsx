@@ -4,16 +4,15 @@ import type { FastifyReply } from 'fastify';
 import { sessionUserId } from '../auth/require-session';
 import type { FieldErrors } from '../auth/validation';
 import { type IsoDate, parseIsoDate, todayIn } from '../../calendar-date';
-import { HttpError } from '../errors';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { renderPage } from '../render';
-import type { AuthorizedWardrobe } from '../sharing/access';
+import { actorOf, type AuthorizedWardrobe } from '../sharing/access';
 import { viewContext } from '../view-context';
 import {
+  garmentAddress,
   garmentGuard,
   garmentIn,
-  garmentNotFound,
 } from '../wardrobe/garment-access';
 import type { GarmentDetail } from '../wardrobe/queries';
 import { type Purchase } from '../wardrobe/status';
@@ -21,7 +20,7 @@ import { garmentUrl } from '../wardrobe/urls';
 import { GarmentParams, OwnerQuery } from '../schemas';
 import { PRICE_INPUT_MAX, readPrice } from '../wardrobe/garment-input';
 import { type BoughtField, type BoughtModel, BoughtPage } from './bought-page';
-import { buyWishlistItem } from './purchase';
+import { buyWishlistItem, purchaseNeed } from './purchase';
 import { garmentRef, type GarmentRef } from './queries';
 
 // "Bought it": the day and the price paid as typed (checked by readPurchase,
@@ -33,16 +32,6 @@ const BoughtBody = Type.Object({
   archiveReplaced: Type.Optional(Type.Literal('1')),
 });
 type BoughtBody = Static<typeof BoughtBody>;
-
-/**
- * Whether "Bought it" archives the replaced garment too: the owner's to
- * ask. A grantee asking is a 403, before anything is written.
- */
-function archiveAsked(body: BoughtBody, isOwner: boolean): boolean {
-  const asked = body.archiveReplaced === '1';
-  if (asked && !isOwner) throw new HttpError(403);
-  return asked;
-}
 
 /** The purchase as stored (a blank field is null), or what is wrong with it. */
 function readPurchase(
@@ -150,9 +139,14 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const authorized = await authorize(request, 'manage');
+      const archiveReplaced = request.body.archiveReplaced === '1';
+      // Asked before the purchase is read: its refused form is drawn in the
+      // wardrobe. buyWishlistItem's own check is free.
+      const authorized = await authorize(
+        request,
+        purchaseNeed(archiveReplaced),
+      );
       const { access, viewOwner } = authorized;
-      const archiveReplaced = archiveAsked(request.body, access.isOwner);
       const { id } = request.params;
       const read = readPurchase(request.body);
       if (!read.ok) {
@@ -178,19 +172,12 @@ export const wishlistRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           400,
         );
       }
-      const outcome = await buyWishlistItem(options, id, access.ownerId, {
-        ...read.purchase,
-        archiveReplaced,
-      });
-      if (!outcome.ok) {
-        if (outcome.reason === 'not-found') {
-          throw garmentNotFound();
-        }
-        logger.info(
-          `Bought it ignored for garment ${id}: it is ${outcome.status}`,
-        );
-        throw new HttpError(409, t('wishlist.NOT_ON_WISHLIST'));
-      }
+      const outcome = await buyWishlistItem(
+        options,
+        actorOf(request),
+        garmentAddress(request),
+        { ...read.purchase, archiveReplaced },
+      );
       logger.info(
         `Garment ${id} bought (wishlist -> closet) by user ${sessionUserId(request)} in wardrobe ${access.ownerId}${
           outcome.archivedReplaced === null

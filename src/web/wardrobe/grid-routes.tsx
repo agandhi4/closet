@@ -10,20 +10,22 @@ import {
 } from '../../wardrobe/properties';
 import { CARE_WASH } from '../../wardrobe/care';
 import { sessionUserId } from '../auth/require-session';
-import { HttpError } from '../errors';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage, wantsFragment } from '../render';
-import type { WardrobeAccess } from '../sharing/access';
+import { actorOf, type WardrobeAccess } from '../sharing/access';
 import { viewContext } from '../view-context';
 import { normalizeCategory, normalizeSize } from './garment';
-import { garmentGuard, garmentNotFound } from './garment-access';
+import {
+  garmentAddress,
+  garmentGuard,
+  taggedGarmentIn,
+} from './garment-access';
+import { tagGarment } from './garment-actions';
 import {
   bulkSetProperty,
   type GridFilters,
   gridPage,
   nextToTag,
-  taggedGarment,
-  updateGarmentProperties,
 } from './queries';
 import { type GridContextPart, gridContext } from './grid-context';
 import { type GarmentScope } from './status';
@@ -46,7 +48,6 @@ import {
   BulkBody,
   GridQuery,
   readBulkChange,
-  readTags,
   TagBody,
   TagQuery,
   TilesQuery,
@@ -358,21 +359,17 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       schema: { params: GarmentParams, querystring: OwnerQuery, body: TagBody },
     },
     async (request, reply) => {
-      const { access, viewOwner, garment } = await authorize.garment(
-        request,
-        'manage',
-      );
       const { id } = request.params;
       const { next, ...tags } = request.body;
       // Only what differs from the stored garment: the card posts its
       // checked chips every time, Next included.
-      const changes = readTags(tags, garment);
-      if (!changes) throw new HttpError(400, 'Not a type of this category');
-      const changed = Object.keys(changes);
+      const { access, viewOwner, changed } = await tagGarment(
+        db,
+        actorOf(request),
+        garmentAddress(request),
+        tags,
+      );
       if (changed.length > 0) {
-        if (!(await updateGarmentProperties(db, id, access.ownerId, changes))) {
-          throw garmentNotFound();
-        }
         logger.info(
           `Garment ${id} tagged by user ${sessionUserId(request)}: ${changed.join(', ')}`,
         );
@@ -389,8 +386,7 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           <TagCard model={await tagCardModel(access.ownerId, viewOwner, id)} />,
         );
       }
-      const saved = await taggedGarment(db, id, access.ownerId);
-      if (!saved) throw garmentNotFound();
+      const saved = await taggedGarmentIn(db, access, id);
       return renderFragment(
         reply,
         <TagSaved garment={saved.garment} left={saved.left} />,

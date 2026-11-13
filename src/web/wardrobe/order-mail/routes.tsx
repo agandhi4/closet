@@ -1,8 +1,6 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
-import type { FastifyRequest } from 'fastify';
 import { sessionUserId } from '../../auth/require-session';
-import { HttpError } from '../../errors';
 import { t } from '../../i18n';
 import { loggableUrl } from '../../loggable-url';
 import type { WebOptions } from '../../plugin';
@@ -51,19 +49,21 @@ export const orderReviewRoutes: FastifyPluginCallbackTypebox<
   const importDeps = { db, fetcher, photos, logger };
   const addLimit = app.createRateLimit(LINK_IMPORT_LIMIT);
 
-  /** The requester when they are the order account's owner; else a 404. */
-  function reviewer(request: FastifyRequest): number {
-    const userId = sessionUserId(request);
+  // Off (no owner), or not the order account's owner: the app's own 404
+  // (its not-found handler), as a route that is not there. A request
+  // concern, so a hook: after the schema, before every handler, as the
+  // check each handler made first.
+  app.addHook('preHandler', (request, reply, done) => {
     const email = request.auth?.user.email?.toLowerCase();
-    // Off (no owner), or not the owner: a 404 like a route that is not there.
     if (orderMailOwner === undefined || email !== orderMailOwner) {
-      throw new HttpError(404, `Cannot ${request.method} ${request.url}`);
+      reply.callNotFound();
+      return;
     }
-    return userId;
-  }
+    done();
+  });
 
   app.get(ORDERS_PATH, async (request, reply) => {
-    const userId = reviewer(request);
+    const userId = sessionUserId(request);
     const items = await pendingOrderItems(db, userId);
     logger.debug(`Order review for user ${userId}: ${items.length} pending`);
     return renderPage(
@@ -79,7 +79,7 @@ export const orderReviewRoutes: FastifyPluginCallbackTypebox<
     `${ORDERS_PATH}/:id/add`,
     { schema: { params: ItemParams } },
     async (request, reply) => {
-      const userId = reviewer(request);
+      const userId = sessionUserId(request);
       const verdict = await addLimit(request);
       if (!verdict.isAllowed && verdict.isExceeded) {
         logger.warn(
@@ -110,7 +110,7 @@ export const orderReviewRoutes: FastifyPluginCallbackTypebox<
     `${ORDERS_PATH}/:id/dismiss`,
     { schema: { params: ItemParams } },
     async (request, reply) => {
-      const userId = reviewer(request);
+      const userId = sessionUserId(request);
       const dismissed = await decideOrderItem(db, request.params.id, userId, {
         event: 'dismiss',
       });

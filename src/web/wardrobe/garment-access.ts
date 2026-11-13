@@ -22,6 +22,7 @@ import {
   garmentSummaries,
   gridCount,
   type GridFilters,
+  taggedGarment,
 } from './queries';
 
 type Db = WebOptions['db'];
@@ -47,6 +48,34 @@ export function garmentNotFound(): NotFound {
 export interface GarmentAddress {
   id: number;
   ownerId: number | '' | undefined;
+  /**
+   * What a wardrobe the actor cannot see reads as: an unknown garment (a
+   * page's garment URL), unless the caller named the wardrobe, as MCP's
+   * `ownerId` does ("Wardrobe not found", #188b-1).
+   */
+  unseen?: 'wardrobe';
+}
+
+/**
+ * The wardrobe `address` names, if the actor has what the call `need`s of
+ * it, without reading the garment: for a write whose own statement is the
+ * lookup (an update answering whether the row was there, #161), and for
+ * requireGarment. Costs a statement only for a share no read ahead
+ * answered.
+ */
+export function garmentWardrobe(
+  db: Db,
+  actor: Actor,
+  address: GarmentAddress,
+  need: WardrobeNeed,
+): Promise<AuthorizedWardrobe> {
+  return authorizeWardrobe(
+    db,
+    actor,
+    address.ownerId,
+    need,
+    address.unseen ?? 'garment',
+  );
 }
 
 export interface AuthorizedGarment extends AuthorizedWardrobe {
@@ -82,21 +111,35 @@ export async function requireGarment(
   address: GarmentAddress,
   need: WardrobeNeed,
 ): Promise<AuthorizedGarment> {
-  const wardrobe = await authorizeWardrobe(
-    db,
-    actor,
-    address.ownerId,
-    need,
-    'garment',
-  );
+  const wardrobe = await garmentWardrobe(db, actor, address, need);
   return {
     ...wardrobe,
     garment: await garmentIn(db, wardrobe.access, address.id),
   };
 }
 
+/**
+ * The tagging card's answer after a tap (taggedGarment's one statement:
+ * the garment as saved and the count left), in a wardrobe already
+ * authorized; a garment deleted since the tap is the 404 of an unknown id.
+ */
+export async function taggedGarmentIn(
+  db: Db,
+  access: WardrobeAccess,
+  id: number,
+): Promise<{ garment: GarmentDetail; left: number }> {
+  const tagged = await taggedGarment(db, id, access.ownerId);
+  if (!tagged) throw garmentNotFound();
+  return tagged;
+}
+
 /** A route request addressing a garment: `/:id` with `?ownerId=` (GarmentParams, OwnerQuery). */
 export type GarmentRequest = WardrobeRequest & { params: { id: number } };
+
+/** The garment a route's `/:id` and `?ownerId=` address, for a domain function. */
+export function garmentAddress(request: GarmentRequest): GarmentAddress {
+  return { id: request.params.id, ownerId: request.query.ownerId };
+}
 
 /**
  * A garment plugin's guard, bound once (`const authorize = garmentGuard(db)`):
@@ -114,12 +157,7 @@ export type GarmentGuard = WardrobeGuard & {
 export function garmentGuard(db: Db): GarmentGuard {
   return Object.assign(wardrobeGuard(db, 'garment'), {
     garment: (request: GarmentRequest, need: WardrobeNeed) =>
-      requireGarment(
-        db,
-        actorOf(request),
-        { id: request.params.id, ownerId: request.query.ownerId },
-        need,
-      ),
+      requireGarment(db, actorOf(request), garmentAddress(request), need),
   });
 }
 

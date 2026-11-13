@@ -4,11 +4,9 @@ import { sessionUserId } from '../auth/require-session';
 import { AutosaveSaved } from '../autosave';
 import { todayIn } from '../../calendar-date';
 import type { FieldErrors } from '../auth/validation';
-import { HttpError } from '../errors';
-import { pendingPhotoOf } from '../files/pending-photos';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
-import type { WardrobeRequest } from '../sharing/access';
+import { actorOf } from '../sharing/access';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import { viewContext } from '../view-context';
 import { type GoesWithCloset, judgeGoesWithCloset } from '../gallery/ideas';
@@ -16,13 +14,23 @@ import { decisionToastOf } from '../wishlist/suggestion-parts';
 import type { GoesWithInputs } from '../gallery/queries';
 import { normalizeCategory } from './garment';
 import { garmentContext } from './garment-context';
-import { garmentGuard, garmentIn, garmentNotFound } from './garment-access';
+import {
+  garmentAddress,
+  garmentGuard,
+  garmentIn,
+  type GarmentRequest,
+} from './garment-access';
+import {
+  changeGarmentStatus,
+  deleteOwnGarment,
+  setGarmentCondition,
+  updateGarment,
+} from './garment-actions';
 import { GarmentPage } from './garment-page';
 import { afterDraft } from './draft-redirects';
 import { pendingPhotoView } from './link-import/photo-choice';
 import { PropertiesFragment } from './property-fields';
 import { repairPanel } from './repairs';
-import { setCondition, updateGarmentFields } from './queries';
 import {
   destinationValues,
   postedDestination,
@@ -30,17 +38,15 @@ import {
 } from './destination';
 import { formAudience } from './garment-form';
 import {
-  draftNotFound,
   type GarmentFormRequest,
+  refuseOtherWardrobesDraft,
   renderGarmentForm,
 } from './render-form';
-import { setGarmentStatus, type StatusChange } from './status';
 import { garmentUrl, wardrobeUrl, WISHLIST_PATH, readIdList } from './urls';
 import {
   cloneGarment,
   createGarment,
   createGarmentWithPendingPhoto,
-  removeGarment,
   type WardrobeDeps,
 } from './writes';
 import {
@@ -63,12 +69,6 @@ import { GarmentParams, OwnerQuery } from '../schemas';
 
 /** A garment's page; its actions are paths under it. */
 const GARMENT_PATH = '/wardrobe/:id';
-
-/** Archive and Restore's 409 when the garment's status does not take the event. */
-const STATUS_REFUSED: Record<Exclude<StatusChange['event'], 'buy'>, string> = {
-  archive: 'Only a garment in the closet can be archived',
-  restore: 'Only an archived garment can be restored',
-};
 
 /**
  * One garment: the new form and its post, the properties fragment, the
@@ -253,9 +253,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       if (!claimed) {
         // Why the claim found nothing: a draft of another wardrobe is a
         // 404 (#200), anything else no longer available.
-        if ((await pendingPhotoOf(db, linkPhoto, scope)) === 'otherWardrobe') {
-          throw draftNotFound();
-        }
+        await refuseOtherWardrobesDraft(db, linkPhoto, scope);
         return refuseForm(reply, {
           ...again,
           link: pendingPhotoView(undefined),
@@ -362,12 +360,14 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
-      const { access, viewOwner } = await authorize(request, 'manage');
       const { id } = request.params;
       const fields = readCondition(request.body);
-      if (!(await setCondition(db, id, access.ownerId, fields))) {
-        throw garmentNotFound();
-      }
+      const { viewOwner } = await setGarmentCondition(
+        db,
+        actorOf(request),
+        garmentAddress(request),
+        fields,
+      );
       logger.info(
         `Garment ${id} condition ${fields.condition}${fields.conditionNote ? ' (with a note)' : ''} set by user ${sessionUserId(request)}`,
       );
@@ -418,9 +418,11 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       },
     },
     async (request, reply) => {
+      // Asked before the write: the form's audience is the wardrobe's (a
+      // MANAGE grantee's post leaves the owner-only fields as stored), and
+      // a refused form is drawn in it. updateGarment's own check is free.
       const { access, viewOwner } = await authorize(request, 'manage');
       const { id } = request.params;
-      // A MANAGE grantee's post leaves the owner-only fields as stored.
       const form = readGarmentForm(
         request.body,
         formAudience({ kind: 'edit' }, viewOwner),
@@ -444,9 +446,12 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           ),
         });
       }
-      if (!(await updateGarmentFields(db, id, access.ownerId, form.fields))) {
-        throw garmentNotFound();
-      }
+      await updateGarment(
+        db,
+        actorOf(request),
+        garmentAddress(request),
+        form.fields,
+      );
       logger.info(`Garment ${id} updated by user ${sessionUserId(request)}`);
       return reply.redirect(garmentUrl(id, viewOwner), 302);
     },
@@ -520,27 +525,20 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  /**
-   * Archive and Restore (htmx hx-post): owner only, even for a MANAGE
-   * grantee. Each names its move, so a page that showed another status
-   * (another phone, a stale tab) gets a 409 instead of the opposite move
-   * the old archive toggle made. Through setGarmentStatus, the one writer.
-   */
+  /** Archive and Restore (htmx hx-post): changeGarmentStatus, owner only. */
   async function changeStatus(
-    request: WardrobeRequest,
+    request: GarmentRequest,
     reply: FastifyReply,
-    id: number,
     event: 'archive' | 'restore',
   ): Promise<FastifyReply> {
-    const { access, viewOwner } = await authorize(request, 'own');
-    const outcome = await setGarmentStatus(db, id, access.ownerId, { event });
-    if (!outcome.ok) {
-      if (outcome.reason === 'not-found') throw garmentNotFound();
-      logger.info(`Garment ${id} ${event} refused: it is ${outcome.status}`);
-      throw new HttpError(409, STATUS_REFUSED[event]);
-    }
+    const { access, viewOwner, from, to } = await changeGarmentStatus(
+      db,
+      actorOf(request),
+      garmentAddress(request),
+      event,
+    );
     logger.info(
-      `Garment ${id} ${event}d (${outcome.from} -> ${outcome.to}) by user ${access.ownerId}`,
+      `Garment ${request.params.id} ${event}d (${from} -> ${to}) by user ${access.ownerId}`,
     );
     return navigateTo(reply, wardrobeUrl(viewOwner));
   }
@@ -548,34 +546,27 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app.post(
     `${GARMENT_PATH}/archive`,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
-    (request, reply) =>
-      changeStatus(request, reply, request.params.id, 'archive'),
+    (request, reply) => changeStatus(request, reply, 'archive'),
   );
 
   app.post(
     `${GARMENT_PATH}/restore`,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
-    (request, reply) =>
-      changeStatus(request, reply, request.params.id, 'restore'),
+    (request, reply) => changeStatus(request, reply, 'restore'),
   );
 
-  // htmx (hx-delete): owner only. The photo's bytes go after the rows commit.
-  // The delete answers the status it had: no read before it (#161).
+  // htmx (hx-delete): owner only (deleteOwnGarment). The delete answers the
+  // status it had: no read before it (#161).
   app.delete(
     GARMENT_PATH,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     async (request, reply) => {
-      const { access } = await authorize(request, 'own');
       const { id } = request.params;
-      const deleted = await removeGarment(deps, id, access.ownerId);
-      if (!deleted.ok) {
-        if (deleted.reason === 'not-found') throw garmentNotFound();
-        logger.info(
-          `Garment ${id} delete refused for user ${access.ownerId}: a suggestion, set aside, never deleted`,
-        );
-        throw new HttpError(409, t('wishlist.SUGGESTION_NOT_DELETED'));
-      }
-      const { status } = deleted;
+      const { access, status } = await deleteOwnGarment(
+        deps,
+        actorOf(request),
+        garmentAddress(request),
+      );
       logger.info(
         `Garment ${id} (${status}) deleted by user ${access.ownerId}`,
       );
