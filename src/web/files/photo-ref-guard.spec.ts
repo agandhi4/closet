@@ -5,7 +5,7 @@ import { PROJECT_ROOT } from '../../project-root';
 
 /**
  * A signed /file URL is served without asking the database whether its
- * name is a selfie's (#162), so only a garment's photo, or a pending one
+ * name is a selfie's or a saved look's (#162), so only a garment's photo, or a pending one
  * shown to its uploader, may ever be signed. imageUrl takes a branded
  * SignablePhotoRef (image-url.spec.ts proves a plain object does not
  * compile); these checks keep the brand's makers where they belong.
@@ -42,17 +42,21 @@ const SIGNING = [
 ];
 
 describe('who may sign a photo URL', () => {
-  it('no outfit selfie module touches a photo-ref helper or imageUrl', () => {
-    const selfies = sources(join(SRC, 'web', 'selfies'));
-    expect(selfies.length).toBeGreaterThan(0);
-    const found = selfies.flatMap((path) => {
-      const text = read(path);
-      return SIGNING.filter((word) =>
-        new RegExp(`\\b${word}\\b`).test(text),
-      ).map((word) => `${name(path)}: ${word}`);
-    });
-    expect(found).toEqual([]);
-  });
+  // Selfies (#19) and saved looks (#22) are private photos: never signed.
+  it.each(['selfies', 'inspiration'])(
+    'no %s module touches a photo-ref helper or imageUrl',
+    (dir) => {
+      const modules = sources(join(SRC, 'web', dir));
+      expect(modules.length).toBeGreaterThan(0);
+      const found = modules.flatMap((path) => {
+        const text = read(path);
+        return SIGNING.filter((word) =>
+          new RegExp(`\\b${word}\\b`).test(text),
+        ).map((word) => `${name(path)}: ${word}`);
+      });
+      expect(found).toEqual([]);
+    },
+  );
 
   // A photo built by hand in SQL can be typed as the helpers' shape while
   // missing a field (a variant key left out signs `k=undefined`, which the

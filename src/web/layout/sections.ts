@@ -35,7 +35,8 @@ export const DOCK_TABS: readonly Section[] = [
  * Path roots, each with its subtree. Capsules are named subsets of the
  * wardrobe, so they are Wardrobe too, and so is the laundry (the Wardrobe's
  * Laundry tab, outside /wardrobe because it is the user's own); trips (#10) are the Calendar's Trips
- * tab (the redesign's "Calendar › Trips"), so they are Calendar. Pages
+ * tab (the redesign's "Calendar › Trips"), so they are Calendar; saved looks
+ * (#22) are the Outfits page's Inspiration tab, so they are Outfits. Pages
  * outside every root belong to no section: Profile and its pages (the app
  * bar's avatar marks those), the public share and invite pages, /about.
  * `/` is matched on its own: every path starts with it.
@@ -46,6 +47,7 @@ const SECTION_ROOTS: readonly (readonly [root: string, section: Section])[] = [
   ['/laundry', 'wardrobe'],
   ['/styling', 'styling'],
   ['/outfits', 'outfits'],
+  ['/inspiration', 'outfits'],
   ['/calendar', 'calendar'],
   ['/trips', 'calendar'],
 ];

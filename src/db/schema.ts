@@ -115,6 +115,9 @@ import {
   GARMENT_COLORS,
   GarmentCategory,
   type GarmentColor,
+  INSPIRATION_PIECE_MAX_COLORS,
+  INSPIRATION_PIECE_ROLES,
+  type InspirationPieceRole,
   type Length,
   LENGTHS,
   type Material,
@@ -1244,6 +1247,121 @@ export const selfie = pgTable(
     })
       .onUpdate('cascade')
       .onDelete('cascade'),
+  ],
+);
+
+// A saved look (#22; docs/plans/2026-11-13-inspiration-library.md): a photo
+// the owner uploaded, or a link they pasted, or both (a page's photo stored
+// through the pipeline), with what they read in it (inspiration_piece).
+// Written only by src/web/inspiration/queries.ts. The owner's own, like the
+// style profile: never shown to a grantee, the share page or another user's
+// MCP tools, and its photo served only to its owner (GET /inspiration/photo/*,
+// never the public /file/**). The photo's `file` row is the look's alone,
+// with no cutout (a look is a whole picture): reconciliation counts photo_id
+// as a reference (src/web/files/references.ts), and deleting the file row
+// takes this one (a look's photo goes only with the look or its account).
+export const inspiration = pgTable(
+  'inspiration',
+  {
+    id: serial('id').primaryKey(),
+    ownerId: integer('owner_id').notNull(),
+    // Trimmed, null for none; bounded by the route (INSPIRATION_TITLE_MAX).
+    // A pasted page's own title until the owner names it.
+    title: varchar('title', { length: 255 }),
+    note: text('note'),
+    // The pasted link as linkIn read it: only ever http(s).
+    sourceUrl: text('source_url'),
+    photoId: integer('photo_id'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    // A look is something seen: a photo, a link, or both.
+    check(
+      'inspiration_photo_or_link_check',
+      sql`num_nonnulls(${table.photoId}, ${table.sourceUrl}) > 0`,
+    ),
+    check(
+      'inspiration_source_url_check',
+      sql`${table.sourceUrl} ~* '^https?://'`,
+    ),
+    // The list, newest first (read backward), and the owner_id foreign key's.
+    index('inspiration_owner_id_id_index').on(table.ownerId, table.id),
+    // A photo is one look's. Also the photo_id foreign key's index.
+    unique('inspiration_photo_id_unique').on(table.photoId),
+    foreignKey({
+      name: 'inspiration_owner_id_foreign',
+      columns: [table.ownerId],
+      foreignColumns: [user.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'inspiration_photo_id_foreign',
+      columns: [table.photoId],
+      foreignColumns: [file.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+  ],
+);
+
+// What the owner read in a look, one row per piece in the look's order
+// (#22): a role, the garment type, up to two colours and a pattern, the
+// value sets of src/wardrobe/properties.ts (checked here, like outfit_rule's
+// matchers). `matched_garment_id` is the closet garment the owner chose for
+// it; deleting that garment empties the match, never the piece.
+export const inspirationPiece = pgTable(
+  'inspiration_piece',
+  {
+    inspirationId: integer('inspiration_id').notNull(),
+    position: smallint('position').notNull(),
+    role: text('role').$type<InspirationPieceRole>().notNull(),
+    type: text('type'),
+    colors: text('colors').array().$type<GarmentColor[]>().notNull(),
+    pattern: text('pattern').$type<Pattern>(),
+    matchedGarmentId: integer('matched_garment_id'),
+  },
+  (table) => [
+    // Also the index of the inspiration_id foreign key.
+    primaryKey({
+      name: 'inspiration_piece_pkey',
+      columns: [table.inspirationId, table.position],
+    }),
+    check(
+      'inspiration_piece_role_check',
+      sql`${table.role} in (${sqlList(INSPIRATION_PIECE_ROLES)})`,
+    ),
+    check(
+      'inspiration_piece_type_check',
+      sql`${table.type} in (${sqlList(ALL_GARMENT_TYPES)})`,
+    ),
+    check(
+      'inspiration_piece_colors_check',
+      sql`${table.colors} <@ array[${sqlList(GARMENT_COLORS)}]::text[] and cardinality(${table.colors}) <= ${sql.raw(String(INSPIRATION_PIECE_MAX_COLORS))}`,
+    ),
+    check(
+      'inspiration_piece_pattern_check',
+      sql`${table.pattern} in (${sqlList(PATTERNS)})`,
+    ),
+    index('inspiration_piece_matched_garment_id_index').on(
+      table.matchedGarmentId,
+    ),
+    foreignKey({
+      name: 'inspiration_piece_inspiration_id_foreign',
+      columns: [table.inspirationId],
+      foreignColumns: [inspiration.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('cascade'),
+    foreignKey({
+      name: 'inspiration_piece_matched_garment_id_foreign',
+      columns: [table.matchedGarmentId],
+      foreignColumns: [garment.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
   ],
 );
 

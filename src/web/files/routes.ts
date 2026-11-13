@@ -89,7 +89,9 @@ export const fileRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     const photo = await publicPhoto(db, fileName);
     metrics.countPhotoRequest('row');
     if (!photo) {
-      logger.warn(`Refused a selfie on the public /file route: ${fileName}`);
+      logger.warn(
+        `Refused a private photo (a selfie or a saved look) on the public /file route: ${fileName}`,
+      );
       throw new HttpError(404);
     }
     const stream = await photos.getVariant(photo, variant);

@@ -289,7 +289,8 @@
       "trip": "Trip not found",
       "wardrobe": "Wardrobe not found",
       "weekPlan": "Plan not found",
-      "wishlistItem": "Not on your wishlist"
+      "wishlistItem": "Not on your wishlist",
+      "inspiration": "Look not found"
     }
   },
   "WARDROBE_SHARING": "Wardrobe Sharing",
@@ -1033,7 +1034,8 @@
     "ALREADY_SAVED": "Already saved: this outfit was picked before.",
     "SAVED_MUSE": "Saved Muse’s outfit: it’s yours now",
     "FOR_TRIP": "For {name}",
-    "PICK_TRIP": "Add to the trip"
+    "PICK_TRIP": "Add to the trip",
+    "TAB_INSPIRATION": "Inspiration"
   },
   "outfits": {
     "PLANNED_ON": "Planned {day}",
@@ -1530,5 +1532,35 @@
     "DISMISS": "Dismiss",
     "FROM_ORDER": "From your orders: saving adds it to your closet and takes it off the list.",
     "PAGE_UNAVAILABLE": "The product page couldn't be read just now, so these are the details from your order email. Add a photo after saving."
+  },
+  "inspiration": {
+    "ADD": "Add",
+    "ADD_TITLE": "Add a look",
+    "ADD_HINT": "Save a look you saw: a photo, a screenshot or a link to a page.",
+    "FROM_PHOTO": "From a photo",
+    "TAKE": "Take a photo",
+    "CHOOSE": "Choose a photo",
+    "FROM_LINK": "From a link",
+    "LINK": "Link",
+    "LINK_HINT": "A lookbook page, a pin or a post. Many social sites refuse us: a screenshot always works.",
+    "SAVE_LINK": "Save the link",
+    "EMPTY": "No looks saved yet. Save the outfits you see, then recreate them from your closet.",
+    "ADD_FIRST": "Save your first look",
+    "UNTITLED": "Untitled look",
+    "LINK_ONLY": "Link only",
+    "PHOTO_ALT": "The look: {title}",
+    "TITLE": "Title",
+    "NOTE": "Note",
+    "NOTE_PLACEHOLDER": "What caught your eye",
+    "OPEN_LINK": "Open {host}",
+    "NO_PHOTO": "No photo of this look yet.",
+    "ADD_PHOTO": "Add a photo",
+    "CHANGE_PHOTO": "Change photo",
+    "UNREAD": "We could not get a photo from that link.",
+    "UNREAD_NO_PHOTO": "The page had no photo we could read.",
+    "UNREAD_HINT": "Add one from your phone: a screenshot of the look works.",
+    "DELETE": "Delete look",
+    "DELETE_CONFIRM": "Delete this look and its photo?",
+    "OFFLINE": "Saving a look needs a connection."
   }
 }
