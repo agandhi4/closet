@@ -1,5 +1,12 @@
+import { eq } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { expect } from 'vitest';
+import type { TokenKind } from '../../src/credential-names';
+import { user } from '../../src/db/schema';
+import {
+  createToken,
+  type CreateTokenResult,
+} from '../../src/web/auth/personal-tokens';
 import { TEST_PASSWORD, type TestApp } from './harness';
 
 /**
@@ -30,6 +37,32 @@ export async function createAccessToken(
   const token = TOKEN.exec(res.body)?.[0];
   if (!token) throw new Error(`No token on the page:\n${res.body}`);
   return token;
+}
+
+/**
+ * A token straight through the writer (no rate limit, any kind): with the
+ * account's hash as it stands, the one a minting route checked the password
+ * against. Device tokens have no page yet (#190's sign-in mints them).
+ */
+export async function mintToken(
+  t: TestApp,
+  userId: number,
+  name: string,
+  kind: TokenKind = 'mcp',
+): Promise<CreateTokenResult> {
+  const [account] = await t.db
+    .select({ password: user.password })
+    .from(user)
+    .where(eq(user.id, userId));
+  return createToken(
+    { db: t.db, logger: t.logger },
+    {
+      userId,
+      kind,
+      name,
+      verifiedPassword: account.password,
+    },
+  );
 }
 
 let requestId = 0;

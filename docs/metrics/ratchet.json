@@ -250,12 +250,17 @@
     "source": "statements"
   },
   "statements.POST:/auth/change-password": {
-    "bound": 2,
+    "bound": 5,
     "direction": "lower",
     "source": "statements"
   },
   "statements.POST:/auth/delete-account": {
     "bound": 6,
+    "direction": "lower",
+    "source": "statements"
+  },
+  "statements.POST:/auth/devices/:id/revoke": {
+    "bound": 2,
     "direction": "lower",
     "source": "statements"
   },

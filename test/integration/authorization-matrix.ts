@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { TokenKind } from '../../src/credential-names';
 import { recordCutoutEvent } from '../../src/cutout/queries';
 import {
   optionGroup,
@@ -15,7 +16,6 @@ import {
   weekPlan,
 } from '../../src/db/schema';
 import type { SuggestionDecision } from '../../src/wardrobe/suggestions';
-import { createToken } from '../../src/web/auth/personal-tokens';
 import { setGarmentStatus } from '../../src/web/wardrobe/status';
 import { decide, markSuggestion } from '../../src/web/wishlist/decisions';
 import { addOutfitRule, saveStyleProfile } from '../../src/web/style/queries';
@@ -43,6 +43,7 @@ import {
   userIdOf,
 } from './harness';
 import { jpeg, type LinkSites, startLinkSites } from './link-sites';
+import { mintToken } from './mcp';
 import { planEntry, takeSelfie } from './selfies';
 import { startJmapStub } from '../support/jmap-stub';
 import { startWeatherStub } from '../support/weather-stub';
@@ -166,11 +167,12 @@ export interface Fixture {
    */
   today: IsoDate;
   /**
-   * A new personal access token of the owner's (OWNER_TOKEN_NAME), made
-   * when a request asks for it: few routes need one, and the owner may hold
-   * only MAX_ACTIVE_TOKENS.
+   * A new personal access token of the owner's, an agent's
+   * (OWNER_TOKEN_NAME) or a device's (OWNER_DEVICE_NAME, #189), made when a
+   * request asks for it: few routes need one, and the owner may hold only
+   * MAX_ACTIVE_TOKENS of each kind.
    */
-  ownerToken: () => Promise<number>;
+  ownerToken: (kind?: TokenKind) => Promise<number>;
   /**
    * The owner's size note (#24) for the wishlist item's brand, which only
    * the owner's own pages show (OWNER_SIZE_NOTE).
@@ -246,6 +248,7 @@ export const calendarEntry = (f: Fixture) =>
   `/styling?outfit=${f.outfitId}&amp;returnTo=`;
 export const selfieName = (f: Fixture) => f.selfieFileName;
 export const OWNER_TOKEN_NAME = 'Owner laptop token';
+export const OWNER_DEVICE_NAME = 'Owner phone app';
 /** A rule side with no matcher set: a fixture's sides spread one in. */
 const NO_MATCHER = {
   garmentId: null,
@@ -773,8 +776,13 @@ export function describeMatrix(
         photo,
         cutout,
         shopPhotoUrl: sites.url('/photo.jpg'),
-        ownerToken: async () => {
-          const token = await createToken(t.db, t.owner.id, OWNER_TOKEN_NAME);
+        ownerToken: async (kind = 'mcp') => {
+          const token = await mintToken(
+            t,
+            t.owner.id,
+            kind === 'mcp' ? OWNER_TOKEN_NAME : OWNER_DEVICE_NAME,
+            kind,
+          );
           if (!token.created)
             throw new Error('The owner holds too many tokens');
           return token.id;

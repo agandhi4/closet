@@ -979,11 +979,18 @@ async function seedOne(
     // Like the password: printed once, never logged. Outside the persona's
     // transaction, so an existing persona gets one too; --reset and
     // --remove take it with the account.
-    const created = await createToken(command.db, account!.id, SEED_TOKEN_NAME);
+    const created = await createToken(command, {
+      userId: account!.id,
+      kind: 'mcp',
+      name: SEED_TOKEN_NAME,
+      // The seed checked no password: the hash it just read stands in, so
+      // the mint still refuses if the password moved since.
+      verifiedPassword: account!.password,
+    });
     output.write(
       created.created
         ? `${persona.key}: MCP token ${created.token} (shown once; revoke it at /auth/tokens)\n`
-        : `${persona.key}: no MCP token, the account holds too many\n`,
+        : `${persona.key}: no MCP token (${created.reason})\n`,
     );
   }
   if (!grantee) return;

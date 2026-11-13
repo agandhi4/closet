@@ -20,7 +20,12 @@ import {
  * redesign moves this into a Profile section (docs/plans/2026-09-26-redesign.md).
  */
 
-type TokenNotice = 'revoked' | 'name-required' | 'too-many';
+type TokenNotice = 'revoked' | 'revoke-gone' | 'name-required' | 'too-many';
+
+const ERROR_NOTICE = {
+  'name-required': 'agentAccess.NAME_REQUIRED',
+  'too-many': 'agentAccess.TOO_MANY',
+} as const;
 
 export interface TokensPageProps {
   ctx: ViewContext;
@@ -44,20 +49,22 @@ function connectCommand(siteUrl: string, token: string): string {
 }
 
 function TokenAlert({ notice }: { notice: TokenNotice }) {
-  if (notice === 'revoked') {
+  if (notice === 'revoked' || notice === 'revoke-gone') {
     return (
       <div role="status" class="alert alert-success mb-4">
-        <span>{t('agentAccess.REVOKED')}</span>
+        <span>
+          {t(
+            notice === 'revoked'
+              ? 'agentAccess.REVOKED'
+              : 'agentAccess.ALREADY_REVOKED',
+          )}
+        </span>
       </div>
     );
   }
   return (
     <div role="alert" class="alert alert-error mb-4">
-      <span>
-        {notice === 'too-many'
-          ? t('agentAccess.TOO_MANY', { max: MAX_ACTIVE_TOKENS })
-          : t('agentAccess.NAME_REQUIRED')}
-      </span>
+      <span>{t(ERROR_NOTICE[notice], { max: MAX_ACTIVE_TOKENS })}</span>
     </div>
   );
 }

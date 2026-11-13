@@ -20,6 +20,7 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
+import { TOKEN_KINDS, type TokenKind } from '../credential-names';
 import { CUTOUT_STATUSES } from '../cutout/state';
 import {
   type MinuteOfDay,
@@ -302,6 +303,10 @@ export const personalAccessToken = pgTable(
   {
     id: serial('id').primaryKey(),
     userId: integer('user_id').notNull(),
+    // What the token is for (#189): Agent Access mints `mcp`, a native
+    // client's sign-in `device`; each surface accepts only its own kind.
+    kind: text('kind').$type<TokenKind>().default('mcp').notNull(),
+    // Agent Access's label, or the device's name.
     name: text('name').notNull(),
     tokenHash: varchar('token_hash', { length: 64 }).notNull(),
     tokenPrefix: varchar('token_prefix', { length: 16 }).notNull(),
@@ -319,6 +324,10 @@ export const personalAccessToken = pgTable(
   (table) => [
     unique('personal_access_token_token_hash_unique').on(table.tokenHash),
     index('personal_access_token_user_id_index').on(table.userId),
+    check(
+      'personal_access_token_kind_check',
+      sql`${table.kind} in (${sqlList(TOKEN_KINDS)})`,
+    ),
     foreignKey({
       name: 'personal_access_token_user_id_foreign',
       columns: [table.userId],

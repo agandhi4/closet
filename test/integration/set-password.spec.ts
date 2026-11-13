@@ -80,7 +80,7 @@ describe('user:set-password', () => {
     expect(result.stderr).toBe('');
     expect(result.logged).toEqual([
       expect.stringMatching(
-        /^Password set for user \d+ via CLI: 0 access tokens and 0 push devices revoked$/,
+        /^Password set for user \d+ via CLI: 0 MCP tokens, 0 device tokens and 0 push devices revoked$/,
       ),
     ]);
     expect(result.stdout + result.logged.join('')).not.toContain(NEW_PASSWORD);
