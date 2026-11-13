@@ -161,13 +161,15 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   const { logger } = options;
   app.addHook('preValidation', createSessionHook(logger));
   // The budgets a page and its API twin share, one checker each: the two
-  // sign-in doors' SIGN_IN_LIMIT (src/web/auth/sign-in.ts), and the link
+  // sign-in doors' SIGN_IN_LIMIT (src/web/auth/sign-in.ts), the link
   // imports' LINK_IMPORT_LIMIT (the page's import and photo choice, the
-  // API's import).
+  // API's import), and the inspiration paste's own LINK_IMPORT_LIMIT (the
+  // page's, the API's look link import).
   const shared = {
     ...options,
     signInLimit: app.createRateLimit(SIGN_IN_LIMIT),
     linkImportLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
+    inspirationLinkLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
   };
 
   await app.register(healthRoutes, options);
@@ -193,7 +195,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   await app.register(outfitRoutes, options);
   await app.register(stylingRoutes, options);
   await app.register(galleryRoutes, options);
-  await app.register(inspirationRoutes, options);
+  await app.register(inspirationRoutes, shared);
   await app.register(authRoutes, shared);
   await app.register(tokenRoutes, options);
   await app.register(sizesRoutes, options);

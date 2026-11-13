@@ -5,6 +5,8 @@ import { authApiRoutes } from '../auth/api-routes';
 import { calendarApiRoutes } from '../calendar/api-routes';
 import { capsuleApiRoutes } from '../capsules/api-routes';
 import { galleryApiRoutes } from '../gallery/api-routes';
+import { lookApiRoutes } from '../inspiration/api-routes';
+import type { InspirationLinkLimit } from '../inspiration/writes';
 import type { SignInLimit } from '../auth/sign-in';
 import { outfitApiRoutes } from '../outfits/api-routes';
 import type { WebOptions } from '../plugin';
@@ -25,7 +27,10 @@ import spec from './openapi.json';
 import { createDeviceTokenHook, refuseQueryToken } from './token-auth';
 import { jsonApiValidator } from './validator';
 
-export type ApiOptions = WebOptions & SignInLimit & LinkImportLimit;
+export type ApiOptions = WebOptions &
+  SignInLimit &
+  LinkImportLimit &
+  InspirationLinkLimit;
 
 /**
  * Registers apiPlugin under API_PREFIX (webPlugin, scripts/api-spec.ts).
@@ -119,6 +124,7 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
   await app.register(capsuleApiRoutes, options);
   await app.register(galleryApiRoutes, options);
   await app.register(selfieApiRoutes, options);
+  await app.register(lookApiRoutes, options);
   // Only with WEATHER_ENABLED, as /weather/* (webPlugin).
   if (options.weather) await app.register(weatherApiRoutes, options);
 };

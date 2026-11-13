@@ -103,6 +103,23 @@ export const OPERATIONS = [
   'sendTemperatureFeedback',
   'setCalendarEntrySelfie',
   'deleteSelfie',
+  // #193d: saved looks (Inspiration), their pieces, the match view's read
+  // and its two writes, and the photo's bytes to the owner's device.
+  'listLooks',
+  'createLook',
+  'importLookFromLink',
+  'getLook',
+  'updateLook',
+  'deleteLook',
+  'replaceLookPhoto',
+  'addLookPiece',
+  'setLookPieces',
+  'updateLookPiece',
+  'deleteLookPiece',
+  'getLookRecreation',
+  'saveLookAsOutfit',
+  'findLookPiece',
+  'getLookPhoto',
 ] as const;
 export type OperationId = (typeof OPERATIONS)[number];
 
@@ -115,10 +132,8 @@ export function isOperationId(id: string): id is OperationId {
  * 6). An issue leaves this list when its last pending route does.
  */
 type EndpointIssue =
-  /** Outfits, styling, ideas, the calendar, wears, the week plan, selfies. */
-  | '#193'
   /** Today, insights, sizes, the style profile, weather (a trip's destination too), shared wardrobes. */
-  | '#195';
+  '#195';
 
 /**
  * A write's API twin: one operation, or each of the few a write that takes
@@ -277,21 +292,23 @@ export const PAGE_WRITES: Readonly<
   'POST /outfits/ideas/allow': { api: 'allowGarmentPair' },
   'POST /outfits/ideas/feedback': { api: 'sendTemperatureFeedback' },
 
-  // Saved looks (#22): outfits' inspiration, so outfits' endpoint issue.
-  'POST /inspiration': { pending: '#193' },
-  'POST /inspiration/link': { pending: '#193' },
+  // Saved looks (#22, #193d). The share confirmation's Save is POST
+  // /inspiration (createLook's twin); a native client's own share sheet
+  // posts there itself.
+  'POST /inspiration': { api: 'createLook' },
+  'POST /inspiration/link': { api: 'importLookFromLink' },
   'POST /inspiration/share': {
     webOnly:
-      "the installed app's share target without its worker: writes nothing, answers a redirect",
+      "the installed web app's share target: the service worker answers Android's post on the phone and the server's fallback writes nothing, answering a redirect (a native app's share sheet saves through createLook or importLookFromLink)",
   },
-  'POST /inspiration/:id': { pending: '#193' },
-  'POST /inspiration/:id/delete': { pending: '#193' },
-  'POST /inspiration/:id/photo': { pending: '#193' },
-  'POST /inspiration/:id/pieces': { pending: '#193' },
-  'POST /inspiration/:id/pieces/:position': { pending: '#193' },
-  'POST /inspiration/:id/pieces/:position/delete': { pending: '#193' },
-  'POST /inspiration/:id/pieces/:position/find': { pending: '#193' },
-  'POST /inspiration/:id/recreate/outfit': { pending: '#193' },
+  'POST /inspiration/:id': { api: 'updateLook' },
+  'POST /inspiration/:id/delete': { api: 'deleteLook' },
+  'POST /inspiration/:id/photo': { api: 'replaceLookPhoto' },
+  'POST /inspiration/:id/pieces': { api: 'addLookPiece' },
+  'POST /inspiration/:id/pieces/:position': { api: 'updateLookPiece' },
+  'POST /inspiration/:id/pieces/:position/delete': { api: 'deleteLookPiece' },
+  'POST /inspiration/:id/pieces/:position/find': { api: 'findLookPiece' },
+  'POST /inspiration/:id/recreate/outfit': { api: 'saveLookAsOutfit' },
 
   // The calendar, the week plan and selfies.
   'POST /calendar': {
@@ -392,8 +409,8 @@ export const MCP_WRITES: Readonly<Record<string, ToolParity>> = {
   mark_worn: { api: ['setCalendarEntryWorn', 'wearGarment'] },
   mark_washed: { api: 'washGarments' },
   plan_week: { api: 'planWeek' },
-  add_inspiration: { pending: '#193' },
-  set_inspiration_pieces: { pending: '#193' },
+  add_inspiration: { api: 'importLookFromLink' },
+  set_inspiration_pieces: { api: 'setLookPieces' },
   set_capsule_membership: { api: 'changeCapsuleMembers' },
   plan_trip_outfit: { api: 'addTripOutfit' },
   create_option_group: MUSE_ROUND,

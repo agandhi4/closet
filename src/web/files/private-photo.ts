@@ -1,5 +1,6 @@
 import type { FastifyReply } from 'fastify';
 import type { Logger } from '../../logger';
+import { NotFound, type Resource } from '../refusals';
 import {
   type ImageVariant,
   parseStoredName,
@@ -9,8 +10,8 @@ import type { Photos } from './photos';
 
 /**
  * Serving a photo only its owner may see: an outfit selfie (GET /selfies/*,
- * src/web/selfies) and a saved look's (GET /inspiration/photo/*,
- * src/web/inspiration). Never under the public /file/** (which refuses
+ * src/web/selfies) and a saved look's (GET /inspiration/photo/*, and to a
+ * device token GET /api/v1/look-photos/*, src/web/inspiration). Never under the public /file/** (which refuses
  * their names, publicPhoto): a private photo is more personal than a
  * garment's, and an unguessable name is a capability anyone it reaches
  * holds for good.
@@ -39,21 +40,58 @@ export interface PrivatePhotoRequest {
  * Streams the photo when it is the owner's; anything else (not a photo
  * name, not this kind of photo, someone else's) is the same bare 404, never
  * the error page, which would echo the name back in its path and canonical
- * URL. An <img> reads nothing of it anyway.
+ * URL. An <img> reads nothing of it anyway. The pages' answer; the API's
+ * is servePrivatePhoto.
  */
 export async function sendPrivatePhoto(
-  { photos, logger }: { photos: Photos; logger: Logger },
+  deps: { photos: Photos; logger: Logger },
   reply: FastifyReply,
   request: PrivatePhotoRequest,
 ): Promise<FastifyReply> {
-  const { fileName, variant, ownerId, kind } = request;
-  if (
-    parseStoredName(fileName)?.variant !== 'original' ||
-    !(await request.isOwn(fileName, ownerId))
-  ) {
-    logger.debug(`${kind} photo ${fileName} is not user ${ownerId}'s`);
+  if (!(await isServablePrivatePhoto(deps, request))) {
     return reply.status(404).header('Cache-Control', 'no-store').send();
   }
+  return streamPrivatePhoto(deps, reply, request);
+}
+
+/**
+ * The API's answer (GET /api/v1/look-photos/{fileName}, #193d): the same
+ * check, refused as `refusal`'s NotFound, a problem 404 that names nothing
+ * (the error handler's on the api surface, never the error page).
+ */
+export async function servePrivatePhoto(
+  deps: { photos: Photos; logger: Logger },
+  reply: FastifyReply,
+  request: PrivatePhotoRequest,
+  refusal: Resource,
+): Promise<FastifyReply> {
+  if (!(await isServablePrivatePhoto(deps, request))) {
+    throw new NotFound(refusal);
+  }
+  return streamPrivatePhoto(deps, reply, request);
+}
+
+/** Whether `fileName` is an original's name and the owner's photo of this kind: one statement. */
+async function isServablePrivatePhoto(
+  { logger }: { logger: Logger },
+  { fileName, ownerId, kind, isOwn }: PrivatePhotoRequest,
+): Promise<boolean> {
+  if (
+    parseStoredName(fileName)?.variant === 'original' &&
+    (await isOwn(fileName, ownerId))
+  ) {
+    return true;
+  }
+  logger.debug(`${kind} photo ${fileName} is not user ${ownerId}'s`);
+  return false;
+}
+
+/** The photo's bytes, `private, immutable`: only after isServablePrivatePhoto said yes. */
+async function streamPrivatePhoto(
+  { photos, logger }: { photos: Photos; logger: Logger },
+  reply: FastifyReply,
+  { fileName, variant, kind }: PrivatePhotoRequest,
+): Promise<FastifyReply> {
   const stream = await photos.getVariant(unkeyedPhoto(fileName), variant);
   stream.on('error', (error) =>
     logger.error({ err: error }, `Streaming ${kind} photo ${fileName} failed`),

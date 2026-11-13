@@ -3,6 +3,8 @@ import type { InjectOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { addDays } from '../../src/calendar-date';
 import {
+  file,
+  inspiration,
   optionGroup,
   outfit,
   outfitCalendar,
@@ -1645,6 +1647,293 @@ describe('API statements per route', () => {
       const apiRun = await statementsOf(() => t.api(token, apiRequest));
       expect([pageRun.status, apiRun.status]).toEqual(ok);
       expect(apiRun.statements).toBe(pageRun.statements - fewer);
+    });
+  });
+
+  describe('saved looks: what their page twins cost (#193d)', () => {
+    // A user of their own: the shared twin device's API_LIMIT (120 a
+    // minute) is spent by the sections above, and the owner's sign-ins by
+    // SIGN_IN_ACCOUNT_LIMIT.
+    const email = 'looks-statements@example.com';
+    let cookie: string;
+    let token: string;
+    let photo: Buffer;
+
+    /** A page request as this user's session. */
+    const asUser = (request: InjectOptions): InjectOptions => ({
+      ...request,
+      headers: { ...request.headers, cookie },
+    });
+
+    beforeAll(async () => {
+      cookie = await t.register(email);
+      token = (await deviceToken(t, { email })).token;
+      photo = await jpegPhoto(320, 240);
+      sites.serve('/look-counted.jpg', jpeg(photo));
+    });
+
+    const lookUpload = () =>
+      multipart(
+        {},
+        {
+          photo: {
+            data: photo,
+            filename: 'look.jpg',
+            contentType: 'image/jpeg',
+          },
+        },
+      );
+
+    /** One run's rows: a look with its photo and one piece (a white tee), and a closet tee. */
+    interface Setup {
+      id: number;
+      fileName: string;
+      tee: number;
+    }
+
+    const setup = async (): Promise<Setup> => {
+      const made = await t.inject(
+        asUser({
+          method: 'POST',
+          url: '/inspiration',
+          ...(await lookUpload()),
+        }),
+      );
+      const id = Number(
+        /^\/inspiration\/(\d+)$/.exec(made.headers.location as string)![1],
+      );
+      await t.inject(
+        asUser({
+          method: 'POST',
+          url: `/inspiration/${id}/pieces`,
+          payload: {
+            kind: 'top/t-shirt',
+            color: 'white',
+            accent: '',
+            pattern: '',
+          },
+        }),
+      );
+      const [{ fileName }] = await t.db
+        .select({ fileName: file.fileName })
+        .from(inspiration)
+        .innerJoin(file, eq(file.id, inspiration.photoId))
+        .where(eq(inspiration.id, id));
+      const tee = await createGarment(t, {
+        name: 'Look tee',
+        category: 'tops',
+        cookie,
+      });
+      return { id, fileName, tee };
+    };
+
+    const piece = {
+      kind: 'bottom/jeans',
+      color: 'blue',
+      accent: '',
+      pattern: '',
+    };
+    const apiPiece = { role: 'bottom', type: 'jeans', colors: ['blue'] };
+
+    /**
+     * Each route's page twin and its API request, each on a setup of its
+     * own: the same writer or read, so the same statements.
+     */
+    const CASES: {
+      name: string;
+      ok: [page: number, api: number];
+      page: (s: Setup) => InjectOptions | Promise<InjectOptions>;
+      api: (s: Setup) => InjectOptions | Promise<InjectOptions>;
+    }[] = [
+      {
+        name: 'GET /looks (GET /inspiration)',
+        ok: [200, 200],
+        page: () => ({ method: 'GET', url: '/inspiration' }),
+        api: () => ({ method: 'GET', url: '/api/v1/looks' }),
+      },
+      {
+        name: 'GET /looks/{id} (GET /inspiration/:id)',
+        ok: [200, 200],
+        page: (s) => ({ method: 'GET', url: `/inspiration/${s.id}` }),
+        api: (s) => ({ method: 'GET', url: `/api/v1/looks/${s.id}` }),
+      },
+      {
+        name: 'POST /looks (POST /inspiration)',
+        ok: [303, 201],
+        page: async () => ({
+          method: 'POST',
+          url: '/inspiration',
+          ...(await lookUpload()),
+        }),
+        api: async () => ({
+          method: 'POST',
+          url: '/api/v1/looks',
+          ...(await lookUpload()),
+        }),
+      },
+      {
+        name: 'POST /looks/link-imports (POST /inspiration/link)',
+        ok: [303, 201],
+        page: () => ({
+          method: 'POST',
+          url: '/inspiration/link',
+          payload: { url: sites.url('/look-counted.jpg') },
+        }),
+        api: () => ({
+          method: 'POST',
+          url: '/api/v1/looks/link-imports',
+          payload: { url: sites.url('/look-counted.jpg') },
+        }),
+      },
+      {
+        name: 'PATCH /looks/{id} (POST /inspiration/:id)',
+        ok: [303, 204],
+        page: (s) => ({
+          method: 'POST',
+          url: `/inspiration/${s.id}`,
+          payload: { title: 'Counted', note: 'A note' },
+        }),
+        api: (s) => ({
+          method: 'PATCH',
+          url: `/api/v1/looks/${s.id}`,
+          payload: { title: 'Counted', note: 'A note' },
+        }),
+      },
+      {
+        name: 'DELETE /looks/{id} (POST /inspiration/:id/delete)',
+        ok: [303, 204],
+        page: (s) => ({ method: 'POST', url: `/inspiration/${s.id}/delete` }),
+        api: (s) => ({ method: 'DELETE', url: `/api/v1/looks/${s.id}` }),
+      },
+      {
+        name: 'PUT /looks/{id}/photo (POST /inspiration/:id/photo)',
+        ok: [303, 200],
+        page: async (s) => ({
+          method: 'POST',
+          url: `/inspiration/${s.id}/photo`,
+          ...(await lookUpload()),
+        }),
+        api: async (s) => ({
+          method: 'PUT',
+          url: `/api/v1/looks/${s.id}/photo`,
+          ...(await lookUpload()),
+        }),
+      },
+      {
+        name: 'POST /looks/{id}/pieces (POST /inspiration/:id/pieces)',
+        ok: [303, 201],
+        page: (s) => ({
+          method: 'POST',
+          url: `/inspiration/${s.id}/pieces`,
+          payload: piece,
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: `/api/v1/looks/${s.id}/pieces`,
+          payload: apiPiece,
+        }),
+      },
+      {
+        name: 'PUT /looks/{id}/pieces/{position} (POST /inspiration/:id/pieces/:position)',
+        ok: [303, 200],
+        page: (s) => ({
+          method: 'POST',
+          url: `/inspiration/${s.id}/pieces/0`,
+          payload: piece,
+        }),
+        api: (s) => ({
+          method: 'PUT',
+          url: `/api/v1/looks/${s.id}/pieces/0`,
+          payload: apiPiece,
+        }),
+      },
+      {
+        name: 'DELETE /looks/{id}/pieces/{position} (POST /inspiration/:id/pieces/:position/delete)',
+        ok: [303, 204],
+        page: (s) => ({
+          method: 'POST',
+          url: `/inspiration/${s.id}/pieces/0/delete`,
+        }),
+        api: (s) => ({
+          method: 'DELETE',
+          url: `/api/v1/looks/${s.id}/pieces/0`,
+        }),
+      },
+      {
+        name: 'GET /looks/{id}/recreation (GET /inspiration/:id/recreate)',
+        ok: [200, 200],
+        page: (s) => ({ method: 'GET', url: `/inspiration/${s.id}/recreate` }),
+        api: (s) => ({
+          method: 'GET',
+          url: `/api/v1/looks/${s.id}/recreation`,
+        }),
+      },
+      {
+        name: 'POST /looks/{id}/outfits (POST /inspiration/:id/recreate/outfit)',
+        ok: [303, 201],
+        page: (s) => ({
+          method: 'POST',
+          url: `/inspiration/${s.id}/recreate/outfit`,
+          payload: { position: ['0'], garment: [String(s.tee)] },
+        }),
+        api: (s) => ({
+          method: 'POST',
+          url: `/api/v1/looks/${s.id}/outfits`,
+          payload: { choices: [{ position: 0, garmentId: s.tee }] },
+        }),
+      },
+      {
+        name: 'PUT /looks/{id}/pieces/{position}/wishlist-item (POST /inspiration/:id/pieces/:position/find)',
+        ok: [303, 201],
+        page: (s) => ({
+          method: 'POST',
+          url: `/inspiration/${s.id}/pieces/0/find`,
+        }),
+        api: (s) => ({
+          method: 'PUT',
+          url: `/api/v1/looks/${s.id}/pieces/0/wishlist-item`,
+        }),
+      },
+      {
+        name: 'GET /look-photos/{fileName} (GET /inspiration/photo/:fileName)',
+        ok: [200, 200],
+        page: (s) => ({
+          method: 'GET',
+          url: `/inspiration/photo/${s.fileName}?v=1`,
+        }),
+        api: (s) => ({
+          method: 'GET',
+          url: `/api/v1/look-photos/${s.fileName}?v=1`,
+        }),
+      },
+    ];
+
+    it.each(CASES)('$name', async ({ ok, page, api }) => {
+      const [onPage, onApi] = [await setup(), await setup()];
+      const pageRequest = await page(onPage);
+      const pageRun = await statementsOf(() => t.inject(asUser(pageRequest)));
+      // A second call of the minute: no last-use write.
+      await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      const apiRequest = await api(onApi);
+      const apiRun = await statementsOf(() => t.api(token, apiRequest));
+      expect([pageRun.status, apiRun.status]).toEqual(ok);
+      expect(apiRun.statements).toBe(pageRun.statements);
+    });
+
+    it("PUT /looks/{id}/pieces: the token, then set_inspiration_pieces' transaction (no page twin sets the whole list)", async () => {
+      const { id } = await setup();
+      await t.api(token, { method: 'GET', url: '/api/v1/me' });
+      const run = await statementsOf(() =>
+        t.api(token, {
+          method: 'PUT',
+          url: `/api/v1/looks/${id}/pieces`,
+          payload: { pieces: [apiPiece] },
+        }),
+      );
+      // The token; then one transaction: begin, the look's lock, its
+      // pieces, the white tee removed, the counter taken, the jeans added,
+      // commit. MCP's twin reads the recreation back after it.
+      expect(run).toMatchObject({ status: 200, statements: 8 });
     });
   });
 
