@@ -2,14 +2,14 @@
 
 What applies to any install: the env, permissions, health, recovery and publishing. The owner's production (the production host in the homelab, its hosts, paths, DNS, proxies and the public MCP host) is documented in the private homelab repo, `stacks/closet/README.md`, never here: this repo is public (2026-11-12, "Homelab topology lives in the homelab repo"; devkit's docs-check and devkit-check refuse it).
 
-| Piece | Value |
-| --- | --- |
-| URL | `SITE_URL`, HTTPS: the PWA (service worker, push) needs a secure context. A plain-HTTP twin serves pages but no service worker |
-| Image | `ghcr.io/kashhq/closet:latest`, amd64, published by the owner's publisher (CI and publishing) once main is green and the image boots |
-| Container | port 3000, uid 1000 (Permissions), about 5 GB of memory (the model child's native memory is outside Node's heap) |
-| Database | PostgreSQL 18, one database and role for closet (`DATABASE_*`, README Configuration) |
-| Photos | `DATA_PATH`, a host mount writable by uid 1000; a network share works (production's is NFS) |
-| Model | `MODELS_PATH`, local disk (BiRefNet 512, downloaded and checksum-verified at first boot) |
+| Piece      | Value                                                                                                                                                       |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| URL        | `SITE_URL`, HTTPS: the PWA (service worker, push) needs a secure context. A plain-HTTP twin serves pages but no service worker                              |
+| Image      | `ghcr.io/kashhq/closet:latest`, amd64, published by the owner's publisher (CI and publishing) once main is green and the image boots                        |
+| Container  | port 3000, uid 1000 (Permissions), about 5 GB of memory (the model child's native memory is outside Node's heap)                                            |
+| Database   | PostgreSQL 18, one database and role for closet (`DATABASE_*`, README Configuration)                                                                        |
+| Photos     | `DATA_PATH`, a host mount writable by uid 1000; a network share works (production's is NFS)                                                                 |
+| Model      | `MODELS_PATH`, local disk (BiRefNet 512, downloaded and checksum-verified at first boot)                                                                    |
 | Public MCP | optional: a reverse proxy that forwards only `POST /mcp` and 404s everything else (README, Connect your Claude). The personal access token is the only gate |
 
 The env, as production sets it (values never in this repo or printed; the file is mode 600):
@@ -65,10 +65,12 @@ Deploy now, data fixes and production's paths: homelab `stacks/closet/README.md`
 
 The image runs as `node`, **uid/gid 1000** (the Dockerfile's `USER`), never root. It writes exactly two directories, both host mounts in production, and a mount keeps the host's ownership, so both must be writable by uid 1000 on the host:
 
-| In the container | What writes it |
-| --- | --- |
-| `/app/data` (`DATA_PATH`) | photos, `.incoming/`, `app.log` |
+| In the container              | What writes it                     |
+| ----------------------------- | ---------------------------------- |
+| `/app/data` (`DATA_PATH`)     | photos, `.incoming/`               |
 | `/app/models` (`MODELS_PATH`) | the model's download at first boot |
+
+The opt-in `LOG_FILE` is not a third path the image owns: it must point into a mount you provide that uid 1000 can write (never under `DATA_PATH`). It never creates a directory; one that is missing or unwritable ends in a single `error` line on stdout and a file-less run, the console log unaffected.
 
 ```bash
 # On the host, as root: give uid 1000 both directories (a root-owned one is what the root image's

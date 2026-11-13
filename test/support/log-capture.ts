@@ -21,7 +21,7 @@ export interface LogRecord extends LogFields {
 
 /**
  * A pino destination that keeps every line it is written, parsed: what the
- * app would have written to app.log, for specs that assert on logging.
+ * app would have logged, for specs that assert on logging.
  * Records arrive synchronously, so a request's lines are all here once
  * inject() resolves.
  */

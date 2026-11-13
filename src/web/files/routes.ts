@@ -59,8 +59,8 @@ export const fileRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   done,
 ) => {
   // The segment must be a photo's base name, `<uuid>.webp`, as defined once
-  // by parseStoredName (reconciliation uses the same rule). DATA_PATH also
-  // holds app.log: a looser "safe characters" check served it, session
+  // by parseStoredName (reconciliation uses the same rule). DATA_PATH once
+  // held the request log: a looser "safe characters" check served it, session
   // cookies included, to anyone. Variant names (`-thumb`, `-nobg`) are
   // reached only through their own routes.
   const sendVariant = async (

@@ -6,7 +6,7 @@ declare module 'fastify' {
     /**
      * The path carries a secret (an invite token): log lines show the route
      * pattern (`/wardrobe-share/invite/:token`) instead of the URL. Logs
-     * reach app.log under DATA_PATH and Loki.
+     * reach Loki (and a LOG_FILE).
      */
     secretPath?: boolean;
   }

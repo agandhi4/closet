@@ -855,6 +855,11 @@ Why: before a first release tag the owner wanted every core job working and ever
 Decision: the 141 surviving findings became 103 issues under the pinned epic #631 and milestone `0.1`, one issue per fix (shared root causes merged, polish batched per area), ordered P1s, journey blockers, UX, ops, security, perf, structure, polish; 9 product/legal/policy questions are `agent-blocked` until the owner answers (#637 #638 #639 #655 #670 #680 #681 #695 #725).
 Consequence: the work loop's lane order is #631's checklist; the 0.1 tag waits on the release-identity decision (#637), since 2026-10-13 retired semver tags.
 
+## 2026-11-13 — Stdout is the only default log sink; LOG_FILE is opt-in and async (#632)
+Why: every log line was a synchronous write to `DATA_PATH/app.log`, and production's DATA_PATH is an NFS mount over Wi-Fi: a link stall blocked the event loop (`/health/live`, the timers, DB-only pages), a full share raised an `error` nothing listened to, and the file sat where `/file/**` serves from, unrotated, in every photo backup. Loki already reads stdout.
+Decision: `createLogger` writes stdout only. `LOG_FILE` (unset by default) adds JSON lines to a file through an async pino destination whose `error` is reported to stdout once, after which the file is dropped and stdout continues. A `LOG_FILE` under `DATA_PATH` (both resolved) is a `ConfigError` naming the key. The harness's `appLog` option is gone; specs read `t.logs`.
+Consequence: lines still buffered at a crash are lost from the opt-in file (stdout stays synchronous). The file is never rotated (out of scope). `PhotoStorage.list` and the `/file` guards no longer name `app.log`; the name stays only as a refused-name fixture in specs.
+
 ## 2026-11-13 — The README quick start is executed by the image smoke, and PWA_ENABLED needs an https SITE_URL at config time
 
 **Why:** README's compose shipped `PWA_ENABLED: 'true'` without `SITE_URL`, so the default `http://localhost:3000` became the VAPID subject and the boot died in web-push with a message that never named `SITE_URL`; nothing ran the example, so it rotted (#633).

@@ -224,8 +224,8 @@ code=$(docker inspect -f '{{.State.ExitCode}}' "$NAME")
 log_has 'SIGTERM: shutting down' || fail "the log does not show the SIGTERM shutdown"
 log "ok: SIGTERM shut it down with exit 0"
 
-# A root-owned data directory (the owner skipped the chown): the boot refuses it before the logger
-# opens app.log there, naming the fix (src/main.ts), instead of a bare EACCES stack.
+# A root-owned data directory (the owner skipped the chown): the boot refuses it, naming the fix
+# (src/main.ts), instead of a first upload's bare EACCES stack.
 NAME=$ROOT_DATA
 volume "$ROOT_DATA" 0:0
 start "$NAME" "$ROOT_DATA" "$MODELS"

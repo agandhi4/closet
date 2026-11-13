@@ -20,7 +20,7 @@ import {
 } from '../../src/db/client';
 import { ownersLockCte } from '../../src/db/owner-lock';
 import { user } from '../../src/db/schema';
-import { createLogger, createLoggerTo, type Logger } from '../../src/logger';
+import { createLoggerTo, type Logger } from '../../src/logger';
 import { hashPassword } from '../../src/web/auth/passwords';
 import { insertUser } from '../../src/web/auth/queries';
 import { passwordFingerprint } from '../../src/web/auth/tokens';
@@ -151,13 +151,13 @@ interface TestUser {
   cookie: string;
 }
 
-// The log captures of this process's live test apps (not an appLog one):
+// The log captures of this process's live test apps:
 // recordQueries reads the access lines its work's requests wrote.
 const liveLogs = new Set<LogCapture>();
 
 export interface TestApp {
   app: FastifyInstance;
-  /** Uploads, thumbs and app.log land here; removed by cleanup(). */
+  /** Uploads and thumbs land here; removed by cleanup(). */
   dataPath: string;
   /** The app's one Photos (what the routes store and serve through). */
   photos: Photos;
@@ -215,8 +215,7 @@ export interface TestApp {
    */
   today: () => IsoDate;
   /**
-   * Every line the app logged at LOG_LEVEL and above, parsed; empty when the
-   * app writes the real app.log instead (TestAppOptions.appLog).
+   * Every line the app logged at LOG_LEVEL and above, parsed.
    */
   logs: LogCapture;
   /**
@@ -236,11 +235,6 @@ export interface TestAppOptions {
    * DATABASE_* values.
    */
   beforeBoot?: (databaseEnv: Env) => Promise<void>;
-  /**
-   * Log as the server does, to stdout and DATA_PATH/app.log (pino-pretty in
-   * a worker thread), instead of into t.logs.
-   */
-  appLog?: boolean;
   /**
    * The outbound fetcher's test-only options (AppOptions.outboundFetch): a
    * scripted resolver and a loopback alias standing in for the internet
@@ -296,10 +290,8 @@ export async function createTestApp(
     throw new Error(missing);
   }
   const logs = new LogCapture();
-  if (!options.appLog) liveLogs.add(logs);
-  const logger = options.appLog
-    ? createLogger(config)
-    : createLoggerTo(config.LOG_LEVEL, logs);
+  liveLogs.add(logs);
+  const logger = createLoggerTo(config.LOG_LEVEL, logs);
 
   let app: FastifyInstance;
   let db: Db;
@@ -365,9 +357,7 @@ export async function createTestApp(
     });
     const token = res.cookies.find((c) => c.name === 'access_token');
     if (!token) {
-      const serverSide = options.appLog
-        ? 'the app logged to stdout and app.log (appLog)'
-        : logs.describeFrom(mark, 'warn');
+      const serverSide = logs.describeFrom(mark, 'warn');
       throw new Error(
         `${action} did not set access_token (status ${res.statusCode}); ${serverSide}`,
       );
