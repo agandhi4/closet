@@ -257,6 +257,37 @@ describe('calendar view (America/New_York)', () => {
     });
   });
 
+  describe("the desktop grid's rows (#467)", () => {
+    const template: TemplateSlot[] = [
+      { weekday: 1, occasion: 'work' },
+      { weekday: 5, occasion: 'evening' },
+    ];
+
+    it("are the template's occasions and any an entry of the week is for, in occasion order", () => {
+      const entries = [
+        entryOn('2026-09-26', 1, 'night-out'),
+        entryOn('2026-09-22', 2, 'all-day'),
+        entryOn('2026-09-24', 3, 'work'),
+        // Outside the week: ignored, as by the days.
+        entryOn('2026-09-28', 4, 'workout'),
+      ];
+      expect(view('2026-09-23', { template, entries }).weekOccasions).toEqual([
+        'all-day',
+        'work',
+        'evening',
+        'night-out',
+      ]);
+    });
+
+    it("keep the template's rows on a past week, and none without a template or entries", () => {
+      expect(view('2026-09-09', { template }).weekOccasions).toEqual([
+        'work',
+        'evening',
+      ]);
+      expect(view('2026-09-23').weekOccasions).toEqual([]);
+    });
+  });
+
   describe('month grid', () => {
     it('September 2026 (starts on a Tuesday): five rows, the days around it blank', () => {
       const vm = month({ year: 2026, month: 9 });

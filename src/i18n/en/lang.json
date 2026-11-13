@@ -1253,6 +1253,7 @@
     "MONTH_TITLE": "{month} {year}",
     "MORE": "+{count}",
     "PLAN_SHEET_TITLE": "Plan {day}",
+    "PLAN_CELL": "Plan {occasion} on {day}",
     "PLAN_SAVED": "Pick a saved outfit",
     "month": {
       "JAN": "January",
