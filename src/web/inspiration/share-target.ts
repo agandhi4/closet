@@ -1,4 +1,5 @@
 import {
+  clipText,
   isStorableLink,
   LINK_INPUT_MAX,
   linkIn,
@@ -143,7 +144,7 @@ export async function receiveShare(
     const source = {
       link: storableLinkIn(sharedText(field('url'), field('text'))),
       // Bounded for the header; the confirmation page cuts it to the look's.
-      title: field('title').trim().slice(0, LINK_INPUT_MAX),
+      title: clipText(field('title').trim(), LINK_INPUT_MAX),
     };
     try {
       await stashPhoto(storage, id, photo, source, now);
@@ -183,7 +184,7 @@ export function linkPageFor(
     outcome: link ? 'link' : 'text',
     path: wardrobeUrl(
       undefined,
-      link ? { url: link } : { text: shared.slice(0, LINK_INPUT_MAX) },
+      link ? { url: link } : { text: clipText(shared, LINK_INPUT_MAX) },
       LINK_IMPORT_PATH,
     ),
   };

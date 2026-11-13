@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pendingPhoto } from '../../src/db/schema';
 import { t as text } from '../../src/web/i18n';
+import { LINK_IMPORT_LIMIT } from '../../src/web/security/rate-limit';
 import { deviceToken, expectProblem } from './api';
 import { failCutout } from './cutouts';
 import {
@@ -396,19 +397,48 @@ describe('POST /garments/link-imports', () => {
     expect(await t.db.$count(pendingPhoto)).toBe(0);
   });
 
+  it('refuses a bad body before the budget at both doors, so it spends none', async () => {
+    const { cookie, token } = await signUp('api-photos-cheap@example.com');
+    for (let i = 0; i < LINK_IMPORT_LIMIT.max + 2; i++) {
+      expect(
+        (
+          await t.inject({
+            method: 'POST',
+            url: '/wardrobe/new/from-link',
+            payload: { url: 'no link here' },
+            headers: { cookie },
+          })
+        ).statusCode,
+      ).toBe(400);
+      expect(
+        (await importLink(token, { url: 'no link here' })).statusCode,
+      ).toBe(400);
+    }
+    const res = await importLink(token, {
+      url: sites.url('/api-shirt'),
+      replacesGarmentId: 1,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("spends the page's budget: ten between the two doors, then a 429 at either", async () => {
     const { cookie, token } = await signUp('api-photos-importer@example.com');
     const page = () =>
       t.inject({
         method: 'POST',
         url: '/wardrobe/new/from-link',
-        payload: { url: 'no link here' },
+        payload: { url: sites.url('/api-missing') },
         headers: { cookie },
       });
-    const api = () => importLink(token, { url: 'no link here' });
-    for (let i = 0; i < 5; i++) {
-      expect((await page()).statusCode).toBe(400);
-      expect((await api()).statusCode).toBe(400);
+    // A link the site does not serve: refused after the fetch, so it spends.
+    const api = () => importLink(token, { url: sites.url('/api-missing') });
+    const apiRefusal = (await api()).statusCode;
+    expect([400, 422, 502]).toContain(apiRefusal);
+    const pageRefusal = (await page()).statusCode;
+    expect([400, 422, 502]).toContain(pageRefusal);
+    for (let i = 0; i < 4; i++) {
+      expect((await page()).statusCode).toBe(pageRefusal);
+      expect((await api()).statusCode).toBe(apiRefusal);
     }
     const refused = await api();
     expectProblem(refused, 429, 'rate_limited');
