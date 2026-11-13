@@ -1791,12 +1791,19 @@ export const weekPlanEntry = pgTable(
     limbs: smallint('limbs'),
     layer: boolean('layer'),
     rain: boolean('rain'),
+    // The too-warm bound for legs and feet it was planned against (uncapped,
+    // unlike `limbs`). Null: planned before it was kept, never judged on it.
+    limbsCeiling: smallint('limbs_ceiling'),
   },
   (table) => [
     index('week_plan_entry_week_plan_id_index').on(table.weekPlanId),
     check(
       'week_plan_entry_needs_check',
       sql`num_nulls(${table.torso}, ${table.limbs}, ${table.layer}, ${table.rain}) in (0, 4)`,
+    ),
+    check(
+      'week_plan_entry_limbs_ceiling_check',
+      sql`${table.limbsCeiling} between 1 and 5`,
     ),
     foreignKey({
       name: 'week_plan_entry_entry_id_foreign',

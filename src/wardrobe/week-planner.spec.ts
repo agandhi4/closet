@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { addDays, type IsoDate } from '../calendar-date';
 import type { DayForecast } from '../weather/forecast';
-import { weatherNeeds } from '../weather/match';
+import { assessOutfit, weatherNeeds } from '../weather/match';
 import { keyOf } from './generator';
 import {
   builtInCategoriesOf,
@@ -15,6 +15,7 @@ import {
   needsChange,
   type OutfitGarmentState,
   PLAN_DAYS,
+  type PlannedNeeds,
   type PlannerGarment,
   plannedNeeds,
   planWeek,
@@ -481,31 +482,83 @@ describe('the re-plan', () => {
     expect(swap.needs!.torso).toBeGreaterThan(auto[1].plannedFor!.torso);
   });
 
-  it('judges an entry whose targets held but whose too-warm bound fell: warmth-5 boots at 8.4 C, then 8.6 C', () => {
+  describe('the legs-and-feet too-warm bound (#750)', () => {
     const boots = garment('footwear', { warmth: 5 });
     const pool = [...roomyCloset(), boots];
     const day = WEEK[0];
-    const before = plannedNeeds(
-      weatherNeeds(steadyDay(day, 8.4), 'all-day', 0),
-    );
-    const after = plannedNeeds(weatherNeeds(steadyDay(day, 8.6), 'all-day', 0));
-    // The stored targets cannot tell the two days apart (the ceiling is not one)...
-    expect(sameNeeds(before, after)).toBe(true);
     const outfit = [
       pool.find((g) => g.role === 'top')!,
       pool.find((g) => g.role === 'bottom')!,
       boots,
     ];
-    const [replan] = replanWeek({
-      ...input({
-        pool,
-        entries: [entry(1, day, 'all-day', outfit)],
-        forecast: new Map([[day, steadyDay(day, 8.6)]]),
-      }),
-      auto: [{ entryId: 1, plannedFor: before, unwearable: null }],
+    const needsAt = (feelsLike: number) =>
+      weatherNeeds(steadyDay(day, feelsLike), 'all-day', 0)!;
+    const feetTooWarm = (feelsLike: number) =>
+      assessOutfit(
+        needsAt(feelsLike),
+        outfit.map((g) => g.weather),
+      ).problems.includes('feet-too-warm');
+    const replanAt = (plannedAt: number, now: number, ceiling = true) => {
+      const planned = plannedNeeds(needsAt(plannedAt))!;
+      return replanWeek({
+        ...input({
+          pool,
+          entries: [entry(1, day, 'all-day', outfit)],
+          forecast: new Map([[day, steadyDay(day, now)]]),
+        }),
+        auto: [
+          {
+            entryId: 1,
+            plannedFor: ceiling ? planned : { ...planned, limbsCeiling: null },
+            unwearable: null,
+          },
+        ],
+      })[0];
+    };
+
+    it('judges an entry whose targets held but whose ceiling fell: boots planned at 8.4 C, 8.6 C now', () => {
+      expect(feetTooWarm(8.4)).toBe(false);
+      expect(feetTooWarm(8.6)).toBe(true);
+      const before = plannedNeeds(needsAt(8.4))!;
+      expect(sameNeeds(before, plannedNeeds(needsAt(8.6)))).toBe(true);
+      expect(before.limbsCeiling).toBe(4);
+      const replan = replanAt(8.4, 8.6);
+      // A better idea exists in the roomy closet: swapped, and the weather did warm.
+      expect(replan.kind).toBe('swap');
+      if (replan.kind !== 'swap') return;
+      expect(replan.cause).toEqual({ kind: 'weather', change: 'warmer' });
+      expect(replan.needs!.limbsCeiling).toBe(3);
     });
-    // ...yet the boots are now too warm for the feet, so the entry is judged.
-    expect(replan.kind).not.toBe('unchanged');
+
+    it('leaves a near miss alone: planned already too warm, the same weather the next morning', () => {
+      expect(feetTooWarm(8.6)).toBe(true);
+      expect(replanAt(8.6, 8.6)).toEqual({ entryId: 1, kind: 'unchanged' });
+    });
+
+    it('judges a near miss when the ceiling falls further still: a heatwave under boots planned at ceiling 5', () => {
+      const planned: PlannedNeeds = {
+        ...plannedNeeds(needsAt(8.6))!,
+        limbsCeiling: 5,
+      };
+      const [replan] = replanWeek({
+        ...input({
+          pool,
+          entries: [entry(1, day, 'all-day', outfit)],
+          forecast: new Map([[day, steadyDay(day, 8.6)]]),
+        }),
+        auto: [{ entryId: 1, plannedFor: planned, unwearable: null }],
+      });
+      expect(replan.kind).toBe('swap');
+      if (replan.kind !== 'swap') return;
+      expect(replan.cause).toEqual({ kind: 'weather', change: 'warmer' });
+    });
+
+    it('never judges an entry planned before the ceiling was kept', () => {
+      expect(replanAt(8.4, 8.6, false)).toEqual({
+        entryId: 1,
+        kind: 'unchanged',
+      });
+    });
   });
 
   it('keeps an outfit that still fits new targets, recording them', () => {
@@ -731,7 +784,13 @@ describe('unwearableOn', () => {
 });
 
 describe('needs', () => {
-  const base = { torso: 4, limbs: 3, layer: false, rain: false };
+  const base: PlannedNeeds = {
+    torso: 4,
+    limbs: 3,
+    layer: false,
+    rain: false,
+    limbsCeiling: 3,
+  };
 
   it('compares the targets the re-plan watches', () => {
     expect(sameNeeds(base, { ...base })).toBe(true);

@@ -100,6 +100,10 @@ export function pieceCategory(role: InspirationPieceRole): GarmentCategory {
 export const WARMTHS = [1, 2, 3, 4, 5] as const;
 export type Warmth = (typeof WARMTHS)[number];
 
+export function isWarmth(value: number | null): value is Warmth {
+  return WARMTHS.some((warmth) => warmth === value);
+}
+
 export const FORMALITIES = [1, 2, 3, 4] as const;
 export type Formality = (typeof FORMALITIES)[number];
 
