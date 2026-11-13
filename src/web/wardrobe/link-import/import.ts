@@ -108,6 +108,7 @@ export const REFUSALS: Readonly<
     status: 502,
   },
   'http-status': { message: 'linkImport.HTTP_STATUS', status: 502 },
+  'blocked-by-site': { message: 'linkImport.BLOCKED_BY_SITE', status: 502 },
   'unexpected-content-type': {
     message: 'linkImport.UNEXPECTED_CONTENT_TYPE',
     status: 502,
@@ -181,7 +182,7 @@ export async function importLink(
   );
   const photo = first ? await storePhoto(deps, first, userId) : undefined;
   deps.logger.info(
-    `Link import from ${resource.url.hostname}: ${product.source ?? 'nothing'} extracted, ${choices.length} of ${product.images.length} photos read${photo ? `, ${photo} pending` : ''}`,
+    `Link import from ${resource.url.hostname}: ${product.source ?? 'nothing'} extracted${resource.truncated ? ' from the page cut at the cap' : ''}, ${choices.length} of ${product.images.length} photos read${photo ? `, ${photo} pending` : ''}`,
   );
   return {
     kind: 'page',

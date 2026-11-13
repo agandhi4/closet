@@ -38,6 +38,7 @@ import {
   type LinkSites,
   productShot,
   startLinkSites,
+  WWW_SHOP_HOST,
 } from './link-sites';
 import { silentLogger } from './logger';
 
@@ -170,6 +171,32 @@ describe('adding a garment from a link', () => {
       ),
     );
     sites.serve('/nothing', html('<html><body><p>Hello</p></body></html>'));
+    // #347's refusals, as the shops answered them.
+    sites.serve('/challenged', {
+      status: 403,
+      type: 'text/html',
+      body: '<title>Just a moment...</title>',
+      headers: { 'cf-mitigated': 'challenge' },
+    });
+    sites.serve('/products/limited', {
+      status: 429,
+      type: 'text/html',
+      body: '<title>Too many requests</title>',
+      headers: { 'retry-after': '60' },
+    });
+    // Asked of www.shop.test, it sends the shop's apex there, as darntough did.
+    sites.serve('/www/products/limited', {
+      status: 301,
+      type: 'text/html',
+      body: '',
+      headers: { location: sites.url('/products/limited') },
+    });
+    sites.serve('/waf', {
+      status: 202,
+      type: 'text/html; charset=UTF-8',
+      body: '<title></title><div id="challenge-container"></div>',
+      headers: { 'x-amzn-waf-action': 'challenge' },
+    });
     sites.serve('/to-the-router', {
       status: 302,
       type: 'text/plain',
@@ -290,6 +317,26 @@ describe('adding a garment from a link', () => {
       );
       expect(linkPhotoIn(res.body)).toBeUndefined();
       expect(await storedOriginals()).toEqual(before);
+    });
+
+    it('past 2 MB is read up to the cap, where its JSON-LD and photo are (#347)', async () => {
+      // A Shopify page's shape: the product's metadata first, then a
+      // size-chart app's JSON blob in the head that runs past the cap.
+      const blob = 'x'.repeat(3 * 1024 * 1024);
+      sites.serve(
+        '/products/huge',
+        html(
+          PRODUCT_PAGE([sites.url('/img/front.jpg')]).replace(
+            '</head>',
+            `<script type="application/json">"${blob}"</script></head>`,
+          ),
+        ),
+      );
+      const { cookie } = await signUp('huge-page@example.com');
+      const res = await importLink(sites.url('/products/huge'), { cookie });
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toContain('value="Heavyweight Pocket Tee"');
+      expect(linkPhotoIn(res.body)).toBeDefined();
     });
 
     it('leaves a price in another currency for the person, and says why', async () => {
@@ -707,6 +754,24 @@ describe('adding a garment from a link', () => {
         () => sites.url('/img/garbage.jpg'),
         502,
         'linkImport.UNREADABLE_IMAGE',
+      ],
+      [
+        "a shop's bot challenge",
+        () => sites.url('/challenged'),
+        502,
+        'linkImport.BLOCKED_BY_SITE',
+      ],
+      [
+        "a shop's rate limit after its www. redirected to the apex",
+        () => sites.url('/www/products/limited', WWW_SHOP_HOST),
+        502,
+        'linkImport.BLOCKED_BY_SITE',
+      ],
+      [
+        'a bot challenge answered with a 2xx',
+        () => sites.url('/waf'),
+        502,
+        'linkImport.BLOCKED_BY_SITE',
       ],
     ])(
       '%s: the link page again with a message, nothing stored',

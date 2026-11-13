@@ -35,6 +35,7 @@ function shop(candidates: readonly Candidate[], fetchDelays: number[] = []) {
     mediaType: 'image/jpeg',
     charset: null,
     body: Buffer.from(String(index)),
+    truncated: false,
     url: new URL(`https://cdn.test/${index}`),
     redirects: 0,
   });

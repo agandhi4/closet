@@ -103,9 +103,11 @@ export async function addGarmentFromLink(
     );
     const refusal = REFUSALS[error.reason];
     // The fetch's failures are the shop's (502s); a tool call is refused.
+    // The reason leads, so the agent can act on it (`blocked-by-site`: the
+    // shop refuses automated fetches, so another retailer, not a retry; #347).
     throw new HttpError(
       refusal.status < 500 ? refusal.status : 422,
-      t(refusal.message),
+      `${error.reason}: ${t(refusal.message)}`,
     );
   }
   const form = importedForm(imported, overrides.url);

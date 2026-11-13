@@ -101,6 +101,11 @@ describe('the MCP endpoint', () => {
       })}</script></head><body></body></html>`),
     );
     sites.serve('/products/mystery', html('<html><body>Hello</body></html>'));
+    sites.serve('/products/limited', {
+      status: 429,
+      type: 'text/html',
+      body: '<title>Too many requests</title>',
+    });
     t = await createTestApp({}, { outboundFetch: sites.outboundFetch });
 
     garments.tee = await addGarment('White Tee', {
@@ -823,6 +828,20 @@ describe('the MCP endpoint', () => {
       });
       expect(answer.isError).toBe(true);
       expect(answer.value.error).not.toMatch(/127\.0\.0\.1|intranet/);
+    });
+
+    it('add_garment_from_link names a shop that blocks it first, so the agent picks another (#347)', async () => {
+      const before = await t.db.$count(garment);
+      const answer = await callTool(t, token, 'add_garment_from_link', {
+        url: sites.url('/products/limited'),
+      });
+      expect(answer).toEqual({
+        isError: true,
+        value: {
+          error: `blocked-by-site: ${text('linkImport.BLOCKED_BY_SITE')}`,
+        },
+      });
+      expect(await t.db.$count(garment)).toBe(before);
     });
   });
 

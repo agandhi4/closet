@@ -13,13 +13,15 @@ import type {
  * outbound-fetch.spec.ts builds one: an HTTP server on the loopback alias
  * 127.0.0.2 (Linux routes all of 127/8 to lo; macOS needs
  * `sudo ifconfig lo0 alias 127.0.0.2`), reached as `shop.test` through a
- * scripted resolver and a destination policy that admits that one address
- * on any port. Everything else keeps the production rules: `intranet.test`
+ * scripted resolver (and as `www.shop.test`, the same server) and a
+ * destination policy that admits that one address on any port. Everything else keeps the production rules: `intranet.test`
  * resolves to 127.0.0.1 and must be refused, like any private address; an
  * unknown name does not resolve. Hand `outboundFetch` to createTestApp.
  */
 
 const SHOP_HOST = 'shop.test';
+/** The same shop under `www.`, for a redirect from it to the apex (#347). */
+export const WWW_SHOP_HOST = 'www.shop.test';
 export const INTRANET_HOST = 'intranet.test';
 const PUBLIC_IP = '127.0.0.2';
 const PRIVATE_IP = '127.0.0.1';
@@ -31,6 +33,7 @@ const TEST_INTERNET: DestinationPolicy = {
 
 const NAMES: Record<string, string> = {
   [SHOP_HOST]: PUBLIC_IP,
+  [WWW_SHOP_HOST]: PUBLIC_IP,
   [INTRANET_HOST]: PRIVATE_IP,
 };
 

@@ -34,7 +34,13 @@ import { isPublicAddress } from './public-address';
  * - follows at most MAX_REDIRECTS redirects, each checked like the first;
  * - is bounded as a whole by one timeout (DNS, connects, redirects, body);
  * - reads the body only for a content type the caller accepts, and stops
- *   reading the moment the decoded bytes pass the cap for that type;
+ *   reading the moment the decoded bytes pass the cap for that type: an
+ *   image or JSON past it is refused, a page is cut there (`truncated`),
+ *   since what a product page says about itself is in its first bytes;
+ * - tells a site that refuses automated fetches (`blocked-by-site`: a 403,
+ *   a 429, or a bot-protection challenge on any status) from one that
+ *   failed (`http-status`), so a caller can say "this shop blocks us";
+ *   for a user's URL only (a request naming `hosts` keeps `http-status`);
  * - sends no cookie and keeps none between hops; a credential
  *   (`authorization`) only to a request that names its `hosts`, which then
  *   follows no redirect, so the credential reaches those hosts and nothing
@@ -48,7 +54,13 @@ import { isPublicAddress } from './public-address';
 
 export type ContentKind = 'html' | 'image' | 'json';
 
-/** Per content kind, the most decoded bytes read before the fetch is refused. */
+/**
+ * Per content kind, the most decoded bytes read: past it an image or JSON
+ * is refused and a page is cut (#347: a Shopify product page was 3.8 MB of
+ * HTML with its JSON-LD and Open Graph tags in the first 110 KB, behind a
+ * 2.8 MB size-chart blob in its head, so neither a higher cap nor stopping
+ * at `</head>` would have read it).
+ */
 export const BYTE_LIMITS: Readonly<Record<ContentKind, number>> = {
   html: 2 * 1024 * 1024,
   image: 15 * 1024 * 1024,
@@ -81,6 +93,13 @@ const ACCEPT_HEADERS: Readonly<Record<ContentKind, string>> = {
 };
 const USER_AGENT = 'Mozilla/5.0 (compatible; Closet/1.0; +link import)';
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+/**
+ * Statuses a shop's bot protection answers an automated fetch with
+ * (#347: Cloudflare's challenge and block pages are 403s, Shopify's
+ * storefront limit a 429 with Retry-After). A public product page has no
+ * other reason to refuse an anonymous GET.
+ */
+const BLOCKING_STATUSES = new Set([403, 429]);
 
 export type OutboundFetchRefusal =
   | 'invalid-url'
@@ -92,6 +111,7 @@ export type OutboundFetchRefusal =
   | 'blocked-address'
   | 'too-many-redirects'
   | 'http-status'
+  | 'blocked-by-site'
   | 'unexpected-content-type'
   | 'too-large'
   | 'timeout'
@@ -101,7 +121,7 @@ export class OutboundFetchError extends Error {
   constructor(
     readonly reason: OutboundFetchRefusal,
     message: string,
-    /** The final response's status, for `http-status`. */
+    /** The final response's status, for `http-status` and `blocked-by-site`. */
     readonly status?: number,
   ) {
     super(message);
@@ -139,6 +159,8 @@ export interface FetchedResource {
   charset: string | null;
   /** The decoded body, at most BYTE_LIMITS[kind] bytes. */
   body: Buffer;
+  /** A page longer than BYTE_LIMITS.html, cut there (never an image or JSON). */
+  truncated: boolean;
   /** Where the body came from, after redirects: the base for relative links. */
   url: URL;
   redirects: number;
@@ -316,7 +338,7 @@ export function createOutboundFetcher(
         continue;
       }
       return {
-        ...(await readResponse(response, request.accept, signal)),
+        ...(await readResponse(response, request, signal)),
         url,
         redirects,
       };
@@ -340,13 +362,13 @@ export function createOutboundFetcher(
         hosts.push(url.hostname);
         const fetched = await fetchFollowing(url, request, timeout, hosts);
         logger.info(
-          `Fetched ${fetched.kind} from ${hostChain(hosts)}: ${fetched.body.length} bytes in ${elapsed(started)} ms`,
+          `Fetched ${fetched.kind} from ${hostChain(hosts)}: ${fetched.body.length} bytes${fetched.truncated ? ' (cut at the cap)' : ''} in ${elapsed(started)} ms`,
         );
         return fetched;
       } catch (error) {
         const refusal = asRefusal(error, timeout);
         logger.warn(
-          `Outbound fetch refused (${refusal.reason}): ${hostChain(hosts) || 'no host'} after ${elapsed(started)} ms${networkCode(error)}`,
+          `Outbound fetch refused (${refusal.reason}): ${hostChain(hosts) || 'no host'}${refusal.status === undefined ? '' : ` answered ${refusal.status}`} after ${elapsed(started)} ms${networkCode(error)}`,
         );
         throw refusal;
       }
@@ -426,18 +448,11 @@ function send(
 
 async function readResponse(
   response: IncomingMessage,
-  accept: readonly ContentKind[],
+  { accept, hosts }: FetchRequest,
   signal: AbortSignal,
 ): Promise<Omit<FetchedResource, 'url' | 'redirects'>> {
   try {
-    const status = response.statusCode ?? 0;
-    if (status < 200 || status > 299) {
-      throw new OutboundFetchError(
-        'http-status',
-        `The site answered ${status}`,
-        status,
-      );
-    }
+    refuseStatus(response, hosts);
     const { mediaType, charset } = parseContentType(
       response.headers['content-type'],
     );
@@ -449,15 +464,67 @@ async function readResponse(
       );
     }
     const limit = BYTE_LIMITS[kind];
+    const cut = kind === 'html';
     const declared = Number(response.headers['content-length']);
-    if (!response.headers['content-encoding'] && declared > limit) {
+    if (!cut && !response.headers['content-encoding'] && declared > limit) {
       throw tooLarge(limit);
     }
-    const body = await readCapped(decoded(response), limit, signal);
-    return { kind, mediaType, charset, body };
+    const { body, truncated } = await readCapped(
+      decoded(response),
+      limit,
+      cut,
+      signal,
+    );
+    return { kind, mediaType, charset, body, truncated };
   } finally {
     response.destroy();
   }
+}
+
+/** Throws unless the answer is a 2xx that is not a bot's challenge. */
+function refuseStatus(
+  response: IncomingMessage,
+  hosts: FetchRequest['hosts'],
+): void {
+  const status = response.statusCode ?? 0;
+  // Only a user's URL meets a shop's bot protection; a fixed API's 403 or
+  // 429 is its own answer (a token's scope, a quota), told by its status.
+  if (
+    !hosts &&
+    (BLOCKING_STATUSES.has(status) || isChallenge(response.headers))
+  ) {
+    throw new OutboundFetchError(
+      'blocked-by-site',
+      `The site refused an automated fetch (${status})`,
+      status,
+    );
+  }
+  if (status < 200 || status > 299) {
+    throw new OutboundFetchError(
+      'http-status',
+      `The site answered ${status}`,
+      status,
+    );
+  }
+}
+
+/**
+ * A bot-protection challenge, whatever the status: AWS WAF answers its
+ * JavaScript challenge with a 202 and `x-amzn-waf-action: challenge` (or
+ * `captcha`), which would otherwise read as a page with nothing on it;
+ * Cloudflare marks its challenges `cf-mitigated: challenge`.
+ */
+function isChallenge(headers: IncomingMessage['headers']): boolean {
+  const waf = headerValue(headers['x-amzn-waf-action']);
+  return (
+    waf === 'challenge' ||
+    waf === 'captcha' ||
+    headerValue(headers['cf-mitigated']) === 'challenge'
+  );
+}
+
+function headerValue(value: string | string[] | undefined): string {
+  return (typeof value === 'string' ? value : '').trim().toLowerCase();
 }
 
 // A Map, not an object literal: the key is a remote server's header, and
@@ -488,18 +555,32 @@ function decoded(response: IncomingMessage): Readable {
   return response;
 }
 
+/**
+ * The stream's bytes up to `limit`; past it, refused, or with `cut` the
+ * first `limit` bytes. Either way nothing past the limit is read: the
+ * stream (and the socket under it) is destroyed at once.
+ */
 async function readCapped(
   stream: Readable,
   limit: number,
+  cut: boolean,
   signal: AbortSignal,
-): Promise<Buffer> {
+): Promise<{ body: Buffer; truncated: boolean }> {
   const chunks: Buffer[] = [];
   let total = 0;
+  let truncated = false;
   try {
     for await (const chunk of stream) {
       const buffer = chunk as Buffer;
+      const room = limit - total;
+      if (buffer.length > room && !cut) throw tooLarge(limit);
+      if (buffer.length > room) {
+        chunks.push(buffer.subarray(0, room));
+        total = limit;
+        truncated = true;
+        break;
+      }
       total += buffer.length;
-      if (total > limit) throw tooLarge(limit);
       chunks.push(buffer);
     }
   } finally {
@@ -508,7 +589,7 @@ async function readCapped(
   // The request's abort destroys the response, which can end the stream
   // quietly instead of with an error; a timed-out body is never returned.
   signal.throwIfAborted();
-  return Buffer.concat(chunks, total);
+  return { body: Buffer.concat(chunks, total), truncated };
 }
 
 function tooLarge(limit: number): OutboundFetchError {

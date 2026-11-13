@@ -19,6 +19,7 @@ function fetcherAnswering(body: unknown) {
         body: Buffer.from(
           typeof body === 'string' ? body : JSON.stringify(body),
         ),
+        truncated: false,
         url: new URL(url),
         redirects: 0,
       });
