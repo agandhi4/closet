@@ -143,6 +143,32 @@ export function GarmentThumb(props: {
 }
 
 /**
+ * A garment's thumb contained in the frame that holds it, or the hanger
+ * without a photo: Styling's plinths and preview slots (GarmentLook, one
+ * markup styling.js copies between them) and a recreated look's matches
+ * (src/web/inspiration/recreate-page.tsx, whose own modules never sign a
+ * photo URL: photo-ref-guard.spec.ts).
+ */
+export function GarmentPicture(props: {
+  photo: SignablePhotoRef | null;
+  loading: 'eager' | 'lazy';
+}) {
+  return props.photo ? (
+    <img
+      src={imageUrl(props.photo, 'thumb')}
+      alt=""
+      class="max-h-full max-w-full object-contain"
+      width="200"
+      height="200"
+      loading={props.loading}
+      decoding="async"
+    />
+  ) : (
+    <HangerIcon class="size-10 text-faint" strokeWidth="1" />
+  );
+}
+
+/**
  * A garment's photo on the plinth (base-200), as the redesign draws a
  * garment in a frame (docs/plans/2026-09-26-redesign.md, section 4,
  * "Imagery"): its cutout contained, never cropped, or, until it has one,

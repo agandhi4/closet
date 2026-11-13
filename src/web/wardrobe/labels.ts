@@ -1,5 +1,5 @@
 import { type GarmentRole, gsmToOz } from '../../wardrobe/properties';
-import { t, tKey } from '../i18n';
+import { t, type StringKey, tKey } from '../i18n';
 
 /**
  * The words for the property values (src/wardrobe/properties.ts owns the
@@ -10,6 +10,7 @@ import { t, tKey } from '../i18n';
 
 export type LabelledProperty =
   | 'type'
+  | 'color'
   | 'warmth'
   | 'formality'
   | 'materials'
@@ -39,9 +40,25 @@ export function fabricWeightLabel(gsm: number): string {
 
 /**
  * A role as a heading over its garments, plural ("Tops", "Shoes"): a trip's
- * packing list, goes-with's roles, a plan's sections. Styling's rows name
- * one garment each (`roleLabel`, singular).
+ * packing list, goes-with's roles, a plan's sections. One garment of it is
+ * `roleLabel`, singular (Styling's rows, a look's pieces).
  */
 export function roleGroupLabel(role: GarmentRole): string {
   return t(`roles.${role}`);
+}
+
+const ROLE_LABELS: Record<GarmentRole, StringKey> = {
+  layer: 'styling.role.layer',
+  'one-piece': 'styling.role.one-piece',
+  top: 'styling.role.top',
+  bottom: 'styling.role.bottom',
+  footwear: 'styling.role.footwear',
+  accessory: 'styling.role.accessory',
+  bag: 'styling.role.bag',
+  none: 'styling.role.none',
+};
+
+/** One garment of a role, singular ("Top", "Shoes"). */
+export function roleLabel(role: GarmentRole): string {
+  return t(ROLE_LABELS[role]);
 }

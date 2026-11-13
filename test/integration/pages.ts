@@ -133,6 +133,14 @@ export async function createPageFixture(
   }
 
   const look = await addLook(t, await jpegPhoto(), cookie);
+  // A piece read in it (#22b), so the look's page draws a piece's form.
+  const tagged = await t.inject({
+    method: 'POST',
+    url: `/inspiration/${look.id}/pieces`,
+    payload: { kind: 'top/t-shirt', color: 'white', accent: '', pattern: '' },
+    headers,
+  });
+  expect(tagged.statusCode).toBe(303);
 
   const garment = (await garmentRow(t, garmentId))!;
   const [outfit] = await t.db
@@ -225,6 +233,7 @@ export function pageRoutes(f: PageFixture, inviteToken: string): PageRoute[] {
     form('/inspiration/new'),
     app(`/inspiration/${f.inspirationId}`),
     app(`/inspiration/${f.inspirationId}?unread=blocked-by-site`),
+    app(`/inspiration/${f.inspirationId}/recreate`),
     app('/outfits/ideas?for=day:2030-10-09&occasion=evening'),
     app(`/outfits/ideas?capsule=${f.capsuleId}&with=${f.garmentId}`),
     app('/trips'),

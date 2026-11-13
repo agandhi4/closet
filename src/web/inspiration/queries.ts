@@ -1,14 +1,29 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, max, type SQL, sql } from 'drizzle-orm';
+import type { IsoDate } from '../../calendar-date';
 import { initialCutoutState } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
-import { file, inspiration } from '../../db/schema';
+import { selectScalars } from '../../db/select-scalars';
+import { file, inspiration, inspirationPiece } from '../../db/schema';
+import type {
+  GarmentColor,
+  InspirationPieceRole,
+  Pattern,
+} from '../../wardrobe/properties';
+import type { LookPiece } from '../../wardrobe/recreate';
 import type { PrivatePhoto } from '../files/image-url';
+import {
+  readRecreateInputs,
+  type RecreatePoolGarment,
+  recreateInputsSql,
+} from '../gallery/queries';
+import type { OutfitRule } from '../../wardrobe/outfit-rules';
 import { takePendingPhoto } from '../files/pending-photos';
 import {
   insertPhotoRow,
   lockPhotoName,
   type NewPhotoRow,
 } from '../files/queries';
+import { HttpError } from '../errors';
 import { NotFound } from '../refusals';
 
 /**
@@ -17,8 +32,10 @@ import { NotFound } from '../refusals';
  * owner, and nothing reaches them through a share: another user's look is
  * NotFound like an unknown id. The one writer of `inspiration` is here
  * (saveInspiration, saveInspirationWithPendingPhoto, setInspirationPhoto,
- * updateInspirationText, deleteInspiration); the bytes are Photos', stored before and unlinked
- * after by the callers (writes.ts, the commit contract).
+ * updateInspirationText, deleteInspiration), and of `inspiration_piece`
+ * (addInspirationPiece, updateInspirationPiece, deleteInspirationPiece);
+ * the bytes are Photos', stored before and unlinked after by the callers
+ * (writes.ts, the commit contract).
  */
 
 /** The title's cap: the column's (varchar 255). */
@@ -35,8 +52,18 @@ export interface InspirationSummary {
   photo: PrivatePhoto | null;
 }
 
+/** A piece of a look as the owner read it, at its place in the look. */
+export interface StoredPiece extends LookPiece {
+  position: number;
+}
+
+/** The most pieces a look holds: an outfit's worth, with room for accessories. */
+export const INSPIRATION_MAX_PIECES = 12;
+
 export interface InspirationDetail extends InspirationSummary {
   note: string | null;
+  /** In their order (position). */
+  pieces: StoredPiece[];
 }
 
 export interface InspirationText {
@@ -81,20 +108,105 @@ export async function listInspirations(
   }));
 }
 
-/** The owner's look `id`; NotFound when it is not theirs. */
+type PieceJson = [
+  position: number,
+  role: InspirationPieceRole,
+  type: string | null,
+  colors: GarmentColor[],
+  pattern: Pattern | null,
+];
+
+interface LookJson {
+  id: number;
+  title: string | null;
+  note: string | null;
+  sourceUrl: string | null;
+  fileName: string | null;
+  version: number | null;
+  pieces: PieceJson[];
+}
+
+/**
+ * The owner's look `id` with its photo and its pieces, as a scalar
+ * subquery (null when it is not theirs), so a page reads it in one
+ * statement with whatever else it needs (the match view: the closet).
+ */
+function lookJsonSql(id: number, ownerId: number): SQL<LookJson | null> {
+  return sql<LookJson | null>`(
+    select json_build_object(
+      'id', ${inspiration.id},
+      'title', ${inspiration.title},
+      'note', ${inspiration.note},
+      'sourceUrl', ${inspiration.sourceUrl},
+      'fileName', ${file.fileName},
+      'version', ${file.version},
+      'pieces', (
+        select coalesce(json_agg(json_build_array(
+          ${inspirationPiece.position}, ${inspirationPiece.role},
+          ${inspirationPiece.type}, ${inspirationPiece.colors},
+          ${inspirationPiece.pattern}
+        ) order by ${inspirationPiece.position}), '[]')
+        from ${inspirationPiece}
+        where ${eq(inspirationPiece.inspirationId, inspiration.id)}
+      )
+    )
+    from ${inspiration}
+    left join ${file} on ${eq(file.id, inspiration.photoId)}
+    where ${and(eq(inspiration.id, id), eq(inspiration.ownerId, ownerId))}
+  )`;
+}
+
+function readLook(json: LookJson | null): InspirationDetail {
+  if (!json) throw new NotFound('inspiration');
+  const { fileName, version, pieces, ...look } = json;
+  return {
+    ...look,
+    photo: photoOf({ fileName, version }),
+    pieces: pieces.map(([position, role, type, colors, pattern]) => ({
+      position,
+      role,
+      type,
+      colors,
+      pattern,
+    })),
+  };
+}
+
+/** The owner's look `id` with its pieces, one statement; NotFound when it is not theirs. */
 export async function findInspiration(
   db: Db,
   id: number,
   ownerId: number,
 ): Promise<InspirationDetail> {
-  const [row] = await db
-    .select({ ...SUMMARY_COLUMNS, note: inspiration.note })
-    .from(inspiration)
-    .leftJoin(file, eq(file.id, inspiration.photoId))
-    .where(and(eq(inspiration.id, id), eq(inspiration.ownerId, ownerId)));
-  if (!row) throw new NotFound('inspiration');
-  const { fileName, version, ...rest } = row;
-  return { ...rest, photo: photoOf({ fileName, version }) };
+  const { look } = await selectScalars(db, { look: lookJsonSql(id, ownerId) });
+  return readLook(look);
+}
+
+/** What the match view judges: the look, and the closet it is recreated from. */
+export interface RecreateInputs {
+  look: InspirationDetail;
+  closet: RecreatePoolGarment[];
+  avoid: [number, number][];
+  rules: OutfitRule[];
+}
+
+/**
+ * The owner's look `id` and what "Recreate this look" matches it against
+ * (recreateInputsSql: the closet, the avoided pairs, the outfit rules), in
+ * one statement; NotFound when the look is not theirs. The owner's own
+ * closet only, whatever is shared with them, as ideas are.
+ */
+export async function recreateInputs(
+  db: Db,
+  id: number,
+  ownerId: number,
+  today: IsoDate,
+): Promise<RecreateInputs> {
+  const { look, ...inputs } = await selectScalars(db, {
+    look: lookJsonSql(id, ownerId),
+    ...recreateInputsSql(ownerId, today),
+  });
+  return { look: readLook(look), ...readRecreateInputs(inputs) };
 }
 
 /** What a new look is saved with besides its photo. */
@@ -255,4 +367,103 @@ export async function isOwnInspirationPhoto(
     .where(and(eq(file.fileName, fileName), eq(inspiration.ownerId, ownerId)))
     .limit(1);
   return row !== undefined;
+}
+
+/** The owner's look `id`, locked for a change to its pieces; NotFound when not theirs. */
+async function lockOwnLook(q: Queryable, id: number, ownerId: number) {
+  const [look] = await q
+    .select({ id: inspiration.id })
+    .from(inspiration)
+    .where(and(eq(inspiration.id, id), eq(inspiration.ownerId, ownerId)))
+    .for('update');
+  if (!look) throw new NotFound('inspiration');
+}
+
+/**
+ * A new piece at the end of the owner's look `id`; answers its position.
+ * The look's row is locked first, so two adds take turns for the next
+ * position. NotFound when the look is not the owner's; a 400 past
+ * INSPIRATION_MAX_PIECES (the page offers no add there).
+ */
+export function addInspirationPiece(
+  db: Db,
+  id: number,
+  ownerId: number,
+  piece: LookPiece,
+): Promise<number> {
+  return db.transaction(async (tx) => {
+    await lockOwnLook(tx, id, ownerId);
+    const [{ last, count }] = await tx
+      .select({
+        last: max(inspirationPiece.position),
+        count: sql<number>`count(*)::int`,
+      })
+      .from(inspirationPiece)
+      .where(eq(inspirationPiece.inspirationId, id));
+    if (count >= INSPIRATION_MAX_PIECES) {
+      throw new HttpError(400, undefined, {
+        logDetail: `inspiration ${id} already has ${count} pieces`,
+      });
+    }
+    const position = last === null ? 0 : last + 1;
+    await tx
+      .insert(inspirationPiece)
+      .values({ inspirationId: id, position, ...pieceColumns(piece) });
+    return position;
+  });
+}
+
+function pieceColumns(piece: LookPiece) {
+  return {
+    role: piece.role,
+    type: piece.type,
+    colors: [...piece.colors],
+    pattern: piece.pattern,
+  };
+}
+
+/** The owner's look `id`'s piece at `position`: the condition every piece write is scoped by. */
+function ownPiece(id: number, position: number, ownerId: number): SQL {
+  return and(
+    eq(inspirationPiece.inspirationId, id),
+    eq(inspirationPiece.position, position),
+    sql`exists (select 1 from ${inspiration} where ${and(
+      eq(inspiration.id, inspirationPiece.inspirationId),
+      eq(inspiration.ownerId, ownerId),
+    )})`,
+  )!;
+}
+
+/**
+ * What the owner reads in a piece now (the piece's autosave). The garment
+ * chosen for it is cleared: it was chosen for what the piece was.
+ * NotFound when it is not a piece of one of their looks.
+ */
+export async function updateInspirationPiece(
+  db: Db,
+  id: number,
+  position: number,
+  ownerId: number,
+  piece: LookPiece,
+): Promise<void> {
+  const updated = await db
+    .update(inspirationPiece)
+    .set({ ...pieceColumns(piece), matchedGarmentId: null })
+    .where(ownPiece(id, position, ownerId))
+    .returning({ position: inspirationPiece.position });
+  if (updated.length === 0) throw new NotFound('inspirationPiece');
+}
+
+/** Removes a piece of the owner's look; the rest keep their positions. NotFound when not theirs. */
+export async function deleteInspirationPiece(
+  db: Db,
+  id: number,
+  position: number,
+  ownerId: number,
+): Promise<void> {
+  const deleted = await db
+    .delete(inspirationPiece)
+    .where(ownPiece(id, position, ownerId))
+    .returning({ position: inspirationPiece.position });
+  if (deleted.length === 0) throw new NotFound('inspirationPiece');
 }

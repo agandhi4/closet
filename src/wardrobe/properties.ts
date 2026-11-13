@@ -86,6 +86,15 @@ export function builtInCategoriesOf(role: GarmentRole): GarmentCategory[] {
   );
 }
 
+/**
+ * The built-in category a look's piece of `role` stands for: each piece
+ * role is exactly one category's, so its types are that category's
+ * (typesOf) and the rules judge it as one (src/wardrobe/recreate.ts).
+ */
+export function pieceCategory(role: InspirationPieceRole): GarmentCategory {
+  return builtInCategoriesOf(role)[0];
+}
+
 // The value sets. Warmth and formality are ordered scales (smallint);
 // the rest are words, stored as they are here.
 export const WARMTHS = [1, 2, 3, 4, 5] as const;

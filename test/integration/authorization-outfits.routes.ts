@@ -669,6 +669,78 @@ export const ROUTES: Route[] = [
       stranger: 'notFound',
     },
   },
+  // A look's pieces (#22b) and its match view: the owner's alone.
+  {
+    name: 'POST /inspiration/:id/pieces',
+    kind: 'write',
+    ok: 303,
+    secret: inspirationTitle,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/inspiration/${f.inspirationId}/pieces${q}`,
+      payload: { kind: 'bottom/jeans', color: 'blue', accent: '', pattern: '' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /inspiration/:id/pieces/:position',
+    kind: 'write',
+    ok: 303,
+    secret: inspirationTitle,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/inspiration/${f.inspirationId}/pieces/0${q}`,
+      payload: { kind: 'top/shirt', color: 'blue', accent: '', pattern: '' },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'POST /inspiration/:id/pieces/:position/delete',
+    kind: 'write',
+    ok: 303,
+    secret: inspirationTitle,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/inspiration/${f.inspirationId}/pieces/0/delete${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
+  {
+    name: 'GET /inspiration/:id/recreate',
+    kind: 'read',
+    ok: 200,
+    secret: inspirationTitle,
+    shows: true,
+    vias: BOTH,
+    request: (f, q) => ({
+      method: 'GET',
+      url: `/inspiration/${f.inspirationId}/recreate${q}`,
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'notFound',
+      viewer: 'notFound',
+      stranger: 'notFound',
+    },
+  },
   // A look's photo: the owner's session only, never by name alone.
   ...(['', 'thumb/'] as const).map(
     (variant): Route => ({

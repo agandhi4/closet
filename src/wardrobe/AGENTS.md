@@ -22,6 +22,11 @@
                        outfit-rules.ts: the owner's outfit rules (never A with B, always B with A;
                        matchers by garment, category and type, colour, pattern; avoidedPairRule),
                        compiled once a request (compileRules, alwaysCheck). See Outfit gallery
+                       recreate.ts: "Recreate this look" (#22b): a saved look's tagged pieces
+                       ranked against the closet (type, colour with close shades, pattern, then
+                       available, rested, id; a floor below which a piece is missing), re-picked
+                       so the set keeps colorsGoTogether and the never-rules, what the look
+                       itself breaks excused (recreateLook, pure, unseeded). See Inspiration
                        coverage.ts: what the closet covers, targets against inCloset
                        garments (matchPlan, the wardrobe plans' gap analysis kept for
                        get_closet_coverage, #337), pure. See MCP server

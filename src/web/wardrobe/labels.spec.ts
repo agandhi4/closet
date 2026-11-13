@@ -3,6 +3,7 @@ import {
   ALL_GARMENT_TYPES,
   CONDITIONS,
   FITS,
+  GARMENT_COLORS,
   FORMALITIES,
   LENGTHS,
   MATERIALS,
@@ -24,6 +25,7 @@ import { fabricWeightLabel, type LabelledProperty, valueLabel } from './labels';
 // label would be a 500 on the first page that shows it. This is the guard.
 const SETS: [LabelledProperty, readonly (string | number)[]][] = [
   ['type', ALL_GARMENT_TYPES],
+  ['color', GARMENT_COLORS],
   ['warmth', WARMTHS],
   ['formality', FORMALITIES],
   ['materials', MATERIALS],

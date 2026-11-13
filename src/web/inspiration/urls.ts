@@ -22,3 +22,33 @@ export function inspirationPhotoPath(id: number): string {
 export function deleteInspirationPath(id: number): string {
   return `${INSPIRATION_PATH}/${id}/delete`;
 }
+
+/** Where a look's piece form posts a new piece. */
+export function inspirationPiecesPath(id: number): string {
+  return `${INSPIRATION_PATH}/${id}/pieces`;
+}
+
+/** A piece's autosave. */
+export function inspirationPiecePath(id: number, position: number): string {
+  return `${inspirationPiecesPath(id)}/${position}`;
+}
+
+export function deleteInspirationPiecePath(
+  id: number,
+  position: number,
+): string {
+  return `${inspirationPiecePath(id, position)}/delete`;
+}
+
+/** The look's pieces on its page: where a piece write lands. */
+export function inspirationPiecesUrl(id: number): string {
+  return `${inspirationUrl(id)}#${LOOK_PIECES_ID}`;
+}
+
+/** The pieces' section on a look's page. */
+export const LOOK_PIECES_ID = 'look-pieces';
+
+/** "Recreate this look": the closet's closest garments to each piece. */
+export function recreateLookUrl(id: number): string {
+  return `${INSPIRATION_PATH}/${id}/recreate`;
+}

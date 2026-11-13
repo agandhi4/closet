@@ -23,6 +23,7 @@ const NOT_FOUND_MESSAGE = {
   garment: 'refusal.notFound.garment',
   garmentPhoto: 'refusal.notFound.garmentPhoto',
   inspiration: 'refusal.notFound.inspiration',
+  inspirationPiece: 'refusal.notFound.inspirationPiece',
   need: 'refusal.notFound.need',
   orderItem: 'refusal.notFound.orderItem',
   outfit: 'refusal.notFound.outfit',

@@ -11,6 +11,8 @@ import type { ViewContext } from '../view-context';
 import { REFUSALS } from '../wardrobe/link-import/import';
 import { linkHost, lookName } from './look-name';
 import { LookPhotoUpload } from './photo-upload';
+import { PieceList } from './piece-form';
+import { pieceHints } from './piece-hints';
 import {
   INSPIRATION_NOTE_MAX,
   INSPIRATION_TITLE_MAX,
@@ -21,14 +23,17 @@ import {
   INSPIRATION_PATH,
   inspirationPhotoPath,
   inspirationUrl,
+  LOOK_PIECES_ID,
+  recreateLookUrl,
 } from './urls';
 import type { UnreadReason } from './writes';
 
 /**
  * GET /inspiration/:id, a saved look's page (#22): its photo (or the way to
  * add one: a link saved without its photo says once why, `?unread=`), its
- * link, its title and note saved as they change (AutosaveForm), and Delete.
- * The pieces read in it and "Recreate this look" come with 22b.
+ * link, its title and note saved as they change (AutosaveForm), the pieces
+ * the owner reads in it (piece-form.tsx, with hints from the title) and,
+ * once there is one, "Recreate this look", and Delete.
  */
 export function InspirationPage(props: {
   ctx: ViewContext;
@@ -112,6 +117,28 @@ export function InspirationPage(props: {
             </textarea>
           </FormField>
         </AutosaveForm>
+        <section
+          id={LOOK_PIECES_ID}
+          class="flex flex-col gap-3 scroll-mt-20"
+          aria-labelledby="look-pieces-title"
+        >
+          <div>
+            <h2 id="look-pieces-title" class="font-semibold">
+              {t('inspiration.PIECES')}
+            </h2>
+            <p class="text-xs text-muted">{t('inspiration.PIECES_HINT')}</p>
+          </div>
+          <PieceList
+            lookId={look.id}
+            pieces={look.pieces}
+            hints={pieceHints(look.title, look.pieces)}
+          />
+          {look.pieces.length > 0 && (
+            <a href={recreateLookUrl(look.id)} class="btn btn-primary">
+              {t('inspiration.RECREATE')}
+            </a>
+          )}
+        </section>
         <PostForm
           action={deleteInspirationPath(look.id)}
           confirm={t('inspiration.DELETE_CONFIRM')}
