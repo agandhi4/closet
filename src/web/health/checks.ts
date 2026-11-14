@@ -105,6 +105,9 @@ export function checkCutoutQueue(running: boolean): HealthCheck {
 /** How long a storage verdict is reused: a probe writes to disk (and NFS). */
 const STORAGE_PROBE_TTL_MS = 5_000;
 
+/** The bound on one directory's probe, as the database's: under the TTL. */
+const STORAGE_PROBE_TIMEOUT_MS = 3_000;
+
 export interface StorageCheckDeps {
   /** DATA_PATH and MODELS_PATH, as the process sees them. */
   directories: readonly string[];
@@ -121,6 +124,7 @@ export interface StorageCheckDeps {
   identityFix: string;
   logger: Logger;
   ttlMs?: number;
+  timeoutMs?: number;
   now?: () => number;
 }
 
@@ -135,7 +139,11 @@ export interface StorageCheckDeps {
  *
  * One probe per STORAGE_PROBE_TTL_MS whatever the request rate (the
  * HEALTHCHECK, the smoke's poll and anyone within HEALTH_LIMIT share it),
- * and concurrent callers await the same probe.
+ * and concurrent callers await the same probe. Each directory's probe is
+ * bounded by `timeoutMs` (code `TIMEOUT`: a stalled NFS share never answers),
+ * which is under the TTL, so the cached verdict always settles and the first
+ * call past the window starts a fresh probe even if the old write never
+ * returns. A problem is logged when it appears or changes, not per probe.
  */
 export function createStorageCheck({
   directories,
@@ -145,12 +153,26 @@ export function createStorageCheck({
   identityFix,
   logger,
   ttlMs = STORAGE_PROBE_TTL_MS,
+  timeoutMs = STORAGE_PROBE_TIMEOUT_MS,
   now = Date.now,
 }: StorageCheckDeps): () => Promise<HealthCheck> {
   let cached: { at: number; verdict: Promise<HealthCheck> } | undefined;
+  let reported = '';
+  const bounded = (directory: string): Promise<WriteProbe> => {
+    let timer: NodeJS.Timeout | undefined;
+    const expired = new Promise<WriteProbe>((resolve) => {
+      timer = setTimeout(
+        () => resolve({ writable: false, code: 'TIMEOUT' }),
+        timeoutMs,
+      );
+    });
+    return Promise.race([probe(directory), expired]).finally(() =>
+      clearTimeout(timer),
+    );
+  };
   const run = async (): Promise<HealthCheck> => {
     const [results, problem] = await Promise.all([
-      Promise.all(directories.map(probe)),
+      Promise.all(directories.map(bounded)),
       // identityProblem never rejects for the disk's sake; anything else
       // still reads as down, never as a rejected readiness check.
       identity().catch((error: unknown) => {
@@ -161,15 +183,22 @@ export function createStorageCheck({
         return 'the storage marker could not be checked';
       }),
     ]);
+    const messages: string[] = [];
     const unwritable = directories.filter((directory, i) => {
       const result = results[i];
       if (result.writable) return false;
-      logger.warn(
+      messages.push(
         `Readiness: ${directory} is not writable by this process (${result.code})`,
       );
       return true;
     });
-    if (problem) logger.warn(`Readiness: ${problem}`);
+    if (problem) messages.push(`Readiness: ${problem}`);
+    const state = messages.join('\n');
+    if (state !== reported) {
+      for (const message of messages) logger.warn(message);
+      if (messages.length === 0) logger.info('Readiness: storage is healthy');
+      reported = state;
+    }
     const fixes = [
       ...(unwritable.length > 0 ? [fix(unwritable)] : []),
       ...(problem ? [identityFix] : []),

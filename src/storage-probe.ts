@@ -1,6 +1,25 @@
-import { randomUUID } from 'node:crypto';
-import { mkdir, open, unlink } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+
+/**
+ * The bytes a probe writes: enough that a full disk or an exhausted quota
+ * (ENOSPC, EDQUOT) refuses the write, as it would an upload, where an empty
+ * file would still be created.
+ */
+export const PROBE_BYTES = 4096;
+
+/** The filesystem calls a probe makes; the unit specs inject failing ones. */
+export interface ProbeFs {
+  mkdir: (directory: string, options: { recursive: true }) => Promise<unknown>;
+  writeFile: (
+    path: string,
+    data: Uint8Array,
+    options: { flag: 'wx' },
+  ) => Promise<void>;
+  rm: (path: string, options: { force: true }) => Promise<void>;
+}
+
+const nodeFs: ProbeFs = { mkdir, writeFile, rm };
 
 /**
  * Whether this process can write a directory it needs at runtime: DATA_PATH
@@ -18,19 +37,28 @@ import { join } from 'node:path';
  * prepare, CutoutModel's download), so "not writable" means exactly what
  * the first upload or download would hit. The probe file is a dotfile:
  * reconciliation and the /file routes only ever see stored photo names.
+ *
+ * The file is named for this process, not randomly: a write that hangs on a
+ * stalled share (the readiness check gives up on it, checks.ts) may never
+ * unlink, and the next probe removes that leftover before writing its own.
  */
 export type WriteProbe = { writable: true } | { writable: false; code: string };
 
-export async function probeWritable(directory: string): Promise<WriteProbe> {
-  const probe = join(directory, `.write-probe-${randomUUID()}`);
+export async function probeWritable(
+  directory: string,
+  fs: ProbeFs = nodeFs,
+): Promise<WriteProbe> {
+  const probe = join(directory, `.write-probe-${process.pid}`);
   try {
-    await mkdir(directory, { recursive: true });
+    await fs.mkdir(directory, { recursive: true });
+    await fs.rm(probe, { force: true });
     // `wx`: never truncate or follow anything already at that name.
-    const handle = await open(probe, 'wx');
-    await handle.close();
-    await unlink(probe);
+    await fs.writeFile(probe, new Uint8Array(PROBE_BYTES), { flag: 'wx' });
+    await fs.rm(probe, { force: true });
     return { writable: true };
   } catch (error) {
+    // A write that failed midway (ENOSPC) can leave a partial file.
+    await fs.rm(probe, { force: true }).catch(() => undefined);
     // fs/promises rejects with ErrnoExceptions, so `code` is always set.
     return {
       writable: false,

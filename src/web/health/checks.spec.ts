@@ -1,11 +1,21 @@
 import { chmod, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import { captureLogs } from '../../../test/support/log-capture';
 import {
+  PROBE_BYTES,
   ownershipFix,
   probeWritable,
+  type ProbeFs,
   type WriteProbe,
 } from '../../storage-probe';
 import {
@@ -202,5 +212,93 @@ describe('createStorageCheck', () => {
     clock = 5_000;
     await storage();
     expect(probes).toBe(4);
+  });
+
+  describe('a full disk and a stalled share', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const enospc = (): never => {
+      throw Object.assign(new Error('no space left'), { code: 'ENOSPC' });
+    };
+
+    it('writes PROBE_BYTES and reports ENOSPC from the write, code only, cleaning up', async () => {
+      const writes: number[] = [];
+      const removed: string[] = [];
+      const fs: ProbeFs = {
+        mkdir: () => Promise.resolve(),
+        writeFile: (_path, data) => {
+          writes.push(data.byteLength);
+          return Promise.resolve().then(enospc);
+        },
+        rm: (path) => {
+          removed.push(path);
+          return Promise.resolve();
+        },
+      };
+      expect(await probeWritable('/app/data', fs)).toEqual({
+        writable: false,
+        code: 'ENOSPC',
+      });
+      expect(writes).toEqual([PROBE_BYTES]);
+      expect(removed.at(-1)).toBe(`/app/data/.write-probe-${process.pid}`);
+
+      logs.clear();
+      const storage = createStorageCheck({
+        directories: ['/app/data'],
+        probe: (directory) => probeWritable(directory, fs),
+        fix: ownershipFix,
+        identity: () => Promise.resolve(undefined),
+        identityFix: IDENTITY_FIX,
+        logger,
+      });
+      expect(await storage()).toMatchObject({ status: 'down', required: true });
+      expect(logs.messages('warn')).toEqual([
+        'Readiness: /app/data is not writable by this process (ENOSPC)',
+      ]);
+    });
+
+    it('reports TIMEOUT at 3 s for a probe that never settles, then probes afresh after the window', async () => {
+      vi.useFakeTimers();
+      logs.clear();
+      let probes = 0;
+      let hang = true;
+      const storage = createStorageCheck({
+        directories: ['/app/data'],
+        probe: (): Promise<WriteProbe> => {
+          probes += 1;
+          return hang
+            ? new Promise<WriteProbe>(() => undefined)
+            : Promise.resolve({ writable: true });
+        },
+        fix: ownershipFix,
+        identity: () => Promise.resolve(undefined),
+        identityFix: IDENTITY_FIX,
+        logger,
+      });
+      let verdict: HealthCheck | undefined;
+      void storage().then((v) => (verdict = v));
+      await vi.advanceTimersByTimeAsync(2_999);
+      expect(verdict).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(verdict).toMatchObject({ status: 'down', required: true });
+      expect(logs.messages('warn')).toEqual(
+        ['/app/data is not writable by this process (TIMEOUT)'].map(
+          (m) => `Readiness: ${m}`,
+        ),
+      );
+
+      // Inside the window: the verdict is reused, and still one log line.
+      await storage();
+      expect(probes).toBe(1);
+      expect(logs.messages('warn')).toHaveLength(1);
+
+      // Past it: a fresh probe, though the first never settled.
+      hang = false;
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(await storage()).toEqual(up(true));
+      expect(probes).toBe(2);
+    });
   });
 });
