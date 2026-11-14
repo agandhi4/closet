@@ -10,7 +10,11 @@ import { photoWithCutoutJson } from '../files/queries';
 /**
  * The wardrobe export (#200; docs/plans/2026-09-28-multi-add-and-export.md):
  * every garment of one owner, as CSV for spreadsheets or JSON with photo
- * URLs for a backup. Owner-only (export-routes.ts). Streamed a page of
+ * URLs. A garment list, not a backup (#654): no outfits, calendar, wears,
+ * washes, capsules, trips, sizes, style profile, selfies or saved looks, and
+ * the photo URLs are signed links to this server, so they die with it.
+ * Backups are the operator's database dump plus the photo share
+ * (docs/operations.md). Owner-only (export-routes.ts). Streamed a page of
  * garments at a time, so a closet of any size holds one page in memory.
  */
 
