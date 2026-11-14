@@ -5,6 +5,7 @@ import {
   OutboundFetchError,
   type OutboundFetchRefusal,
 } from '../../security/outbound-fetch';
+import type { OrderEmailFailureScope } from '../../../wardrobe/order-items';
 import type { BodyPart } from './links';
 
 /**
@@ -40,16 +41,54 @@ const QUERY_LIMIT = 50;
  */
 const MAX_BODY_VALUE_BYTES = 200_000;
 
-/** A JMAP failure: the step and why, never the token or a body. */
+interface JmapErrorDetails {
+  /** The fetcher's refusal, when the request itself was refused. */
+  refusal?: OutboundFetchRefusal;
+  /** The answer's HTTP status, when the refusal was one. */
+  status?: number;
+  scope?: OrderEmailFailureScope;
+}
+
+/**
+ * A JMAP failure: the step and why, never the token or a body. `scope` is
+ * `mailbox` but for one email's body that JMAP answered wrongly (#693): a
+ * body answer of the wrong shape, or a 4xx for that id (bodyFailureScope),
+ * which spend that email's attempt instead of failing the run.
+ */
 export class JmapError extends Error {
-  constructor(
-    message: string,
-    /** The fetcher's refusal, when the request itself was refused. */
-    readonly refusal?: OutboundFetchRefusal,
-  ) {
+  readonly refusal: OutboundFetchRefusal | undefined;
+  readonly status: number | undefined;
+  readonly scope: OrderEmailFailureScope;
+
+  constructor(message: string, details: JmapErrorDetails = {}) {
     super(message);
     this.name = 'JmapError';
+    this.refusal = details.refusal;
+    this.status = details.status;
+    this.scope = details.scope ?? 'mailbox';
   }
+}
+
+/** Statuses about the token, the account or the server's load, never one email. */
+const MAILBOX_STATUSES = new Set([401, 403, 408, 429]);
+
+/**
+ * Whose failure one email's body request was: a 4xx for that id is the
+ * email's; the transport, auth, rate limits, 5xx, a method error
+ * (serverUnavailable, serverFail, forbidden: RFC 8620 names the server's
+ * or the account's state, not one email's) and an answer that is not JSON
+ * (a maintenance page) are the mailbox's, so an incident never parks real
+ * emails; one that persists on a single email is the strikes' backstop.
+ * The session, the query and the envelopes are never one email's.
+ */
+function bodyFailureScope(error: JmapError): OrderEmailFailureScope {
+  const { status } = error;
+  return status !== undefined &&
+    status >= 400 &&
+    status < 500 &&
+    !MAILBOX_STATUSES.has(status)
+    ? 'email'
+    : 'mailbox';
 }
 
 /** What the trust check reads of an email, and when it arrived. */
@@ -162,7 +201,7 @@ export function createJmapClient({
       if (error instanceof OutboundFetchError) {
         throw new JmapError(
           `JMAP ${step} refused (${error.reason}${error.status ? ` ${error.status}` : ''})`,
-          error.reason,
+          { refusal: error.reason, status: error.status },
         );
       }
       if (error instanceof SyntaxError) {
@@ -289,12 +328,20 @@ export function createJmapClient({
               ],
             ]);
           } catch (error) {
-            if (error instanceof JmapError && error.refusal === 'too-large') {
-              return { kind: 'too-large' };
-            }
-            throw error;
+            if (!(error instanceof JmapError)) throw error;
+            if (error.refusal === 'too-large') return { kind: 'too-large' };
+            throw new JmapError(error.message, {
+              refusal: error.refusal,
+              status: error.status,
+              scope: bodyFailureScope(error),
+            });
           }
-          const [email] = checked('body', BodyAnswer, answers.get('body')).list;
+          const [email] = checked(
+            'body',
+            BodyAnswer,
+            answers.get('body'),
+            'email',
+          ).list;
           if (!email) return { kind: 'gone' };
           const parts = email.htmlBody.flatMap(({ partId, type }) => {
             const value =
@@ -314,9 +361,12 @@ function checked<S extends TSchema>(
   step: string,
   schema: S,
   value: unknown,
+  scope: OrderEmailFailureScope = 'mailbox',
 ): Static<S> {
   if (!Value.Check(schema, value)) {
-    throw new JmapError(`JMAP ${step} answered an unexpected shape`);
+    throw new JmapError(`JMAP ${step} answered an unexpected shape`, {
+      scope,
+    });
   }
   return value;
 }

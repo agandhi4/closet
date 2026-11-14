@@ -16,19 +16,19 @@ The owner forwards order emails to a dedicated Fastmail account. Closet polls it
 
 ## The poll
 
-`scheduleMinutely({ everyMinutes: ORDER_MAIL_POLL_MINUTES })`, wrapped in `metrics.timeJob('order_mail')`: a failure is the job's `failure` outcome and a Bugsink event. Each run:
+`scheduleMinutely({ everyMinutes: ORDER_MAIL_POLL_MINUTES })` runs `pollOrderMailWhole`, wrapped in `metrics.timeJob('order_mail')`: a failure is the job's `failure` outcome and a Bugsink event. Each run:
 
 1. Opens the JMAP session.
-2. Reads `ORDER_MAIL_OWNER`'s account and the watermark (the newest `order_email.received_at` of the session's account) in one statement (`pollStart`, #173; the watermark needs the session's account id, so the owner is looked up after the session). No account is `OrderMailOwnerError`, before any email is read or recorded.
-3. Queries the inbox from the watermark, drops the ids already processed and takes at most `MAX_EMAILS_PER_POLL` (5).
+2. Reads `ORDER_MAIL_OWNER`'s account, the watermark (the oldest failing email's `received_at` in the session's account, else the newest) and the failing emails in one statement (`pollStart`, #173; the watermark needs the session's account id, so the owner is looked up after the session). No account is `OrderMailOwnerError`, before any email is read or recorded.
+3. Queries the inbox from the watermark (inclusive), parks a failing email at the watermark that the answer lacks (it left the inbox: `gone`), drops the settled ids (decided or parked) and takes at most `MAX_EMAILS_PER_POLL` (5).
 4. Fetches the envelopes (From, `Authentication-Results`) and judges each sender.
 5. Fetches the body of a trusted email only.
 6. Reads its links, fetches each through the link import's `readProductPage` (the user-URL fetcher), and keeps product pages.
 7. Records the email and its items atomically (`recordOrderEmail`): with products, one transaction of four statements (the email and its items in one CTE statement, then its count and outcome); without, one insert.
 
-Statements per run: 2 when nothing is new (the poll every few minutes), plus per new email 1 without products or 4 with them (`order-mail.spec.ts` pins them).
+Statements per run: 2 when nothing is new (the poll every few minutes), plus per new email 1 without products or 4 with them, 1 more per failed read, and 1 to park emails gone from the inbox (`order-mail.spec.ts` pins them).
 
-An email a run did not finish has no row and is read again next time. `order_item`'s `(owner_id, product_url)` uniqueness makes a re-read, or a shipping email naming the same product, list nothing twice. Logs use logger `OrderMail`.
+**Each email has its own outcome** (#693; `order_email.status`, `ORDER_EMAIL_STATUSES`): `decided`, `failed` or `parked`. A read that throws is caught per email and recorded by `recordOrderEmailFailure` (one upsert, on the pool, outside the transaction the email's own write rolled back), and the poll goes on. Whose failure it was is `JmapError.scope`: the body read's wrong-shaped answer or a 4xx for that id is the email's and spends one `attempts`; the session, the query, the envelopes, the transport, 401/403/408/429, 5xx, a JMAP method error (`serverUnavailable`) and an answer that is not JSON are the mailbox's, and so are the database out of reach, its pool full, a timeout, a serialization failure or a deadlock (`failureScope`): they fail the run and spend none, but count `mailbox_failures` on the email being read, and `ORDER_MAIL_MAILBOX_STRIKES` (3) in a row spend one attempt. Anything else (a database refusal of the email's values) is the email's. A run stopped that way after it failed an email's first attempt throws one `PartialFailure` with the stopping error as its `cause`, so that email is still captured once. `ORDER_MAIL_ATTEMPTS` (3, one per poll, never timed) park it: never read again, and the watermark passes it. Every outcome reaches a `failed` row through the same guarded upsert (`where status = 'failed'`), so a retry that succeeds stops pinning the watermark and a decided or parked row is never touched again. `error_kind` keeps a SQLSTATE, an error's name or `gone`, never a message. The job is a `PartialFailure` on every poll while any email is `failed`; it is captured only by the run whose read took an email's attempts from 0 to 1 (`PartialFailure.reported`), so one email is one Bugsink event. An email a run did not finish otherwise has no row and is read again next time. `order_item`'s `(owner_id, product_url)` uniqueness makes a re-read, or a shipping email naming the same product, list nothing twice. Logs use logger `OrderMail`.
 
 ## The review list
 

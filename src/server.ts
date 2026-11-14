@@ -12,7 +12,7 @@ import { type ScheduledJob, stopBeforeClose } from './maintenance/scheduled';
 import { pruneSyncTombstones } from './maintenance/sync-prune';
 import { addDays, todayIn } from './calendar-date';
 import { pruneReminders, sendDueRemindersWhole } from './web/push/reminders';
-import { pollOrderMail } from './web/wardrobe/order-mail/poll';
+import { pollOrderMailWhole } from './web/wardrobe/order-mail/poll';
 import { closeQuietRounds } from './web/wishlist/round-end';
 import type { PushSender } from './web/push/sender';
 import {
@@ -139,7 +139,7 @@ export async function serve(
       scheduleMinutely({
         name: 'Order mail poll',
         everyMinutes: config.ORDER_MAIL_POLL_MINUTES,
-        run: metrics.timeJob('order_mail', () => pollOrderMail(orderMail)),
+        run: metrics.timeJob('order_mail', () => pollOrderMailWhole(orderMail)),
         logger: orderMail.logger,
       }),
     );
