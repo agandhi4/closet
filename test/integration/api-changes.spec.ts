@@ -5,6 +5,7 @@ import {
   garment,
   garmentWear,
   outfit,
+  syncEpoch,
   user,
   wardrobeShare,
   weekPlan,
@@ -837,6 +838,25 @@ describe('the cursor', () => {
       changes: [],
       more: false,
     });
+  });
+
+  it("without its sync_epoch row the feed is a 500 naming that row, logged once; a deleted account is the token check's 401", async () => {
+    const a = await account('changes-no-epoch@example.com');
+    const [saved] = await t.db.delete(syncEpoch).returning();
+    try {
+      const logged = t.logs.records.length;
+      const res = await api(a.device, 'GET', '/changes');
+      expect(res.statusCode).toBe(500);
+      const lines = t.logs.records
+        .slice(logged)
+        .filter((record) => record.err?.message?.includes('sync_epoch'));
+      expect(lines).toHaveLength(1);
+    } finally {
+      await t.db.insert(syncEpoch).values(saved);
+    }
+
+    await asFixture(t.db, (tx) => tx.delete(user).where(eq(user.id, a.id)));
+    expect((await api(a.device, 'GET', '/changes')).statusCode).toBe(401);
   });
 });
 

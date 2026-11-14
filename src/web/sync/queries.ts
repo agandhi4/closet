@@ -3,6 +3,7 @@ import { unionAll } from 'drizzle-orm/pg-core';
 import type { Db, Queryable } from '../../db/client';
 import { syncEpoch, syncTombstone, user, wardrobeShare } from '../../db/schema';
 import type { SYNC_ROOTS, SyncResource } from '../../db/sync-tables';
+import { HttpError } from '../errors';
 import { acceptedSharesWith } from '../sharing/access';
 import { type Epoch, KIND, type Position } from './cursor';
 
@@ -28,6 +29,21 @@ export function inFeedSnapshot<T>(
   });
 }
 
+/**
+ * The database has no `sync_epoch` row (migration 0061 writes it; a hand
+ * edit or a partial restore removed it): no cursor can be answered, so
+ * every page is a 500, logged once by the root error handler with this
+ * message. Fixed by `INSERT INTO sync_epoch DEFAULT VALUES`, then a bump.
+ */
+export class SyncEpochMissingError extends Error {
+  constructor() {
+    super(
+      'The changes feed found no sync_epoch row: the database is misconfigured (migration 0061 writes it)',
+    );
+    this.name = 'SyncEpochMissingError';
+  }
+}
+
 export interface FeedWardrobe {
   ownerId: number;
   /** The owner's newest revision in this snapshot: the end of the read. */
@@ -38,7 +54,7 @@ export interface FeedWardrobe {
 /**
  * The caller's own wardrobe, then each one shared with them (the access
  * resolver's accepted shares) by owner id: the order a page fills in. The
- * epoch rides on every row (its one-row table cross-joined), so reading it
+ * epoch rides on every row (its one-row table joined on), so reading it
  * costs no statement and it is the snapshot's own.
  */
 export async function feedWardrobes(
@@ -52,22 +68,26 @@ export async function feedWardrobes(
     epoch: syncEpoch.epoch,
     bumped: sql<boolean>`${syncEpoch.bumpedAt} is not null`,
   };
+  // A left join, so a missing epoch row reads as a null epoch, never as a
+  // missing user.
   const rows = await unionAll(
     db
       .select(columns)
       .from(user)
-      .crossJoin(syncEpoch)
+      .leftJoin(syncEpoch, sql`true`)
       .where(eq(user.id, userId)),
     db
       .select(columns)
       .from(wardrobeShare)
       .innerJoin(user, eq(user.id, wardrobeShare.grantorId))
-      .crossJoin(syncEpoch)
+      .leftJoin(syncEpoch, sql`true`)
       .where(acceptedSharesWith(userId)),
   );
   const own = rows.find((row) => row.ownerId === userId);
-  // The caller's own row is always there: a device token names a live user.
-  if (!own) throw new Error(`The changes feed found no user ${userId}`);
+  // The account was deleted after its token was checked: the token went
+  // with it, so this is the 401 the token check now answers.
+  if (!own) throw new HttpError(401);
+  if (own.epoch === null) throw new SyncEpochMissingError();
   const wardrobes = rows
     .map(({ ownerId, revision, floor }) => ({ ownerId, revision, floor }))
     .sort(
