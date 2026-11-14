@@ -1,6 +1,7 @@
 import { type Config, ConfigError, loadConfig } from './config';
 import { BIREFNET_512, CutoutModel } from './cutout/model';
 import { ModelRunner } from './cutout/runner';
+import { SchemaAheadError, schemaAheadRefusal } from './db/migrate';
 import { createBootLogger, createLogger, type Logger } from './logger';
 import { createCrashHandler } from './metrics/error-tracker';
 import { serve } from './server';
@@ -79,10 +80,13 @@ async function main(): Promise<void> {
       void onCrash(error, origin);
     });
   } catch (error) {
-    // An unmounted photo share (createPhotos' claim) is a refusal naming
-    // DATA_PATH and the fix, like a ConfigError: no stack to read.
+    // An unmounted photo share (createPhotos' claim) or an image older than
+    // the database's schema is a refusal naming the fix, like a ConfigError:
+    // no stack to read.
     if (error instanceof StorageIdentityError) {
       logger.fatal(identityRefusal(error.problem));
+    } else if (error instanceof SchemaAheadError) {
+      logger.fatal(schemaAheadRefusal(error.newestAt));
     } else {
       logger.fatal({ err: error }, 'Boot failed');
     }

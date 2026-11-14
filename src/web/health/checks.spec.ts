@@ -51,23 +51,25 @@ describe('readiness', () => {
 });
 
 describe('checkDatabase', () => {
-  const BUILD = 1_700_000_000_000;
+  const NEWEST = 1_700_000_000_000;
+  const BUILD = [NEWEST - 2, NEWEST - 1, NEWEST];
   const { logger, logs } = captureLogs();
 
   it.each([
-    ['current', BUILD, 'up'],
-    ['ahead (an older build rolled back onto it)', BUILD + 1, 'up'],
-    ['behind', BUILD - 1, 'down'],
-    ['with no migration recorded', undefined, 'down'],
-  ])('a database %s: migrations %s', async (_case, last, migrations) => {
+    ['current', NEWEST, 'up', undefined],
+    ['ahead (an older build rolled back onto it)', NEWEST + 1, 'down', 'ahead'],
+    ['with a migration this build never had', NEWEST - 3, 'down', 'ahead'],
+    ['behind', NEWEST - 1, 'down', 'behind'],
+    ['with no migration recorded', undefined, 'down', 'behind'],
+  ])('a database %s: migrations %s', async (_case, last, status, schema) => {
     const checks = await checkDatabase(
       () => Promise.resolve(last),
       BUILD,
       logger,
     );
     expect(checks.database).toEqual(up(true));
-    expect(checks.migrations.status).toBe(migrations);
-    expect(checks.migrations.required).toBe(true);
+    expect(checks.migrations).toMatchObject({ status, required: true });
+    expect(checks.migrations.schema).toBe(schema);
   });
 
   it('a failed query is down, its text only in the log', async () => {

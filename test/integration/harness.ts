@@ -247,6 +247,11 @@ export interface TestAppOptions {
    */
   beforeBoot?: (databaseEnv: Env) => Promise<void>;
   /**
+   * With beforeBoot, start it from the migrated template rather than an
+   * empty database (a spec that changes a current schema's history).
+   */
+  migrated?: boolean;
+  /**
    * The outbound fetcher's test-only options (AppOptions.outboundFetch): a
    * scripted resolver and a loopback alias standing in for the internet
    * (test/integration/link-sites.ts, which serves it).
@@ -288,7 +293,7 @@ export async function createTestApp(
   // Migrated already unless the spec builds the database from an older
   // shape itself (beforeBoot): the boot then finds nothing to apply.
   const database = await createScratchDatabase('closet_it', {
-    migrated: !options.beforeBoot,
+    migrated: options.migrated ?? !options.beforeBoot,
   });
   const config = loadConfig({
     env: { ...BASE_ENV, ...database.env, DATA_PATH: dataPath, ...overrides },

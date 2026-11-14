@@ -25,13 +25,16 @@ import {
  *   recorded in Drizzle's table exactly as drizzle's migrator would record it,
  *   without running its SQL.
  * - A fresh database runs the baseline like any other migration.
+ * - A database whose newest recorded migration this build does not know is
+ *   refused before anything is written (SchemaAheadError): an image older
+ *   than the database, after a rollback.
  * - Then drizzle's migrate() applies whatever is newer than the last row.
  *
  * Only the server migrates (createApp(), before anything queries). Every
  * step runs on one dedicated connection holding a Postgres advisory lock, so
  * two servers on one database (an overlapping deploy) never migrate at once:
  * the second waits, then finds nothing to do. The CLIs never migrate; they
- * refuse a database that is behind (requireCurrentSchema).
+ * refuse a database that is behind or ahead (requireCurrentSchema).
  */
 
 export const MIGRATIONS_FOLDER = join(PROJECT_ROOT, 'drizzle');
@@ -93,6 +96,13 @@ export async function runMigrations(
   await client.connect();
   try {
     await acquireLock(client, logger);
+    // First, so a refusal writes nothing: not the baseline's row, not
+    // migrate()'s CREATE SCHEMA.
+    const state = schemaState(
+      await lastAppliedAt(client),
+      buildMigrationTimes(),
+    );
+    if (state.name === 'ahead') throw new SchemaAheadError(state.newestAt);
     if (await isLegacyDatabase(client)) {
       await requireLastLegacyMigration(client);
       await recordBaseline(client, logger);
@@ -120,6 +130,44 @@ export async function runMigrations(
   }
 }
 
+/**
+ * Where a database's schema stands against this build. A migration is
+ * identified by its `created_at`, not its `hash`: drizzle's migrator writes
+ * it from the journal's `when` and keys every decision on it (it applies the
+ * files newer than the newest row and never reads `hash` again), so it is
+ * what "applied" means to drizzle; the baseline's adoption matches on it
+ * too. Each journal entry's `when` is a distinct generation time, so a value
+ * the journal lacks is a migration this build has never seen.
+ *
+ * - `ahead`: the newest recorded migration is not in this build's journal.
+ *   Usually an image older than the database (a rollback); also a database
+ *   a branch build migrated. Older code must not write to it, and drizzle
+ *   alone would boot it (nothing in the journal is newer than its last row).
+ * - `behind`: this build has `pending` migrations newer than the newest row,
+ *   which the next boot applies (none recorded: all of them).
+ * - `current`: the newest row is this build's newest migration.
+ *
+ * The one rule runMigrations (the boot), requireCurrentSchema (the CLIs) and
+ * /health/ready's `migrations` check (src/web/health/checks.ts) apply.
+ */
+export type SchemaState =
+  | { name: 'current' }
+  | { name: 'behind'; pending: number }
+  | { name: 'ahead'; newestAt: number };
+
+export function schemaState(
+  lastAppliedAt: number | undefined,
+  buildMigrations: readonly number[],
+): SchemaState {
+  if (lastAppliedAt !== undefined && !buildMigrations.includes(lastAppliedAt)) {
+    return { name: 'ahead', newestAt: lastAppliedAt };
+  }
+  const pending = buildMigrations.filter(
+    (at) => lastAppliedAt === undefined || at > lastAppliedAt,
+  ).length;
+  return pending === 0 ? { name: 'current' } : { name: 'behind', pending };
+}
+
 export class SchemaBehindError extends Error {
   constructor(readonly pending: number) {
     super(
@@ -131,39 +179,60 @@ export class SchemaBehindError extends Error {
 }
 
 /**
- * Refuses a database this build's migrations have not all reached: what the
- * next server boot would apply, by the rule drizzle's migrator uses (every
- * file whose journal `when` is newer than the last recorded row). The CLIs
- * call it instead of migrating: a recovery tool run beside a server must not
- * change the schema under it, and a schema it does not know is not one it
- * should write to.
+ * The database records a migration this build does not have: the image is
+ * older than the database. The boot and the CLIs refuse it before writing
+ * anything. The `when` is greppable in the newer build's
+ * drizzle/meta/_journal.json, which names its tag.
+ */
+export class SchemaAheadError extends Error {
+  constructor(readonly newestAt: number) {
+    super(schemaAheadRefusal(newestAt));
+    this.name = 'SchemaAheadError';
+  }
+}
+
+/** The refusal's text, from its fields: main.ts logs it as the boot's fatal line. */
+export function schemaAheadRefusal(newestAt: number): string {
+  return (
+    `The database's newest migration (journal when ${newestAt}, generated ` +
+    `${new Date(newestAt).toISOString()}) is not in this build: the image ` +
+    `is older than the database. Deploy the newer image, or roll the ` +
+    `schema back first (docs/operations.md#migrations-and-rollback).`
+  );
+}
+
+/**
+ * Refuses a database whose schema is not exactly this build's (schemaState):
+ * behind is what the next server boot would apply; ahead, a newer build
+ * migrated it. The CLIs call it instead of migrating: a recovery tool run
+ * beside a server must not change the schema under it, and a schema it does
+ * not know is not one it should write to.
  */
 export async function requireCurrentSchema(config: DbConfig): Promise<void> {
   const client = new Client(connectionOptions(config, MAINTENANCE_TIMEOUTS));
   await client.connect();
   try {
-    const last = await lastAppliedAt(client);
-    const pending = readMigrationFiles({
-      migrationsFolder: MIGRATIONS_FOLDER,
-    }).filter(
-      (migration) => last === undefined || migration.folderMillis > last,
-    ).length;
-    if (pending > 0) throw new SchemaBehindError(pending);
+    const state = schemaState(
+      await lastAppliedAt(client),
+      buildMigrationTimes(),
+    );
+    if (state.name === 'behind') throw new SchemaBehindError(state.pending);
+    if (state.name === 'ahead') throw new SchemaAheadError(state.newestAt);
   } finally {
     await client.end();
   }
 }
 
 /**
- * The journal `when` of this build's newest migration: what drizzle records
- * as `created_at` once it has applied it. /health/ready (src/web/health)
- * reads it once at registration and compares lastMigrationAt() with it.
+ * The journal `when` of every migration in this build, oldest first: what
+ * drizzle records as `created_at` once it has applied each. It reads and
+ * hashes every file, so /health/ready (src/web/health) reads it once at
+ * registration and compares lastMigrationAt() with it.
  */
-export function newestMigrationAt(): number {
-  const migrations = readMigrationFiles({
-    migrationsFolder: MIGRATIONS_FOLDER,
-  });
-  return migrations[migrations.length - 1].folderMillis;
+export function buildMigrationTimes(): number[] {
+  return readMigrationFiles({ migrationsFolder: MIGRATIONS_FOLDER }).map(
+    (migration) => migration.folderMillis,
+  );
 }
 
 /**

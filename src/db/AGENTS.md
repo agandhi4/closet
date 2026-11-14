@@ -14,6 +14,7 @@ How to change the schema is in the root `AGENTS.md` (Changing the schema). This 
 
 **How `src/db/migrate.ts` adopts a MikroORM-era database** (production's first Drizzle boot). All of it runs on one connection holding `pg_advisory_lock(hashtext('closet:migrations'))`, so two servers on one database (an overlapping deploy) never migrate at once; the second waits, then finds nothing to do.
 
+- First (before the legacy step, so a refusal writes nothing), a database whose newest row's `created_at` is not in this build's journal is refused: `SchemaAheadError` (#651), the image older than the database. `schemaState` is the one three-state rule (behind, current, ahead) the boot, `requireCurrentSchema` and `/health/ready` share; a migration is identified by `created_at` (the journal `when`, drizzle's own key), never `hash`. The documented manual rollback deletes the newer rows after undoing their DDL, which makes the older image current again (docs/operations.md#migrations-and-rollback).
 - `mikro_orm_migrations` exists: its rows must include `LAST_LEGACY_MIGRATION` (`Migration20260926021506`, the newest file in `test/support/legacy-migrations/`), or boot fails with `LegacyMigrationsIncompleteError` (boot a pre-Drizzle build once to finish them). Then, if `drizzle.__drizzle_migrations` has no row for the baseline (`drizzle/0000_baseline.sql`, the full schema as MikroORM left it), the runner inserts the row drizzle's migrator would have written (hash and `created_at` from drizzle-orm's own `readMigrationFiles`) without running the SQL.
 - No `mikro_orm_migrations`: a fresh database; the baseline runs like any migration.
 - Then drizzle's `migrate()` applies anything newer. The log says which: baseline recorded, `Applied N Drizzle migration(s)`, or `Schema up to date`.
@@ -35,8 +36,8 @@ How to change the schema is in the root `AGENTS.md` (Changing the schema). This 
                        (drizzle/0052) stamp and sync-triggers.spec.ts holds pg_trigger to
     select-scalars.ts  selectScalars(): independent scalar subqueries (counts, JSON lists) in one
                        statement, one round trip (the wardrobe grid's context, #159)
-    migrate.ts         runMigrations(): boot-time runner (legacy adoption, advisory lock);
-                       requireCurrentSchema(): the CLIs' check instead of migrating
+    migrate.ts         runMigrations(): boot-time runner (ahead refusal, legacy adoption, advisory lock);
+                       requireCurrentSchema(): the CLIs' check instead of migrating; schemaState()
 ```
 
 ## The owner lock's statement (#196a)

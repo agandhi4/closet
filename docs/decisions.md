@@ -1143,7 +1143,6 @@ Consequence: `@native-confirm` guard; `pageErrors` fails a scenario on a native 
 Why: a Postgres blip answers 500 behind a live heartbeat, so writes went stuck for a flat 30 min (#877); Try again/Discard raced a replay in flight (#878, #881).
 Decision: a stuck record retries after `stuckRetryMs` (1 min, doubling per further 5xx, capped at `STUCK_RETRY_MS`); a negative stuck age is due; the notice buttons run inside the drain lock (`exclusively`).
 Consequence: a poisoned record is retried a little more often early on; no second concurrent replay of a record.
-
 ## 2026-11-14 — `closeSwitchedContext` unroutes with 'ignoreErrors', never 'wait' (#886; replaces #867's 'wait')
 
 Why: `unrouteAll({ behavior: 'wait' })` awaits every in-flight handler invocation, and `networkSwitch`'s handler awaits `route.abort()`, a browser round trip Playwright races only against the request's page or worker closing (a request tied to neither races a scope that never closes). One unanswered abort hung trips' teardown until the 30 s test timeout. A handler that never settles reproduces it: 'wait' never returns, 'ignoreErrors' returns at once.
@@ -1155,3 +1154,8 @@ Consequence: teardown waits on no handler. A route handler on a switched context
 Why: the row's guess let a stale page delete a worn entry unasked, and an Undo that posted the entry's fields let any session mint planner-owned entries.
 Decision: `deleteEntry({ asksFirst })` rolls back and answers 409 + `closet:confirm` unless `confirmed=1`; Undo posts only a token for an in-process snapshot (`createUndoStore`, 30 s, owner-scoped, single use).
 Consequence: a restart or the TTL loses Undo, nothing else. Playwright's `test` comes from `test/support/fixtures.ts`, which fails a scenario on any native dialog.
+
+## 2026-11-14 — The schema check has three states; an older image refuses a newer schema (#651)
+Why: redeploying a previous `sha-` image after a migration booted (drizzle's `migrate()` finds nothing newer than its last row) and old code wrote to the new schema; destructive migrations ran under the hourly autoupdater with no dump taken.
+Decision: `schemaState` (`src/db/migrate.ts`): behind / current / ahead, the one rule for the boot (`SchemaAheadError`, checked first, writes nothing), the CLIs (exit 1) and `/health/ready` (`migrations` down with `schema`). A migration is identified by `created_at` (the journal `when`), drizzle's own key; `hash` is never re-read by drizzle, so it decides nothing. A newest row the journal lacks is ahead, whether newer or not (a branch build's migration too).
+Consequence: a rollback either restores the pre-migration dump or undoes each newer migration and deletes its row (`docs/operations.md#migrations-and-rollback`; the 0057 steps now delete its row). The deploy takes `pg_dump -Fc` whenever the image has pending migrations, kept until the next: the deploy script is homelab's, tracked there.

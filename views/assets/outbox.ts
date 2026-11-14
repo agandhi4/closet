@@ -69,7 +69,6 @@ import {
   replayQueue,
   replayVerdict,
   routesThroughOutbox,
-  sharedUntilRejected,
   takesDay,
   takesInstant,
   actionBusyAttributes,
@@ -80,9 +79,8 @@ import {
   type StuckActionStore,
 } from '../../src/offline-writes';
 import {
-  inTransaction,
   openOutboxChannel,
-  openOutboxDatabase,
+  outbox,
   type OutboxChange,
 } from './outbox-store';
 
@@ -193,14 +191,12 @@ function offline(): boolean {
 
 // ---- The store --------------------------------------------------------------
 
-const openDatabase = sharedUntilRejected(openOutboxDatabase);
-
 /** One transaction over the store, settled when it commits. */
 async function transact(
   mode: IDBTransactionMode,
   work: (store: IDBObjectStore) => void,
 ): Promise<void> {
-  await inTransaction(await openDatabase(), mode, work);
+  await outbox.transact(mode, work);
 }
 
 /**

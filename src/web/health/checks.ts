@@ -3,6 +3,7 @@ import {
   MODEL_UNAVAILABLE_FIX,
   type ModelUnavailableKind,
 } from '../../cutout/queue-state';
+import { schemaState } from '../../db/migrate';
 import type { Logger } from '../../logger';
 import type { StorageFailure, WriteProbe } from '../../storage-probe';
 
@@ -24,6 +25,8 @@ export interface HealthCheck {
   stuck?: string[];
   /** cutout_queue while it waits for the model: why, a closed word (queue-state.ts). */
   reason?: ModelUnavailableKind;
+  /** migrations when down with a database that answered: which way it is off (schemaState). */
+  schema?: 'behind' | 'ahead';
 }
 
 export interface Readiness {
@@ -48,18 +51,22 @@ const DATABASE_TIMEOUT_MS = 3_000;
 
 const FIX = 'see docs/operations.md#health';
 
+const SCHEMA_AHEAD_FIX = 'see docs/operations.md#migrations-and-rollback';
+
 /**
  * The database and the boot's migrations, from one statement:
  * `lastMigrationAt` (src/db/migrate.ts) answering within `timeoutMs` is the
- * round-trip; its value at or past `buildSchemaAt` (this build's newest
- * migration) is the schema this build needs. A database that does not
- * answer leaves the schema unknown, so both are down. A pool with no free
+ * round-trip; its value against `buildMigrations` (this build's journal) is
+ * the schema, by the boot's own rule (schemaState): up only when current.
+ * Behind (restored or repointed after the boot) or ahead (a newer build
+ * migrated it under this one) is down, saying which. A database that does
+ * not answer leaves the schema unknown, so both are down. A pool with no free
  * connection counts against the bound too: the statement still runs when
  * one frees, and the rate limit bounds how many can wait.
  */
 export async function checkDatabase(
   lastMigrationAt: () => Promise<number | undefined>,
-  buildSchemaAt: number,
+  buildMigrations: readonly number[],
   logger: Logger,
   timeoutMs: number = DATABASE_TIMEOUT_MS,
 ): Promise<{ database: HealthCheck; migrations: HealthCheck }> {
@@ -83,13 +90,29 @@ export async function checkDatabase(
     return { database: down(true), migrations: down(true) };
   }
   const database: HealthCheck = { status: 'up', required: true };
-  if (last === undefined || last < buildSchemaAt) {
-    logger.warn(
-      `Readiness: the database's newest migration (${last ?? 'none'}) is older than this build's (${buildSchemaAt})`,
-    );
-    return { database, migrations: down(true) };
+  const state = schemaState(last, buildMigrations);
+  switch (state.name) {
+    case 'current':
+      return { database, migrations: { status: 'up', required: true } };
+    case 'behind':
+      logger.warn(
+        `Readiness: the database's newest migration (${last ?? 'none'}) is ${state.pending} behind this build's`,
+      );
+      return { database, migrations: { ...down(true), schema: 'behind' } };
+    case 'ahead':
+      logger.warn(
+        `Readiness: the database's newest migration (${state.newestAt}) is not in this build: the image is older than the database`,
+      );
+      return {
+        database,
+        migrations: {
+          status: 'down',
+          required: true,
+          schema: 'ahead',
+          fix: SCHEMA_AHEAD_FIX,
+        },
+      };
   }
-  return { database, migrations: { status: 'up', required: true } };
 }
 
 /**
