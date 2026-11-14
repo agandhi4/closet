@@ -199,7 +199,7 @@ export function OutfitCollage(props: {
     />
   );
   return (
-    <div class={`bg-base-200 flex ${sizes.box}`}>
+    <div class={`bg-base-200 flex ${sizes.box}`} data-collage={size}>
       <div
         class={['flex-1 flex flex-col items-center gap-1 min-w-0', sizes.column]
           .filter(Boolean)
@@ -280,7 +280,7 @@ function CollagePiece(props: {
   const face = <CollageFace {...props} />;
   if (marks.length === 0) return face;
   return (
-    <span class="relative flex justify-center max-w-full">
+    <span class="relative flex justify-center max-w-full min-w-0">
       {face}
       {props.words ? (
         <FootMark marks={marks} />
@@ -326,7 +326,7 @@ function CollageFace(props: {
       alt={garment.name ?? ''}
       {...viewer}
       data-collage-piece={garment.category}
-      class={`${props.class} w-auto max-w-full aspect-square object-contain`}
+      class={`${props.class} w-auto min-w-0 max-w-full aspect-square object-contain`}
       width="200"
       height="200"
       loading={props.eager ? 'eager' : 'lazy'}
@@ -335,10 +335,10 @@ function CollageFace(props: {
   ) : (
     <span
       data-collage-piece={garment.category}
-      class={`${props.class} aspect-square max-w-full rounded-box bg-base-100 flex flex-col items-center justify-center gap-1 text-muted p-1`}
+      class={`${props.class} aspect-square min-w-0 max-w-full rounded-box bg-base-100 flex flex-col items-center justify-center gap-1 text-muted p-1`}
     >
       <HangerIcon
-        class={props.labelled ? 'size-6' : 'size-4'}
+        class={`${props.labelled ? 'size-6' : 'size-4'} max-w-full max-h-full`}
         strokeWidth="1.5"
       />
       {props.labelled && (
