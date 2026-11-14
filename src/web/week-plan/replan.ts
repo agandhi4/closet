@@ -385,7 +385,9 @@ async function replanUser(
       trips: awayTripsSql(userId, today, last),
     });
     const onTrip = (a: AutoEntryRow) => tripsOn(row.trips, a.day).length > 0;
-    const removed = await removeAutoEntries(tx, userId, claimed.filter(onTrip));
+    const removed = await removeAutoEntries(tx, userId, {
+      entryIds: claimed.filter(onTrip).map((a) => a.entryId),
+    });
     const auto = claimed.filter((a) => !onTrip(a));
     const away = removed.entries;
     if (auto.length === 0) return { swaps: [], kept: 0, away };
@@ -468,7 +470,7 @@ async function applySwap(
     needs: replan.needs,
   });
   if (!written) return undefined;
-  await removeAutoEntries(tx, userId, [old]);
+  await removeAutoEntries(tx, userId, { entryIds: [old.entryId] });
   const before = new Set(old.garments.map((g) => g.id));
   const brought = replan.idea.garments.filter((g) => !before.has(g.id));
   return {

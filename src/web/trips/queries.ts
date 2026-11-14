@@ -30,6 +30,7 @@ import {
   type PieceToBuy,
 } from '../outfits/references';
 import { intArray, lockedTripCte, lockTrip, prunePacked } from './packed';
+import { removeAutoEntries } from '../week-plan/queries';
 import type { WriteOrigin } from '../write-origin';
 import { type AgentLabel, agentLabelSql, OWNER_READS } from '../write-origin';
 
@@ -242,25 +243,32 @@ export async function createTrip(
 }
 
 /**
- * A new trip and, when the form's picker or the API's `place` chose one
- * (#684), its destination located through setTripDestination in the same
- * transaction, so the trip page shows the forecast on first view and a
- * failed create leaves nothing a retry could duplicate. The place's name
- * replaces the typed destination, as the trip page's Find does. The page's
- * POST /trips and the API's.
+ * A new trip, as the page's POST /trips and the API's create it, in one
+ * transaction (#684): the insert (taking the owner's lock first); when the
+ * form's picker or the API's `place` chose one, its destination located
+ * through setTripDestination, so the trip page shows the forecast on first
+ * view and a failed create leaves nothing a retry could duplicate (the
+ * place's name replaces the typed destination, as the trip page's Find
+ * does); and the planner's unworn auto entries on its days removed
+ * (removeAutoEntries, the re-plan's rule: the planner never dresses a day
+ * away; a person's or an agent's entry stays). `away` is how many went.
+ * createTrip alone is the bare insert the seed and fixtures write.
  */
 export function createTripAt(
   db: Db,
   ownerId: number,
   fields: TripFields,
   place: { name: string; location: PickedLocation } | null,
-): Promise<number> {
-  if (!place) return createTrip(db, ownerId, fields);
+): Promise<{ id: number; away: number }> {
   return db.transaction(async (tx) => {
     const id = await createTrip(tx, ownerId, fields);
     // Just inserted under the owner's lock this transaction holds: never false.
-    await setTripDestination(tx, id, ownerId, place);
-    return id;
+    if (place) await setTripDestination(tx, id, ownerId, place);
+    const away = await removeAutoEntries(tx, ownerId, {
+      from: fields.startsOn,
+      to: fields.endsOn,
+    });
+    return { id, away: away.entries };
   });
 }
 
@@ -270,11 +278,13 @@ export function createTripAt(
  * outfits on days the new dates leave out lose their day and stay on the
  * trip ("Any day"), so trip_outfit.day is always one of the trip's days;
  * one that would then be the outfit's second undated row goes, since the
- * outfit is on the trip already. 'not-found' when the trip is not the
+ * outfit is on the trip already. New dates remove the planner's unworn
+ * auto entries on them, as a create does (removeAutoEntries, #684: one
+ * more statement, only then). 'not-found' when the trip is not the
  * owner's.
  *
  * Two statements in its transaction (#166): the trip locked and its
- * destination read, then every write in one. The writes judge the trip's
+ * destination and dates read, then every write to the trip in one. The writes judge the trip's
  * outfits, so they read them after the lock, never in its statement
  * (lockedTripCte). They touch disjoint rows: an outfit's rows leaving the
  * dates are all deleted but its first, which loses its day unless the
@@ -286,18 +296,25 @@ export function updateTrip(
   id: number,
   ownerId: number,
   fields: TripFields,
-): Promise<{ undated: number; locationCleared: boolean } | 'not-found'> {
+): Promise<
+  { undated: number; locationCleared: boolean; away: number } | 'not-found'
+> {
   return db.transaction(async (tx) => {
     const lock = ownerLockCte(tx, ownerId);
     const [current] = await tx
       .with(lock)
-      .select({ destination: trip.destination })
+      .select({
+        destination: trip.destination,
+        startsOn: trip.startsOn,
+        endsOn: trip.endsOn,
+      })
       .from(trip)
       .where(and(ownsTripWhere(id, ownerId), ownerLocked(tx, lock)))
       .for('update', { of: trip });
     if (!current) return 'not-found';
     const locationCleared = current.destination !== fields.destination;
     const { startsOn, endsOn } = fields;
+    const redated = current.startsOn !== startsOn || current.endsOn !== endsOn;
     const outside = (row: string) =>
       sql`(${sql.raw(row)}.day < ${startsOn} or ${sql.raw(row)}.day > ${endsOn})`;
     // Another row of the outfit keeps it on the trip: an undated one, or
@@ -328,7 +345,10 @@ export function updateTrip(
         returning 1
       )
       select count(*)::int as undated from undated`);
-    return { undated: rows[0].undated, locationCleared };
+    const away = redated
+      ? await removeAutoEntries(tx, ownerId, { from: startsOn, to: endsOn })
+      : { entries: 0 };
+    return { undated: rows[0].undated, locationCleared, away: away.entries };
   });
 }
 

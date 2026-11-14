@@ -1290,6 +1290,65 @@ describe('the weekly auto-plan', () => {
       expect(sends).toEqual([]);
     });
 
+    it("a trip created or moved over planned days takes the planner's entries off them at once, and leaves the person's (#684)", async () => {
+      await planWarm();
+      const before = await weekEntries();
+      const [wednesday, thursday, friday] = [2, 3, 4].map(
+        (i) => before.find((e) => e.day === WEEK[i])!,
+      );
+      // Friday's is theirs now.
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(outfitCalendar)
+          .set({ plannedBy: 'user' })
+          .where(eq(outfitCalendar.id, friday.id)),
+      );
+      const trip = {
+        name: 'Lisbon long weekend',
+        destination: 'Lisbon',
+        startsOn: WEEK[3],
+        endsOn: WEEK[4],
+      };
+      t.logs.clear();
+      const created = await post('/trips', trip);
+      expect(created.statusCode, created.body).toBe(303);
+      const tripId = Number(
+        /^\/trips\/(\d+)/.exec(String(created.headers.location))![1],
+      );
+      const after = await weekEntries();
+      expect(after.map((e) => e.id)).toEqual(
+        before.filter((e) => e.id !== thursday.id).map((e) => e.id),
+      );
+      // The outfit the planner made for Thursday went with its entry.
+      expect(await t.db.$count(outfit, eq(outfit.id, thursday.outfitId))).toBe(
+        0,
+      );
+      expect(t.logs.messages('info', 'Web')).toContainEqual(
+        expect.stringMatching(
+          new RegExp(
+            `^Trip ${tripId} created .*, 1 planned entr\\(ies\\) removed from its days$`,
+          ),
+        ),
+      );
+      // Moved to start a day earlier: Wednesday's goes too, Friday's stays.
+      const moved = await post(`/trips/${tripId}`, {
+        ...trip,
+        startsOn: WEEK[2],
+      });
+      expect(moved.statusCode, moved.body).toBe(303);
+      expect((await weekEntries()).map((e) => e.id)).toEqual(
+        after.filter((e) => e.id !== wednesday.id).map((e) => e.id),
+      );
+      // The re-plan finds nothing left to take off those days.
+      const run = await replanWeeks(deps, at(TODAY, 7));
+      expect(run).toMatchObject({ swapped: 0, failed: 0 });
+      expect(
+        (await weekEntries()).filter((e) =>
+          [WEEK[2], WEEK[3], WEEK[4]].includes(e.day),
+        ),
+      ).toEqual([expect.objectContaining({ id: friday.id })]);
+    });
+
     it("is idempotent: once a day per user, whatever the minutes, and never touches the person's entries", async () => {
       await planWarm();
       const entries = await weekEntries();

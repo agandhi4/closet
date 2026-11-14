@@ -187,10 +187,10 @@ export const tripRoutes: FastifyPluginCallbackTypebox<
           who: `user ${ownerId}`,
         });
       }
-      const id = await createTripAt(db, ownerId, form.fields, place);
+      const { id, away } = await createTripAt(db, ownerId, form.fields, place);
       // Whether it was located, never the place: where someone travels is theirs.
       logger.info(
-        `Trip ${id} created by user ${ownerId}: ${form.fields.startsOn} to ${form.fields.endsOn}${place ? ', destination located' : ''}`,
+        `Trip ${id} created by user ${ownerId}: ${form.fields.startsOn} to ${form.fields.endsOn}${place ? ', destination located' : ''}${away > 0 ? `, ${away} planned entr(ies) removed from its days` : ''}`,
       );
       return reply.redirect(tripUrl(id, '?created=1'), 303);
     },
@@ -256,7 +256,7 @@ export const tripRoutes: FastifyPluginCallbackTypebox<
       }
       const saved = await editTrip(db, actor, id, form.fields);
       logger.info(
-        `Trip ${id} updated by user ${actor.userId}: ${form.fields.startsOn} to ${form.fields.endsOn}${saved.undated > 0 ? `, ${saved.undated} outfit(s) moved to any day` : ''}${saved.locationCleared ? ', destination location cleared' : ''}`,
+        `Trip ${id} updated by user ${actor.userId}: ${form.fields.startsOn} to ${form.fields.endsOn}${saved.undated > 0 ? `, ${saved.undated} outfit(s) moved to any day` : ''}${saved.locationCleared ? ', destination location cleared' : ''}${saved.away > 0 ? `, ${saved.away} planned entr(ies) removed from its days` : ''}`,
       );
       return backToTrip(reply, id);
     },

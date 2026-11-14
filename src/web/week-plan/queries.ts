@@ -303,39 +303,46 @@ export async function removeBatchAutoEntries(
 }
 
 /**
- * Removes auto entries (only those still 'auto': one the person took over
- * meanwhile stays) and then each outfit the planner created for them that
- * nothing holds any more (removeUnheldOutfits). An outfit the planner found
- * already saved is the person's and stays. Returns what went.
+ * Removes the owner's unworn auto entries (only those still 'auto': one the
+ * person or an agent took over meanwhile stays), by id (the re-plan's swap
+ * and its days away) or every one from `from` to `to` (a trip's days, when
+ * it is created or re-dated: trips/queries.ts, #684), and then each outfit
+ * the planner created for the ones that went that nothing holds any more
+ * (removeUnheldOutfits). An outfit the planner found already saved is the
+ * person's and stays. One delete, then the outfits only when one went.
+ * Returns what went.
  */
 export async function removeAutoEntries(
   tx: Queryable,
   ownerId: number,
-  entries: readonly Pick<
-    AutoEntryRow,
-    'entryId' | 'outfitId' | 'outfitCreated'
-  >[],
+  which: { entryIds: readonly number[] } | { from: IsoDate; to: IsoDate },
 ): Promise<{ entries: number; outfits: number }> {
-  if (entries.length === 0) return { entries: 0, outfits: 0 };
-  const deleted = await tx
-    .delete(outfitCalendar)
-    .where(
-      and(
-        inArray(
-          outfitCalendar.id,
-          entries.map((e) => e.entryId),
-        ),
-        eq(outfitCalendar.ownerId, ownerId),
-        eq(outfitCalendar.plannedBy, 'auto'),
-      ),
-    )
-    .returning({ id: outfitCalendar.id });
+  if ('entryIds' in which && which.entryIds.length === 0) {
+    return { entries: 0, outfits: 0 };
+  }
+  const chosen =
+    'entryIds' in which
+      ? inArray(outfitCalendar.id, [...which.entryIds])
+      : sql`${outfitCalendar.day} between ${which.from} and ${which.to}`;
+  const { rows } = await tx.execute<{
+    outfit_id: number;
+    outfit_created: boolean;
+  }>(sql`
+    delete from ${outfitCalendar}
+    using ${weekPlanEntry}
+    where ${weekPlanEntry.entryId} = ${outfitCalendar.id}
+      and ${outfitCalendar.ownerId} = ${ownerId}
+      and ${outfitCalendar.plannedBy} = 'auto'
+      and ${outfitCalendar.wornAt} is null
+      and ${chosen}
+    returning ${outfitCalendar.outfitId} as outfit_id,
+      ${weekPlanEntry.outfitCreated} as outfit_created`);
   const outfits = await removeUnheldOutfits(
     tx,
     ownerId,
-    entries.filter((e) => e.outfitCreated).map((e) => e.outfitId),
+    rows.filter((r) => r.outfit_created).map((r) => r.outfit_id),
   );
-  return { entries: deleted.length, outfits };
+  return { entries: rows.length, outfits };
 }
 
 /**

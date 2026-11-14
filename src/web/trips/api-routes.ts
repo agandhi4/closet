@@ -225,14 +225,14 @@ export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
           who: `user ${userId}`,
         });
       }
-      const id = await createTripAt(
+      const { id, away } = await createTripAt(
         db,
         userId,
         form.fields,
         place ? pickedPlace(place) : null,
       );
       logger.info(
-        `Trip ${id} created by user ${userId} (API): ${form.fields.startsOn} to ${form.fields.endsOn}${place ? ', destination located' : ''}${clientId ? `, client id ${clientId.slice(0, 8)}` : ''}`,
+        `Trip ${id} created by user ${userId} (API): ${form.fields.startsOn} to ${form.fields.endsOn}${place ? ', destination located' : ''}${away > 0 ? `, ${away} planned entr(ies) removed from its days` : ''}${clientId ? `, client id ${clientId.slice(0, 8)}` : ''}`,
       );
       return reply
         .status(201)
@@ -266,9 +266,9 @@ export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       }
       const saved = await editTrip(db, actor, id, form.fields);
       logger.info(
-        `Trip ${id} updated by user ${actor.userId} (API): ${form.fields.startsOn} to ${form.fields.endsOn}${saved.undated > 0 ? `, ${saved.undated} outfit(s) moved to any day` : ''}${saved.locationCleared ? ', destination location cleared' : ''}`,
+        `Trip ${id} updated by user ${actor.userId} (API): ${form.fields.startsOn} to ${form.fields.endsOn}${saved.undated > 0 ? `, ${saved.undated} outfit(s) moved to any day` : ''}${saved.locationCleared ? ', destination location cleared' : ''}${saved.away > 0 ? `, ${saved.away} planned entr(ies) removed from its days` : ''}`,
       );
-      return saved;
+      return { undated: saved.undated, locationCleared: saved.locationCleared };
     },
   );
 

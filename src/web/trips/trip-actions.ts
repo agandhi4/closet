@@ -145,7 +145,7 @@ export async function editTrip(
   actor: Actor,
   id: number,
   fields: TripFields,
-): Promise<{ undated: number; locationCleared: boolean }> {
+): Promise<{ undated: number; locationCleared: boolean; away: number }> {
   const saved = await updateTrip(db, id, actor.userId, fields);
   if (saved === 'not-found') throw tripNotFound();
   return saved;
