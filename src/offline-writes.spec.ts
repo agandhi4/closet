@@ -6,6 +6,7 @@ import {
   goesThroughOutbox,
   isChecklist,
   isReplayRequest,
+  offlineNotice,
   OUTBOX_MAX_PENDING,
   type OutboxStore,
   QUEUEABLE_ROUTES,
@@ -415,5 +416,18 @@ describe('sharedUntilRejected', () => {
     await expect(open()).resolves.toBe(2);
     await expect(open()).resolves.toBe(2);
     expect(calls).toBe(2);
+  });
+});
+
+describe('offlineNotice', () => {
+  it.each<[string, QueueableKind[], string]>([
+    ['a page that queues nothing', [], 'none'],
+    ['wears', ['wear'], 'wears'],
+    ['an entry marked worn', ['entry'], 'wears'],
+    ['washes', ['wash'], 'washes'],
+    ['packing ticks', ['packed', 'item'], 'ticks'],
+    ['ticks beside a worn mark', ['packed', 'entry'], 'changes'],
+  ])('%s', (_name, kinds, notice) => {
+    expect(offlineNotice(kinds)).toBe(notice);
   });
 });

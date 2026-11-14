@@ -136,7 +136,7 @@ export function navigationPostAnswer(
  * worker's last copy shows with its age (freshness.js) and its writes
  * disabled. #15 decided it.
  */
-const OPENS_STALE: readonly Section[] = [
+export const OPENS_STALE: readonly Section[] = [
   'wardrobe',
   'styling',
   'outfits',

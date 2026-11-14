@@ -339,9 +339,32 @@ const refresh = singleFlight(async () => {
 function render(records: OutboxRecord[]): void {
   const waiting = records.filter(isPending).length;
   renderRegions(records);
+  renderPackedCounts();
   renderBanner(waiting);
   renderNotice(records.filter((record) => record.state === 'failed'));
   guardFull(waiting);
+}
+
+/**
+ * The trip's "N of M packed" lines (`data-packed-count`: the string with
+ * `{packed}` left in it, src/web/trips/trip-page.tsx) counted from the
+ * ticks as shown, so a queued tick moves the counter before the server has
+ * saved it. Counting the section's checked boxes is what the server's
+ * number is too, so a synced page agrees.
+ */
+function renderPackedCounts(): void {
+  for (const counter of document.querySelectorAll<HTMLElement>(
+    '[data-packed-count]',
+  )) {
+    const ticked = counter
+      .closest('section')
+      ?.querySelectorAll('input[name="packed"]:checked').length;
+    if (ticked === undefined) continue;
+    counter.textContent = (counter.dataset.packedCount ?? '').replace(
+      '{packed}',
+      String(ticked),
+    );
+  }
 }
 
 /**
@@ -657,6 +680,14 @@ async function queue(
     refuse(text('textOutboxUnavailable'), trigger);
   } else {
     console.info(`[outbox] queued ${keys}`);
+    // The autosave line says "Saved" for the last answer the server gave;
+    // this tap has none, and the row's "Waiting to sync" is the state.
+    for (const write of writes) {
+      write.region
+        .closest('form')
+        ?.querySelector('[data-autosave-status]')
+        ?.replaceChildren();
+    }
     void schedule('queued');
   }
 }

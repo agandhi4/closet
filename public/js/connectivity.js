@@ -28,7 +28,8 @@ function render() {
   const banner = document.getElementById('connectivity-banner');
   if (!banner) return;
   const text = banner.querySelector('[data-role="text"]');
-  if (state === 'online') {
+  // The offline fallback page says for itself that nothing is saved here.
+  if (state === 'online' || document.querySelector('[data-offline-fallback]')) {
     banner.classList.add('hidden');
     return;
   }
