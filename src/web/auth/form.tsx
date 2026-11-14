@@ -201,15 +201,19 @@ export interface FieldsetProps {
 
 export function Fieldset(props: FieldsetProps) {
   return (
-    <fieldset
-      class="fieldset bg-base-200 border-base-300 rounded-box w-xs border p-4"
-      hx-post={props.validateUrl}
-      hx-trigger={props.validateUrl ? 'change' : undefined}
-      hx-swap={props.validateUrl ? 'none' : undefined}
-    >
-      <legend class="fieldset-legend">{props.legend}</legend>
-      {props.children}
-    </fieldset>
+    // The card is the frame, not the fieldset's own border: a browser draws
+    // a legend straddling that border, over the card's edge.
+    <div class="card card-border bg-base-200 w-xs">
+      <fieldset
+        class="fieldset card-body p-4"
+        hx-post={props.validateUrl}
+        hx-trigger={props.validateUrl ? 'change' : undefined}
+        hx-swap={props.validateUrl ? 'none' : undefined}
+      >
+        <legend class="fieldset-legend">{props.legend}</legend>
+        {props.children}
+      </fieldset>
+    </div>
   );
 }
 
@@ -219,11 +223,8 @@ export function Fieldset(props: FieldsetProps) {
  * the very click that would have re-run it. The server validates the
  * submission anyway.
  */
-export function SubmitButton(props: {
-  label: string;
-  variant?: 'neutral' | 'error';
-}) {
-  const color = props.variant === 'error' ? 'btn-error' : 'btn-neutral';
+export function SubmitButton(props: { label: string; variant?: 'error' }) {
+  const color = props.variant === 'error' ? 'btn-error' : 'btn-primary';
   return (
     <button type="submit" class={`btn ${color} mt-4`}>
       {props.label}
