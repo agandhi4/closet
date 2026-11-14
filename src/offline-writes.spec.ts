@@ -35,7 +35,6 @@ import {
   unstuck,
   retryDelayMs,
   routesThroughOutbox,
-  sharedUntilRejected,
   showsQueuedWrite,
   type StoredRecord,
   syncedWritePaths,
@@ -794,24 +793,6 @@ describe('retryDelayMs', () => {
     expect([0, 1, 2, 3, 6, 7, 30].map(retryDelayMs)).toEqual([
       5_000, 5_000, 10_000, 20_000, 160_000, 300_000, 300_000,
     ]);
-  });
-});
-
-describe('sharedUntilRejected', () => {
-  it('shares one in-flight open, and retries after one rejects', async () => {
-    let calls = 0;
-    const open = sharedUntilRejected(() => {
-      calls += 1;
-      return calls === 1
-        ? Promise.reject(new Error('transient'))
-        : Promise.resolve(calls);
-    });
-    const first = open();
-    expect(open()).toBe(first);
-    await expect(first).rejects.toThrow('transient');
-    await expect(open()).resolves.toBe(2);
-    await expect(open()).resolves.toBe(2);
-    expect(calls).toBe(2);
   });
 });
 

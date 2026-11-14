@@ -83,9 +83,8 @@ import {
   syncedWritePaths,
 } from '../../src/offline-writes';
 import {
-  inTransaction,
   openOutboxChannel,
-  openOutboxDatabase,
+  outbox,
   type OutboxChange,
 } from './outbox-store';
 import { openNotification } from '../../src/web/push/notification-click';
@@ -803,25 +802,20 @@ async function deleteQueuedWrites(
   goes: (recordAccount: unknown) => boolean,
 ): Promise<void> {
   try {
-    const db = await openOutboxDatabase();
     let deleted = 0;
-    try {
-      await inTransaction(db, 'readwrite', (store) => {
-        const cursor = store.openCursor();
-        cursor.onsuccess = () => {
-          const row = cursor.result;
-          if (!row) return;
-          const { account } = row.value as { account?: unknown };
-          if (goes(account)) {
-            row.delete();
-            deleted += 1;
-          }
-          row.continue();
-        };
-      });
-    } finally {
-      db.close();
-    }
+    await outbox.transact('readwrite', (store) => {
+      const cursor = store.openCursor();
+      cursor.onsuccess = () => {
+        const row = cursor.result;
+        if (!row) return;
+        const { account } = row.value as { account?: unknown };
+        if (goes(account)) {
+          row.delete();
+          deleted += 1;
+        }
+        row.continue();
+      };
+    });
     if (deleted === 0) return;
     outboxChannel?.postMessage({ drain: false } satisfies OutboxChange);
     console.info(`[sw] ${reason}: ${deleted} queued change(s) deleted unsent`);
