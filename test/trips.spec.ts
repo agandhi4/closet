@@ -1,7 +1,17 @@
 import { expect, type Page, test } from '@playwright/test';
 import { addDays } from '../src/calendar-date';
 import { createGarment } from './support/e2e-data';
-import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import {
+  APP_ORIGIN,
+  SAME_ORIGIN,
+  signIn,
+  submitLogin,
+} from './support/e2e-session';
+import {
+  cachedPaths,
+  networkSwitch,
+  waitForServiceWorker,
+} from './support/service-worker';
 import { householdToday } from './support/household-today';
 import {
   expectNoZoomingFields,
@@ -64,10 +74,14 @@ async function expectPhoneWidth(page: Page): Promise<void> {
 }
 
 test.describe('Trips', () => {
-  test('a trip from the form to a packed bag', async ({ page }) => {
+  test('a trip from the form to a packed bag', async ({
+    page,
+    browser,
+    browserName,
+  }) => {
     await page.goto('/auth/login');
     await expectNoZoomingFields(page);
-    await signIn(page, 'trips');
+    const email = await signIn(page, 'trips');
     const { outfit } = await closet(page);
     const today = householdToday();
 
@@ -169,5 +183,46 @@ test.describe('Trips', () => {
     await expect(page.getByRole('link', { name: 'Back' })).toBeVisible();
     await expectPhoneWidth(page);
     await expectTouchTargets(page);
+
+    // A second device, signed in and warmed, never opening the trip: its
+    // page opens offline and a tick queues (#657).
+    await test.step('the warm names the trip, so it packs offline without a visit', async (step) => {
+      step.skip(
+        process.env.PWA_ENABLED !== 'true',
+        'needs a server started with PWA_ENABLED=true',
+      );
+      step.skip(
+        browserName !== 'chromium',
+        'the worker is watched in Chromium',
+      );
+      const context = await browser.newContext({
+        baseURL: APP_ORIGIN,
+        viewport: { width: 390, height: 844 },
+        hasTouch: true,
+        serviceWorkers: 'allow',
+      });
+      try {
+        const network = await networkSwitch(context);
+        const device = await context.newPage();
+        await device.goto('/auth/login');
+        await submitLogin(device, email);
+        await device.waitForURL((url) => url.pathname === '/');
+        await waitForServiceWorker(device);
+        // The warm's own product: the trip's page in the cache.
+        const tripPath = new URL(tripUrl).pathname;
+        await expect.poll(() => cachedPaths(device)).toContain(tripPath);
+
+        await network('offline');
+        await device.evaluate(() => window.dispatchEvent(new Event('offline')));
+        await device.goto(tripPath);
+        await expect(device.locator('#connectivity-banner')).toBeVisible();
+        await device.getByRole('checkbox', { name: /Travel sneakers/ }).check();
+        await expect(device.locator('#outbox-banner')).toHaveText(
+          '1 change waiting to sync',
+        );
+      } finally {
+        await context.close();
+      }
+    });
   });
 });
