@@ -268,8 +268,6 @@ const EXCLUDED_WORDS = new Set([
   'stores',
   'store-locator',
   'view-in-browser',
-  // Amazon's account and order pages (/gp/css/...); its products are /dp/.
-  'gp',
   // #698: one-click actions and sign-in links.
   'cancel',
   'cancellation',
@@ -314,8 +312,16 @@ function excluded(url: URL): boolean {
   const segments = url.pathname.toLowerCase().split('/');
   return (
     segments.some((segment) => EXCLUDED_WORDS.has(segment)) ||
+    isAmazonServicePath(url.pathname) ||
     url.searchParams.has('unsubscribe')
   );
+}
+
+// Amazon's account, order and tracker pages live under /gp/ (/gp/css/...,
+// /gp/your-account/..., /gp/r.html); only /gp/product/<ASIN> is a product.
+function isAmazonServicePath(pathname: string): boolean {
+  const [, first, second] = pathname.toLowerCase().split('/');
+  return first === 'gp' && second !== 'product';
 }
 
 // A product path's query keys that carry a credential or name an action,

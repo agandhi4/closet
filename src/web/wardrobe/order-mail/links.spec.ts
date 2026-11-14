@@ -50,6 +50,11 @@ describe('judgeLink', () => {
       'https://shop.example/products/confirm-hoodie',
     ],
     [
+      "Amazon's /gp/product/ page",
+      'https://www.amazon.com/gp/product/B0ABCDEFGH?ref=x',
+      'https://www.amazon.com/gp/product/B0ABCDEFGH?ref=x',
+    ],
+    [
       "a SKU page (Zara's shape)",
       'https://www.shop.example/us/en/linen-shirt-p01234567.html?v1=9',
       'https://www.shop.example/us/en/linen-shirt-p01234567.html?v1=9',
@@ -96,6 +101,11 @@ describe('judgeLink', () => {
     ['a category page', 'https://shop.example/collections/new'],
     ['an account page', 'https://shop.example/account/orders/123'],
     ["Amazon's order page", 'https://www.amazon.com/gp/your-account/order'],
+    [
+      "Amazon's order details",
+      'https://www.amazon.com/gp/your-account/order-details?orderID=1',
+    ],
+    ["Amazon's order history", 'https://www.amazon.com/gp/css/order-history'],
     [
       'a cancel link with an order id',
       'https://shop.example/orders/cancel/12345678',
