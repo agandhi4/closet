@@ -28,6 +28,7 @@ import type { ViewContext } from '../view-context';
 import { categoryLabel } from '../wardrobe/garment';
 import { UNIT_SYMBOLS } from '../weather/views';
 import {
+  adviceChips,
   type Chip,
   ChipList,
   fitsChip,
@@ -91,6 +92,7 @@ export function IdeasPage(props: { ctx: ViewContext; model: IdeasPageModel }) {
         />
         <Scope model={model} />
         {cards.weather && <WeatherNote weather={cards.weather} />}
+        <ChipList chips={adviceChips(cards.weather)} />
         <p
           data-offline-note=""
           class="alert alert-warning alert-soft py-2 text-sm"

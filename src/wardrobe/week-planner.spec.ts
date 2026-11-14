@@ -63,6 +63,7 @@ function garment(
       role,
       warmth: options.warmth ?? (role === 'layer' ? 3 : 2),
       waterResistant: options.waterResistant ?? false,
+      rainGear: false,
     },
     idleDays: options.idleDays === undefined ? 10 : options.idleDays,
     quantity: options.quantity ?? 1,

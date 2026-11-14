@@ -6,6 +6,7 @@ import type { IsoDate } from '../../calendar-date';
 import { type CalendarEntry, entryPieces } from '../calendar/calendar-view';
 import { dayLabel, occasionLabel } from '../date-labels';
 import { ideaName, type IdeasWeather } from '../gallery/ideas';
+import { adviceChips, ChipList } from '../gallery/chips';
 import { Reasons } from '../gallery/ideas-page';
 import type { PoolGarment } from '../gallery/queries';
 import { ideasUrl } from '../gallery/urls';
@@ -286,6 +287,7 @@ export function IdeasRowView(props: { row: IdeasRow; today: IsoDate }) {
           </button>
         )}
       </RowHeading>
+      {row.ideas.length > 0 && <ChipList chips={adviceChips(row.weather)} />}
       {row.ideas.length > 0 ? (
         <SnapStrip
           size="peek"

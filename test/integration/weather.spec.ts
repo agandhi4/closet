@@ -663,8 +663,8 @@ describe('weather', () => {
           0,
         )!;
         const { problems } = assessOutfit(needs, [
-          { role: 'layer', warmth: 5, waterResistant: false },
-          { role: 'top', warmth: 5, waterResistant: false },
+          { role: 'layer', warmth: 5, waterResistant: false, rainGear: false },
+          { role: 'top', warmth: 5, waterResistant: false, rainGear: false },
         ]);
         expect(problems).toContain('too-warm');
         const chips = [

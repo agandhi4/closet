@@ -44,7 +44,7 @@ function garment(
     colors: options.colors ?? ['black'],
     pattern: options.pattern ?? 'solid',
     formality: options.formality ?? null,
-    weather: { role, warmth: 2, waterResistant: false },
+    weather: { role, warmth: 2, waterResistant: false, rainGear: false },
     idleDays: options.idleDays === undefined ? 5 : options.idleDays,
   };
 }

@@ -10354,7 +10354,9 @@
                                   "torsoWarmthWithoutLayer",
                                   "legsAndFeetWarmth",
                                   "needsLayer",
-                                  "needsWaterResistance"
+                                  "rain",
+                                  "needsWaterResistance",
+                                  "takeUmbrella"
                                 ],
                                 "properties": {
                                   "occasion": {
@@ -10456,8 +10458,16 @@
                                     "description": "The hours swing enough to want a layer that comes off",
                                     "type": "boolean"
                                   },
+                                  "rain": {
+                                    "description": "Rain is likely (50% or more) in at least one of the occasion's hours, however it is answered",
+                                    "type": "boolean"
+                                  },
                                   "needsWaterResistance": {
-                                    "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                    "description": "Rain is likely and nothing beside the outfit answers it, so the outfit should include a water-resistant layer, footwear or accessory (not a bag). False when there is no rain, or when takeUmbrella is true",
+                                    "type": "boolean"
+                                  },
+                                  "takeUmbrella": {
+                                    "description": "Rain is likely and is answered beside the outfit: every rain hour is warm (feels-like above 22 °C), or the closet holds a water-resistant hat or cap. Advice for the day, never asked of the outfit. False when there is no rain",
                                     "type": "boolean"
                                   }
                                 }
@@ -11040,6 +11050,7 @@
                               "feelsLikeC",
                               "needsLayer",
                               "needsWaterResistance",
+                              "takeUmbrella",
                               "typical"
                             ],
                             "properties": {
@@ -11064,6 +11075,11 @@
                                 "type": "boolean"
                               },
                               "needsWaterResistance": {
+                                "description": "Rain the umbrella does not answer: each idea is judged on a water-resistant layer, footwear or accessory",
+                                "type": "boolean"
+                              },
+                              "takeUmbrella": {
+                                "description": "Rain is likely and is answered beside the outfit: every rain hour is warm (feels-like above 22 °C), or the closet holds a water-resistant hat or cap. Advice for the day, no idea is judged on it; false when there is no rain",
                                 "type": "boolean"
                               },
                               "typical": {
@@ -14248,7 +14264,9 @@
                               "torsoWarmthWithoutLayer",
                               "legsAndFeetWarmth",
                               "needsLayer",
-                              "needsWaterResistance"
+                              "rain",
+                              "needsWaterResistance",
+                              "takeUmbrella"
                             ],
                             "properties": {
                               "occasion": {
@@ -14350,8 +14368,16 @@
                                 "description": "The hours swing enough to want a layer that comes off",
                                 "type": "boolean"
                               },
+                              "rain": {
+                                "description": "Rain is likely (50% or more) in at least one of the occasion's hours, however it is answered",
+                                "type": "boolean"
+                              },
                               "needsWaterResistance": {
-                                "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                "description": "Rain is likely and nothing beside the outfit answers it, so the outfit should include a water-resistant layer, footwear or accessory (not a bag). False when there is no rain, or when takeUmbrella is true",
+                                "type": "boolean"
+                              },
+                              "takeUmbrella": {
+                                "description": "Rain is likely and is answered beside the outfit: every rain hour is warm (feels-like above 22 °C), or the closet holds a water-resistant hat or cap. Advice for the day, never asked of the outfit. False when there is no rain",
                                 "type": "boolean"
                               }
                             }
@@ -14446,7 +14472,9 @@
                               "torsoWarmthWithoutLayer",
                               "legsAndFeetWarmth",
                               "needsLayer",
-                              "needsWaterResistance"
+                              "rain",
+                              "needsWaterResistance",
+                              "takeUmbrella"
                             ],
                             "properties": {
                               "occasion": {
@@ -14548,8 +14576,16 @@
                                 "description": "The hours swing enough to want a layer that comes off",
                                 "type": "boolean"
                               },
+                              "rain": {
+                                "description": "Rain is likely (50% or more) in at least one of the occasion's hours, however it is answered",
+                                "type": "boolean"
+                              },
                               "needsWaterResistance": {
-                                "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                "description": "Rain is likely and nothing beside the outfit answers it, so the outfit should include a water-resistant layer, footwear or accessory (not a bag). False when there is no rain, or when takeUmbrella is true",
+                                "type": "boolean"
+                              },
+                              "takeUmbrella": {
+                                "description": "Rain is likely and is answered beside the outfit: every rain hour is warm (feels-like above 22 °C), or the closet holds a water-resistant hat or cap. Advice for the day, never asked of the outfit. False when there is no rain",
                                 "type": "boolean"
                               }
                             }
@@ -18823,6 +18859,7 @@
                         "feelsLikeC",
                         "needsLayer",
                         "needsWaterResistance",
+                        "takeUmbrella",
                         "typical"
                       ],
                       "properties": {
@@ -18847,6 +18884,11 @@
                           "type": "boolean"
                         },
                         "needsWaterResistance": {
+                          "description": "Rain the umbrella does not answer: each idea is judged on a water-resistant layer, footwear or accessory",
+                          "type": "boolean"
+                        },
+                        "takeUmbrella": {
+                          "description": "Rain is likely and is answered beside the outfit: every rain hour is warm (feels-like above 22 °C), or the closet holds a water-resistant hat or cap. Advice for the day, no idea is judged on it; false when there is no rain",
                           "type": "boolean"
                         },
                         "typical": {
@@ -30421,7 +30463,9 @@
                               "torsoWarmthWithoutLayer",
                               "legsAndFeetWarmth",
                               "needsLayer",
-                              "needsWaterResistance"
+                              "rain",
+                              "needsWaterResistance",
+                              "takeUmbrella"
                             ],
                             "properties": {
                               "occasion": {
@@ -30523,8 +30567,16 @@
                                 "description": "The hours swing enough to want a layer that comes off",
                                 "type": "boolean"
                               },
+                              "rain": {
+                                "description": "Rain is likely (50% or more) in at least one of the occasion's hours, however it is answered",
+                                "type": "boolean"
+                              },
                               "needsWaterResistance": {
-                                "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                "description": "Rain is likely and nothing beside the outfit answers it, so the outfit should include a water-resistant layer, footwear or accessory (not a bag). False when there is no rain, or when takeUmbrella is true",
+                                "type": "boolean"
+                              },
+                              "takeUmbrella": {
+                                "description": "Rain is likely and is answered beside the outfit: every rain hour is warm (feels-like above 22 °C), or the closet holds a water-resistant hat or cap. Advice for the day, never asked of the outfit. False when there is no rain",
                                 "type": "boolean"
                               }
                             }

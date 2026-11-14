@@ -159,6 +159,7 @@ export function toTodayResource(model: TodayModel): TodayResource {
         model.weather,
         [model.today],
         DEFAULT_OCCASION,
+        [],
       ),
     }),
     ...(muse && { muse }),
