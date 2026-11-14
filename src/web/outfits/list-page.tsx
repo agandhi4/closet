@@ -15,7 +15,8 @@ import { collagePieces, OutfitCollage } from './collage';
 import { DayDestinationLine } from './destination-views';
 import type { DayDestination } from './destination';
 import { OutfitTabs } from './outfit-tabs';
-import type { OutfitActivity, GarmentOutfit } from './queries';
+import { AgentBadge } from '../agent-badge';
+import type { OutfitActivity, GarmentOutfit, SavedOutfit } from './queries';
 import type { OutfitCount } from '../../wardrobe/goes-with';
 import {
   type DecisionToast,
@@ -32,7 +33,7 @@ const EAGER_TILES = 4;
 
 export interface SavedModel {
   /** The owner's outfits of `list`, newest first. */
-  outfits: GarmentOutfit[];
+  outfits: SavedOutfit[];
   /** `?show=` (#659): the kept outfits, or the one-offs ("Worn and planned"). */
   list: OutfitList;
   /** Worn counts and next plans, by outfit id (absent: never planned). */
@@ -227,7 +228,7 @@ function PickingGrid(props: {
  * tile dims its collage only: text is never dimmed (Conventions).
  */
 function OutfitTile(props: {
-  outfit: GarmentOutfit;
+  outfit: SavedOutfit;
   eager: boolean;
   line: string | undefined;
   dimmed?: boolean;
@@ -248,6 +249,11 @@ function OutfitTile(props: {
           {props.name ?? outfitName(outfit)}
         </span>
         {line && <span class="text-xs text-muted truncate">{line}</span>}
+        {outfit.agent && (
+          <span class="flex">
+            <AgentBadge agent={outfit.agent} />
+          </span>
+        )}
       </span>
     </>
   );

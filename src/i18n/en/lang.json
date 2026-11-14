@@ -915,7 +915,8 @@
   },
   "agent": {
     "ANONYMOUS": "Agent",
-    "OF_PERSON": "{name}’s agent"
+    "OF_PERSON": "{name}’s agent",
+    "MADE_BY": "Made by {name}"
   },
   "muse": {
     "READY": "Ready to buy",

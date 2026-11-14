@@ -3,6 +3,7 @@ import {
   type PackingWarning,
   wearableToday,
 } from '../../wardrobe/packing';
+import { AgentBadge } from '../agent-badge';
 import { PostForm } from '../auth/form';
 import { AutosaveForm } from '../autosave';
 import { ShownId } from '../checklist';
@@ -354,9 +355,10 @@ function TripOutfitRow(props: {
         >
           <span class="block truncate">{name}</span>
         </a>
-        {(outfit.occasion || worn !== null) && (
+        {(outfit.occasion || outfit.agent || worn !== null) && (
           <span class="flex flex-wrap items-center gap-x-2 text-xs text-muted">
             {outfit.occasion && <span>{occasionLabel(outfit.occasion)}</span>}
+            <AgentBadge agent={outfit.agent} />
             {worn}
           </span>
         )}

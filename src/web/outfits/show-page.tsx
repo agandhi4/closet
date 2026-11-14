@@ -7,6 +7,7 @@ import { AlreadySavedToast } from '../gallery/already-saved';
 import type { AlreadySaved } from '../gallery/urls';
 import { t } from '../i18n';
 import { museName } from '../write-origin';
+import { AgentBadge } from '../agent-badge';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -92,6 +93,12 @@ export function OutfitPage(props: {
             proposal={outfit.proposal}
             complete={toBuy.length === 0}
           />
+        )}
+        {/* A proposal's provenance is its block's "From Muse". */}
+        {!outfit.proposal && outfit.agent && (
+          <p class="px-1">
+            <AgentBadge agent={outfit.agent} />
+          </p>
         )}
         {outfit.notes && <p class="text-muted text-sm px-1">{outfit.notes}</p>}
         {outfit.garments.length > 0 ? (

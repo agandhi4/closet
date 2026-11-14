@@ -347,6 +347,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             justLoggedRepair: request.query.repairSaved === '1',
             justAddedCopy: request.query.copyAdded === '1',
             suggestion: context.suggestion,
+            agent: context.agent,
             decided: decisionToastOf(request.query.decided),
           }}
         />,
