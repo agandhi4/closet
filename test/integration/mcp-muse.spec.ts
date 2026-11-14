@@ -261,7 +261,7 @@ describe('MCP: Muse’s tools', () => {
         ownerId: t.owner.id,
         status: 'wishlist',
         name: 'Wool Overcoat',
-        suggestedByTokenId: tokenId,
+        addedByTokenId: tokenId,
         suggestionGroupId: groupId,
         suggestionNote: 'Heavy wool, fits over a blazer',
         suggestionRank: 1,
@@ -357,7 +357,7 @@ describe('MCP: Muse’s tools', () => {
         .where(eq(outfit.id, proposed.id));
       expect(row).toMatchObject({
         ownerId: t.owner.id,
-        proposedByTokenId: tokenId,
+        addedByTokenId: tokenId,
         proposalNote: 'Weekend, cool days',
         reaction: 'proposed',
       });
@@ -630,7 +630,7 @@ describe('MCP: Muse’s tools', () => {
             shareableId: crypto.randomUUID(),
             ownerId: t.owner.id,
             proposedAt: new Date(),
-            proposedByTokenId: tokenId,
+            addedByTokenId: tokenId,
             reaction: 'loved',
           })
           .returning({ id: outfit.id }),

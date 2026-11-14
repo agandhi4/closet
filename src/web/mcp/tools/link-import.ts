@@ -8,7 +8,7 @@ import {
   saveGarmentFromLink,
 } from '../../wardrobe/link-import/save';
 import type { WardrobeAccess } from '../../sharing/access';
-import type { ToolContext } from '../tool';
+import { originOf, type ToolContext } from '../tool';
 
 /**
  * A garment form readGarmentForm refused, as a tool's 400: each field with
@@ -48,6 +48,7 @@ export async function addGarmentFromLink(
     access,
     overrides,
     'MCP',
+    originOf(ctx),
     options,
   );
   if (!saved.ok) throw refusedForm(saved.errors);

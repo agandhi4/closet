@@ -439,25 +439,78 @@ const MUSE_ROUND = {
     "Muse's suggestion round: what the agent proposes carries its token, and the owner decides it in the inbox",
 } as const;
 
+/**
+ * The rows a tool's write stamps with the calling token (#682,
+ * src/web/write-origin.ts): `outfit` (outfit.proposed_by_token_id),
+ * `calendarEntry` (outfit_calendar planned_by 'agent' + its token),
+ * `tripOutfit`, `garment` (garment.suggested_by_token_id).
+ */
+export type Stamped = 'outfit' | 'calendarEntry' | 'tripOutfit' | 'garment';
+
+/**
+ * What a writing tool leaves of the agent: the rows it stamps (each with a
+ * scenario in test/integration/mcp-attribution.spec.ts, which fails one
+ * that writes no stamp, and a `none` tool that writes one), why it stamps
+ * nothing, or Muse's round, whose provenance is its own (mcp-muse.spec.ts).
+ */
+export type Attribution =
+  | { readonly stamps: readonly Stamped[] }
+  | { readonly none: string }
+  | { readonly museRound: true };
+
+export type McpWrite = ToolParity & { readonly attribution: Attribution };
+
+const EDITS = {
+  none: 'an edit of what exists: who made it does not change',
+} as const;
+const RECORDS = {
+  none: "the person's record (a wear, a wash): never the agent's choice",
+} as const;
+const MUSE = { museRound: true } as const;
+
 /** Every MCP tool with `writes: true`, by name (src/web/mcp/tools/). */
-export const MCP_WRITES: Readonly<Record<string, ToolParity>> = {
-  update_garment: { api: 'updateGarment' },
-  add_garment_copy: { api: 'addGarmentCopies' },
-  add_garment_from_link: { api: 'importGarmentFromLink' },
-  create_outfit: { api: 'createOutfit' },
+export const MCP_WRITES: Readonly<Record<string, McpWrite>> = {
+  update_garment: { api: 'updateGarment', attribution: EDITS },
+  add_garment_copy: { api: 'addGarmentCopies', attribution: EDITS },
+  add_garment_from_link: {
+    api: 'importGarmentFromLink',
+    attribution: { stamps: ['garment'] },
+  },
+  create_outfit: {
+    api: 'createOutfit',
+    attribution: { stamps: ['outfit', 'calendarEntry'] },
+  },
   schedule_outfit: {
     api: ['createCalendarEntry', 'replaceCalendarEntryOutfit'],
+    attribution: { stamps: ['calendarEntry'] },
   },
-  pick_outfit: { api: 'pickOutfit' },
-  mark_worn: { api: ['setCalendarEntryWorn', 'wearGarment'] },
-  mark_washed: { api: 'washGarments' },
-  plan_week: { api: 'planWeek' },
-  add_inspiration: { api: 'importLookFromLink' },
-  set_inspiration_pieces: { api: 'setLookPieces' },
-  set_capsule_membership: { api: 'changeCapsuleMembers' },
-  plan_trip_outfit: { api: 'addTripOutfit' },
-  create_option_group: MUSE_ROUND,
-  suggest_garment: MUSE_ROUND,
-  suggest_outfit: MUSE_ROUND,
-  finish_round: MUSE_ROUND,
+  pick_outfit: {
+    api: 'pickOutfit',
+    attribution: { stamps: ['outfit', 'calendarEntry'] },
+  },
+  mark_worn: {
+    api: ['setCalendarEntryWorn', 'wearGarment'],
+    attribution: RECORDS,
+  },
+  mark_washed: { api: 'washGarments', attribution: RECORDS },
+  plan_week: {
+    api: 'planWeek',
+    attribution: {
+      none: "the week planner's choice (auto), whoever pressed the button: its re-plan may still swap it",
+    },
+  },
+  add_inspiration: {
+    api: 'importLookFromLink',
+    attribution: { none: "a saved look is the owner's own library" },
+  },
+  set_inspiration_pieces: { api: 'setLookPieces', attribution: EDITS },
+  set_capsule_membership: { api: 'changeCapsuleMembers', attribution: EDITS },
+  plan_trip_outfit: {
+    api: 'addTripOutfit',
+    attribution: { stamps: ['tripOutfit', 'outfit'] },
+  },
+  create_option_group: { ...MUSE_ROUND, attribution: MUSE },
+  suggest_garment: { ...MUSE_ROUND, attribution: MUSE },
+  suggest_outfit: { ...MUSE_ROUND, attribution: MUSE },
+  finish_round: { ...MUSE_ROUND, attribution: MUSE },
 };

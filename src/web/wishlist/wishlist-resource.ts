@@ -1,4 +1,5 @@
 import { type Static, Type } from '@sinclair/typebox';
+import { agentNameOf } from '../write-origin';
 import type { BestOutfits, OutfitCount } from '../../wardrobe/goes-with';
 import type { Idea } from '../../wardrobe/generator';
 import { GARMENT_ROLES } from '../../wardrobe/properties';
@@ -186,7 +187,7 @@ function toNeed(need: Need): NeedResource {
     resolvedGarmentId: need.resolvedGarmentId,
     dismissedReason: need.dismissedReason,
     ownerNote: need.ownerNote,
-    agent: need.agent,
+    agent: agentNameOf(need.agent),
   });
 }
 

@@ -30,6 +30,7 @@ import {
 } from './harness';
 import { silentLogger } from './logger';
 import { expectNativePostForms, expectNoRawI18nKeys } from './pages';
+import { BY_PERSON } from '../../src/web/write-origin';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -604,6 +605,7 @@ describe('a batch of drafts', () => {
       form.fields,
       first,
       'closet',
+      BY_PERSON,
     );
     expect(direct).toBeUndefined();
     expect(await t.db.$count(garment)).toBe(garments);

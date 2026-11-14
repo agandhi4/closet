@@ -39,6 +39,7 @@ import { OUTFIT_LISTS } from './outfit-list';
 import { createOutfit, listOutfitsPage, outfitText } from './queries';
 import type { OutfitReaction } from './reactions';
 import { OutfitParams } from './schemas';
+import { BY_PERSON } from '../write-origin';
 
 /** A page of GET /outfits unless asked: the Saved grid's two columns, a few screens. */
 const OUTFIT_PAGE_SIZE = 30;
@@ -172,6 +173,7 @@ export const outfitApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
           occasion: plan.occasion ?? DEFAULT_OCCASION,
         },
         origin: 'person',
+        madeBy: BY_PERSON,
       });
       const planned = plan ? `, ${saved.schedule} on ${plan.day}` : '';
       const client = clientId ? `, client id ${clientId.slice(0, 8)}` : '';

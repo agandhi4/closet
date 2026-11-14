@@ -2,12 +2,12 @@ import type { Queryable } from '../../db/client';
 import type { IsoDate } from '../../calendar-date';
 import type { Occasion } from '../../wardrobe/occasions';
 import type { OutfitOrigin } from '../../wardrobe/outfit-origin';
-import type { PlannedBy } from '../../wardrobe/week';
 import { ownerTransaction } from '../auth/queries';
 import type { ScheduleOutcome } from '../calendar/queries';
 import { inOutfitOrderByCategory } from '../../wardrobe/generator';
 import { ideaName } from '../gallery/ideas';
 import { pickedGarments } from '../gallery/queries';
+import type { WriteOrigin } from '../write-origin';
 import { type CreateResult, createOutfit, reuseOutfit } from './queries';
 
 export interface PickResult {
@@ -55,8 +55,8 @@ export function pickIdea(
   ownerId: number,
   input: {
     garmentIds: readonly number[];
-    /** plannedBy 'auto': the week planner's pick (#16); the person's otherwise. */
-    plan?: { day: IsoDate; occasion: Occasion; plannedBy?: PlannedBy };
+    /** The entry is the planner's (`auto`) when the origin is `planner`; the chooser's otherwise. */
+    plan?: { day: IsoDate; occasion: Occasion };
     name?: string;
     /**
      * Who is picking, and for what (#659): `idea` for a day, a trip or a
@@ -64,6 +64,8 @@ export function pickIdea(
      * plain save. A new outfit's origin; a reuse's take-over (adoptOutfit).
      */
     origin: OutfitOrigin;
+    /** The person or the agent's token (#682): a new outfit's stamp and the plan's chooser. */
+    madeBy: WriteOrigin;
   },
 ): Promise<PickResult | 'not-found'> {
   const wanted = [...new Set(input.garmentIds)];
@@ -75,9 +77,7 @@ export function pickIdea(
     );
     if (found.length !== wanted.length) return 'not-found';
     if (existing)
-      return pickResult(
-        await reuseOutfit(tx, ownerId, existing, input.plan, input.origin),
-      );
+      return pickResult(await reuseOutfit(tx, ownerId, existing, input));
     const byId = new Map(found.map((g) => [g.id, g]));
     const garments = inOutfitOrderByCategory(wanted.map((id) => byId.get(id)!));
     const name = input.name ?? ideaName(garments);
@@ -88,6 +88,7 @@ export function pickIdea(
       slots: garments.map((g) => ({ category: g.category, garmentId: g.id })),
       plan: input.plan,
       origin: input.origin,
+      madeBy: input.madeBy,
     });
     return pickResult(saved);
   });

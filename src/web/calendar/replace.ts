@@ -1,6 +1,7 @@
 import type { Queryable } from '../../db/client';
 import type { OutfitOrigin } from '../../wardrobe/outfit-origin';
 import type { Occasion } from '../../wardrobe/occasions';
+import { replannable, takesOver } from '../../wardrobe/week';
 import { ownerTransaction } from '../auth/queries';
 import { HttpError } from '../errors';
 import { pickIdea } from '../outfits/pick';
@@ -15,6 +16,8 @@ import {
 } from '../week-plan/queries';
 import type { IsoDate } from '../../calendar-date';
 import { occasionLabel } from '../date-labels';
+import type { WriteOrigin } from '../write-origin';
+import { chooserOf } from './planned-by';
 import {
   entryOf,
   lockEntryToReplace,
@@ -90,7 +93,7 @@ export interface Replaced {
   selfieDetached?: number;
   /** Planner-made outfits removed with the swap (0 or 1). */
   outfitsRemoved: number;
-  /** The entry was the week planner's ('auto') and is now the person's. */
+  /** The entry was the week planner's ('auto') and is now the chooser's. */
   adopted: boolean;
 }
 
@@ -114,6 +117,7 @@ export function replaceEntryOutfit(
   actor: Actor,
   target: EntryTarget,
   choice: ReplacementChoice,
+  madeBy: WriteOrigin,
 ): Promise<Replaced> {
   const ownerId = actor.userId;
   const refused = (reason: string) =>
@@ -131,7 +135,7 @@ export function replaceEntryOutfit(
         logDetail: refused('it is worn'),
       });
     }
-    const chosen = await chosenOutfit(tx, ownerId, choice);
+    const chosen = await chosenOutfit(tx, ownerId, choice, madeBy);
     if (!chosen) {
       if ('outfitId' in choice) {
         throw new NotFound('outfit', {
@@ -145,7 +149,7 @@ export function replaceEntryOutfit(
       );
     }
     const result = {
-      adopted: entry.plannedBy === 'auto',
+      adopted: replannable(entry.plannedBy),
       entryId: entry.id,
       day: entry.day,
       occasion: entry.occasion,
@@ -155,7 +159,11 @@ export function replaceEntryOutfit(
       adoptedProposal: chosen.adoptedProposal,
     };
     if (chosen.id === entry.outfitId) {
-      if (result.adopted) await setEntryOutfit(tx, entry.id, chosen.id);
+      // The same outfit chosen again takes the entry over only from a
+      // lower rank (the agent never takes a person's, planned-by.ts).
+      if (takesOver(chooserOf(madeBy).plannedBy, entry.plannedBy)) {
+        await setEntryOutfit(tx, entry.id, chosen.id, madeBy);
+      }
       return { outcome: 'unchanged', ...result, outfitsRemoved: 0 };
     }
     // Only an outfit that already existed can be on the day: a created one
@@ -176,7 +184,7 @@ export function replaceEntryOutfit(
     }
     const plannerMade =
       result.adopted && (await plannerCreatedOutfit(tx, entry.id));
-    await setEntryOutfit(tx, entry.id, chosen.id);
+    await setEntryOutfit(tx, entry.id, chosen.id, madeBy);
     const selfieDetached = await detachEntrySelfie(tx, entry.id);
     const outfitsRemoved = plannerMade
       ? await removeUnheldOutfits(tx, ownerId, [entry.outfitId])
@@ -189,6 +197,7 @@ async function chosenOutfit(
   tx: Queryable,
   ownerId: number,
   choice: ReplacementChoice,
+  madeBy: WriteOrigin,
 ): Promise<
   { id: number; alreadySaved: boolean; adoptedProposal: boolean } | undefined
 > {
@@ -202,6 +211,7 @@ async function chosenOutfit(
     garmentIds: choice.garmentIds,
     name: choice.name,
     origin: choice.origin,
+    madeBy,
   });
   return picked === 'not-found' ? undefined : picked;
 }

@@ -30,6 +30,8 @@ import {
   type PieceToBuy,
 } from '../outfits/references';
 import { intArray, lockedTripCte, lockTrip, prunePacked } from './packed';
+import type { WriteOrigin } from '../write-origin';
+import { type AgentLabel, agentLabelSql, OWNER_READS } from '../write-origin';
 
 /**
  * Trips' reads and writes (#10; docs/plans/2026-09-26-wardrobe-features.md,
@@ -377,7 +379,7 @@ async function insertTripOutfit(
   tx: Queryable,
   tripId: number,
   outfitId: number,
-  slot: TripSlot,
+  slot: TripSlot & { madeBy: WriteOrigin },
 ): Promise<TripOutfitAdded> {
   const inserted = await tx
     .insert(tripOutfit)
@@ -386,6 +388,7 @@ async function insertTripOutfit(
       outfitId,
       day: slot.day ?? null,
       occasion: slot.occasion ?? null,
+      plannedByTokenId: slot.madeBy.agentTokenId,
     })
     .onConflictDoNothing()
     .returning({ id: tripOutfit.id });
@@ -453,7 +456,12 @@ function notATripDay(trip: {
  */
 export function addTripOutfit(
   db: Queryable,
-  input: { tripId: number; ownerId: number; outfitId: number } & TripSlot,
+  input: {
+    tripId: number;
+    ownerId: number;
+    outfitId: number;
+    madeBy: WriteOrigin;
+  } & TripSlot,
 ): Promise<TripOutfitAdded | TripRefusal | 'no-outfit'> {
   return db.transaction(async (tx) => {
     const { rows } = await tx.execute<{
@@ -485,9 +493,9 @@ export function addTripOutfit(
       pending: boolean;
     }>(sql`
       with added as (
-        insert into ${tripOutfit} (trip_id, outfit_id, day, occasion)
+        insert into ${tripOutfit} (trip_id, outfit_id, day, occasion, planned_by_token_id)
         select ${input.tripId}::int, ${outfitId}, ${input.day ?? null}::date,
-          ${input.occasion ?? null}::text
+          ${input.occasion ?? null}::text, ${input.madeBy.agentTokenId}::int
         where ${outfitMayBeHeld(outfitId)}
         on conflict do nothing
         returning 1
@@ -516,6 +524,7 @@ export function pickForTrip(
     garmentIds: readonly number[];
     name?: string;
     origin: OutfitOrigin;
+    madeBy: WriteOrigin;
   } & TripSlot,
 ): Promise<
   { outfit: PickResult; added: TripOutfitAdded } | TripRefusal | 'not-found'
@@ -527,6 +536,7 @@ export function pickForTrip(
       garmentIds: input.garmentIds,
       name: input.name,
       origin: input.origin,
+      madeBy: input.madeBy,
     });
     if (picked === 'not-found') return 'not-found';
     const added = await insertTripOutfit(tx, input.tripId, picked.id, input);
@@ -889,6 +899,8 @@ export interface StoredTripOutfit {
   outfitId: number;
   day: IsoDate | null;
   occasion: Occasion | null;
+  /** The agent that put it on the trip (#682), null for the person. */
+  agent: AgentLabel | null;
 }
 
 /** A trip as the changes feed carries it (tripsByIds, trip-resource.ts). */
@@ -918,7 +930,8 @@ export async function tripsByIds(
           'id', ${tripOutfit.id},
           'outfitId', ${tripOutfit.outfitId},
           'day', ${tripOutfit.day},
-          'occasion', ${tripOutfit.occasion}
+          'occasion', ${tripOutfit.occasion},
+          'agent', ${agentLabelSql(tripOutfit.plannedByTokenId, OWNER_READS)}
         ) order by ${tripOutfit.id}), '[]')
         from ${tripOutfit} where ${tripOutfit.tripId} = ${trip.id}
       )`,

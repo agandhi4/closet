@@ -605,14 +605,18 @@ export const garment = pgTable(
     careIron: text('care_iron').$type<CareIron>(),
     careDryClean: text('care_dry_clean').$type<CareDryClean>(),
     // A suggestion's provenance (Muse, #333; src/wardrobe/suggestions.ts):
-    // `suggested_at` marks one (a suggestion is a garment with it set), the
-    // agent's token, its option group, its note and its rank among the
-    // group's options. Written only while the garment is on the wishlist
-    // (by the agent's tools and drizzle/0040's migration of plan
-    // candidates) and kept once it is bought, so the agent learns what came
-    // of it. Never written by the garment form, never copied by a clone.
+    // `suggested_at` marks one (a suggestion is a garment with it set), its
+    // option group, its note and its rank among the group's options.
+    // Written only while the garment is on the wishlist (by the agent's
+    // tools and drizzle/0040's migration of plan candidates) and kept once
+    // it is bought, so the agent learns what came of it. Never written by
+    // the garment form, never copied by a clone.
     suggestedAt: timestamp('suggested_at', { withTimezone: true }),
-    suggestedByTokenId: integer('suggested_by_token_id'),
+    // The agent token that made the garment (#682, src/web/write-origin.ts):
+    // a suggestion's, and since 0058 any garment an MCP tool created (a link
+    // import, a copy). Its SQL name predates that widening and is kept
+    // (docs/decisions.md 2026-11-14): a rename would buy nothing but churn.
+    addedByTokenId: integer('suggested_by_token_id'),
     suggestionGroupId: integer('suggestion_group_id'),
     suggestionNote: text('suggestion_note'),
     suggestionRank: smallint('suggestion_rank'),
@@ -730,10 +734,11 @@ export const garment = pgTable(
       'garment_replaces_garment_id_check',
       sql`${table.replacesGarmentId} <> ${table.id}`,
     ),
-    // Provenance belongs to a suggestion: none of it without suggested_at.
+    // A suggestion's fields belong to a suggestion: none without suggested_at
+    // (the token is not one of them since #682: any agent-made garment has it).
     check(
       'garment_suggestion_check',
-      sql`${table.suggestedAt} is not null or (${table.suggestedByTokenId} is null and ${table.suggestionGroupId} is null and ${table.suggestionNote} is null and ${table.suggestionRank} is null)`,
+      sql`${table.suggestedAt} is not null or (${table.suggestionGroupId} is null and ${table.suggestionNote} is null and ${table.suggestionRank} is null)`,
     ),
     check(
       'garment_suggestion_note_check',
@@ -799,14 +804,11 @@ export const garment = pgTable(
     })
       .onUpdate('cascade')
       .onDelete('set null'),
-    index('garment_suggested_by_token_id_index').on(table.suggestedByTokenId),
-    foreignKey({
-      name: 'garment_suggested_by_token_id_foreign',
-      columns: [table.suggestedByTokenId],
-      foreignColumns: [personalAccessToken.id],
-    })
-      .onUpdate('cascade')
-      .onDelete('set null'),
+    // A soft reference, no foreign key (#682): garments are the one stamp a
+    // grantee's agent writes into another's wardrobe, so deleting the
+    // grantee's account deletes the token under a row that stays; the id
+    // must outlive it so the garment still says an agent made it ("Agent").
+    index('garment_suggested_by_token_id_index').on(table.addedByTokenId),
     // Each owner's newest suggestion (the quiet round close's minutely read,
     // quietRounds, src/web/wishlist/rounds.ts): Muse's rows only.
     index('garment_owner_id_suggested_at_index')
@@ -979,7 +981,11 @@ export const outfit = pgTable(
     // src/web/outfits/proposals.ts and the migration that made plan looks
     // outfits (0041). An owner's own outfit has none of these.
     proposedAt: timestamp('proposed_at', { withTimezone: true }),
-    proposedByTokenId: integer('proposed_by_token_id'),
+    // The agent token that made the outfit (#682, src/web/write-origin.ts):
+    // a proposal's, and since 0058 any outfit an MCP tool created
+    // (create_outfit, pick_outfit, plan_trip_outfit), whatever its origin.
+    // The SQL name is the proposal's, kept (docs/decisions.md 2026-11-14).
+    addedByTokenId: integer('proposed_by_token_id'),
     proposalNote: text('proposal_note'),
     reaction: text('reaction').$type<LookReaction>(),
     ownerNote: text('owner_note'),
@@ -1013,18 +1019,19 @@ export const outfit = pgTable(
     index('outfit_owner_id_proposed_at_index')
       .on(table.ownerId, table.proposedAt)
       .where(sql`${table.proposedAt} is not null`),
-    index('outfit_proposed_by_token_id_index').on(table.proposedByTokenId),
+    index('outfit_proposed_by_token_id_index').on(table.addedByTokenId),
     foreignKey({
       name: 'outfit_proposed_by_token_id_foreign',
-      columns: [table.proposedByTokenId],
+      columns: [table.addedByTokenId],
       foreignColumns: [personalAccessToken.id],
     })
       .onUpdate('cascade')
       .onDelete('set null'),
-    // A reaction, and only a reaction, on a proposal.
+    // A reaction, and only a reaction, on a proposal; a proposal's notes
+    // only on one (the token is not one of them since #682).
     check(
       'outfit_proposal_check',
-      sql`(${table.proposedAt} is null) = (${table.reaction} is null) and (${table.proposedAt} is not null or (${table.proposedByTokenId} is null and ${table.proposalNote} is null and ${table.ownerNote} is null and ${table.reactedAt} is null))`,
+      sql`(${table.proposedAt} is null) = (${table.reaction} is null) and (${table.proposedAt} is not null or (${table.proposalNote} is null and ${table.ownerNote} is null and ${table.reactedAt} is null))`,
     ),
     check(
       'outfit_origin_check',
@@ -1120,6 +1127,9 @@ export const outfitCalendar = pgTable(
       .$type<PlannedBy>()
       .default(DEFAULT_PLANNED_BY)
       .notNull(),
+    // The agent token whose choice it is (#682): set with planned_by
+    // 'agent' and only then (src/web/calendar/planned-by.ts owns both).
+    plannedByTokenId: integer('planned_by_token_id'),
     revision: syncRevision(),
     updatedAt: syncUpdatedAt(),
     clientId: clientId(),
@@ -1142,6 +1152,21 @@ export const outfitCalendar = pgTable(
       'outfit_calendar_planned_by_check',
       sql`${table.plannedBy} in (${sqlList(PLANNED_BY)})`,
     ),
+    // Not the reverse: the token's set null leaves an agent entry nameless.
+    check(
+      'outfit_calendar_planned_by_token_id_check',
+      sql`${table.plannedBy} = 'agent' or ${table.plannedByTokenId} is null`,
+    ),
+    index('outfit_calendar_planned_by_token_id_index').on(
+      table.plannedByTokenId,
+    ),
+    foreignKey({
+      name: 'outfit_calendar_planned_by_token_id_foreign',
+      columns: [table.plannedByTokenId],
+      foreignColumns: [personalAccessToken.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
     // Leads with owner_id and day, so it is also the index of the week and
     // month range queries and of the owner_id foreign key.
     unique('outfit_calendar_owner_id_day_outfit_id_unique').on(
@@ -2158,8 +2183,19 @@ export const tripOutfit = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
+    // The agent token that put it on the trip (#682, src/web/write-origin.ts);
+    // null: the person did.
+    plannedByTokenId: integer('planned_by_token_id'),
   },
   (table) => [
+    index('trip_outfit_planned_by_token_id_index').on(table.plannedByTokenId),
+    foreignKey({
+      name: 'trip_outfit_planned_by_token_id_foreign',
+      columns: [table.plannedByTokenId],
+      foreignColumns: [personalAccessToken.id],
+    })
+      .onUpdate('cascade')
+      .onDelete('set null'),
     // Also the index of the trip_id foreign key (both lead with it).
     uniqueIndex('trip_outfit_trip_id_outfit_id_day_unique')
       .on(table.tripId, table.outfitId, table.day)

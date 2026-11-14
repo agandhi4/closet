@@ -39,6 +39,7 @@ import {
   tickTripItem,
   wearTripOutfit,
 } from './trip-actions';
+import { BY_PERSON } from '../write-origin';
 
 vi.mock('./queries', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -157,7 +158,12 @@ const paths: [string, (actor: Actor) => Promise<unknown>][] = [
     'planTripOutfit',
     (actor) => {
       vi.mocked(addTripOutfit).mockResolvedValue('no-trip');
-      return planTripOutfit(db, actor, { tripId: TRIP, outfitId: 30 });
+      return planTripOutfit(
+        db,
+        actor,
+        { tripId: TRIP, outfitId: 30 },
+        BY_PERSON,
+      );
     },
   ],
   [
@@ -168,6 +174,7 @@ const paths: [string, (actor: Actor) => Promise<unknown>][] = [
         tripId: TRIP,
         garmentIds: [10],
         origin: 'idea',
+        madeBy: BY_PERSON,
       });
     },
   ],
@@ -274,11 +281,13 @@ describe("another user's trip is not found, whatever they share", () => {
       tripId: TRIP,
       outfitId: 30,
       ownerId: OTHER,
+      madeBy: BY_PERSON,
     });
     expect(pickForTrip).toHaveBeenCalledWith(db, OTHER, {
       tripId: TRIP,
       garmentIds: [10],
       origin: 'idea',
+      madeBy: BY_PERSON,
     });
     expect(removeTripOutfit).toHaveBeenCalledWith(db, {
       tripId: TRIP,
@@ -320,11 +329,16 @@ describe('the trip path for its owner', () => {
     };
     vi.mocked(addTripOutfit).mockResolvedValue(outside);
     await expect(
-      planTripOutfit(db, owner, {
-        tripId: TRIP,
-        outfitId: 30,
-        day: '2026-11-20',
-      }),
+      planTripOutfit(
+        db,
+        owner,
+        {
+          tripId: TRIP,
+          outfitId: 30,
+          day: '2026-11-20',
+        },
+        BY_PERSON,
+      ),
     ).rejects.toMatchObject(refusal);
     vi.mocked(pickForTrip).mockResolvedValue(outside);
     await expect(
@@ -333,6 +347,7 @@ describe('the trip path for its owner', () => {
         garmentIds: [10],
         day: '2026-11-20',
         origin: 'idea',
+        madeBy: BY_PERSON,
       }),
     ).rejects.toMatchObject(refusal);
   });
@@ -340,7 +355,7 @@ describe('the trip path for its owner', () => {
   it('refuses an outfit not theirs as the outfit, and names garments it cannot hold', async () => {
     vi.mocked(addTripOutfit).mockResolvedValue('no-outfit');
     await expect(
-      planTripOutfit(db, owner, { tripId: TRIP, outfitId: 30 }),
+      planTripOutfit(db, owner, { tripId: TRIP, outfitId: 30 }, BY_PERSON),
     ).rejects.toEqual(new NotFound('outfit'));
     const gone = new NotFound('garment');
     vi.mocked(pickForTrip).mockResolvedValue('not-found');
@@ -350,6 +365,7 @@ describe('the trip path for its owner', () => {
         tripId: TRIP,
         garmentIds: [10, 11],
         origin: 'idea',
+        madeBy: BY_PERSON,
       }),
     ).rejects.toBe(gone);
     expect(garmentsGoneError).toHaveBeenCalledWith(

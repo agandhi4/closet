@@ -63,6 +63,7 @@ export async function requireNeed(
   const detail = await readNeed(db, {
     ownerId: wardrobe.access.ownerId,
     groupId: address.id,
+    viewerId: actor.userId,
     isOwner: wardrobe.access.isOwner,
   });
   if (!detail) throw new NotFound('need');

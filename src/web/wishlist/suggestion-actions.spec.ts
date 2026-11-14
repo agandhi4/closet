@@ -156,6 +156,7 @@ describe('a need is read by whoever reads the wishlist', () => {
     expect(readNeed).toHaveBeenCalledWith(noStatements, {
       ownerId: OWNER,
       groupId: NEED,
+      viewerId: viewer.userId,
       isOwner: false,
     });
   });

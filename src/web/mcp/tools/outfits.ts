@@ -14,7 +14,8 @@ import {
   type ToolOutfit,
 } from '../../outfits/queries';
 import { piecesToBuy } from '../../outfits/references';
-import { actorOf, defineTool } from '../tool';
+import { actorOf, defineTool, originOf } from '../tool';
+import { agentNameOf } from '../../write-origin';
 import { isoDate, occasionInput, rowId } from './common';
 
 function outfitOut(outfit: ToolOutfit) {
@@ -26,6 +27,8 @@ function outfitOut(outfit: ToolOutfit) {
     origin: outfit.origin,
     // One of Muse's proposals (#335): its note and the owner's reaction.
     proposal: outfit.proposal,
+    // Your agent made it over MCP (#682): its token's name.
+    agent: agentNameOf(outfit.agent),
     garments: outfit.garments.map(({ id, name }) => ({ id, name })),
     // Incomplete (#335): it cannot be planned or packed until these are bought.
     toBuy: piecesToBuy(outfit.garments).map(({ id, name }) => ({ id, name })),
@@ -118,6 +121,7 @@ export const outfitTools = [
         slots,
         plan,
         origin: 'agent',
+        madeBy: originOf(ctx),
       });
       ctx.webLogger.info(createdMessage(ctx.userId, saved, plan));
       return {
@@ -133,7 +137,7 @@ export const outfitTools = [
     name: 'schedule_outfit',
     title: 'Plan an outfit on a day',
     description:
-      "WRITES: plans one of your outfits on a calendar day, for an occasion (the part of the day). A day can hold several outfits (office, then dinner); the same outfit is on a day once, so planning it again changes nothing and it keeps the occasion it has (returned). With replaceEntryId (an entry id from get_calendar or get_today, on that date): changes that entry's outfit instead of adding one, keeping its day and occasion (occasion, if given, must be the entry's); it becomes your choice (plannedBy user), an outfit Plan my week created for it and nothing else uses is removed, and a selfie of it stays on the day as a look. Refused, with nothing changed, when the entry is marked worn (it is the record of that day: add another outfit instead), the outfit is already on that day, or it is incomplete (toBuy in list_outfits: buy those first). To put an idea from suggest_outfits there, save it first with pick_outfit (no date). Safe to retry.",
+      "WRITES: plans one of your outfits on a calendar day, for an occasion (the part of the day). A day can hold several outfits (office, then dinner); the same outfit is on a day once, so planning it again changes nothing and it keeps the occasion it has (returned); a new entry is your agent's (plannedBy agent), and one Plan my week made becomes it. With replaceEntryId (an entry id from get_calendar or get_today, on that date): changes that entry's outfit instead of adding one, keeping its day and occasion (occasion, if given, must be the entry's); it becomes your agent's choice (plannedBy agent, with your token's name), an outfit Plan my week created for it and nothing else uses is removed, and a selfie of it stays on the day as a look. Refused, with nothing changed, when the entry is marked worn (it is the record of that day: add another outfit instead), the outfit is already on that day, or it is incomplete (toBuy in list_outfits: buy those first). To put an idea from suggest_outfits there, save it first with pick_outfit (no date). Safe to retry.",
     input: z.object({
       outfitId: rowId(),
       date: isoDate().describe('The day, YYYY-MM-DD.'),
@@ -154,6 +158,7 @@ export const outfitTools = [
           actorOf(ctx),
           target,
           { outfitId },
+          originOf(ctx),
         );
         ctx.webLogger.info(
           replaceMessage(ctx.userId, target, replaced, ' (MCP)'),
@@ -168,11 +173,12 @@ export const outfitTools = [
           plannerOutfitRemoved: replaced.outfitsRemoved > 0,
         };
       }
-      const scheduled = await planOutfit(ctx.db, actorOf(ctx), {
-        outfitId,
-        day: date,
-        occasion: occasion ?? DEFAULT_OCCASION,
-      });
+      const scheduled = await planOutfit(
+        ctx.db,
+        actorOf(ctx),
+        { outfitId, day: date, occasion: occasion ?? DEFAULT_OCCASION },
+        originOf(ctx),
+      );
       // Already there: the occasion it kept.
       const { outcome, occasion: kept } = scheduled;
       ctx.webLogger.info(

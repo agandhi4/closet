@@ -53,6 +53,7 @@ import {
   windowEntries,
   windowEntriesSql,
 } from './queries';
+import { BY_PERSON } from '../write-origin';
 import { findWeekTemplate } from './template';
 
 /**
@@ -340,8 +341,11 @@ export async function writeAutoPick(
 ): Promise<PlannedEntry | undefined> {
   const picked = await pickIdea(tx, ownerId, {
     garmentIds: pick.garments.map((g) => g.id),
-    plan: { day: pick.day, occasion: pick.occasion, plannedBy: 'auto' },
+    plan: { day: pick.day, occasion: pick.occasion },
     origin: 'planner',
+    // The planner, whoever pressed the button (plan_week included): its
+    // entries are `auto`, its outfits carry no token.
+    madeBy: BY_PERSON,
   });
   if (picked === 'not-found' || picked.schedule !== 'scheduled') {
     return undefined;

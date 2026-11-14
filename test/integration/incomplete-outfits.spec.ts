@@ -16,6 +16,7 @@ import { createGarment, createWishlistItem } from './garments';
 import { createTestApp, hasText, type TestApp, unescapeHtml } from './harness';
 import { interleave } from './interleave';
 import { callTool, createAccessToken, tool } from './mcp';
+import { BY_PERSON } from '../../src/web/write-origin';
 
 /**
  * Outfits holding pieces not bought yet (#335, phase 2 of the Muse epic;
@@ -596,6 +597,7 @@ describe('incomplete outfits', () => {
             outfitId: id,
             day,
             occasion: 'all-day',
+            chooser: BY_PERSON,
           }),
         () => addScarf(t.db, id).catch((error: unknown) => error),
       );
@@ -610,7 +612,12 @@ describe('incomplete outfits', () => {
       const [added, edit] = await interleave(
         t.db,
         (tx) =>
-          addTripOutfit(tx, { tripId, ownerId: t.owner.id, outfitId: id }),
+          addTripOutfit(tx, {
+            tripId,
+            ownerId: t.owner.id,
+            outfitId: id,
+            madeBy: BY_PERSON,
+          }),
         () => addScarf(t.db, id).catch((error: unknown) => error),
       );
       expect(added).toBe('added');

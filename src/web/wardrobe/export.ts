@@ -23,7 +23,7 @@ export const EXPORT_PAGE_SIZE = 200;
 /**
  * The garment columns left out: whose it is (always the requester), the
  * internal photo row id (the photo is exported as its URLs), and a
- * suggestion's token id (a credential's row the export does not hold; its
+ * the agent token's id (a credential's row the export does not hold; its
  * need's id is exported, the JSON bundle's `optionGroups` holds the needs,
  * and the CSV names each garment's need in OPTION_GROUP_COLUMN), and the
  * sync's bookkeeping (#196a: the owner's revision and a client's create id,
@@ -32,7 +32,7 @@ export const EXPORT_PAGE_SIZE = 200;
 export const OMITTED_COLUMNS: ReadonlySet<string> = new Set([
   'ownerId',
   'photoId',
-  'suggestedByTokenId',
+  'addedByTokenId',
   'revision',
   'clientId',
 ]);

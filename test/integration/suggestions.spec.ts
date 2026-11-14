@@ -309,7 +309,7 @@ describe('suggestions', () => {
       expect(await garmentRow(t, a)).toMatchObject({
         status: 'closet',
         suggestionGroupId: boots,
-        suggestedByTokenId: tokenId,
+        addedByTokenId: tokenId,
       });
 
       expect(
