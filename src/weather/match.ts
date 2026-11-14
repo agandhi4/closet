@@ -359,6 +359,9 @@ export function assessOutfit(
   }
   if (needs.layer && !hasLayer) miss('needs-layer', MISSING_PENALTY);
 
+  // Dressed for moving (ActiveDemand): running shorts and running shoes in
+  // the cold are what a run wears, so only too warm is judged.
+  const coldFloor = !OCCASION_HINTS[needs.occasion].active;
   const limb = (
     roles: readonly GarmentRole[],
     tolerance: { below: number; above: number },
@@ -370,7 +373,7 @@ export function assessOutfit(
     const warmth = Math.max(...worn.map((g) => g.warmth));
     const below = needs.limbs - tolerance.below - warmth;
     const above = warmth - (needs.limbsCeiling + tolerance.above);
-    if (below > 0) miss(cold, below);
+    if (coldFloor && below > 0) miss(cold, below);
     if (above > 0) miss(warm, above);
   };
   limb(LEG_ROLES, TOLERANCE.legs, 'legs-too-cold', 'legs-too-warm');

@@ -6,7 +6,7 @@ import {
   type Idea,
   inOutfitOrderByCategory,
 } from '../../wardrobe/generator';
-import { OCCASION_HINTS, type Occasion } from '../../wardrobe/occasions';
+import { occasionDemands, type Occasion } from '../../wardrobe/occasions';
 import { FORECAST_DAYS, forecastDay } from '../../weather/forecast';
 import type { Location } from '../../weather/location';
 import {
@@ -248,7 +248,7 @@ export async function ideasFrom(
     pool,
     locked: input.locked ?? [],
     needs: weather?.needs ?? null,
-    formality: OCCASION_HINTS[input.occasion].formality,
+    ...occasionDemands(input.occasion),
     avoid,
     rules,
     saved,

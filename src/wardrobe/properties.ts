@@ -305,6 +305,14 @@ interface WeightStep {
   warmth: Warmth;
 }
 
+/**
+ * What a type is made for, beyond everyday wear (#647): `active`, a run or
+ * the gym. An occasion may require it of some roles (OccasionHints.active).
+ * Of the type, never stored: no column, no migration. Swimwear needs none:
+ * it is never drawn at all (GarmentType.drawn).
+ */
+export type GarmentPurpose = 'active';
+
 export interface GarmentType {
   value: string;
   presets: Presets;
@@ -314,6 +322,7 @@ export interface GarmentType {
    * swimwear, sleepwear, #685): the generator never draws one (isDrawnType).
    */
   drawn?: false;
+  purpose?: GarmentPurpose;
 }
 
 /**
@@ -391,13 +400,15 @@ export const GARMENT_TYPES: Record<GarmentCategory, readonly GarmentType[]> = {
       value: 'turtleneck',
       presets: { warmth: 3, formality: 3, sleeve: 'long' },
     },
-    // Tank or tee, made for a run or the gym: drawn like any top until
-    // #647 gives it its purpose. Short like a t-shirt, its commonest form:
-    // a top tagged from the tagging card must not reach ideas and plans with
-    // no sleeve (the tank and long-sleeve forms are one edit away).
+    // Tank or tee, made for a run or the gym. Short like a t-shirt, its
+    // commonest form: a top tagged from the tagging card must not reach
+    // ideas and plans with no sleeve (the tank and long-sleeve forms are one
+    // edit away). A workout does not require an active top (any light top
+    // does), but this is what it suits.
     {
       value: 'sports-top',
       presets: { warmth: 1, formality: 1, sleeve: 'short' },
+      purpose: 'active',
     },
     { ...SWIMWEAR, presets: { warmth: 1, formality: 1 } },
     { ...SLEEPWEAR, presets: { warmth: 2, formality: 1 } },
@@ -410,17 +421,28 @@ export const GARMENT_TYPES: Record<GarmentCategory, readonly GarmentType[]> = {
     },
     { value: 'chinos', presets: { warmth: 2, formality: 3, length: 'full' } },
     { value: 'trousers', presets: { warmth: 2, formality: 3, length: 'full' } },
-    { value: 'joggers', presets: { warmth: 3, formality: 1, length: 'full' } },
+    {
+      value: 'joggers',
+      presets: { warmth: 3, formality: 1, length: 'full' },
+      purpose: 'active',
+    },
+    // Not active: sweatpants are lounge wear (a Sunday on the sofa), and a
+    // cold run that asks for full length has joggers or leggings.
     {
       value: 'sweatpants',
       presets: { warmth: 3, formality: 1, length: 'full' },
     },
     { value: 'shorts', presets: { warmth: 1, formality: 2, length: 'short' } },
     { value: 'skirt', presets: { warmth: 2, formality: 3, length: 'knee' } },
-    { value: 'leggings', presets: { warmth: 2, formality: 1, length: 'full' } },
+    {
+      value: 'leggings',
+      presets: { warmth: 2, formality: 1, length: 'full' },
+      purpose: 'active',
+    },
     {
       value: 'running-shorts',
       presets: { warmth: 1, formality: 1, length: 'short' },
+      purpose: 'active',
     },
     { ...SWIMWEAR, presets: { warmth: 1, formality: 1, length: 'short' } },
     { ...SLEEPWEAR, presets: { warmth: 2, formality: 1, length: 'full' } },
@@ -458,7 +480,11 @@ export const GARMENT_TYPES: Record<GarmentCategory, readonly GarmentType[]> = {
   ],
   [GarmentCategory.FOOTWEAR]: [
     { value: 'sneakers', presets: { warmth: 2, formality: 2 } },
-    { value: 'running-shoes', presets: { warmth: 2, formality: 1 } },
+    {
+      value: 'running-shoes',
+      presets: { warmth: 2, formality: 1 },
+      purpose: 'active',
+    },
     { value: 'boots', presets: { warmth: 4, formality: 3 } },
     { value: 'loafers', presets: { warmth: 2, formality: 3 } },
     { value: 'dress-shoes', presets: { warmth: 2, formality: 4 } },
@@ -511,6 +537,14 @@ export function findType(
  */
 export function isDrawnType(category: string, type: string | null): boolean {
   return findType(category, type)?.drawn !== false;
+}
+
+/** What a garment's type is made for (GarmentType.purpose); undefined for everyday, untyped and unknown types. */
+export function purposeOf(
+  category: string,
+  type: string | null,
+): GarmentPurpose | undefined {
+  return findType(category, type)?.purpose;
 }
 
 /**

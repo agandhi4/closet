@@ -1368,6 +1368,7 @@
     "PLANNED_MANY": "Planned {count} outfits for your week",
     "NOTHING_PLANNED": "Nothing new to plan: every slot of your week has an outfit or nothing clean fits it.",
     "STILL_EMPTY": "Still empty: {slots}",
+    "NEEDS_ACTIVEWEAR": "A workout is planned only in activewear: running shoes, and running shorts, leggings or joggers, clean that day. Set a garment's type to one of those to have workouts planned.",
     "YOURS_NOW": "yours now",
     "UNDO": "Undo",
     "UNDO_CONFIRM": "Remove the outfits this plan added? Anything you edited or wore stays.",

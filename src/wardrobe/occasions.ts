@@ -1,4 +1,4 @@
-import type { Formality } from './properties';
+import type { Formality, GarmentRole } from './properties';
 
 /**
  * The part of the day a calendar entry is for (#13; plan section 8):
@@ -39,13 +39,35 @@ export interface OccasionHints {
   window: { from: number; to: number };
   /** The garment formality that suits it, both ends inclusive. */
   formality: { min: Formality; max: Formality };
+  /** Dressed for moving (#647): see ActiveDemand. */
+  active?: ActiveDemand;
+}
+
+/**
+ * An occasion dressed for moving (a run, the gym), and what that changes:
+ * - every idea fills `roles` with garments of an `active` type
+ *   (GarmentType.purpose), a hard rule: a closet without them gets no idea
+ *   (the generator's pool, the planner's empty slot), never a parka and
+ *   boots for a run. The top is free: any light top runs;
+ * - legs and feet are not held to the weather's cold floor (assessOutfit):
+ *   running shorts at 0 °C are what runners wear, the effort warms them;
+ *   too warm still counts (#757's ceiling);
+ * - a layer is not held to the formality range (the generator): what keeps
+ *   a cold run warm is a jacket, and none is formality 1.
+ */
+export interface ActiveDemand {
+  roles: readonly GarmentRole[];
 }
 
 export const OCCASION_HINTS: Readonly<Record<Occasion, OccasionHints>> = {
   // An everyday outfit for the whole waking day.
   'all-day': { window: { from: 8, to: 22 }, formality: { min: 2, max: 3 } },
   // A morning run or gym session, before the day's outfit.
-  workout: { window: { from: 6, to: 9 }, formality: { min: 1, max: 1 } },
+  workout: {
+    window: { from: 6, to: 9 },
+    formality: { min: 1, max: 1 },
+    active: { roles: ['bottom', 'footwear'] },
+  },
   // The plan's rule: at least smart casual.
   work: { window: { from: 8, to: 18 }, formality: { min: 3, max: 4 } },
   // Errands, brunch, a museum: out and about in daylight.
@@ -55,6 +77,19 @@ export const OCCASION_HINTS: Readonly<Record<Occasion, OccasionHints>> = {
   // Drinks and late plans: a bar in jeans or a club in a jacket.
   'night-out': { window: { from: 21, to: 24 }, formality: { min: 2, max: 4 } },
 };
+
+/**
+ * What the generator asks of an outfit for `occasion` (generateIdeas'
+ * `formality` and `active`): every caller that draws for an occasion
+ * spreads it into its request, so none forgets a part.
+ */
+export function occasionDemands(occasion: Occasion): {
+  formality: OccasionHints['formality'];
+  active: ActiveDemand | null;
+} {
+  const hints = OCCASION_HINTS[occasion];
+  return { formality: hints.formality, active: hints.active ?? null };
+}
 
 /**
  * The occasions whose outfit is the one worn through the day. The others

@@ -8,7 +8,11 @@ import {
   type Idea,
   type IdeaGarment,
 } from '../wardrobe/generator';
-import { OCCASION_HINTS, type Occasion } from '../wardrobe/occasions';
+import {
+  occasionDemands,
+  type Occasion,
+  OCCASIONS,
+} from '../wardrobe/occasions';
 import type { DayForecast } from './forecast';
 import { assessOutfit, matchGarment, weatherNeeds } from './match';
 
@@ -164,7 +168,7 @@ function fittingIdeas(day: DayForecast, occasion: Occasion) {
       avoid: CLOSET.avoid,
       saved: CLOSET.saved,
       needs,
-      formality: OCCASION_HINTS[occasion].formality,
+      ...occasionDemands(occasion),
       seed,
       offset: 0,
       limit: PAGE,
@@ -281,5 +285,117 @@ describe('the ideas on real New York days (#645)', () => {
         ]).problems,
       ).toEqual(['feet-too-warm']);
     });
+  });
+});
+
+/** A day at `feelsLike` °C every hour, dry: a workout's two ends. */
+function steadyDay(feelsLike: number): DayForecast {
+  return {
+    day: '2025-01-01',
+    code: 1,
+    high: feelsLike,
+    low: feelsLike,
+    precipitationChance: 0,
+    hours: Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      feelsLike,
+      precipitationChance: 0,
+      code: 1,
+    })),
+  };
+}
+
+/** Every idea on the first page of every seed, near misses included: what the planner may take. */
+function allIdeas(day: DayForecast, occasion: Occasion) {
+  const needs = weatherNeeds(day, occasion, 0);
+  return SEEDS.flatMap(
+    (seed) =>
+      generateIdeas({
+        pool: CLOSET.pool,
+        avoid: CLOSET.avoid,
+        saved: CLOSET.saved,
+        needs,
+        ...occasionDemands(occasion),
+        seed,
+        offset: 0,
+        limit: PAGE,
+      }).ideas,
+  );
+}
+
+// Named here, not read from properties.ts: the spec's own answer to what a
+// run is dressed in.
+const RUNNING_FOOTWEAR = ['running-shoes'];
+const RUNNING_BOTTOMS = ['running-shorts', 'leggings', 'joggers'];
+
+describe('a workout in the demo closet (#647)', () => {
+  it.each([
+    ['January, about -8 °C at 7 am', JANUARY],
+    ['July, about 26 °C at 7 am', JULY],
+    ['0 °C', steadyDay(0)],
+    ['30 °C', steadyDay(30)],
+  ] as const)(
+    '%s: every idea has running shoes and athletic bottoms',
+    (_, day) => {
+      const ideas = allIdeas(day, 'workout');
+      expect(ideas.length).toBeGreaterThan(0);
+      const dressedFor = (g: DemoGarment, role: string, types: string[]) =>
+        g.role === role && g.type !== null && types.includes(g.type);
+      const offending = ideas
+        .filter(
+          (idea) =>
+            !idea.garments.some((g) =>
+              dressedFor(g, 'footwear', RUNNING_FOOTWEAR),
+            ) ||
+            !idea.garments.some((g) =>
+              dressedFor(g, 'bottom', RUNNING_BOTTOMS),
+            ),
+        )
+        .map((idea) => idea.garments.map((g) => g.name).join(' + '));
+      expect(offending).toEqual([]);
+    },
+  );
+
+  it('holds a run to no cold floor on the legs and feet, and its layer to no formality', () => {
+    const run = ['Running tee', 'Running shorts', 'Running shoes'];
+    expect(scoreOf(JANUARY, 'all-day', run).problems).toContain(
+      'legs-too-cold',
+    );
+    expect(scoreOf(JANUARY, 'workout', run).problems).toEqual(['too-cold']);
+    // The cold run wears a layer (none is formality 1), and an idea is too
+    // dressy only for what is under it.
+    const ideas = allIdeas(JANUARY, 'workout');
+    expect(
+      ideas.every((idea) => idea.garments.some((g) => g.role === 'layer')),
+    ).toBe(true);
+    const dressyForTheLayer = ideas.filter(
+      (idea) =>
+        idea.problems.includes('too-dressy') &&
+        idea.garments.every(
+          (g) => g.role === 'layer' || (g.formality ?? 1) <= 1,
+        ),
+    );
+    expect(dressyForTheLayer).toEqual([]);
+    expect(ideas.some((idea) => !idea.problems.includes('too-dressy'))).toBe(
+      true,
+    );
+  });
+
+  it('fits a hot morning run outright', () => {
+    expect(fittingIdeas(steadyDay(30), 'workout').length).toBeGreaterThan(0);
+  });
+});
+
+describe('swimwear (#647)', () => {
+  it('is in no idea for any occasion, in any season', () => {
+    expect(CLOSET.pool.some((g) => g.type === 'swimwear')).toBe(true);
+    for (const day of [JANUARY, APRIL, JULY, JULY_RAIN, OCTOBER]) {
+      for (const occasion of OCCASIONS) {
+        const swim = allIdeas(day, occasion).flatMap((idea) =>
+          idea.garments.filter((g) => g.type === 'swimwear').map((g) => g.name),
+        );
+        expect(swim, `${day.day} ${occasion}`).toEqual([]);
+      }
+    }
   });
 });
