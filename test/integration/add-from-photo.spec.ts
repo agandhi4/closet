@@ -538,11 +538,12 @@ describe('adding a garment from a photo', () => {
       const report = await reconcileStorage({
         db: t.db,
         photos: t.photos,
+        timeZone: t.timeZone,
         logger: silentLogger,
       });
       expect(report.refused).toBeUndefined();
       expect(report.pendingPhotosDeleted).toBe(1);
-      expect(report.orphanedObjectsDeleted).toBe(0);
+      expect(report.orphanedSetsQuarantined).toBe(0);
       const stored = await readdir(t.dataPath);
       expect(stored.some((name) => name.startsWith(old.slice(0, 36)))).toBe(
         false,

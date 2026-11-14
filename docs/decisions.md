@@ -1067,6 +1067,12 @@ Consequence: MCP_WRITES' required `attribution` says what each tool stamps; `mcp
 **Consequence:** a new `CLIENT_MODULES` entry or bundled devDependency must be in the lock's production tree or `BUNDLED_AT_BUILD` (`third-party-notices.spec.ts` fails otherwise). Optional platform packages appear only where installed.
 **Versions are omitted** from the public notices (an anonymous fingerprint of known-vulnerable server dependencies); names, licences and licence texts are what a notice needs. Normals are Open-Meteo data too, so the credit shows on typical days as well.
 
+## 2026-11-14 — Reconciliation quarantines unexplained photo sets (#649)
+
+**Why:** after a database restore from an older dump, the photo sets of garments added since have no `file` row and are the only copy; a dozen of them passes the wholesale guard, so the nightly unlinked them.
+**Decision:** the orphan pass renames each set into `DATA_PATH/.trash/<APP_TIMEZONE day>/<base name>/` (`PhotoStorage.quarantine`; a second set of a name that day gets a `~<hex>` entry, never an overwrite), and the same run purges day directories older than 30 days (`TRASH_RETENTION_DAYS`), not while the guard refuses. `--restore-from-trash` links files back whole or not at all, stamped now, and refuses over a live set. Unreferenced rows' sets, pending photos and superseded variants stay direct deletions: a row explains them.
+**Consequence:** DATA_PATH holds at most 30 days of orphans. A restored set without its row is quarantined again the next night; re-attaching is out of scope.
+
 ## 2026-11-14 — One AgentBadge shows who made a row (#822)
 **Why:** #821 resolved the viewer's label in SQL (`agentLabelSql`) but nothing in the app showed it.
 **Decision:** `src/web/agent-badge.tsx` words an `AgentLabel` (`agentName`) as a `badge-soft badge-secondary` pill, the name truncating inside it, "Made by <name>" for assistive tech. Pages get the label as one more column of their own statement (the Saved tab's `savedOutfitsSql`, the wishlist's `ownItemsSql`, the garment page's existing context), so no statement count moves. Muse's rows keep "From Muse" and get no second badge.

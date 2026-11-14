@@ -574,12 +574,13 @@ describe('inspiration', () => {
     const report = await reconcileStorage({
       db: t.db,
       photos: t.photos,
+      timeZone: t.timeZone,
       logger: silentLogger,
     });
     expect(report.refused).toBeUndefined();
     expect(report).toMatchObject({
       orphanedRowsDeleted: 0,
-      orphanedObjectsDeleted: 0,
+      orphanedSetsQuarantined: 0,
     });
     expect(await photoRow(t, fileName)).toBeDefined();
     expect(await stored()).toContain(fileName);
@@ -1245,12 +1246,13 @@ describe('inspiration', () => {
     const report = await reconcileStorage({
       db: t.db,
       photos: t.photos,
+      timeZone: t.timeZone,
       logger: silentLogger,
     });
     expect(report.refused).toBeUndefined();
     expect(report).toMatchObject({
       orphanedRowsDeleted: 0,
-      orphanedObjectsDeleted: 0,
+      orphanedSetsQuarantined: 0,
     });
   });
 });

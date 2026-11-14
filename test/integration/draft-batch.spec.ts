@@ -405,7 +405,12 @@ describe('a batch of drafts', () => {
 
     const reconcile = (dryRun: boolean) =>
       reconcileStorage(
-        { db: t.db, photos: t.photos, logger: silentLogger },
+        {
+          db: t.db,
+          photos: t.photos,
+          logger: silentLogger,
+          timeZone: t.timeZone,
+        },
         { dryRun },
       );
     // The dry run applies the same rule as the real one.
