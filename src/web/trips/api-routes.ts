@@ -127,6 +127,7 @@ export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       ...slot,
       garmentIds,
       name: input.name?.trim() || undefined,
+      origin: 'idea',
     });
     return {
       outfitId: picked.outfit.id,

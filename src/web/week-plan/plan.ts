@@ -1,7 +1,12 @@
 import type { Db, Queryable } from '../../db/client';
 import { type ScalarValues, selectScalars } from '../../db/select-scalars';
 import type { IdeaProblem } from '../../wardrobe/generator';
-import type { Occasion } from '../../wardrobe/occasions';
+import {
+  type ActivewearGap,
+  lacksActivewear,
+  OCCASION_HINTS,
+  type Occasion,
+} from '../../wardrobe/occasions';
 import {
   emptySlots,
   PLAN_DAYS,
@@ -14,9 +19,11 @@ import {
 } from '../../wardrobe/week-planner';
 import type { TemplateSlot } from '../../wardrobe/week';
 import type { DayForecast } from '../../weather/forecast';
+import { type MatchGarment, weatherNeeds } from '../../weather/match';
 import { ownerTransaction } from '../auth/queries';
 import { addDays, hourIn, type IsoDate, todayIn } from '../../calendar-date';
 import { entryOf } from '../calendar/queries';
+import type { ClosetKind } from '../gallery/queries';
 import { pickIdea } from '../outfits/pick';
 import { NotFound } from '../refusals';
 import type { Actor } from '../sharing/access';
@@ -28,6 +35,7 @@ import {
   weekPoolSql,
 } from '../gallery/queries';
 import type { ReadOptions } from '../weather/location-cache';
+import { rainGearFor } from '../weather/queries';
 import {
   type UserWeather,
   userWeather,
@@ -101,6 +109,28 @@ export function forecastOf({ settings, cached }: UserWeather): WeekForecast {
     days: new Map((cached?.forecast.days ?? []).map((day) => [day.day, day])),
     offset: settings.offset,
   };
+}
+
+/**
+ * The closet's rain gear for the slots being planned or judged, from the
+ * one reader every surface uses (rainGearFor): no statement unless a slot's
+ * day asks for water resistance. The planner takes it as `rainGear`, so a
+ * hat in the wash answers a rainy day here as it does on Today.
+ */
+export function weekRainGear(
+  db: Queryable,
+  ownerId: number,
+  forecast: WeekForecast,
+  slots: readonly Slot[],
+): Promise<MatchGarment[]> {
+  return rainGearFor(
+    db,
+    ownerId,
+    slots.map(({ day, occasion }) => {
+      const found = forecast.days.get(day);
+      return found && weatherNeeds(found, occasion, forecast.offset);
+    }),
+  );
 }
 
 /** The days "Plan my week" fills: today and the six after it. */
@@ -193,7 +223,8 @@ export function planMyWeek(
     // planned by hand): nothing to plan, so neither the pool nor the
     // generator's memory is read (#165: two round trips). planWeek plans
     // exactly these slots.
-    if (emptySlots({ today, hour, days, template, entries }).length === 0) {
+    const empty = emptySlots({ today, hour, days, template, entries });
+    if (empty.length === 0) {
       return { templateSet: true, weekPlanId: null, planned: [], unfilled: [] };
     }
     const plan = planWeek({
@@ -205,6 +236,7 @@ export function planMyWeek(
       template,
       forecast: input.forecast.days,
       offset: input.forecast.offset,
+      rainGear: await weekRainGear(tx, ownerId, input.forecast, empty),
     });
     const result: WeekPlanResult = {
       templateSet: true,
@@ -248,7 +280,7 @@ export function weekSql(ownerId: number, today: IsoDate, last: IsoDate) {
 export function readWeekColumns(
   today: IsoDate,
   row: ScalarValues<ReturnType<typeof weekSql>>,
-): Omit<WeekContext<WeekPoolGarment>, 'forecast' | 'offset'> {
+): Omit<WeekContext<WeekPoolGarment>, 'forecast' | 'offset' | 'rainGear'> {
   return {
     today,
     entries: readWindowEntries(row.entries),
@@ -309,6 +341,7 @@ export async function writeAutoPick(
   const picked = await pickIdea(tx, ownerId, {
     garmentIds: pick.garments.map((g) => g.id),
     plan: { day: pick.day, occasion: pick.occasion, plannedBy: 'auto' },
+    origin: 'planner',
   });
   if (picked === 'not-found' || picked.schedule !== 'scheduled') {
     return undefined;
@@ -375,6 +408,12 @@ export interface PlannedBanner {
   entries: BatchEntry[];
   /** Template slots of the next 7 days still without an outfit. */
   stillEmpty: Slot[];
+  /**
+   * Why an empty active slot (a workout) is empty, when it is the closet's
+   * activewear (#647): none at all, or none clean and at home. Undefined
+   * when no empty slot is active.
+   */
+  activewearGap: ActivewearGap | undefined;
 }
 
 /**
@@ -392,19 +431,33 @@ export function plannedBanner(
     batch: BatchEntry[];
     template: readonly TemplateSlot[];
     window: readonly Pick<WeekEntry, 'day' | 'occasion'>[];
+    /** The closet's kinds (closetKindsSql), read for the banner. */
+    closetKinds: readonly ClosetKind[];
   },
   now: { today: IsoDate; hour: number },
 ): PlannedBanner | undefined {
   if (planned !== 'none' && reads.batch.length === 0) return undefined;
+  const stillEmpty = emptySlots({
+    today: now.today,
+    hour: now.hour,
+    days: planDays(now.today),
+    template: reads.template,
+    entries: reads.window,
+  });
+  // The banner reads the calendar, not the plan's reasons: an empty active
+  // slot is the closet's when it lacks the kinds, else they are out (the
+  // planner counts the week's wears and washes day by day).
+  const active = stillEmpty
+    .map((slot) => OCCASION_HINTS[slot.occasion].active)
+    .find((demand) => demand !== undefined);
   return {
     weekPlanId: planned === 'none' ? null : planned,
     entries: reads.batch,
-    stillEmpty: emptySlots({
-      today: now.today,
-      hour: now.hour,
-      days: planDays(now.today),
-      template: reads.template,
-      entries: reads.window,
-    }),
+    stillEmpty,
+    activewearGap:
+      active &&
+      (lacksActivewear(active, reads.closetKinds)
+        ? 'no-activewear'
+        : 'none-available'),
   };
 }

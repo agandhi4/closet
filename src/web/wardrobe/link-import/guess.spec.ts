@@ -64,6 +64,15 @@ describe('guessKind', () => {
     ['Leather Belt Bag', 'bags', null],
     ['Canvas Tote Bag', 'bags', 'tote'],
     ['Crop Top', 'tops', null],
+    // The everyday types (#685): a sock, swim trunks over shorts.
+    ["Men's Calf Sock 6-Pack", 'accessories', 'socks'],
+    ['Cotton Boxer Briefs 3-Pack', 'accessories', 'underwear'],
+    ['6" Stretch Swim Trunk', 'bottoms', 'swimwear'],
+    ['Swim Shorts', 'bottoms', 'swimwear'],
+    ['One-Piece Swimsuit', 'dresses', 'swimwear'],
+    ['Flannel Pajama Pants', 'bottoms', 'sleepwear'],
+    ['Running Shorts 5"', 'bottoms', 'running-shorts'],
+    ['DRY-EX Running Tee', 'tops', 'sports-top'],
   ])('%s is %s / %s', (text, category, type) => {
     expect(guessKind(text)).toEqual({ category, type });
   });

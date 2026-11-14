@@ -3,8 +3,10 @@ import { dayOfWeek, daysBetween, type IsoDate } from '../calendar-date';
 import type { DayForecast } from '../weather/forecast';
 import {
   assessOutfit,
+  type FitProblem,
   type MatchGarment,
   type WeatherNeeds,
+  withRainGear,
   weatherNeeds,
 } from '../weather/match';
 import {
@@ -23,10 +25,11 @@ import {
   compareOccasions,
   DAY_OCCASIONS,
   OCCASION_HINTS,
+  occasionDemands,
   type Occasion,
 } from './occasions';
 import type { OutfitRule } from './outfit-rules';
-import type { GarmentRole } from './properties';
+import type { GarmentRole, Warmth } from './properties';
 import type { GarmentStatus } from './status';
 import { occasionsOn, type TemplateSlot } from './week';
 
@@ -45,9 +48,11 @@ import { occasionsOn, type TemplateSlot } from './week';
  *   (OCCASION_HINTS) has ended are left alone.
  * - **Ideas come from the generator** (generateIdeas: its colour, clash,
  *   outfit and saved-outfit rules, the slot's weather needs and the occasion's
- *   formality), one per slot, seeded by (day, occasion). The best idea is
- *   taken, a near miss included (its problems travel with it); a slot with
- *   no idea at all stays empty and is reported.
+ *   demands, occasionDemands), one per slot, seeded by (day, occasion). The
+ *   best idea is taken, a near miss included (its problems travel with it);
+ *   a slot with no idea at all stays empty and is reported. A workout's
+ *   activewear is a hard rule, never a near miss (ActiveDemand): without
+ *   running shoes and athletic bottoms clean that day, it stays empty.
  * - **Wash limits across the week**: the week's own future wears count.
  *   Every unworn entry already in the window and every outfit planned so
  *   far adds its garments' wear days (distinct days, as the app counts
@@ -115,6 +120,12 @@ export interface WeekContext<G extends PlannerGarment> {
   forecast: ReadonlyMap<IsoDate, DayForecast>;
   /** The personal temperature offset, °C. */
   offset: number;
+  /**
+   * The closet's rain gear (rainGearFor), read by the caller once, so the
+   * planner judges a rainy day as every other surface does; empty when no
+   * planned day asks for water resistance.
+   */
+  rainGear: readonly MatchGarment[];
   avoid: readonly (readonly [number, number])[];
   /** The owner's outfit rules (outfit_rule). */
   rules: readonly OutfitRule[];
@@ -143,7 +154,7 @@ interface PlannedSlot<G extends PlannerGarment> extends Slot {
 
 export interface WeekPlan<G extends PlannerGarment> {
   planned: PlannedSlot<G>[];
-  /** Empty slots no idea could fill (nothing clean left for them). */
+  /** Empty slots no idea could fill (nothing clean left for them, or no activewear for a workout). */
   unfilled: Slot[];
 }
 
@@ -268,6 +279,12 @@ export interface PlannedNeeds {
   limbs: number;
   layer: boolean;
   rain: boolean;
+  /**
+   * The too-warm bound for legs and feet, which `limbs` (capped on the cold
+   * side) cannot show. Null for an entry planned before it was stored: never
+   * judged on it.
+   */
+  limbsCeiling: Warmth | null;
 }
 
 export function plannedNeeds(needs: WeatherNeeds | null): PlannedNeeds | null {
@@ -277,6 +294,7 @@ export function plannedNeeds(needs: WeatherNeeds | null): PlannedNeeds | null {
       limbs: needs.limbs,
       layer: needs.layer,
       rain: needs.rain,
+      limbsCeiling: needs.limbsCeiling,
     }
   );
 }
@@ -314,6 +332,31 @@ export function needsChange(
   if (warmth < 0) return 'warmer';
   if (before.rain && !after.rain) return 'dry';
   return 'swing';
+}
+
+const LIMBS_TOO_WARM: readonly FitProblem[] = [
+  'legs-too-warm',
+  'feet-too-warm',
+];
+
+/**
+ * Legs or feet too warm against today's needs and the too-warm ceiling lower
+ * than the one the entry was planned with: the weather warmed past what it was
+ * planned for. A near miss planned already too warm, in unchanged weather, is
+ * not judged again; one the ceiling keeps falling under is. An entry stored
+ * without a ceiling is never judged.
+ */
+function limbsTurnedTooWarm(
+  needs: WeatherNeeds,
+  plannedFor: PlannedNeeds | null,
+  garments: readonly { weather: MatchGarment }[],
+): boolean {
+  if (!plannedFor || plannedFor.limbsCeiling === null) return false;
+  if (needs.limbsCeiling >= plannedFor.limbsCeiling) return false;
+  return assessOutfit(
+    needs,
+    garments.map((g) => g.weather),
+  ).problems.some((p) => LIMBS_TOO_WARM.includes(p));
 }
 
 /** An entry the planner wrote and still owns (planned_by 'auto'). */
@@ -400,7 +443,16 @@ export function replanWeek<G extends PlannerGarment>(
       // Nothing else dresses the slot: the outfit stays, judged below.
       ledger.wear(entry.day, entry.garments, { asOutfit: false });
     }
-    if (!needs || !now || sameNeeds(plannedFor, now)) {
+    if (!needs || !now) return { entryId, kind: 'unchanged' };
+    // `sameNeeds` cannot see the ceiling (the too-warm bound, uncapped where
+    // `limbs` is capped), so boots planned for 5 C that turn too warm at 12 C
+    // leave the targets equal. Judged when the legs or feet are too warm now
+    // and the ceiling fell since planning: a near miss the planner chose
+    // knowingly, in the same weather, is not re-judged every morning.
+    const warmedPast =
+      sameNeeds(plannedFor, now) &&
+      limbsTurnedTooWarm(needs, plannedFor, entry.garments);
+    if (sameNeeds(plannedFor, now) && !warmedPast) {
       return { entryId, kind: 'unchanged' };
     }
     const current = weatherScore(needs, entry.garments);
@@ -415,7 +467,11 @@ export function replanWeek<G extends PlannerGarment>(
         slot,
         idea,
         needs: now,
-        cause: { kind: 'weather', change: needsChange(plannedFor, now) },
+        // Equal targets and judged anyway: the ceiling fell (limbsTurnedTooWarm).
+        cause: {
+          kind: 'weather',
+          change: warmedPast ? 'warmer' : needsChange(plannedFor, now),
+        },
       };
     }
     ledger.wear(entry.day, entry.garments, { asOutfit: false });
@@ -435,14 +491,19 @@ function weatherScore(
 
 // ---- Shared by both --------------------------------------------------------
 
+/** The slot's needs with the closet's rain gear (withRainGear). */
 function needsOf(
-  context: Pick<WeekContext<PlannerGarment>, 'forecast' | 'offset'>,
+  context: Pick<
+    WeekContext<PlannerGarment>,
+    'forecast' | 'offset' | 'rainGear'
+  >,
   slot: Slot,
 ): WeatherNeeds | null {
   const forecast = context.forecast.get(slot.day);
-  return forecast
+  const needs = forecast
     ? weatherNeeds(forecast, slot.occasion, context.offset)
     : null;
+  return needs && withRainGear(needs, context.rainGear);
 }
 
 /** The slot's seed: the same slot draws the same ideas. */
@@ -488,7 +549,7 @@ function ideaFor<G extends PlannerGarment>(
     seed: slotSeed(slot),
     pool,
     needs,
-    formality: OCCASION_HINTS[slot.occasion].formality,
+    ...occasionDemands(slot.occasion),
     avoid: context.avoid,
     rules: context.rules,
     saved: ledger.outfits,

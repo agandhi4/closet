@@ -1,4 +1,5 @@
 import { type Static, Type } from '@sinclair/typebox';
+import { OutfitListQuery } from '../outfits/outfit-list';
 import type { FieldErrors } from '../auth/validation';
 import { daysBetween, parseIsoDate } from '../../calendar-date';
 import { checklistBody } from '../checklist';
@@ -115,6 +116,7 @@ export const AddOutfitBody = Type.Object({
 export const AddOutfitQuery = Type.Object({
   day: Type.Optional(Type.String()),
   occasion: Type.Optional(Type.String()),
+  ...OutfitListQuery,
 });
 
 /**

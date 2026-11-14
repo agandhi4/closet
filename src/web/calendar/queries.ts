@@ -1,4 +1,5 @@
 import { and, type AnyColumn, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import type { Db, Queryable } from '../../db/client';
 import {
   file,
@@ -6,6 +7,7 @@ import {
   outfit,
   outfitCalendar,
   outfitSlot,
+  weekPlanEntry,
 } from '../../db/schema';
 import { selectScalars } from '../../db/select-scalars';
 import type { Occasion } from '../../wardrobe/occasions';
@@ -15,10 +17,12 @@ import { photoRefJson } from '../files/queries';
 import { refuseUnholdable } from '../outfits/gone-garments';
 import {
   holdRefusalColumns,
+  keptOutfit,
   outfitMayBeHeld,
   type PieceToBuy,
 } from '../outfits/references';
 import { deleteEntrySelfie, entrySelfieSql } from '../selfies/queries';
+import { removeUnheldOutfits } from '../week-plan/queries';
 import {
   changeEntryWorn,
   type EntryWornOutcome,
@@ -85,6 +89,7 @@ export function entriesSql(
       'outfit', json_build_object(
         'id', ${outfit.id},
         'name', ${outfit.name},
+        'kept', ${keptOutfit()},
         'garments', (
           select coalesce(json_agg(json_build_object(
             'id', ${garment.id},
@@ -604,25 +609,53 @@ export async function ownEntryDay(
  * re-plan must not swap in an outfit for the entry the person just took
  * off the day.
  *
+ * Undo's rule applies (#659): an `auto` entry whose outfit "Plan my week"
+ * created takes that outfit with it once nothing else holds it
+ * (removeUnheldOutfits: another day's entry or a trip keeps it; one a
+ * person's save adopted is no longer the planner's). An entry the person
+ * took over, or one of an outfit they saved, leaves the outfit, as Change
+ * does.
+ *
  * Two statements inside the lock, no look-up first (#165): the selfie's
  * delete is scoped to the owner, so for another's or a missing entry it
  * finds nothing, and the entry's own delete (which locks its row) answers
- * whether there was one. The selfie goes first, while the entry still
- * points at it.
+ * whether there was one, and whose outfit it held (its week_plan_entry row
+ * is read in the RETURNING, before the cascade takes it). The selfie goes
+ * first, while the entry still points at it. Two more only for a planner's
+ * outfit.
  */
 export function deleteEntry(
   db: Queryable,
   id: number,
   ownerId: number,
-): Promise<{ selfies: string[] } | EntryMiss> {
+): Promise<
+  { selfies: string[]; plannerOutfitRemoved: number | null } | EntryMiss
+> {
   return ownerTransaction(db, ownerId, 'deleteEntry', async (tx) => {
     const selfies = await deleteEntrySelfie(tx, id, ownerId);
-    const deleted = await tx
-      .delete(outfitCalendar)
-      .where(
-        and(eq(outfitCalendar.id, id), eq(outfitCalendar.ownerId, ownerId)),
-      )
-      .returning({ id: outfitCalendar.id });
-    return deleted.length > 0 ? { selfies } : 'not-found';
+    // The target aliased and every column qualified: the RETURNING's
+    // subquery reads week_plan_entry, so a bare `id` or `planned_by` must
+    // never be left to name resolution. An alias renders as its name
+    // alone in sql``, so each table is named before it.
+    const entry = alias(outfitCalendar, 'deleted_entry');
+    const plan = alias(weekPlanEntry, 'entry_plan');
+    const {
+      rows: [deleted],
+    } = await tx.execute<{ outfit_id: number; planner_created: boolean }>(sql`
+      delete from ${outfitCalendar} as ${entry}
+      where ${entry.id} = ${id} and ${entry.ownerId} = ${ownerId}
+      returning ${entry.outfitId} as outfit_id,
+        ${entry.plannedBy} = 'auto' and coalesce(
+          (select ${plan.outfitCreated} from ${weekPlanEntry} as ${plan} where ${plan.entryId} = ${entry.id}),
+          false
+        ) as planner_created`);
+    if (!deleted) return 'not-found';
+    const removed =
+      deleted.planner_created &&
+      (await removeUnheldOutfits(tx, ownerId, [deleted.outfit_id])) > 0;
+    return {
+      selfies,
+      plannerOutfitRemoved: removed ? deleted.outfit_id : null,
+    };
   });
 }

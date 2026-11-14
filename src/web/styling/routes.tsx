@@ -1158,6 +1158,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       name: input.name ?? ideaName(garments),
       slots: garments.map((g) => ({ category: g.category, garmentId: g.id })),
       plan: input.schedule,
+      origin: 'person',
     });
     const toBuy = piecesToBuy(garments).length;
     logger.info(

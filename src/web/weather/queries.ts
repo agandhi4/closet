@@ -1,8 +1,22 @@
 import { and, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
-import { userWeather, weatherForecast, weatherNormals } from '../../db/schema';
+import {
+  garment,
+  userWeather,
+  weatherForecast,
+  weatherNormals,
+} from '../../db/schema';
 import { selectScalars } from '../../db/select-scalars';
-import type { Forecast } from '../../weather/forecast';
+import { type Forecast, forecastDay } from '../../weather/forecast';
+import type { IsoDate } from '../../calendar-date';
+import {
+  type MatchGarment,
+  matchGarment,
+  type WeatherNeeds,
+  needsWaterResistance,
+  weatherNeeds,
+} from '../../weather/match';
+import type { Occasion } from '../../wardrobe/occasions';
 import type { Location } from '../../weather/location';
 import type { ClimateNormals } from '../../weather/normals';
 import {
@@ -12,6 +26,9 @@ import {
   OFFSET_STEP,
   type TemperatureUnit,
 } from '../../weather/temperature';
+import { listGarmentIdsSql } from '../trips/packed';
+import { availableGarment } from '../wears/queries';
+import { inCloset } from '../wardrobe/status';
 
 /**
  * The weather's rows (#14): a user's settings (user_weather) and the
@@ -591,4 +608,90 @@ export async function recordFailedNormals(
       target: [weatherNormals.latitude, weatherNormals.longitude],
       set: { attemptedAt: at },
     });
+}
+
+/**
+ * What keeps the rain off beside an outfit (a water-resistant hat or cap,
+ * `MatchGarment.rainGear`), as the matching reads it. By default the
+ * owner's closet right now: available, never a capsule's or a pool's (the
+ * hat is in the house whatever the filter). For a trip (`tripId`), the gear
+ * on its packing list instead: planned to come, so a hat in the wash or
+ * marked away still counts, but one that left the closet (archived) does
+ * not.
+ */
+async function rainGearIn(
+  db: Queryable,
+  ownerId: number,
+  tripId: number | undefined,
+): Promise<MatchGarment[]> {
+  const rows = await db
+    .select({
+      category: garment.category,
+      type: garment.type,
+      fabricWeight: garment.fabricWeight,
+      warmth: garment.warmth,
+      waterResistant: garment.waterResistant,
+    })
+    .from(garment)
+    .where(
+      and(
+        eq(garment.ownerId, ownerId),
+        eq(garment.waterResistant, true),
+        tripId === undefined
+          ? availableGarment()
+          : and(inCloset(), sql`${garment.id} in ${listGarmentIdsSql(tripId)}`),
+      ),
+    );
+  return rows.map(matchGarment).filter((g) => g.rainGear);
+}
+
+/**
+ * The one owner of "does the owner's gear answer this rain": the rain gear
+ * for the days whose `needs` ask the outfit for water resistance, and none
+ * (no statement: production pays a round trip each) when no day does.
+ * Every surface that reports or judges a day's needs (the ideas, Today, the
+ * weather resource, trips, the calendar, the MCP tools, the week planner)
+ * reads it here and applies it with `withRainGear`, so `takeUmbrella` is
+ * one answer on all of them. A trip's days (the forecast, and the ideas
+ * `for=trip:ID`) pass its `tripId`: the one place the scope is chosen
+ * (rainGearIn).
+ */
+export async function rainGearFor(
+  db: Queryable,
+  ownerId: number,
+  needs: Iterable<WeatherNeeds | null | undefined>,
+  tripId?: number,
+): Promise<MatchGarment[]> {
+  for (const day of needs) {
+    if (day && needsWaterResistance(day)) {
+      return rainGearIn(db, ownerId, tripId);
+    }
+  }
+  return [];
+}
+
+/**
+ * rainGearFor for forecast days asked for an occasion each (the resources
+ * and tools that carry `weatherNeeds` per day): days the forecast does not
+ * reach, or has no hours for, ask nothing.
+ */
+export async function rainGearForDays(
+  db: Queryable,
+  ownerId: number,
+  weather:
+    | { cached: { forecast: Forecast } | null; settings: { offset: number } }
+    | null
+    | undefined,
+  asks: readonly { day: IsoDate; occasion: Occasion }[],
+): Promise<MatchGarment[]> {
+  const cached = weather?.cached;
+  if (!weather || !cached) return [];
+  return rainGearFor(
+    db,
+    ownerId,
+    asks.map(({ day, occasion }) => {
+      const found = forecastDay(cached.forecast, day);
+      return found && weatherNeeds(found, occasion, weather.settings.offset);
+    }),
+  );
 }

@@ -252,7 +252,10 @@ describe('the owner lock', () => {
 
   /** A saved outfit of the owner's, of these garments. */
   const outfitOf = async (garmentIds: number[]) => {
-    const saved = await pickIdea(t.db, t.owner.id, { garmentIds });
+    const saved = await pickIdea(t.db, t.owner.id, {
+      garmentIds,
+      origin: 'person',
+    });
     if (saved === 'not-found') throw new Error('garments not found');
     return saved.id;
   };
@@ -282,6 +285,7 @@ describe('the owner lock', () => {
       const picked = await pickIdea(tx, t.owner.id, {
         garmentIds,
         plan: { day, occasion, plannedBy: 'auto' },
+        origin: 'planner',
       });
       if (picked === 'not-found') throw new Error('garments not found');
       const [entry] = await tx
@@ -471,7 +475,7 @@ describe('the owner lock', () => {
         t.db,
         owner,
         { entryId, day, occasion: 'work' },
-        { garmentIds },
+        { garmentIds, origin: 'idea' },
       );
       expect(outcome).toMatchObject({
         outcome: 'unchanged',
@@ -550,16 +554,17 @@ describe('the owner lock', () => {
     });
 
     it('swaps in nothing for the entry the person deleted', async () => {
-      const { day, entryId } = await unwearableAutoEntry();
+      const { day, entryId, outfitId } = await unwearableAutoEntry();
       const outfits = await t.db.$count(outfit);
       const [deleted, replan] = await interleave(
         (tx) => deleteEntry(tx, entryId, t.owner.id),
         () => replanToday(deps, t.owner.id, new Date()),
       );
-      expect(deleted).toEqual({ selfies: [] });
+      // Its planner-made outfit goes with it (Undo's rule, #659).
+      expect(deleted).toEqual({ selfies: [], plannerOutfitRemoved: outfitId });
       expect(replan).toEqual({ kind: 'skipped' });
       expect(await entriesOn(day)).toEqual([]);
-      expect(await t.db.$count(outfit)).toBe(outfits);
+      expect(await t.db.$count(outfit)).toBe(outfits - 1);
     });
 
     it('defers, the day unclaimed, behind a write that holds the lock past its timeout (#134)', async () => {
@@ -664,6 +669,7 @@ describe('the owner lock', () => {
           pickIdea(t.db, t.owner.id, {
             garmentIds: idea(),
             plan: { day, occasion: 'all-day' },
+            origin: 'idea',
           }),
       );
       expect(archived).toMatchObject({ ok: true, to: 'archived' });
@@ -681,6 +687,7 @@ describe('the owner lock', () => {
           pickIdea(t.db, t.owner.id, {
             garmentIds: [doomed, bottoms[2], shoes[1]],
             plan: { day, occasion: 'all-day' },
+            origin: 'idea',
           }),
       );
       // Deleted (it had no photo).
@@ -697,6 +704,7 @@ describe('the owner lock', () => {
           pickIdea(tx, t.owner.id, {
             garmentIds: idea(),
             plan: { day, occasion: 'all-day' },
+            origin: 'idea',
           }),
         () => setGarmentStatus(t.db, tops[2], t.owner.id, { event: 'archive' }),
       );
@@ -743,7 +751,11 @@ describe('the owner lock', () => {
 
     it('a garment autosave that waited on a pick writes after it', async () => {
       const [pick, saved] = await interleave(
-        (tx) => pickIdea(tx, t.owner.id, { garmentIds: [tops[0], bottoms[0]] }),
+        (tx) =>
+          pickIdea(tx, t.owner.id, {
+            garmentIds: [tops[0], bottoms[0]],
+            origin: 'person',
+          }),
         () => updateGarmentProperties(t.db, tops[0], t.owner.id, { warmth: 3 }),
       );
       expect(pick).not.toBe('not-found');
@@ -1290,7 +1302,10 @@ describe('the owner lock', () => {
         category: 'tops',
         cookie,
       });
-      await pickIdea(t.db, theirs, { garmentIds: [theirGarment] });
+      await pickIdea(t.db, theirs, {
+        garmentIds: [theirGarment],
+        origin: 'person',
+      });
       await saveWeekTemplate(t.db, theirs, [{ weekday: 1, occasion: 'work' }]);
       await deleteAccount(
         { db: t.db, photos: t.photos, logger: t.logger },

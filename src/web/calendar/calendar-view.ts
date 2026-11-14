@@ -58,6 +58,12 @@ export interface CalendarEntry {
   outfit: {
     id: number;
     name: string | null;
+    /**
+     * Someone kept it (keptOutfit, #659): its row shows the name. A
+     * one-off's (the planner's, an idea's) is its garments' list, so the
+     * row shows the collage and the occasion only.
+     */
+    kept: boolean;
     /** In slot order, for its OutfitCollage (entryPieces). */
     garments: EntryGarment[];
   };

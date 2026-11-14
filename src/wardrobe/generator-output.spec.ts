@@ -18,6 +18,7 @@ import {
   type GarmentColor,
   type GarmentRole,
   PATTERNS,
+  type Warmth,
   WARMTHS,
 } from './properties';
 
@@ -64,6 +65,7 @@ function closet(key: string, counts: Partial<Record<GarmentRole, number>>) {
           role,
           warmth: pick(WARMTHS),
           waterResistant: random.chance(0.15),
+          rainGear: false,
         },
         idleDays: random.chance(0.2) ? null : Math.floor(random.next() * 90),
       });
@@ -252,67 +254,139 @@ describe('the generator, pinned (#168)', () => {
   });
 });
 
+describe('the layer, drawn like the other roles (#646)', () => {
+  // About 9 to 13 °C through the day: a tee alone is too cold, and each of
+  // these five layers fits over every top. The one unworn since winter is
+  // the most rested, which once put it on every card.
+  const SPRING = weatherNeeds(day(10, false), 'all-day', 0)!;
+  let id = 0;
+  const garment = (
+    role: GarmentRole,
+    warmth: Warmth,
+    idleDays = 2,
+  ): IdeaGarment => ({
+    id: (id += 1),
+    role,
+    category: builtInCategoriesOf(role)[0],
+    type: null,
+    colors: ['grey'],
+    pattern: 'solid',
+    formality: 2,
+    weather: { role, warmth, waterResistant: false, rainGear: false },
+    idleDays,
+  });
+  const pool = [
+    garment('layer', 2, 90),
+    garment('layer', 3, 20),
+    garment('layer', 3, 30),
+    garment('layer', 4, 12),
+    garment('layer', 4, 40),
+    ...([2, 2, 2, 2, 2, 3] as const).map((warmth) => garment('top', warmth)),
+    ...([3, 3, 3] as const).map((warmth) => garment('bottom', warmth)),
+    ...([2, 2] as const).map((warmth) => garment('footwear', warmth)),
+  ];
+  // A dozen gallery openings, each its first page.
+  const layersOn = (garments: readonly IdeaGarment[], seed: number) =>
+    generateIdeas({
+      pool: garments,
+      needs: SPRING,
+      formality: OCCASION_HINTS['all-day'].formality,
+      seed,
+      offset: 0,
+      limit: 6,
+    }).ideas.map((idea) => {
+      expect(idea.score).toBe(0);
+      return idea.garments.find((g) => g.role === 'layer')!.id;
+    });
+  const pages = Array.from({ length: 12 }, (_, seed) => layersOn(pool, seed));
+
+  it('puts no layer on more than half of the ideas', () => {
+    const layers = pages.flat();
+    expect(layers).toHaveLength(72);
+    for (const layer of new Set(layers)) {
+      const share = layers.filter((l) => l === layer).length;
+      expect(share, `layer ${layer}`).toBeLessThanOrEqual(layers.length / 2);
+    }
+  });
+
+  // `seed --reset` gives every garment a new id in the same order: the
+  // layer's sequence is keyed by places, not ids (seed.spec.ts's --reset).
+  it('draws the same layers when every id moves, as a reseed does', () => {
+    const moved = pool.map((g) => ({ ...g, id: g.id + 500 }));
+    expect(layersOn(moved, 3).map((layer) => layer - 500)).toEqual(pages[3]);
+  });
+
+  it('puts more than one layer on every page', () => {
+    for (const page of pages) {
+      expect(new Set(page).size, page.join(',')).toBeGreaterThan(1);
+    }
+  });
+});
+
 // First recorded before #168 changed when it stops drawing; re-pinned at
-// GENERATOR_VERSION 2 for #645's limb and layer rules.
+// GENERATOR_VERSION 2 for #645's limb and layer rules, at 3 for #646's
+// layer drawn by rotation, at 4 for #648's rain left to the umbrella, and
+// at 5 for #647's workout activewear (these closets are untyped: at 4 they
+// pinned unchanged, so only the version moved them).
 const PINNED = {
   fills: [
-    '161+183+215 0 - 161+183+215',
-    '145+191+211 0 - 145+191+211',
-    '124+215 0 - 124+215',
-    '126+217 0 - 126',
-    '137+192+215 0 - 137+192+215',
-    '124+211 0 - 124+211',
+    '131+186+217 0 - 131+186',
+    '176+189+211 0 - 189+211',
+    '144+186+214 0 - 144+186+214',
+    '123+215 0 - 123+215',
+    '120+211 0 - 120+211',
+    '140+189+214 0 - 140+189+214',
     'more true',
   ],
   coldFirst: [
-    '102+178+183+207 1 too-dressy 178+183+207+102',
-    '102+143+181+207 1 too-dressy 143+181+207+102',
-    '102+134+183+207 1 too-dressy 134+183+207+102',
-    '102+161+189+207 1 too-dressy 161+189+207+102',
-    '102+144+186+207 1 too-dressy 144+186+207+102',
-    '102+133+186+207 1 too-dressy 133+186+207+102',
+    '103+178+181+207 1 too-dressy 178+181+207+103',
+    '102+123+207 1 too-dressy 123+207+102',
+    '105+149+189+207 1 too-dressy 149+189+207+105',
+    '103+173+183+207 1 too-dressy 173+183+207+103',
+    '102+169+192+207 1 too-dressy 169+192+207+102',
+    '119+148+202+207 1 too-dressy 202+207+119',
     'more true',
   ],
   coldThird: [
-    '102+173+192+207 1 too-dressy 173+192+207+102',
-    '102+133+189+207 1 too-dressy 133+189+207+102',
-    '102+149+202+207 1 too-dressy 149+202+207+102',
-    '102+161+183+207 1 too-dressy 161+183+207+102',
-    '102+140+202+207 1 too-dressy 140+202+207+102',
-    '102+133+183+207 1 too-dressy 133+183+207+102',
+    '102+144+192+207 1 too-dressy 144+192+207+102',
+    '103+149+192+207 1 too-dressy 149+192+207+103',
+    '102+140+181+207 1 too-dressy 140+181+207+102',
+    '145+202+207 1 too-dressy 145+202+207',
+    '155+181+207 1 too-dressy 155+181+207',
+    '102+161+192+207 1 too-dressy 161+192+207+102',
     'more true',
   ],
   nearMisses: [
-    '154+181+211 1 too-casual 154+181+211',
-    '119+144+186+211 1 legs-too-warm 144+186+211+119',
-    '173+194+215 1 too-casual 173+194+215',
-    '119+137+202+214 1 too-casual 137+202+214+119',
-    '143+204+215 1 too-casual 143+204+215',
-    '161+189+214 1 too-casual 161+189+214',
+    '148+194+214 1 too-casual 194+214',
+    '140+194+215 1 too-casual 140+194+215',
+    '109+137+202+215 1 too-casual 137+202+215',
+    '140+199+211 1 too-casual 140+199+211',
+    '166+203+211 1 too-casual 166+211',
+    '119+169+202+214 1 too-casual 169+202+214+119',
     'more true',
   ],
   locked: [
-    '102+131+202+207 1 too-dressy 131+202+207+102',
-    '102+131+192+207 1 too-dressy 131+192+207+102',
-    '102+131+183+207 1 too-dressy 131+183+207+102',
-    '102+131+186+207 1 too-dressy 131+186+207+102',
+    '119+131+202+207 1 too-dressy 131+202+207+119',
     '102+131+189+207 1 too-dressy 131+189+207+102',
-    '102+131+189+214 2 needs-water-resistance 131+189+214+102',
+    '119+131+183+207 1 too-dressy 131+183+207+119',
+    '103+131+186+207 1 too-dressy 131+186+207+103',
+    '119+131+192+207 1 too-dressy 131+192+207+119',
+    '102+131+192+214 2 needs-water-resistance 131+192+214+102',
     'more true',
   ],
   small: [
     '115+105+108+112 1 too-cold 105+108+112+115',
     '115+105+110+112 1 too-cold 105+110+112+115',
-    '103+110+113 2 needs-water-resistance 103+110+113',
     '103+108+113 2 needs-water-resistance 103+108+113',
-    '117+107+108+112 2 needs-water-resistance 107+108+112+117',
-    '103+108+112 2 needs-water-resistance 103+108+112',
     '103+110+112 2 needs-water-resistance 103+110+112',
+    '117+107+108+112 2 needs-water-resistance 107+108+112+117',
     '117+107+110+112 2 needs-water-resistance 107+110+112+117',
+    '103+108+112 2 needs-water-resistance 103+108+112',
+    '103+110+113 2 needs-water-resistance 103+110+113',
     '107+110+113 4 too-cold/needs-water-resistance 107+110+113',
     '107+108+113 4 too-cold/needs-water-resistance 107+108+113',
     'more false',
   ],
-  goesWith: '7482a9daaa25253f',
-  sweep: '2eb50c8bed686d37',
+  goesWith: 'e357f8b6c0a30e51',
+  sweep: '0084486b1fc94bca',
 };

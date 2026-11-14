@@ -6,10 +6,19 @@ import {
   type Idea,
   inOutfitOrderByCategory,
 } from '../../wardrobe/generator';
-import { OCCASION_HINTS, type Occasion } from '../../wardrobe/occasions';
+import {
+  type ActivewearGap,
+  activewearGap,
+  occasionDemands,
+  type Occasion,
+} from '../../wardrobe/occasions';
 import { FORECAST_DAYS, forecastDay } from '../../weather/forecast';
 import type { Location } from '../../weather/location';
-import { type WeatherNeeds, weatherNeeds } from '../../weather/match';
+import {
+  type WeatherNeeds,
+  weatherNeeds,
+  withRainGear,
+} from '../../weather/match';
 import { normalsOn, typicalDay } from '../../weather/normals';
 import type { TemperatureUnit } from '../../weather/temperature';
 import { addDays, type IsoDate } from '../../calendar-date';
@@ -25,6 +34,7 @@ import { OUTFIT_NAME_MAX } from '../outfits/queries';
 import { categoryLabel } from '../wardrobe/garment';
 import { type ScalarValues, selectScalars } from '../../db/select-scalars';
 import {
+  rainGearFor,
   readWeatherWithForecast,
   type WeatherSettings,
   weatherWithForecastSql,
@@ -50,6 +60,7 @@ import {
   generatorMemorySql,
   type GoesWithInputs,
   goesWithInputs,
+  closetKindsSql,
   ideaPoolSql,
   type ManyGoesWithInputs,
   type PoolGarment,
@@ -116,6 +127,8 @@ export interface IdeasInput {
    * rather than home's.
    */
   place?: Location | null;
+  /** The trip these ideas are for: its packing list's rain gear, not the closet's (rainGearFor). */
+  tripId?: number;
   /**
    * The person's own weather, when the caller has read it already (Today
    * reads it with its entries for its line, #158): not read again. Only
@@ -183,6 +196,11 @@ export interface IdeasResult {
   weather: IdeasWeather | null;
   /** The owner's capsules by name, with `capsuleMenu`; else undefined. */
   capsules: CapsuleRef[] | undefined;
+  /**
+   * Why a workout has no idea, when it is the closet's activewear
+   * (activewearGap); undefined otherwise, and whenever there are ideas.
+   */
+  emptyReason: ActivewearGap | undefined;
 }
 
 export async function ideasFor(
@@ -195,7 +213,7 @@ export async function ideasFor(
     deps.db,
     ideasColumns(deps, ownerId, input, now),
   );
-  return ideasFrom(deps, input, row, now);
+  return ideasFrom(deps, ownerId, input, row, now);
 }
 
 /**
@@ -220,6 +238,10 @@ export function ideasColumns(
     ...generatorMemorySql(ownerId),
     weather: weatherColumn(deps, ownerId, input, now),
     capsules: input.capsuleMenu ? capsuleNamesSql(ownerId) : undefined,
+    // Only an active occasion tells why it is empty (ideasFrom).
+    closetKinds: occasionDemands(input.occasion).active
+      ? closetKindsSql(ownerId)
+      : undefined,
   };
 }
 
@@ -228,26 +250,59 @@ export type IdeasRow = ScalarValues<ReturnType<typeof ideasColumns>>;
 
 /** ideasFor's answer from its statement's row (ideasColumns). */
 export async function ideasFrom(
-  deps: { weather: WeatherService | undefined },
+  deps: { db: Queryable; weather: WeatherService | undefined },
+  ownerId: number,
   input: IdeasInput,
   row: IdeasRow,
   now: Date,
 ): Promise<IdeasResult> {
   const { saved, avoid, rules } = readGeneratorMemory(row);
-  const weather = await weatherFrom(deps, input, row.weather, now);
+  const pool = readPool(row.pool);
+  const weather = await withClosetRainGear(
+    deps.db,
+    ownerId,
+    await weatherFrom(deps, input, row.weather, now),
+    input.tripId,
+  );
+  const demands = occasionDemands(input.occasion);
   const page = generateIdeas({
     seed: input.seed,
-    pool: readPool(row.pool),
+    pool,
     locked: input.locked ?? [],
     needs: weather?.needs ?? null,
-    formality: OCCASION_HINTS[input.occasion].formality,
+    ...demands,
     avoid,
     rules,
     saved,
     offset: input.offset,
     limit: input.limit,
   });
-  return { ...page, weather, capsules: row.capsules };
+  return {
+    ...page,
+    weather,
+    capsules: row.capsules,
+    emptyReason:
+      page.ideas.length === 0
+        ? activewearGap(demands.active, row.closetKinds ?? [], pool)
+        : undefined,
+  };
+}
+
+/**
+ * The day's needs with the closet's rain gear (rainGearFor, never narrowed
+ * by `?capsule=`): what the cards are judged by is what "Take the umbrella"
+ * and every other surface read of the same day. One more read only on a day
+ * that asks the outfit for water resistance.
+ */
+async function withClosetRainGear(
+  db: Queryable,
+  ownerId: number,
+  weather: IdeasWeather | null,
+  tripId: number | undefined,
+): Promise<IdeasWeather | null> {
+  if (!weather) return null;
+  const gear = await rainGearFor(db, ownerId, [weather.needs], tripId);
+  return { ...weather, needs: withRainGear(weather.needs, gear) };
 }
 
 /**
@@ -310,7 +365,7 @@ export async function ideasWith(
   if (ask.capsuleId !== undefined && !row.capsule) throw capsuleNotFound();
   const locked = row.lockable ? readPool(row.lockable) : [];
   if (locked.length !== wanted.length) throw garmentNotFound();
-  return ideasFrom(deps, { ...ask, locked }, row, now);
+  return ideasFrom(deps, ownerId, { ...ask, locked }, row, now);
 }
 
 /** What the aimed day's weather is read for: IdeasInput's day, occasion and place. */

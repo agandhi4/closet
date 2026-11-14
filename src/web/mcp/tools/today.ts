@@ -2,6 +2,7 @@ import * as z from 'zod';
 import { DEFAULT_OCCASION } from '../../../wardrobe/occasions';
 import { ideaName } from '../../gallery/ideas';
 import { todayFor } from '../../today/today';
+import { rainGearForDays } from '../../weather/queries';
 import { defineTool } from '../tool';
 import { weatherOfDays } from './weather';
 
@@ -27,7 +28,13 @@ export const todayTools = [
         new Date(),
         { worn: true },
       );
-      const weather = weatherOfDays(model.weather);
+      const rainGear = await rainGearForDays(
+        ctx.db,
+        ctx.userId,
+        model.weather,
+        [{ day: model.today, occasion: DEFAULT_OCCASION }],
+      );
+      const weather = weatherOfDays(model.weather, rainGear);
       return {
         day: model.today,
         wornToday: model.wornToday,

@@ -110,8 +110,10 @@ export function wearIdea(
 ): Promise<WoreIdea | 'not-found'> {
   const { day, today } = input;
   return ownerTransaction(db, ownerId, 'wearIdea', async (tx) => {
+    // Picked to wear on a day: a one-off until someone keeps it (#659).
     const outfit = await pickIdea(tx, ownerId, {
       garmentIds: input.garmentIds,
+      origin: 'idea',
     });
     if (outfit === 'not-found') return 'not-found';
     const worn = await wearOutfitOn(tx, {

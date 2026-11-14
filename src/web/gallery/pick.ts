@@ -1,4 +1,5 @@
 import type { FastifyReply } from 'fastify';
+import type { OutfitOrigin } from '../../wardrobe/outfit-origin';
 import type { IsoDate } from '../../calendar-date';
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
@@ -61,6 +62,21 @@ const PICKED: Record<PickSource, string> = {
   styling: 'Outfit styled',
 };
 
+/**
+ * What a pick makes of a new outfit (#659, src/wardrobe/outfit-origin.ts):
+ * Styling's rows are composed, so kept; an idea saved as such is the
+ * saver's (`by`: the person, or their agent through pick_outfit); an idea
+ * picked for a day, a trip or an entry's place is a one-off.
+ */
+function pickOrigin(
+  source: PickSource,
+  saved: boolean,
+  by: 'person' | 'agent',
+): OutfitOrigin {
+  if (source === 'styling') return 'person';
+  return saved ? by : 'idea';
+}
+
 export function pickTo(
   deps: PickDeps,
   reply: FastifyReply,
@@ -69,6 +85,7 @@ export function pickTo(
   garmentIds: number[],
   options: { source: PickSource; name?: string },
 ): Promise<FastifyReply> {
+  // A gallery card or Styling's Save: the person's (pickOrigin).
   if (destination.kind === 'day' && destination.replace !== undefined) {
     const { replace: entryId, day, occasion } = destination;
     const target = { entryId, day, occasion };
@@ -107,11 +124,12 @@ async function pickInPlace(
   actor: Actor,
   target: EntryTarget,
   garmentIds: number[],
-  options: { name?: string },
+  options: { source: PickSource; name?: string },
 ): Promise<FastifyReply> {
   const replaced = await replaceEntryOutfit(db, actor, target, {
     garmentIds,
     name: options.name,
+    origin: pickOrigin(options.source, false, 'person'),
   });
   logger.info(replaceMessage(actor.userId, target, replaced));
   const flag = alreadySavedParam(replaced);
@@ -156,9 +174,20 @@ export async function pickGarments(
   actor: Actor,
   destination: PickDestination,
   garmentIds: readonly number[],
-  options: { source: PickSource; name?: string; via?: string },
+  options: {
+    source: PickSource;
+    name?: string;
+    via?: string;
+    /** Who saves: the person (the pages, the API) or their agent (pick_outfit). */
+    by: 'person' | 'agent';
+  },
 ): Promise<Picked> {
   const via = options.via ?? '';
+  const origin = pickOrigin(
+    options.source,
+    destination.kind === 'none',
+    options.by,
+  );
   const who = `${PICKED[options.source]} by user ${actor.userId}`;
   if (destination.kind === 'trip') {
     const { tripId, day, occasion } = destination;
@@ -168,6 +197,7 @@ export async function pickGarments(
       occasion,
       garmentIds,
       name: options.name,
+      origin,
     });
     logger.info(
       `${who} for trip ${tripId}${via}: ${outfit.alreadySaved ? 'existing ' : ''}outfit ${outfit.id} of garments ${garmentIds.join(', ')}, ${added === 'added' ? 'added' : 'already on the trip'} (${day ?? 'any day'}${occasion ? `, ${occasion}` : ''})`,
@@ -182,6 +212,7 @@ export async function pickGarments(
     garmentIds,
     plan,
     name: options.name,
+    origin,
   });
   if (outfit === 'not-found') {
     throw await garmentsGoneError(db, actor.userId, garmentIds, 'closet');
@@ -198,13 +229,10 @@ async function pickAndRedirect(
   garmentIds: number[],
   options: { source: PickSource; name?: string },
 ): Promise<FastifyReply> {
-  const picked = await pickGarments(
-    deps,
-    actor,
-    destination,
-    garmentIds,
-    options,
-  );
+  const picked = await pickGarments(deps, actor, destination, garmentIds, {
+    ...options,
+    by: 'person',
+  });
   if (picked.kind === 'trip') {
     return reply.redirect(tripUrl(picked.tripId, '?picked=1'), 303);
   }

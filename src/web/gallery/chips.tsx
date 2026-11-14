@@ -10,7 +10,7 @@ import type { IdeasWeather } from './ideas';
 
 export interface Chip {
   text: string;
-  tone: 'badge-warning' | 'badge-success' | 'badge-ghost';
+  tone: 'badge-warning' | 'badge-success' | 'badge-ghost' | 'badge-info';
 }
 
 /** A named problem: a weather miss or the occasion's formality ('breaks-rule' names its rules instead). */
@@ -30,6 +30,17 @@ export function fitsChip(weather: Pick<IdeasWeather, 'typical'>): Chip {
     text: t(weather.typical ? 'gallery.FITS_TYPICAL' : 'gallery.FITS_WEATHER'),
     tone: 'badge-success',
   };
+}
+
+/**
+ * Advice for the day rather than any card's problem ("Take the umbrella",
+ * #648): shown once above an idea list (Ideas' header, Today's ideas row),
+ * never on a card, as no idea is judged on it.
+ */
+export function adviceChips(weather: IdeasWeather | null): Chip[] {
+  return weather?.needs.umbrella
+    ? [{ text: t('gallery.TAKE_UMBRELLA'), tone: 'badge-info' }]
+    : [];
 }
 
 export function ChipList({ chips }: { chips: readonly Chip[] }) {

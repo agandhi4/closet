@@ -1,5 +1,6 @@
 import { CloneType, type Static, Type } from '@sinclair/typebox';
 import { DEFAULT_OCCASION, OCCASIONS } from '../../wardrobe/occasions';
+import type { MatchGarment } from '../../weather/match';
 import { literals, withoutNulls } from '../api/resource';
 import {
   CalendarEntryResource,
@@ -150,7 +151,10 @@ function toTodayRow(row: TodayModel['rows'][number], model: TodayModel) {
   } satisfies TodayRow;
 }
 
-export function toTodayResource(model: TodayModel): TodayResource {
+export function toTodayResource(
+  model: TodayModel,
+  rainGear: readonly MatchGarment[],
+): TodayResource {
   const muse = toMuse(model.round, model.needs);
   return {
     today: model.today,
@@ -159,6 +163,7 @@ export function toTodayResource(model: TodayModel): TodayResource {
         model.weather,
         [model.today],
         DEFAULT_OCCASION,
+        rainGear,
       ),
     }),
     ...(muse && { muse }),

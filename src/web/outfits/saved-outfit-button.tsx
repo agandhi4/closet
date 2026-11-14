@@ -2,6 +2,7 @@ import type { Child } from 'hono/jsx';
 import { PostForm } from '../auth/form';
 import { t } from '../i18n';
 import { collagePieces, OutfitCollage } from './collage';
+import { type OutfitList, OutfitListTabs } from './outfit-list';
 import type { GarmentOutfit } from './queries';
 import { buyFirstNote } from './to-buy';
 
@@ -50,22 +51,27 @@ function SavedOutfitButton(props: {
 
 /**
  * The pickers' "Saved" section (the calendar's plan page, a trip's add
- * page): the owner's outfits as SavedOutfitButtons of one native PostForm
- * to `action`, which carries the page's hidden fields (`children`), or
- * the line saying there are none.
+ * page): the two lists' tabs (#659: `list` is the one shown, `href` the
+ * page's address without it), the owner's outfits of that list as
+ * SavedOutfitButtons of one native PostForm to `action`, which carries
+ * the page's hidden fields (`children`), or the line saying there are
+ * none.
  */
 export function SavedOutfitPicker(props: {
   heading: Child;
   action: string;
+  list: OutfitList;
+  href: string;
   outfits: GarmentOutfit[];
   noteOf: (outfit: GarmentOutfit) => string | undefined;
   children: Child;
 }) {
   return (
-    <section>
-      <h2 class="text-xs font-semibold uppercase tracking-wide text-muted mb-2">
+    <section class="flex flex-col gap-2">
+      <h2 class="text-xs font-semibold uppercase tracking-wide text-muted">
         {props.heading}
       </h2>
+      <OutfitListTabs list={props.list} href={props.href} />
       {props.outfits.length > 0 ? (
         <PostForm action={props.action} class="flex flex-col gap-2">
           {props.children}
@@ -74,7 +80,11 @@ export function SavedOutfitPicker(props: {
           ))}
         </PostForm>
       ) : (
-        <p class="text-sm text-muted">{t('CALENDAR_PLAN_NO_OUTFITS')}</p>
+        <p class="text-sm text-muted">
+          {props.list === 'kept'
+            ? t('CALENDAR_PLAN_NO_OUTFITS')
+            : t('outfits.NO_ONE_OFFS')}
+        </p>
       )}
     </section>
   );

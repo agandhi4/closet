@@ -30,6 +30,7 @@ import {
   forecastOf,
   readWeekColumns,
   weekForecast,
+  weekRainGear,
   weekSql,
   writeAutoPick,
 } from './plan';
@@ -371,10 +372,17 @@ async function replanUser(
       const unwearable = unwearableOn({ day, outfitCreated, slots }, today);
       return { ...a, slots, unwearable };
     });
+    const entryById = new Map(week.entries.map((e) => [e.id, e]));
     const replans = replanWeek({
       ...week,
       forecast: forecast.days,
       offset: forecast.offset,
+      rainGear: await weekRainGear(
+        tx,
+        userId,
+        forecast,
+        judged.flatMap((a) => entryById.get(a.entryId) ?? []),
+      ),
       auto: judged.map(({ entryId, plannedFor, unwearable }) => ({
         entryId,
         plannedFor,
@@ -382,7 +390,6 @@ async function replanUser(
       })),
     });
     const autoById = new Map(judged.map((a) => [a.entryId, a]));
-    const entryById = new Map(week.entries.map((e) => [e.id, e]));
     const swaps: Swap[] = [];
     let kept = 0;
     for (const replan of replans) {

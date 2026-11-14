@@ -6,6 +6,7 @@ import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import type { GarmentOutfit } from '../outfits/queries';
+import type { OutfitList } from '../outfits/outfit-list';
 import { SavedOutfitPicker } from '../outfits/saved-outfit-button';
 import type { ViewContext } from '../view-context';
 import type { TripRow } from './queries';
@@ -18,8 +19,9 @@ export interface AddOutfitModel {
   /** The chosen day (one of `days`) and occasion; both optional. */
   day: IsoDate | undefined;
   occasion: Occasion | undefined;
-  /** Every outfit of the owner's, newest first. */
+  /** The owner's outfits of `list` (#659), newest first. */
   outfits: GarmentOutfit[];
+  list: OutfitList;
   /** Outfits already on the trip for the chosen day (or without one): adding again changes nothing. */
   onTrip: ReadonlySet<number>;
 }
@@ -111,6 +113,8 @@ export function AddOutfitPage(props: {
             </>
           }
           action={tripUrl(trip.id, '/outfits')}
+          list={model.list}
+          href={addOutfitUrl(trip.id, { day, occasion })}
           outfits={model.outfits}
           noteOf={(outfit) =>
             model.onTrip.has(outfit.id) ? t('trips.ALREADY_ON_TRIP') : undefined

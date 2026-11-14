@@ -1,11 +1,13 @@
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
-import { GARMENT_TYPES } from '../wardrobe/properties';
+import { GARMENT_TYPES, OTHER_TYPE } from '../wardrobe/properties';
 import { ART_SIZE, garmentSvg, shapeOf } from './art';
 
 describe('garment art', () => {
   const types = Object.entries(GARMENT_TYPES).flatMap(([category, list]) =>
-    list.map((type) => ({ category, type: type.value })),
+    list
+      .filter((type) => type.value !== OTHER_TYPE)
+      .map((type) => ({ category, type: type.value })),
   );
 
   it.each(types)(
@@ -25,6 +27,13 @@ describe('garment art', () => {
     expect(shape('tops', 'grey tshirt')).toBe('t-shirt');
     expect(shape('bags', 'big bag')).toBe('tote');
     expect(shape('scrubs', 'scrubs top??')).toBe('folded');
+  });
+
+  it('draws "no type applies" by the name, then the category, never as a shape of its own', () => {
+    const other = (category: string, name: string) =>
+      shapeOf({ category, type: OTHER_TYPE, name, colors: [], pattern: null });
+    expect(other('accessories', 'wool socks')).toBe('socks');
+    expect(other('footwear', 'clogs')).toBe('sneakers');
   });
 
   it('renders the same pixels every time, transparent around the garment', async () => {

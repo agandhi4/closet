@@ -2,6 +2,7 @@ import * as z from 'zod';
 import { DEFAULT_OCCASION, OCCASION_HINTS } from '../../../wardrobe/occasions';
 import { todayIn } from '../../../calendar-date';
 import { OUTFIT_COUNT_CAP } from '../../../wardrobe/goes-with';
+import { needsWaterResistance } from '../../../weather/match';
 import {
   dailySeed,
   goesWithCloset,
@@ -107,6 +108,10 @@ export const galleryTools = [
         seed: usedSeed,
         page,
         more: result.more,
+        // A workout with no idea for want of activewear: 'no-activewear'
+        // (the closet has none: set garment types) or 'none-available'
+        // (none clean and at home that day).
+        emptyReason: result.emptyReason ?? null,
         formality: OCCASION_HINTS[occasion].formality,
         weather: needs
           ? {
@@ -115,7 +120,8 @@ export const galleryTools = [
                 max: round1(needs.feelsLike.max),
               },
               needsLayer: needs.layer,
-              needsWaterResistance: needs.rain,
+              needsWaterResistance: needsWaterResistance(needs),
+              takeUmbrella: needs.umbrella,
             }
           : null,
         ideas: result.ideas.map((idea) => ({
@@ -209,7 +215,7 @@ export const galleryTools = [
         actorOf(ctx),
         plan ? { kind: 'day', ...plan } : { kind: 'none' },
         garmentIds,
-        { source: 'idea', name, via: ' (MCP)' },
+        { source: 'idea', name, via: ' (MCP)', by: 'agent' },
       );
       return {
         id: picked.id,

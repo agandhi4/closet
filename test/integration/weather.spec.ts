@@ -663,8 +663,8 @@ describe('weather', () => {
           0,
         )!;
         const { problems } = assessOutfit(needs, [
-          { role: 'layer', warmth: 5, waterResistant: false },
-          { role: 'top', warmth: 5, waterResistant: false },
+          { role: 'layer', warmth: 5, waterResistant: false, rainGear: false },
+          { role: 'top', warmth: 5, waterResistant: false, rainGear: false },
         ]);
         expect(problems).toContain('too-warm');
         const chips = [
@@ -925,11 +925,13 @@ describe('weather', () => {
         name: 'Evening out',
         slots: [],
         plan: { day: '2026-09-28', occasion: 'evening' },
+        origin: 'person',
       });
       await createOutfit(t.db, t.owner.id, {
         name: 'Far ahead',
         slots: [],
         plan: { day: '2026-10-20', occasion: 'all-day' },
+        origin: 'person',
       });
       const calendar = await tool<{
         entries: {

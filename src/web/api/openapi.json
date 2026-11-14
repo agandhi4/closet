@@ -7856,6 +7856,28 @@
             "name": "proposed",
             "required": false,
             "description": "`true`: your agent's proposals waiting on you (the Outfits tab's From Muse cards) instead of your own outfits; each carries its `proposal`"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "kept"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "one-offs"
+                  ]
+                }
+              ]
+            },
+            "in": "query",
+            "name": "show",
+            "required": false,
+            "description": "The Saved tab's lists: `kept` (origin `person` or `agent`, what Saved shows) or `one-offs` (`idea`, `planner`: Worn and planned). Absent: every outfit"
           }
         ],
         "responses": {
@@ -7880,6 +7902,7 @@
                         "type": "object",
                         "required": [
                           "id",
+                          "origin",
                           "garments",
                           "toBuy"
                         ],
@@ -7892,6 +7915,35 @@
                           },
                           "notes": {
                             "type": "string"
+                          },
+                          "origin": {
+                            "description": "Who made it: `person` and `agent` (your agent) are outfits kept on purpose, the Saved list; `idea` (an idea picked for a day, a trip or an entry) and `planner` (Plan my week) are one-offs, shown apart until a save or an edit keeps them. A copy synced before this field existed lacks it: read that as `person`",
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "person"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "agent"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "idea"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "planner"
+                                ]
+                              }
+                            ]
                           },
                           "garments": {
                             "type": "array",
@@ -8398,6 +8450,7 @@
                   "type": "object",
                   "required": [
                     "id",
+                    "origin",
                     "garments",
                     "toBuy",
                     "planned",
@@ -8412,6 +8465,35 @@
                     },
                     "notes": {
                       "type": "string"
+                    },
+                    "origin": {
+                      "description": "Who made it: `person` and `agent` (your agent) are outfits kept on purpose, the Saved list; `idea` (an idea picked for a day, a trip or an entry) and `planner` (Plan my week) are one-offs, shown apart until a save or an edit keeps them. A copy synced before this field existed lacks it: read that as `person`",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "person"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "agent"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "idea"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "planner"
+                          ]
+                        }
+                      ]
                     },
                     "garments": {
                       "type": "array",
@@ -10272,7 +10354,9 @@
                                   "torsoWarmthWithoutLayer",
                                   "legsAndFeetWarmth",
                                   "needsLayer",
-                                  "needsWaterResistance"
+                                  "rain",
+                                  "needsWaterResistance",
+                                  "takeUmbrella"
                                 ],
                                 "properties": {
                                   "occasion": {
@@ -10374,8 +10458,16 @@
                                     "description": "The hours swing enough to want a layer that comes off",
                                     "type": "boolean"
                                   },
+                                  "rain": {
+                                    "description": "Rain is likely (50% or more) in at least one of the occasion's hours, however it is answered",
+                                    "type": "boolean"
+                                  },
                                   "needsWaterResistance": {
-                                    "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                    "description": "Rain is likely and nothing beside the outfit answers it, so the outfit should include a water-resistant layer, footwear or accessory (not a bag). False when there is no rain, or when takeUmbrella is true",
+                                    "type": "boolean"
+                                  },
+                                  "takeUmbrella": {
+                                    "description": "Rain is likely and is answered beside the outfit: every rain hour is warm (feels-like above 22 °C), or the closet holds a water-resistant hat or cap. Advice for the day, never asked of the outfit. False when there is no rain",
                                     "type": "boolean"
                                   }
                                 }
@@ -10958,6 +11050,7 @@
                               "feelsLikeC",
                               "needsLayer",
                               "needsWaterResistance",
+                              "takeUmbrella",
                               "typical"
                             ],
                             "properties": {
@@ -10982,6 +11075,11 @@
                                 "type": "boolean"
                               },
                               "needsWaterResistance": {
+                                "description": "Rain the umbrella does not answer: each idea is judged on a water-resistant layer, footwear or accessory",
+                                "type": "boolean"
+                              },
+                              "takeUmbrella": {
+                                "description": "Rain is likely and is answered beside the outfit: every rain hour is warm (feels-like above 22 °C), or the closet holds a water-resistant hat or cap. Advice for the day, no idea is judged on it; false when there is no rain",
                                 "type": "boolean"
                               },
                               "typical": {
@@ -14166,7 +14264,9 @@
                               "torsoWarmthWithoutLayer",
                               "legsAndFeetWarmth",
                               "needsLayer",
-                              "needsWaterResistance"
+                              "rain",
+                              "needsWaterResistance",
+                              "takeUmbrella"
                             ],
                             "properties": {
                               "occasion": {
@@ -14268,8 +14368,16 @@
                                 "description": "The hours swing enough to want a layer that comes off",
                                 "type": "boolean"
                               },
+                              "rain": {
+                                "description": "Rain is likely (50% or more) in at least one of the occasion's hours, however it is answered",
+                                "type": "boolean"
+                              },
                               "needsWaterResistance": {
-                                "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                "description": "Rain is likely and nothing beside the outfit answers it, so the outfit should include a water-resistant layer, footwear or accessory (not a bag). False when there is no rain, or when takeUmbrella is true",
+                                "type": "boolean"
+                              },
+                              "takeUmbrella": {
+                                "description": "Rain is likely and is answered beside the outfit: every rain hour is warm (feels-like above 22 °C), or the closet holds a water-resistant hat or cap. Advice for the day, never asked of the outfit. False when there is no rain",
                                 "type": "boolean"
                               }
                             }
@@ -14364,7 +14472,9 @@
                               "torsoWarmthWithoutLayer",
                               "legsAndFeetWarmth",
                               "needsLayer",
-                              "needsWaterResistance"
+                              "rain",
+                              "needsWaterResistance",
+                              "takeUmbrella"
                             ],
                             "properties": {
                               "occasion": {
@@ -14466,8 +14576,16 @@
                                 "description": "The hours swing enough to want a layer that comes off",
                                 "type": "boolean"
                               },
+                              "rain": {
+                                "description": "Rain is likely (50% or more) in at least one of the occasion's hours, however it is answered",
+                                "type": "boolean"
+                              },
                               "needsWaterResistance": {
-                                "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                "description": "Rain is likely and nothing beside the outfit answers it, so the outfit should include a water-resistant layer, footwear or accessory (not a bag). False when there is no rain, or when takeUmbrella is true",
+                                "type": "boolean"
+                              },
+                              "takeUmbrella": {
+                                "description": "Rain is likely and is answered beside the outfit: every rain hour is warm (feels-like above 22 °C), or the closet holds a water-resistant hat or cap. Advice for the day, never asked of the outfit. False when there is no rain",
                                 "type": "boolean"
                               }
                             }
@@ -18741,6 +18859,7 @@
                         "feelsLikeC",
                         "needsLayer",
                         "needsWaterResistance",
+                        "takeUmbrella",
                         "typical"
                       ],
                       "properties": {
@@ -18765,6 +18884,11 @@
                           "type": "boolean"
                         },
                         "needsWaterResistance": {
+                          "description": "Rain the umbrella does not answer: each idea is judged on a water-resistant layer, footwear or accessory",
+                          "type": "boolean"
+                        },
+                        "takeUmbrella": {
+                          "description": "Rain is likely and is answered beside the outfit: every rain hour is warm (feels-like above 22 °C), or the closet holds a water-resistant hat or cap. Advice for the day, no idea is judged on it; false when there is no rain",
                           "type": "boolean"
                         },
                         "typical": {
@@ -18772,6 +18896,23 @@
                           "type": "boolean"
                         }
                       }
+                    },
+                    "emptyReason": {
+                      "description": "Present only when there are no ideas and the occasion is dressed for moving (a workout), which takes running shoes and athletic bottoms: 'no-activewear' when the closet has none (set garment types), 'none-available' when it has but none is clean and at home that day",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no-activewear"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "none-available"
+                          ]
+                        }
+                      ]
                     }
                   }
                 }
@@ -26322,6 +26463,24 @@
                                 "enum": [
                                   "watch"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "socks"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "underwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
                               }
                             ]
                           }
@@ -26370,6 +26529,12 @@
                                 "type": "string",
                                 "enum": [
                                   "duffel"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
                                 ]
                               }
                             ]
@@ -26456,6 +26621,12 @@
                                 "enum": [
                                   "fleece"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
                               }
                             ]
                           }
@@ -26492,6 +26663,24 @@
                                 "type": "string",
                                 "enum": [
                                   "jumpsuit"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "swimwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sleepwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
                                 ]
                               }
                             ]
@@ -26578,6 +26767,24 @@
                                 "enum": [
                                   "turtleneck"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sports-top"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "swimwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sleepwear"
+                                ]
                               }
                             ]
                           }
@@ -26645,6 +26852,24 @@
                                 "enum": [
                                   "leggings"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "running-shorts"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "swimwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sleepwear"
+                                ]
                               }
                             ]
                           }
@@ -26711,6 +26936,12 @@
                                 "type": "string",
                                 "enum": [
                                   "heels"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
                                 ]
                               }
                             ]
@@ -26991,6 +27222,24 @@
                                 "enum": [
                                   "watch"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "socks"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "underwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
                               }
                             ]
                           }
@@ -27039,6 +27288,12 @@
                                 "type": "string",
                                 "enum": [
                                   "duffel"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
                                 ]
                               }
                             ]
@@ -27125,6 +27380,12 @@
                                 "enum": [
                                   "fleece"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
                               }
                             ]
                           }
@@ -27161,6 +27422,24 @@
                                 "type": "string",
                                 "enum": [
                                   "jumpsuit"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "swimwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sleepwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
                                 ]
                               }
                             ]
@@ -27247,6 +27526,24 @@
                                 "enum": [
                                   "turtleneck"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sports-top"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "swimwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sleepwear"
+                                ]
                               }
                             ]
                           }
@@ -27314,6 +27611,24 @@
                                 "enum": [
                                   "leggings"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "running-shorts"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "swimwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sleepwear"
+                                ]
                               }
                             ]
                           }
@@ -27380,6 +27695,12 @@
                                 "type": "string",
                                 "enum": [
                                   "heels"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
                                 ]
                               }
                             ]
@@ -28889,6 +29210,7 @@
                                 "type": "object",
                                 "required": [
                                   "id",
+                                  "origin",
                                   "slots"
                                 ],
                                 "properties": {
@@ -28900,6 +29222,35 @@
                                   },
                                   "notes": {
                                     "type": "string"
+                                  },
+                                  "origin": {
+                                    "description": "Who made it: `person` and `agent` (your agent) are outfits kept on purpose, the Saved list; `idea` (an idea picked for a day, a trip or an entry) and `planner` (Plan my week) are one-offs, shown apart until a save or an edit keeps them. A copy synced before this field existed lacks it: read that as `person`",
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "person"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "agent"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "idea"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "planner"
+                                        ]
+                                      }
+                                    ]
                                   },
                                   "slots": {
                                     "description": "Its rows top to toe, as built",
@@ -30309,7 +30660,9 @@
                               "torsoWarmthWithoutLayer",
                               "legsAndFeetWarmth",
                               "needsLayer",
-                              "needsWaterResistance"
+                              "rain",
+                              "needsWaterResistance",
+                              "takeUmbrella"
                             ],
                             "properties": {
                               "occasion": {
@@ -30411,8 +30764,16 @@
                                 "description": "The hours swing enough to want a layer that comes off",
                                 "type": "boolean"
                               },
+                              "rain": {
+                                "description": "Rain is likely (50% or more) in at least one of the occasion's hours, however it is answered",
+                                "type": "boolean"
+                              },
                               "needsWaterResistance": {
-                                "description": "Rain is likely in the hours: a water-resistant layer, footwear or accessory",
+                                "description": "Rain is likely and nothing beside the outfit answers it, so the outfit should include a water-resistant layer, footwear or accessory (not a bag). False when there is no rain, or when takeUmbrella is true",
+                                "type": "boolean"
+                              },
+                              "takeUmbrella": {
+                                "description": "Rain is likely and is answered beside the outfit: every rain hour is warm (feels-like above 22 °C), or the closet holds a water-resistant hat or cap. Advice for the day, never asked of the outfit. False when there is no rain",
                                 "type": "boolean"
                               }
                             }

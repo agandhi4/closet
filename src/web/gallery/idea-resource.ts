@@ -3,6 +3,7 @@ import { IDEA_PROBLEMS, type Idea } from '../../wardrobe/generator';
 import type { IsoDate } from '../../calendar-date';
 import { DEFAULT_OCCASION, OCCASIONS } from '../../wardrobe/occasions';
 import { categoryRole, GARMENT_ROLES } from '../../wardrobe/properties';
+import { needsWaterResistance } from '../../weather/match';
 import {
   ListCursor,
   ListLimit,
@@ -144,7 +145,14 @@ export const IdeaWeather = Type.Object(
       },
     ),
     needsLayer: Type.Boolean(),
-    needsWaterResistance: Type.Boolean(),
+    needsWaterResistance: Type.Boolean({
+      description:
+        'Rain the umbrella does not answer: each idea is judged on a water-resistant layer, footwear or accessory',
+    }),
+    takeUmbrella: Type.Boolean({
+      description:
+        'Rain is likely and is answered beside the outfit: every rain hour is warm (feels-like above 22 °C), or the closet holds a water-resistant hat or cap. Advice for the day, no idea is judged on it; false when there is no rain',
+    }),
     typical: Type.Boolean({
       description: "A typical day's, not a forecast",
     }),
@@ -165,6 +173,15 @@ export const IdeaList = ListOf(IdeaResource, {
     occasion: Occasion,
     seed: Type.Integer({ description: 'The seed these ideas were drawn by' }),
     weather: Type.Optional(IdeaWeather),
+    emptyReason: Type.Optional(
+      Type.Union(
+        [Type.Literal('no-activewear'), Type.Literal('none-available')],
+        {
+          description:
+            "Present only when there are no ideas and the occasion is dressed for moving (a workout), which takes running shoes and athletic bottoms: 'no-activewear' when the closet has none (set garment types), 'none-available' when it has but none is clean and at home that day",
+        },
+      ),
+    ),
   },
 });
 
@@ -180,7 +197,8 @@ export function toIdeaWeather(
       max: round1(needs.feelsLike.max),
     },
     needsLayer: needs.layer,
-    needsWaterResistance: needs.rain,
+    needsWaterResistance: needsWaterResistance(needs),
+    takeUmbrella: needs.umbrella,
     typical,
   };
 }
@@ -278,6 +296,7 @@ export function toIdeaList(
     occasion: asked.occasion,
     seed: asked.seed,
     ...(result.weather && { weather: toIdeaWeather(result.weather) }),
+    ...(result.emptyReason && { emptyReason: result.emptyReason }),
   };
 }
 

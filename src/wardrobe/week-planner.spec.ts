@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { addDays, type IsoDate } from '../calendar-date';
 import type { DayForecast } from '../weather/forecast';
+import { assessOutfit, weatherNeeds } from '../weather/match';
 import { keyOf } from './generator';
 import {
   builtInCategoriesOf,
@@ -14,6 +15,7 @@ import {
   needsChange,
   type OutfitGarmentState,
   PLAN_DAYS,
+  type PlannedNeeds,
   type PlannerGarment,
   plannedNeeds,
   planWeek,
@@ -61,6 +63,7 @@ function garment(
       role,
       warmth: options.warmth ?? (role === 'layer' ? 3 : 2),
       waterResistant: options.waterResistant ?? false,
+      rainGear: false,
     },
     idleDays: options.idleDays === undefined ? 10 : options.idleDays,
     quantity: options.quantity ?? 1,
@@ -116,6 +119,7 @@ function input(
     pool: roomyCloset(),
     forecast: new Map(),
     offset: 0,
+    rainGear: [],
     avoid: [],
     rules: [],
     saved: [],
@@ -433,6 +437,49 @@ describe('planWeek', () => {
       unfilled: [],
     });
   });
+
+  describe('a workout (#647)', () => {
+    const typed = (
+      role: GarmentRole,
+      category: string,
+      type: string,
+    ): PlannerGarment => ({
+      ...garment(role, { washLimit: null }),
+      category,
+      type,
+      formality: 1,
+    });
+    const workouts = (pool: PlannerGarment[]) =>
+      planWeek(
+        input({
+          pool,
+          template: [
+            { weekday: 1, occasion: 'workout' },
+            { weekday: 1, occasion: 'all-day' },
+          ],
+          days: WEEK.slice(1, 2),
+          forecast: new Map([[WEEK[1], steadyDay(WEEK[1], 0)]]),
+        }),
+      );
+
+    it('leaves the slot empty when the closet has no activewear, never a near miss', () => {
+      const plan = workouts(roomyCloset());
+      expect(plan.planned.map((p) => p.occasion)).toEqual(['all-day']);
+      expect(plan.unfilled).toEqual([{ day: WEEK[1], occasion: 'workout' }]);
+    });
+
+    it('dresses it in running shoes and athletic bottoms, the top whatever fits', () => {
+      const shoes = typed('footwear', 'footwear', 'running-shoes');
+      const shorts = typed('bottom', 'bottoms', 'running-shorts');
+      const plan = workouts([...roomyCloset(), shoes, shorts]);
+      const workout = plan.planned.find((p) => p.occasion === 'workout')!;
+      expect(workout.idea.garments).toEqual(
+        expect.arrayContaining([shoes, shorts]),
+      );
+      expect(workout.idea.garments.some((g) => g.role === 'top')).toBe(true);
+      expect(plan.unfilled).toEqual([]);
+    });
+  });
 });
 
 describe('the re-plan', () => {
@@ -478,6 +525,85 @@ describe('the re-plan', () => {
     expect(swap.slot).toEqual({ day: WEEK[1], occasion: 'all-day' });
     expect(swap.idea.garments.map((g) => g.role)).toContain('layer');
     expect(swap.needs!.torso).toBeGreaterThan(auto[1].plannedFor!.torso);
+  });
+
+  describe('the legs-and-feet too-warm bound (#750)', () => {
+    const boots = garment('footwear', { warmth: 5 });
+    const pool = [...roomyCloset(), boots];
+    const day = WEEK[0];
+    const outfit = [
+      pool.find((g) => g.role === 'top')!,
+      pool.find((g) => g.role === 'bottom')!,
+      boots,
+    ];
+    const needsAt = (feelsLike: number) =>
+      weatherNeeds(steadyDay(day, feelsLike), 'all-day', 0)!;
+    const feetTooWarm = (feelsLike: number) =>
+      assessOutfit(
+        needsAt(feelsLike),
+        outfit.map((g) => g.weather),
+      ).problems.includes('feet-too-warm');
+    const replanAt = (plannedAt: number, now: number, ceiling = true) => {
+      const planned = plannedNeeds(needsAt(plannedAt))!;
+      return replanWeek({
+        ...input({
+          pool,
+          entries: [entry(1, day, 'all-day', outfit)],
+          forecast: new Map([[day, steadyDay(day, now)]]),
+        }),
+        auto: [
+          {
+            entryId: 1,
+            plannedFor: ceiling ? planned : { ...planned, limbsCeiling: null },
+            unwearable: null,
+          },
+        ],
+      })[0];
+    };
+
+    it('judges an entry whose targets held but whose ceiling fell: boots planned at 8.4 C, 8.6 C now', () => {
+      expect(feetTooWarm(8.4)).toBe(false);
+      expect(feetTooWarm(8.6)).toBe(true);
+      const before = plannedNeeds(needsAt(8.4))!;
+      expect(sameNeeds(before, plannedNeeds(needsAt(8.6)))).toBe(true);
+      expect(before.limbsCeiling).toBe(4);
+      const replan = replanAt(8.4, 8.6);
+      // A better idea exists in the roomy closet: swapped, and the weather did warm.
+      expect(replan.kind).toBe('swap');
+      if (replan.kind !== 'swap') return;
+      expect(replan.cause).toEqual({ kind: 'weather', change: 'warmer' });
+      expect(replan.needs!.limbsCeiling).toBe(3);
+    });
+
+    it('leaves a near miss alone: planned already too warm, the same weather the next morning', () => {
+      expect(feetTooWarm(8.6)).toBe(true);
+      expect(replanAt(8.6, 8.6)).toEqual({ entryId: 1, kind: 'unchanged' });
+    });
+
+    it('judges a near miss when the ceiling falls further still: a heatwave under boots planned at ceiling 5', () => {
+      const planned: PlannedNeeds = {
+        ...plannedNeeds(needsAt(8.6))!,
+        limbsCeiling: 5,
+      };
+      const [replan] = replanWeek({
+        ...input({
+          pool,
+          entries: [entry(1, day, 'all-day', outfit)],
+          forecast: new Map([[day, steadyDay(day, 8.6)]]),
+        }),
+        auto: [{ entryId: 1, plannedFor: planned, unwearable: null }],
+      });
+      expect(replan.kind).toBe('swap');
+      if (replan.kind !== 'swap') return;
+      expect(replan.cause).toEqual({ kind: 'weather', change: 'warmer' });
+    });
+
+    it('never judges an entry planned before the ceiling was kept', () => {
+      expect(replanAt(8.4, 8.6, false)).toEqual({
+        entryId: 1,
+        kind: 'unchanged',
+      });
+    });
   });
 
   it('keeps an outfit that still fits new targets, recording them', () => {
@@ -703,7 +829,13 @@ describe('unwearableOn', () => {
 });
 
 describe('needs', () => {
-  const base = { torso: 4, limbs: 3, layer: false, rain: false };
+  const base: PlannedNeeds = {
+    torso: 4,
+    limbs: 3,
+    layer: false,
+    rain: false,
+    limbsCeiling: 3,
+  };
 
   it('compares the targets the re-plan watches', () => {
     expect(sameNeeds(base, { ...base })).toBe(true);

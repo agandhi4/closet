@@ -8,8 +8,10 @@ import {
   todayIn,
 } from '../../../calendar-date';
 import { HttpError } from '../../errors';
+import { rainGearFor } from '../../weather/queries';
+import { type MatchGarment, weatherNeeds } from '../../../weather/match';
 import { userWeather, type UserWeather } from '../../weather/service';
-import { dayWeather } from '../../weather/weather-resource';
+import { dayWeather, needsWithGear } from '../../weather/weather-resource';
 import { defineTool } from '../tool';
 import { isoDate, occasionInput } from './common';
 
@@ -48,12 +50,19 @@ export type DayWeatherOf = (
  */
 export function weatherOfDays(
   weather: UserWeather | null | undefined,
+  rainGear: readonly MatchGarment[],
 ): DayWeatherOf | null {
   if (!weather?.cached) return null;
   const { settings, cached } = weather;
   return (day, occasion) => {
     const forecast = cached.forecast.days.find((d) => d.day === day);
-    return forecast && dayWeather(forecast, occasion, settings.offset);
+    return (
+      forecast &&
+      dayWeather(
+        forecast,
+        needsWithGear(forecast, occasion, settings.offset, rainGear),
+      )
+    );
   };
 }
 
@@ -109,15 +118,26 @@ export const weatherTools = [
           note: 'The forecast is not available right now; try again later.',
         };
       }
+      const asked = cached.forecast.days.filter(
+        (day) => day.day >= first && day.day <= last,
+      );
+      const rainGear = await rainGearFor(
+        ctx.db,
+        ctx.userId,
+        asked.map((day) => weatherNeeds(day, occasion, settings.offset)),
+      );
       return {
         today,
         location,
         unit: settings.unit,
         temperatureOffsetC: settings.offset,
         fetchedAt: cached.fetchedAt.toISOString(),
-        days: cached.forecast.days
-          .filter((day) => day.day >= first && day.day <= last)
-          .map((day) => dayWeather(day, occasion, settings.offset)),
+        days: asked.map((day) =>
+          dayWeather(
+            day,
+            needsWithGear(day, occasion, settings.offset, rainGear),
+          ),
+        ),
       };
     },
   }),

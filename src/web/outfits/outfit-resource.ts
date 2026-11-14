@@ -2,6 +2,7 @@ import { CloneType, type Static, Type } from '@sinclair/typebox';
 import { AWAY_REASONS } from '../../wardrobe/availability';
 import { LOOK_REACTIONS } from '../../wardrobe/look-reaction';
 import { OCCASIONS } from '../../wardrobe/occasions';
+import { OUTFIT_ORIGINS } from '../../wardrobe/outfit-origin';
 import { categoryRole, GARMENT_ROLES } from '../../wardrobe/properties';
 import { GARMENT_STATUSES } from '../../wardrobe/status';
 import { OUTFIT_DISMISS_REASONS } from '../../wardrobe/suggestions';
@@ -71,10 +72,19 @@ const OutfitProposalResource = Type.Object(
   },
 );
 
+// Who made an outfit (#659). Required in every answer; a client's copy
+// synced before it may lack it, and then it is `person`: the migration
+// re-sent only the outfits it moved off `person`.
+const OutfitOriginField = CloneType(literals(OUTFIT_ORIGINS), {
+  description:
+    'Who made it: `person` and `agent` (your agent) are outfits kept on purpose, the Saved list; `idea` (an idea picked for a day, a trip or an entry) and `planner` (Plan my week) are one-offs, shown apart until a save or an edit keeps them. A copy synced before this field existed lacks it: read that as `person`',
+});
+
 const outfitFields = {
   id: Type.Integer(),
   name: Type.Optional(Type.String()),
   notes: Type.Optional(Type.String()),
+  origin: OutfitOriginField,
   garments: Type.Array(OutfitGarmentResource),
   toBuy: Type.Array(Type.Integer(), {
     description:
@@ -136,6 +146,7 @@ function toOutfitFields(outfit: ToolOutfit | OutfitPageDetail) {
   return {
     id: outfit.id,
     ...withoutNulls({ name: outfit.name, notes: outfit.notes }),
+    origin: outfit.origin,
     garments: outfit.garments.map(toOutfitGarment),
     toBuy: piecesToBuy(outfit.garments).map(({ id }) => id),
     ...(outfit.proposal && { proposal: withoutNulls(outfit.proposal) }),
@@ -168,6 +179,7 @@ export const SyncedOutfit = Type.Object(
     id: Type.Integer(),
     name: Type.Optional(Type.String()),
     notes: Type.Optional(Type.String()),
+    origin: OutfitOriginField,
     slots: Type.Array(
       Type.Object(
         {
@@ -208,6 +220,7 @@ export function toSyncedOutfit(
   return {
     id: row.id,
     ...withoutNulls({ name: row.name, notes: row.notes }),
+    origin: row.origin,
     slots: row.slots.map((slot) => withoutNulls(slot)),
     ...(row.proposal && { proposal: withoutNulls(row.proposal) }),
   };

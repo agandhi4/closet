@@ -230,7 +230,10 @@ describe('the entry path for its owner', () => {
   });
 
   it('deletes the selfie bytes only after the entry is gone', async () => {
-    vi.mocked(deleteEntry).mockResolvedValue({ selfies: ['abc.jpg'] });
+    vi.mocked(deleteEntry).mockResolvedValue({
+      selfies: ['abc.jpg'],
+      plannerOutfitRemoved: null,
+    });
     await removeEntry(deps, owner, ENTRY);
     expect(deleteVariants).toHaveBeenCalledOnce();
     expect(logInfo).toHaveBeenCalledWith(

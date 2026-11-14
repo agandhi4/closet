@@ -97,7 +97,10 @@ describe('changing a planned outfit in place', () => {
 
   /** A saved outfit of the owner's, of these garments. */
   const outfitOf = async (garmentIds: number[], ownerId = t.owner.id) => {
-    const saved = await pickIdea(t.db, ownerId, { garmentIds });
+    const saved = await pickIdea(t.db, ownerId, {
+      garmentIds,
+      origin: 'person',
+    });
     if (saved === 'not-found') throw new Error('garments not found');
     return saved.id;
   };
@@ -157,6 +160,7 @@ describe('changing a planned outfit in place', () => {
       const picked = await pickIdea(tx, t.owner.id, {
         garmentIds,
         plan: { day, occasion, plannedBy: 'auto' },
+        origin: 'planner',
       });
       if (picked === 'not-found') throw new Error('garments not found');
       const [entry] = await tx
@@ -379,8 +383,16 @@ describe('changing a planned outfit in place', () => {
       const owner = { userId: t.owner.id };
       const [first, second] = await interleave(
         t.db,
-        (tx) => replaceEntryOutfit(tx, owner, target, { garmentIds: idea }),
-        () => replaceEntryOutfit(t.db, owner, target, { garmentIds: idea }),
+        (tx) =>
+          replaceEntryOutfit(tx, owner, target, {
+            garmentIds: idea,
+            origin: 'idea',
+          }),
+        () =>
+          replaceEntryOutfit(t.db, owner, target, {
+            garmentIds: idea,
+            origin: 'idea',
+          }),
       );
       expect(first).toMatchObject({ outcome: 'replaced', alreadySaved: false });
       expect(second).toMatchObject({

@@ -11,6 +11,7 @@ import {
   MAX_ACCENT_COLORS,
   neutralFor,
   OUTFIT_ORDER,
+  placeKeyer,
   topToToe,
   REST_DAYS,
   rotationWeight,
@@ -19,11 +20,13 @@ import { OCCASION_HINTS } from './occasions';
 import { avoidedPairRule, type OutfitRule } from './outfit-rules';
 import {
   builtInCategoriesOf,
+  categoryRole,
   GarmentCategory,
   type Formality,
   type GarmentColor,
   type GarmentRole,
   type Pattern,
+  typesOf,
   type Warmth,
 } from './properties';
 
@@ -60,6 +63,7 @@ function garment(
       role,
       warmth,
       waterResistant: options.waterResistant ?? false,
+      rainGear: false,
     },
     idleDays: options.idleDays === undefined ? 5 : options.idleDays,
   };
@@ -181,6 +185,38 @@ describe('generateIdeas', () => {
     for (const idea of ideas) {
       for (const worn of idea.garments) expect(allowed.has(worn)).toBe(true);
     }
+  });
+
+  it('never draws socks, underwear, swimwear or sleepwear; sports tops and running shorts are drawn (#685)', () => {
+    const undrawn = Object.values(GarmentCategory).flatMap((category) =>
+      typesOf(category)
+        .filter((type) => type.drawn === false)
+        .map((type) => ({
+          ...garment(categoryRole(category), { type: type.value }),
+          category,
+        })),
+    );
+    expect(undrawn.map((g) => g.type).sort()).toEqual([
+      'sleepwear',
+      'sleepwear',
+      'sleepwear',
+      'socks',
+      'swimwear',
+      'swimwear',
+      'swimwear',
+      'underwear',
+    ]);
+    const sporty = [
+      garment('top', { type: 'sports-top', colors: ['grey'] }),
+      garment('bottom', { type: 'running-shorts' }),
+    ];
+    const { ideas } = page({
+      pool: [...closet(), ...undrawn, ...sporty],
+      limit: 200,
+    });
+    const drawn = new Set(ideas.flatMap(ids));
+    for (const g of undrawn) expect(drawn.has(g.id)).toBe(false);
+    for (const g of sporty) expect(drawn.has(g.id)).toBe(true);
   });
 
   it('with a locked garment (?with=), every idea holds it', () => {
@@ -652,5 +688,17 @@ describe('generateIdeas', () => {
       ['footwear', [1]],
       ['none', [2]],
     ]);
+  });
+});
+
+describe('placeKeyer', () => {
+  it('names a garment that is in neither the pool nor the locks', () => {
+    const known = garment('top');
+    const stray = garment('bottom');
+    const keyOfPlaces = placeKeyer(new Map([['top', [known]]]), []);
+    expect(keyOfPlaces([known])).toBe('top0');
+    expect(() => keyOfPlaces([known, stray])).toThrow(
+      `garment ${stray.id} is in neither`,
+    );
   });
 });

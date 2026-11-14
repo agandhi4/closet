@@ -1,7 +1,12 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { addDays, type IsoDate } from '../../src/calendar-date';
-import { trip, userWeather } from '../../src/db/schema';
+import {
+  garment,
+  trip,
+  userWeather,
+  weatherForecast,
+} from '../../src/db/schema';
 import { REFERENCE_ANCHOR } from '../../src/seed/simulate';
 import {
   STUB_WEATHER_NOW,
@@ -10,7 +15,8 @@ import {
 } from '../support/weather-stub';
 import { deviceToken, expectProblem } from './api';
 import { createGarment } from './garments';
-import { createTestApp, type TestApp } from './harness';
+import { asFixture, createTestApp, type TestApp } from './harness';
+import { createAccessToken, tool } from './mcp';
 
 /**
  * Today and the weather on /api/v1 (#195a): each route its page twin's
@@ -130,6 +136,86 @@ describe('the weather', () => {
         await api('GET', `/weather?from=${addDays(REFERENCE_ANCHOR, 20)}`)
       ).json<Weather>().days,
     ).toEqual([]);
+  });
+
+  it('agrees with the ideas on the umbrella: a cool rainy day wants the outfit to keep it off until the closet has a water-resistant hat (#648)', async () => {
+    const [kept] = await t.db.select().from(weatherForecast);
+    const forecast = kept.forecast!;
+    await t.db.update(weatherForecast).set({
+      forecast: {
+        ...forecast,
+        days: forecast.days.map((day) =>
+          day.day === REFERENCE_ANCHOR
+            ? {
+                ...day,
+                hours: day.hours.map((h) => ({
+                  ...h,
+                  feelsLike: 12,
+                  precipitationChance: h.hour >= 8 && h.hour < 22 ? 90 : 0,
+                })),
+              }
+            : day,
+        ),
+      },
+    });
+    const both = async () => {
+      const week = (await api('GET', `/weather?to=${REFERENCE_ANCHOR}`)).json<{
+        days: {
+          outfit: {
+            rain: boolean;
+            needsWaterResistance: boolean;
+            takeUmbrella: boolean;
+          };
+        }[];
+      }>();
+      const ideas = (await api('GET', `/ideas?day=${REFERENCE_ANCHOR}`)).json<{
+        weather: { needsWaterResistance: boolean; takeUmbrella: boolean };
+      }>();
+      return { resource: week.days[0].outfit, ideas: ideas.weather };
+    };
+    try {
+      const bare = await both();
+      expect(bare.resource).toMatchObject({
+        rain: true,
+        needsWaterResistance: true,
+        takeUmbrella: false,
+      });
+      expect(bare.ideas).toMatchObject({
+        needsWaterResistance: true,
+        takeUmbrella: false,
+      });
+
+      const hat = await t.inject({
+        method: 'POST',
+        url: '/wardrobe',
+        payload: {
+          name: 'Rain hat',
+          category: 'accessories',
+          type: 'hat',
+          props: '1',
+          color: ['black'],
+          waterResistant: 'true',
+        },
+      });
+      expect(hat.statusCode).toBe(302);
+      const geared = await both();
+      expect(geared.resource).toMatchObject({
+        rain: true,
+        needsWaterResistance: false,
+        takeUmbrella: true,
+      });
+      expect(geared.ideas).toMatchObject({
+        needsWaterResistance: false,
+        takeUmbrella: true,
+      });
+    } finally {
+      await t.db
+        .update(weatherForecast)
+        .set({ forecast, fetchedAt: kept.fetchedAt });
+      await asFixture(t.db, (tx) =>
+        tx.delete(garment).where(eq(garment.name, 'Rain hat')),
+      );
+    }
   });
 
   it('refuses a backward range, one past 42 days, and any other occasion', async () => {
@@ -435,5 +521,293 @@ describe("a trip's weather", () => {
       addDays(REFERENCE_ANCHOR, 2),
     ]);
     expect(weather.days[0].outfit?.occasion).toBe('all-day');
+  });
+});
+
+describe('one answer to the rain on every surface (#759)', () => {
+  const placeOf = (row: { latitude: number; longitude: number }) =>
+    and(
+      eq(weatherForecast.latitude, row.latitude),
+      eq(weatherForecast.longitude, row.longitude),
+    );
+  interface Outfit {
+    rain: boolean;
+    needsWaterResistance: boolean;
+    takeUmbrella: boolean;
+  }
+  // The ideas' weather carries no `rain`: the two answers are the contract.
+  const pick = (o: Outfit | undefined) => ({
+    needsWaterResistance: o?.needsWaterResistance,
+    takeUmbrella: o?.takeUmbrella,
+  });
+
+  it('a cool rainy day with a water-resistant hat is the umbrella on all of them, a capsule without the hat included', async () => {
+    const shirt = await createGarment(t, {
+      name: 'Rain tee',
+      category: 'tops',
+    });
+    const made = await api('POST', '/outfits', {
+      slots: [{ category: 'tops', garmentId: shirt }],
+    });
+    const outfitId = made.json<{ id: number }>().id;
+    const entry = await api('POST', '/calendar-entries', {
+      outfitId,
+      day: REFERENCE_ANCHOR,
+      occasion: 'all-day',
+    });
+    expect(entry.statusCode, entry.body).toBe(201);
+    const capsule = (await api('POST', '/capsules', { name: 'Hatless' })).json<{
+      id: number;
+    }>().id;
+    const tripId = (
+      await api('POST', '/trips', {
+        name: 'Rainy weekend',
+        startsOn: REFERENCE_ANCHOR,
+        endsOn: addDays(REFERENCE_ANCHOR, 1),
+      })
+    ).json<{ id: number }>().id;
+    await api('PUT', `/trips/${tripId}/destination`, {
+      name: 'Brooklyn, New York, United States',
+      latitude: 40.6501,
+      longitude: -73.94958,
+    });
+    const mcp = await createAccessToken(t);
+
+    const rows = await t.db.select().from(weatherForecast);
+    const rainy = async () => {
+      for (const row of rows) {
+        await t.db
+          .update(weatherForecast)
+          .set({
+            fetchedAt: new Date(),
+            forecast: {
+              ...row.forecast!,
+              days: row.forecast!.days.map((day) =>
+                day.day === REFERENCE_ANCHOR
+                  ? {
+                      ...day,
+                      hours: day.hours.map((h) => ({
+                        ...h,
+                        feelsLike: 12,
+                        precipitationChance:
+                          h.hour >= 8 && h.hour < 22 ? 90 : 0,
+                      })),
+                    }
+                  : day,
+              ),
+            },
+          })
+          .where(placeOf(row));
+      }
+    };
+    const everywhere = async () => {
+      const weather = (
+        await api('GET', `/weather?to=${REFERENCE_ANCHOR}`)
+      ).json<{ days: { outfit?: Outfit }[] }>();
+      const todayRes = await api('GET', '/today');
+      const today = todayRes.json<{
+        weather: { days: { outfit?: Outfit }[] };
+        rows: { kind: string; weather?: Outfit }[];
+      }>();
+      const ideasRes = await api(
+        'GET',
+        `/ideas?day=${REFERENCE_ANCHOR}&capsuleId=${capsule}`,
+      );
+      const ideas = ideasRes.json<{ weather: Outfit }>();
+      const tripDays = (await api('GET', `/trips/${tripId}/weather`)).json<{
+        days: { outfit?: Outfit }[];
+      }>();
+      const calendar = await tool<{
+        entries: { weather?: { outfit?: Outfit } }[];
+      }>(t, mcp, 'get_calendar', {
+        from: REFERENCE_ANCHOR,
+        to: REFERENCE_ANCHOR,
+      });
+      const mcpToday = await tool<{ weather: { outfit?: Outfit } }>(
+        t,
+        mcp,
+        'get_today',
+      );
+      const mcpTrip = await tool<{
+        weather: { days: { outfit?: Outfit }[] };
+      }>(t, mcp, 'get_trip', { tripId });
+      const mcpWeather = await tool<{ days: { outfit?: Outfit }[] }>(
+        t,
+        mcp,
+        'get_weather',
+        { from: REFERENCE_ANCHOR, to: REFERENCE_ANCHOR },
+      );
+      return [
+        weather.days[0].outfit,
+        today.weather.days[0].outfit,
+        ideas.weather,
+        tripDays.days[0].outfit,
+        calendar.entries[0].weather?.outfit,
+        mcpToday.weather.outfit,
+        mcpTrip.weather.days[0].outfit,
+        mcpWeather.days[0].outfit,
+      ].map(pick);
+    };
+    // "Plan my week" for the rainy day, undone so it can be asked again.
+    const planProblems = async () => {
+      const planned = await api('POST', '/week-plans');
+      expect(planned.statusCode, planned.body).toBe(200);
+      const plan = planned.json<{
+        weekPlanId: number;
+        planned: { day: IsoDate; problems: string[] }[];
+      }>();
+      const day = plan.planned.find((p) => p.day === REFERENCE_ANCHOR);
+      expect(day, 'the rainy day is planned').toBeDefined();
+      await api('DELETE', `/week-plans/${plan.weekPlanId}`);
+      return day!.problems;
+    };
+    // The trip day's ideas page: "Take the umbrella" is the umbrella advice,
+    // which must agree with the trip's own forecast (the packing list's gear).
+    const tripIdeasUmbrella = async () => {
+      const page = await t.inject({
+        method: 'GET',
+        url: `/outfits/ideas?for=trip:${tripId}:${REFERENCE_ANCHOR}`,
+      });
+      expect(page.statusCode).toBe(200);
+      return page.body.includes('Take the umbrella');
+    };
+    try {
+      await rainy();
+      expect(await tripIdeasUmbrella()).toBe(false);
+      const bare = await everywhere();
+      expect(bare).toEqual(
+        Array(bare.length).fill({
+          needsWaterResistance: true,
+          takeUmbrella: false,
+        }),
+      );
+
+      expect(
+        (
+          await api('PUT', '/week-template', {
+            days: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
+              weekday,
+              around: ['night-out'],
+            })),
+          })
+        ).statusCode,
+      ).toBe(200);
+      for (let i = 0; i < 4; i += 1) {
+        await createGarment(t, { name: `Plan top ${i}`, category: 'tops' });
+        await createGarment(t, {
+          name: `Plan jeans ${i}`,
+          category: 'bottoms',
+        });
+      }
+      expect(await planProblems()).toContain('needs-water-resistance');
+
+      const hat = await t.inject({
+        method: 'POST',
+        url: '/wardrobe',
+        payload: {
+          name: 'Rain hat',
+          category: 'accessories',
+          type: 'hat',
+          props: '1',
+          color: ['black'],
+          waterResistant: 'true',
+        },
+      });
+      expect(hat.statusCode).toBe(302);
+      // A trip day answers with what is on its packing list, never with the
+      // closet at home: the hat is not on the list yet.
+      const TRIP_SURFACES = [3, 6];
+      const answers = (all: ReturnType<typeof pick>[], trip: boolean) =>
+        all.map((_, i) => ({
+          needsWaterResistance: TRIP_SURFACES.includes(i) ? !trip : false,
+          takeUmbrella: TRIP_SURFACES.includes(i) ? trip : true,
+        }));
+      const atHome = await everywhere();
+      expect(atHome).toEqual(answers(atHome, false));
+      expect(await tripIdeasUmbrella()).toBe(false);
+      // The plan reads the gear as Today does: the hat answers the rain.
+      expect(await planProblems()).not.toContain('needs-water-resistance');
+
+      // In the wash it is not the closet's gear: every surface, the plan
+      // included, asks the outfit for water resistance, as the closet at
+      // home stands (a dirty hat is not available). Washed again, it is back.
+      const [hatRow] = await t.db
+        .select({ id: garment.id })
+        .from(garment)
+        .where(eq(garment.name, 'Rain hat'));
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(garment)
+          .set({ washAfterWears: 1 })
+          .where(eq(garment.id, hatRow.id)),
+      );
+      const wornHat = await api(
+        'PUT',
+        `/garments/${hatRow.id}/wears/${REFERENCE_ANCHOR}`,
+        {},
+      );
+      expect(wornHat.statusCode, wornHat.body).toBe(200);
+      const dirty = await everywhere();
+      expect(dirty).toEqual(
+        dirty.map(() => ({ needsWaterResistance: true, takeUmbrella: false })),
+      );
+      expect(await planProblems()).toContain('needs-water-resistance');
+      const washed = await api('POST', `/garments/${hatRow.id}/washes`, {
+        day: REFERENCE_ANCHOR,
+      });
+      expect(washed.statusCode, washed.body).toBe(200);
+      expect(await everywhere()).toEqual(atHome);
+
+      // Planned to come: the umbrella answer, packed or not.
+      const hatOutfit = await api('POST', '/outfits', {
+        slots: [{ category: 'accessories', garmentId: hatRow.id }],
+      });
+      const added = await api('POST', `/trips/${tripId}/outfits`, {
+        outfitId: hatOutfit.json<{ id: number }>().id,
+      });
+      expect(added.statusCode, added.body).toBe(201);
+      const listed = await everywhere();
+      expect(listed).toEqual(answers(listed, true));
+      expect(await tripIdeasUmbrella()).toBe(true);
+
+      // Lent out, the closet at home has no gear (not available), but it is
+      // still the one on the trip's list.
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(garment)
+          .set({ away: 'lent' })
+          .where(eq(garment.id, hatRow.id)),
+      );
+      const lent = await everywhere();
+      expect(lent).toEqual(
+        lent.map((_, i) =>
+          TRIP_SURFACES.includes(i)
+            ? { needsWaterResistance: false, takeUmbrella: true }
+            : { needsWaterResistance: true, takeUmbrella: false },
+        ),
+      );
+      expect(await tripIdeasUmbrella()).toBe(true);
+
+      // Archived, it left the closet: it is no gear even on the list.
+      const archived = await api('PUT', `/garments/${hatRow.id}/status`, {
+        status: 'archived',
+      });
+      expect(archived.statusCode, archived.body).toBe(200);
+      const gone = await everywhere();
+      expect(gone).toEqual(
+        gone.map(() => ({ needsWaterResistance: true, takeUmbrella: false })),
+      );
+      expect(await tripIdeasUmbrella()).toBe(false);
+    } finally {
+      for (const row of rows) {
+        await t.db
+          .update(weatherForecast)
+          .set({ forecast: row.forecast, fetchedAt: row.fetchedAt })
+          .where(placeOf(row));
+      }
+      await asFixture(t.db, (tx) =>
+        tx.delete(garment).where(eq(garment.name, 'Rain hat')),
+      );
+    }
   });
 });
