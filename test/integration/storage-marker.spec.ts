@@ -16,8 +16,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/app';
 import { file, pendingPhoto } from '../../src/db/schema';
 import { reconcileStorage } from '../../src/maintenance/reconcile';
-import { STORAGE_MARKER } from '../../src/web/files/storage';
-import { StorageIdentityError } from '../../src/web/files/storage-identity';
+import { PhotoStorage, STORAGE_MARKER } from '../../src/web/files/storage';
+import {
+  claimStorage,
+  StorageIdentityError,
+} from '../../src/web/files/storage-identity';
 import {
   createGarment,
   jpegPhoto,
@@ -173,6 +176,38 @@ describe('the photo storage marker', () => {
     }
   });
 
+  it('refuses reconciliation when every file row is gone and only a pending photo remains', async () => {
+    const aside = join(t.dataPath, 'aside');
+    await mkdir(aside);
+    const pending = await pendingNames();
+    const files = (await storedFiles()).filter(
+      (name) => !pending.includes(name),
+    );
+    expect(files.length).toBeGreaterThan(0);
+    for (const name of files) {
+      await rename(join(t.dataPath, name), join(aside, name));
+    }
+    const stored = await storedFiles();
+    expect(stored.filter((name) => pending.includes(name))).toHaveLength(1);
+    try {
+      const report = await reconcile(true);
+      expect(report.refused).toMatch(
+        /file table has 1 rows while storage holds no photo sets/,
+      );
+      expect(report.orphanedRowsDeleted).toBe(0);
+      expect(await storedFiles()).toEqual(stored);
+      expect(await pendingNames()).toEqual(pending);
+      expect(
+        await t.db.select().from(file).where(eq(file.fileName, live)),
+      ).toHaveLength(1);
+    } finally {
+      for (const name of files) {
+        await rename(join(aside, name), join(t.dataPath, name));
+      }
+      await rm(aside, { recursive: true });
+    }
+  });
+
   it('refuses a boot whose DATA_PATH lacks it while the database has photo rows', async () => {
     const empty = await mkdtemp(join(tmpdir(), 'closet-unmounted-'));
     try {
@@ -200,6 +235,30 @@ describe('the photo storage marker', () => {
       (JSON.parse(marker) as { installId: string }).installId,
     );
     expect(await storedFiles()).toContain(live);
+  });
+
+  it('refuses a boot whose racing process left a malformed marker, naming the code only', async () => {
+    await rm(markerPath());
+    const racing = new PhotoStorage(t.dataPath, silentLogger, {
+      readText: (path) => readFile(path, 'utf8'),
+      writeNew: (path, text) => writeFile(path, text, { flag: 'wx' }),
+      link: async () => {
+        await writeFile(markerPath(), 'not json');
+        throw Object.assign(new Error('EEXIST: /secret/path'), {
+          code: 'EEXIST',
+        });
+      },
+      remove: (path) => rm(path, { force: true }),
+    });
+    const error = await claimStorage(racing, t.db, silentLogger).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(StorageIdentityError);
+    expect((error as StorageIdentityError).message).toMatch(
+      /^DATA_PATH storage unreadable: MALFORMED /,
+    );
+    expect((error as StorageIdentityError).message).not.toContain(t.dataPath);
+    expect(await readFile(markerPath(), 'utf8')).toBe('not json');
   });
 
   // The bug's own story: uploads made while the share was unmounted left
