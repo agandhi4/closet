@@ -48,11 +48,11 @@ import { judgeSender } from './trust';
  * its links were read, in one transaction with its items
  * (recordOrderEmail). One whose read fails is a `failed` row, read again
  * by the next poll (the watermark starts at it) and parked after
- * ORDER_MAIL_ATTEMPTS; the poll goes on to the next email. A failure of the
- * mailbox or the database, not the email (JMAP unreachable, a 5xx:
- * JmapError's `scope`; failureScope), still fails the run and spends no attempt, but for its backstop: a
- * mailbox failure ORDER_MAIL_MAILBOX_STRIKES times in a row on the same
- * email spends one. A link that fails to fetch is skipped (the fetcher logs
+ * ORDER_MAIL_ATTEMPTS; the poll goes on to the next email. A failure
+ * that is not the email's (JMAP unreachable, the database out of reach:
+ * failureScope's `outage`) fails the run and touches no row; its own
+ * message's fetch answering a 5xx or a wrong shape is a strike on its row,
+ * and ORDER_MAIL_MAILBOX_STRIKES in a row spend one attempt. A link that fails to fetch is skipped (the fetcher logs
  * its host and reason).
  */
 
@@ -190,7 +190,7 @@ export async function pollOrderMail(deps: OrderMailDeps): Promise<PollSummary> {
 /**
  * Records `error`, a failed read of `envelope`, on its row and says what it
  * came to; rethrows a mailbox failure that spent no attempt, which ends the
- * run (the strike is on the row first). `first`: this read took the
+ * run (a strike is on the row first). `first`: this read took the
  * email's attempts from 0 to 1.
  */
 async function recordFailure(
@@ -201,6 +201,7 @@ async function recordFailure(
 ): Promise<{ status: 'failed' | 'parked' | 'settled'; first: boolean }> {
   const { logger } = deps;
   const scope = failureScope(error);
+  if (scope === 'outage') throw error;
   const kind = errorKind(error);
   const email: MailboxEmail = {
     accountId: mailbox.accountId,
@@ -211,7 +212,7 @@ async function recordFailure(
   // A strike resets to 0 when it spends an attempt; an email failure
   // always spends one.
   const spent = read !== undefined && read.mailboxFailures === 0;
-  if (scope === 'mailbox' && !spent) {
+  if (scope === 'message' && !spent) {
     if (read) {
       logger.warn(
         `Order mail ${envelope.id}: mailbox failure ${read.mailboxFailures} of ${ORDER_MAIL_MAILBOX_STRIKES} while reading it (${kind})`,
@@ -246,20 +247,21 @@ async function recordFailure(
 const TRANSIENT_SQLSTATES = new Set(['57014', '55P03', '40001', '40P01']);
 
 /**
- * Whose failure a read was. A JMAP failure says (JmapError.scope). The
+ * Whose failure a read was; the one place the strike rule lives (see
+ * OrderEmailFailureScope). A JMAP failure says (JmapError.scope). The
  * database out of reach, its pool full or a transient refusal are the
- * run's, like the mailbox's: they spend no attempt, or an outage would park
- * the inbox. Anything else came of the email's content (a value a column
- * refuses, a bug of ours on its data).
+ * outage's, never an email's, or an incident would park the inbox.
+ * Anything else came of the email's content (a value a column refuses, a
+ * bug of ours on its data).
  */
-function failureScope(error: unknown): OrderEmailFailureScope {
+export function failureScope(error: unknown): OrderEmailFailureScope {
   if (error instanceof JmapError) return error.scope;
   const code = driverError(error)?.code;
   const transient =
     isDatabaseUnavailable(error) ||
     isPoolExhausted(error) ||
     (code !== undefined && TRANSIENT_SQLSTATES.has(code));
-  return transient ? 'mailbox' : 'email';
+  return transient ? 'outage' : 'email';
 }
 
 /**

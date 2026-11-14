@@ -223,9 +223,9 @@ export interface FailedRead {
 }
 
 /**
- * Records a failed read of `email` (#693): an `email` failure spends one
- * attempt; a `mailbox` one counts a strike, and ORDER_MAIL_MAILBOX_STRIKES
- * in a row spend one too. ORDER_MAIL_ATTEMPTS attempts park it. One upsert,
+ * Records a failed read of `email` (#693, #932): an `email` failure spends
+ * one attempt; a `message` one counts a strike, and ORDER_MAIL_MAILBOX_STRIKES
+ * in a row spend one too. An `outage` is never recorded (poll.ts). ORDER_MAIL_ATTEMPTS attempts park it. One upsert,
  * guarded like the outcome's: undefined when another run settled the email
  * meanwhile. `errorKind` is a kind, never an error's text.
  *
@@ -236,7 +236,7 @@ export interface FailedRead {
 export async function recordOrderEmailFailure(
   db: Db,
   email: MailboxEmail,
-  scope: OrderEmailFailureScope,
+  scope: Exclude<OrderEmailFailureScope, 'outage'>,
   errorKind: string,
 ): Promise<FailedRead | undefined> {
   const zero = sql`0`;
@@ -267,7 +267,7 @@ export async function recordOrderEmailFailure(
  * attempt, and whether the attempts reached the budget.
  */
 function failedRead(
-  scope: OrderEmailFailureScope,
+  scope: Exclude<OrderEmailFailureScope, 'outage'>,
   old: { attempts: SQL; mailboxFailures: SQL },
 ): { attempts: SQL; mailboxFailures: SQL; status: SQL } {
   const spends =
