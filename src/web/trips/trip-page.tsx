@@ -379,6 +379,7 @@ export function PackedSummary(props: {
       data-packed={packing.packed}
     >
       <span
+        data-packed-served={packing.packed}
         data-packed-count={t('trips.PACKED_SUMMARY', {
           packed: '{packed}',
           garments: packing.garments,
@@ -544,6 +545,7 @@ export function ItemsSummary(props: {
       hx-swap-oob={props.oob ? 'true' : undefined}
     >
       <span
+        data-packed-served={packed}
         data-packed-count={t('trips.ITEMS_SUMMARY', {
           packed: '{packed}',
           count: props.items.length,

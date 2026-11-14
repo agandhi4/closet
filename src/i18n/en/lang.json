@@ -142,7 +142,8 @@
   "CATEGORY_LINGERIE": "Lingerie",
   "OFFLINE_TITLE": "Offline",
   "OFFLINE_NOT_SAVED": "This page wasn't saved on this device",
-  "OFFLINE_DESC": "Reconnect to open it. These pages are saved here:",
+  "OFFLINE_DESC": "Reconnect to open it. Saved on this device:",
+  "OFFLINE_NONE_SAVED": "Nothing else is saved on this device yet",
   "OFFLINE_BANNER": "You are offline, showing saved data. Dimmed controls need a connection.",
   "offlineNotice": {
     "WEARS": "Wears are saved on this phone and sync later; other changes need a connection.",

@@ -52,6 +52,7 @@ import { todayIn } from '../../src/calendar-date';
 import {
   enqueue,
   isChecklist,
+  packedCount,
   OUTBOX_MAX_PENDING,
   OUTBOX_SYNCED,
   type OutboxStore,
@@ -339,7 +340,7 @@ const refresh = singleFlight(async () => {
 function render(records: OutboxRecord[]): void {
   const waiting = records.filter(isPending).length;
   renderRegions(records);
-  renderPackedCounts();
+  renderPackedCounts(records);
   renderBanner(waiting);
   renderNotice(records.filter((record) => record.state === 'failed'));
   guardFull(waiting);
@@ -347,25 +348,45 @@ function render(records: OutboxRecord[]): void {
 
 /**
  * The trip's "N of M packed" lines (`data-packed-count`: the string with
- * `{packed}` left in it, src/web/trips/trip-page.tsx) counted from the
- * ticks as shown, so a queued tick moves the counter before the server has
- * saved it. Counting the section's checked boxes is what the server's
- * number is too, so a synced page agrees.
+ * `{packed}` left in it, `data-packed-served` the server's number,
+ * src/web/trips/trip-page.tsx): while ticks wait to sync, the server's
+ * count plus the pending records' net (`packedCount`), so a queued tick
+ * moves the counter before the server has saved it. With nothing pending in
+ * the counter's section the line is left as the server rendered it.
  */
-function renderPackedCounts(): void {
+function renderPackedCounts(records: OutboxRecord[]): void {
+  const waiting = new Map(
+    records.filter(isPending).map((record) => [record.key, record]),
+  );
   for (const counter of document.querySelectorAll<HTMLElement>(
     '[data-packed-count]',
   )) {
-    const ticked = counter
+    const regions = counter
       .closest('section')
-      ?.querySelectorAll('input[name="packed"]:checked').length;
-    if (ticked === undefined) continue;
+      ?.querySelectorAll<HTMLElement>(`${REGION}:has(input[name="packed"])`);
+    const rows = Array.from(regions ?? []).map((region) => ({
+      served:
+        region.querySelector<HTMLInputElement>('input[name="packed"]')
+          ?.defaultChecked ?? false,
+      queued: intentOf(waiting.get(region.dataset.outboxKey ?? '')),
+    }));
+    if (rows.every((row) => row.queued === undefined)) {
+      if (counter.dataset.counted === undefined) continue;
+      delete counter.dataset.counted;
+    } else {
+      counter.dataset.counted = '';
+    }
+    const count = packedCount(Number(counter.dataset.packedServed), rows);
     counter.textContent = (counter.dataset.packedCount ?? '').replace(
       '{packed}',
-      String(ticked),
+      String(count),
     );
   }
 }
+
+/** A pending tick's intent: ticked or not; undefined without a record. */
+const intentOf = (record: OutboxRecord | undefined) =>
+  record && [record.fields.packed ?? []].flat().length > 0;
 
 /**
  * A region with a pending record is marked and shows the intent it waits

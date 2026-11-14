@@ -72,9 +72,10 @@ test.describe('installed app delivery', () => {
     ).toBeVisible();
     // It says so, links the tab roots, and shows no "saved data" banner (#658).
     await expect(page.getByText("This page wasn't saved")).toBeVisible();
-    await expect(
-      page.locator('main').getByRole('link', { name: 'Wardrobe' }),
-    ).toBeVisible();
+    // Only the tab roots this device saved (Wardrobe and Outfits, visited
+    // above) are linked; the others would loop back here.
+    const saved = page.locator('main').getByRole('link');
+    await expect(saved).toHaveText(['Wardrobe', 'Outfits']);
     await expect(page.locator('#connectivity-banner')).toBeHidden();
     await context.setOffline(false);
   });

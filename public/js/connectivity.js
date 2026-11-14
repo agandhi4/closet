@@ -227,3 +227,29 @@ document.addEventListener('htmx:afterSettle', () => {
 });
 
 probe('load');
+
+/**
+ * The offline fallback page is precached, so it cannot know which tab roots
+ * this device saved: it renders their links hidden (src/web/shell/offline-page.tsx)
+ * and this shows those whose full page is in the worker's page cache, which
+ * stores a page under its absolute URL. Nothing is opened, so a cache that
+ * does not exist is not created.
+ */
+async function revealSavedPages() {
+  const list = document.querySelector('[data-saved-pages]');
+  if (!list || !('caches' in window)) return;
+  const cacheName = list.dataset.savedPages;
+  let saved = 0;
+  for (const item of list.querySelectorAll('li')) {
+    const url = new URL(item.querySelector('a').href, location.origin).href;
+    if (await caches.match(url, { cacheName })) {
+      item.hidden = false;
+      saved += 1;
+    }
+  }
+  document.querySelector('[data-saved-pages-none]').hidden = saved > 0;
+  console.info(`[connectivity] offline page: ${saved} saved tab roots`);
+}
+
+document.addEventListener('htmx:afterSettle', revealSavedPages);
+revealSavedPages();

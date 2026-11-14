@@ -20,6 +20,15 @@ import { type Section, SECTION_HOME } from './layout/sections';
  * page for another arrives: it cannot read the httpOnly session cookie, so a
  * response is the only way it learns who is signed in.
  */
+/**
+ * The worker's page cache (views/assets/src-sw.ts). v2 since 2026-09-26:
+ * copies are stamped and owned (pageStore); pages-v1 held neither and is
+ * retired on activate. A full page is stored under its absolute URL
+ * (pageCacheKey), which the offline fallback page reads to link only what
+ * this device saved (`data-pages-cache`, public/js/connectivity.js).
+ */
+export const PAGES_CACHE = 'pages-v2';
+
 export const PAGE_ACCOUNT_HEADER = 'X-Page-Account';
 
 /**

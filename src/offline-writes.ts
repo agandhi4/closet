@@ -374,6 +374,24 @@ export function offlineNotice(kinds: readonly QueueableKind[]): OfflineNotice {
 }
 
 /**
+ * A "N of M packed" line while ticks wait to sync: the server's count plus
+ * the net of the queued records, never a recount of the page. A row is its
+ * state in the server's markup (`served`) and the intent of its pending
+ * record (`queued`, undefined without one); only a row whose pending record
+ * disagrees with the server moves the count, so a page with nothing queued
+ * keeps the server's number (#658).
+ */
+export function packedCount(
+  served: number,
+  rows: readonly { served: boolean; queued: boolean | undefined }[],
+): number {
+  return rows.reduce((count, row) => {
+    if (row.queued === undefined || row.queued === row.served) return count;
+    return count + (row.queued ? 1 : -1);
+  }, served);
+}
+
+/**
  * The longest a replay may wait for its answer: a request hung on a flaky
  * link would otherwise hold the drain lock for every tab, and sign-out
  * behind it. Aborted, it is a network error: retried with backoff.

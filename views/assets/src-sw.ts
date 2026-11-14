@@ -43,6 +43,7 @@ import {
   revalidationOutcome,
   sentToLogin,
   servesStaleWhileRevalidate,
+  PAGES_CACHE,
 } from '../../src/web/page-cache';
 import {
   isWarmedDetailPage,
@@ -190,9 +191,6 @@ async function answerShare(request: Request): Promise<Response> {
 }
 
 const FALLBACK_HTML_URL = '/offline.html';
-// v2 since 2026-09-26: copies are stamped and owned (pageStore below);
-// pages-v1 held neither and is retired on activate.
-const PAGES_CACHE = 'pages-v2';
 // v2 since 2026-09-28 (#226): dropped with the session. images-v1 outlived
 // every sign-out, so it may hold a previous account's photos; it is retired
 // on activate.
