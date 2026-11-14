@@ -9,7 +9,7 @@ import type { IsoDate } from '../../calendar-date';
 import type { CalendarEntry, EntryView } from './calendar-view';
 import { occasionLabel } from '../date-labels';
 import { OPEN_PLAN_SHEET, planSheetChoice } from './plan-sheet';
-import { removalIsReversible } from './restore';
+import { removalAsksFirst } from './removal';
 import { dayUrl, planPageUrl } from './urls';
 
 /**
@@ -139,12 +139,16 @@ function OccasionLabel({ occasion }: { occasion: Occasion }) {
  * "Change outfit" (not once worn: a worn entry is the record of that day
  * and keeps its outfit), then Remove: at once with Undo in the toast
  * when that restores it exactly, else asked first by the confirm sheet
- * (removalIsReversible, #686); htmx swaps in the week it was on. Buttons only: a form inside a daisyUI menu item loses
+ * (removalAsksFirst, #686); htmx swaps in the week it was on. Buttons only: a form inside a daisyUI menu item loses
  * its styling (the outfit page's ⋯ menu).
  */
 function EntryMenu(props: { entry: CalendarEntry; name: string }) {
   const { entry } = props;
   const remove = `/calendar/${entry.id}/delete`;
+  const asks = removalAsksFirst({
+    ...entry,
+    takesOutfit: entry.outfit.createdOneOff,
+  });
   return (
     <details class="dropdown dropdown-end ms-auto" data-entry-menu={entry.id}>
       <summary
@@ -177,13 +181,9 @@ function EntryMenu(props: { entry: CalendarEntry; name: string }) {
             hx-vals={JSON.stringify({
               week: entry.day,
               // The row asks in the sheet, so its yes is the confirmation (#686).
-              ...(!removalIsReversible(entry) && { confirmed: '1' }),
+              ...(asks && { confirmed: '1' }),
             })}
-            hx-confirm={
-              removalIsReversible(entry)
-                ? undefined
-                : t('CALENDAR_DELETE_CONFIRM')
-            }
+            hx-confirm={asks ? t('CALENDAR_DELETE_CONFIRM') : undefined}
             data-needs-network=""
             data-remove-entry={entry.id}
           >

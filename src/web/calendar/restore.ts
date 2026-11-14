@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { IsoDate } from '../../calendar-date';
 import type { Occasion } from '../../wardrobe/occasions';
-import type { CalendarEntry } from './calendar-view';
 import type { DeletedEntry } from './queries';
 
 /**
@@ -13,15 +12,10 @@ import type { DeletedEntry } from './queries';
  * first, by the confirm sheet; the rest act at once and the toast offers
  * Undo.
  *
- * `removalIsReversible` is the row's hint, so a tap asks only where it
- * must; the decision is the server's (deleteEntry's `asksFirst`, from the
- * current row), so a page gone stale never deletes irreversibly unasked.
+ * The rule is `removalAsksFirst` (removal.ts), which the row's hint and the
+ * server's decision (deleteEntry's `asksFirst`, from the current row) both
+ * call, so a page gone stale never deletes irreversibly unasked.
  */
-export function removalIsReversible(
-  entry: Pick<CalendarEntry, 'worn' | 'plannedBy' | 'outfit'>,
-): boolean {
-  return !entry.worn && entry.outfit.kept && entry.plannedBy !== 'agent';
-}
 
 /** What Undo puts back: the removed entry as the server saw it. */
 export interface RemovedEntry {
