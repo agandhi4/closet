@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import {
+  link,
   mkdir,
   mkdtemp,
   readdir,
@@ -14,7 +15,11 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { text } from 'node:stream/consumers';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { PhotoStorage } from '../../src/web/files/storage';
+import {
+  type MarkerFs,
+  PhotoStorage,
+  STORAGE_MARKER,
+} from '../../src/web/files/storage';
 import { captureLogs } from '../support/log-capture';
 
 /**
@@ -210,6 +215,99 @@ describe('photo storage on disk', () => {
       await expect(broken.delete('f.webp')).rejects.toMatchObject({
         code: 'ENOTDIR',
       });
+    });
+  });
+
+  // #650's marker: what the disk does to it, injected.
+  describe('the storage marker', () => {
+    const nodeFs: MarkerFs = {
+      readText: (file) => readFile(file, 'utf8'),
+      writeNew: (file, content) => writeFile(file, content, { flag: 'wx' }),
+      link: (from, to) => link(from, to),
+      remove: (file) => rm(file, { force: true }),
+    };
+    const errno = (code: string) =>
+      Object.assign(new Error(`${code}: on /secret/path`), { code });
+
+    it('reads a failing read as unreadable by its code, never as a rejection', async () => {
+      const stale = new PhotoStorage(directory, captureLogs().logger, {
+        ...nodeFs,
+        readText: () => Promise.reject(errno('ESTALE')),
+      });
+      expect(await stale.identityProblem()).toEqual({
+        kind: 'unreadable',
+        code: 'ESTALE',
+      });
+      expect(await stale.readMarker()).toEqual({
+        state: 'unreadable',
+        code: 'ESTALE',
+      });
+    });
+
+    it('reads content that is not a marker as unreadable, and never replaces it', async () => {
+      await writeFile(join(directory, STORAGE_MARKER), 'not json');
+      expect(await storage.identityProblem()).toEqual({
+        kind: 'unreadable',
+        code: 'MALFORMED',
+      });
+    });
+
+    it('reports the marker that won the race as unreadable, by code only, when it is malformed', async () => {
+      const racing = new PhotoStorage(directory, captureLogs().logger, {
+        ...nodeFs,
+        link: async () => {
+          await writeFile(join(directory, STORAGE_MARKER), 'not json');
+          throw errno('EEXIST');
+        },
+      });
+      expect(await racing.createMarker()).toEqual({
+        state: 'unreadable',
+        code: 'MALFORMED',
+      });
+      expect(await incoming()).toEqual([]);
+    });
+
+    it('two processes creating it at once end with one install id both claim', async () => {
+      // The first is held between its temp file and its link while the
+      // second creates the marker whole.
+      let written!: () => void;
+      const tempWritten = new Promise<void>((resolve) => {
+        written = resolve;
+      });
+      let release!: () => void;
+      const linkAllowed = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const first = new PhotoStorage(directory, captureLogs().logger, {
+        ...nodeFs,
+        writeNew: async (file, content) => {
+          await nodeFs.writeNew(file, content);
+          written();
+        },
+        link: async (from, to) => {
+          await linkAllowed;
+          return nodeFs.link(from, to);
+        },
+      });
+      const second = new PhotoStorage(directory, captureLogs().logger, nodeFs);
+
+      const firstCreated = first.createMarker();
+      await tempWritten;
+      const secondCreated = await second.createMarker();
+      release();
+      expect(await firstCreated).toEqual(secondCreated);
+      if (secondCreated.state !== 'present') throw new Error('not present');
+      const secondMarker = secondCreated.marker;
+
+      first.claim(secondMarker);
+      second.claim(secondMarker);
+      expect(await first.identityProblem()).toBeUndefined();
+      expect(await second.identityProblem()).toBeUndefined();
+      expect(
+        JSON.parse(await readFile(join(directory, STORAGE_MARKER), 'utf8')),
+      ).toEqual(secondMarker);
+      // Neither temp file is left behind.
+      expect(await incoming()).toEqual([]);
     });
   });
 });

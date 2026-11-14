@@ -16,7 +16,7 @@ import {
 import { pickGarments } from '../../gallery/pick';
 import { OUTFIT_NAME_MAX } from '../../outfits/queries';
 import { brokenRuleLabels } from '../../style/labels';
-import { actorOf, defineTool } from '../tool';
+import { actorOf, defineTool, originOf } from '../tool';
 import { isoDate, occasionInput, rowId } from './common';
 
 const round1 = (value: number) => Math.round(value * 10) / 10;
@@ -215,7 +215,7 @@ export const galleryTools = [
         actorOf(ctx),
         plan ? { kind: 'day', ...plan } : { kind: 'none' },
         garmentIds,
-        { source: 'idea', name, via: ' (MCP)', by: 'agent' },
+        { source: 'idea', name, via: ' (MCP)', madeBy: originOf(ctx) },
       );
       return {
         id: picked.id,

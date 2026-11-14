@@ -65,6 +65,7 @@ import {
   weekUrl,
 } from './urls';
 import { weekContext } from './week-context';
+import { BY_PERSON } from '../write-origin';
 
 /**
  * Validation, decided per route:
@@ -328,14 +329,18 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const occasion = request.body.occasion ?? DEFAULT_OCCASION;
       if (replace !== undefined) {
         const target = { entryId: replace, day: date, occasion };
-        const replaced = await replaceEntryOutfit(db, actor, target, {
-          outfitId,
-        });
+        const replaced = await replaceEntryOutfit(
+          db,
+          actor,
+          target,
+          { outfitId },
+          BY_PERSON,
+        );
         logger.info(replaceMessage(actor.userId, target, replaced));
         return reply.redirect(weekUrl(week ?? date), 302);
       }
       const entry = { outfitId, day: date, occasion };
-      const scheduled = await planOutfit(db, actor, entry);
+      const scheduled = await planOutfit(db, actor, entry, BY_PERSON);
       logger.info(scheduleMessage(actor.userId, entry, scheduled));
       return reply.redirect(weekUrl(week ?? date), 302);
     },

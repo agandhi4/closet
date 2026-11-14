@@ -77,6 +77,12 @@ import type {
   GarmentPropertyFields,
   ProductFields,
 } from './garment-input';
+import {
+  type AgentLabel,
+  agentLabelSql,
+  type AgentViewer,
+  type WriteOrigin,
+} from '../write-origin';
 
 /**
  * Garments' reads and writes. Every query names the wardrobe (owner) it
@@ -540,6 +546,11 @@ export interface GarmentDetail
   suggestedAt: Date | null;
   suggestionGroupId: number | null;
   dismissedAt: Date | null;
+  /**
+   * An agent made it over MCP (#682). Never its name: that depends on who
+   * reads it, so it is read with the viewer (garmentAgentSql, garmentsByIds).
+   */
+  madeByAgent: boolean;
 }
 
 const detailColumns = {
@@ -583,6 +594,7 @@ const detailColumns = {
   suggestedAt: garment.suggestedAt,
   suggestionGroupId: garment.suggestionGroupId,
   dismissedAt: garment.dismissedAt,
+  madeByAgent: sql<boolean>`${garment.addedByTokenId} is not null`,
   photo: photoWithCutoutJson,
 };
 
@@ -602,6 +614,8 @@ export async function findGarment(
 
 /** A garment as the changes feed reads it (garmentsByIds). */
 export interface SyncedGarmentRow extends GarmentDetail {
+  /** The agent that made it, as `viewerId` may see it (agentLabelSql). */
+  agent: AgentLabel | null;
   /** The owner's repair log; null on a wardrobe the viewer does not own. */
   repairs: RepairEntry[] | null;
 }
@@ -620,6 +634,10 @@ export function garmentsByIds(
   return db
     .select({
       ...detailColumns,
+      agent: agentLabelSql(garment.addedByTokenId, {
+        viewerId,
+        ownsWardrobe: sql`${garment.ownerId} = ${viewerId}::int`,
+      }),
       repairs: sql<
         RepairEntry[] | null
       >`case when ${garment.ownerId} = ${viewerId} then ${repairLogSql(garment.id)} end`,
@@ -627,6 +645,21 @@ export function garmentsByIds(
     .from(garment)
     .leftJoin(file, eq(file.id, garment.photoId))
     .where(inArray(garment.id, [...ids]));
+}
+
+/**
+ * Garment `id`'s agent as `viewer` may see it (agentLabelSql), as a scalar
+ * subquery for a statement of the garment's other reads (garmentContext,
+ * get_garment's): findGarment reads only whether an agent made it.
+ */
+export function garmentAgentSql(
+  id: number,
+  viewer: AgentViewer,
+): SQL<AgentLabel | null> {
+  return sql<AgentLabel | null>`(
+    select ${agentLabelSql(garment.addedByTokenId, viewer)}
+    from ${garment} where ${garment.id} = ${id}
+  )`;
 }
 
 /**
@@ -732,12 +765,17 @@ export async function insertGarment(
   fields: GarmentFields,
   photoId: number | null,
   status: EntryStatus,
+  madeBy: WriteOrigin,
 ): Promise<number> {
   const lock = ownerLockCte(tx, ownerId);
   const [row] = await tx
     .with(lock)
     .insert(garment)
-    .values(newGarment(tx, ownerId, fields, photoId, status, lock))
+    .values({
+      ...newGarment(tx, ownerId, fields, photoId, status, lock),
+      // The agent's token when an MCP tool made it (#682, write-origin.ts).
+      addedByTokenId: madeBy.agentTokenId,
+    })
     .returning({ id: garment.id });
   return row.id;
 }

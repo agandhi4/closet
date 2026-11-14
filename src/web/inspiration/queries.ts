@@ -29,6 +29,7 @@ import { NotFound } from '../refusals';
 import { insertGarment } from '../wardrobe/queries';
 import { onWishlist } from '../wardrobe/status';
 import { wishlistFieldsOf } from './piece-wishlist';
+import { BY_PERSON } from '../write-origin';
 
 /**
  * Saved looks (#22; docs/plans/2026-11-13-inspiration-library.md): the
@@ -865,6 +866,8 @@ export function addPieceToWishlist(
       wishlistFieldsOf(piece, piece.look),
       null,
       'wishlist',
+      // Find this is the person's tap: no MCP tool reaches it.
+      BY_PERSON,
     );
     await setPieceMatch(tx, id, position, garmentId);
     return { garmentId, created: true };

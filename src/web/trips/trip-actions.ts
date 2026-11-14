@@ -43,6 +43,7 @@ import {
   type TripSlot,
   updateTrip,
 } from './queries';
+import type { WriteOrigin } from '../write-origin';
 
 /**
  * The trip path (#188; docs/plans/2026-11-12-json-api.md section 4):
@@ -180,8 +181,13 @@ export async function planTripOutfit(
   db: Db,
   actor: Actor,
   input: { tripId: number; outfitId: number } & TripSlot,
+  madeBy: WriteOrigin,
 ): Promise<TripOutfitAdded> {
-  const outcome = await addTripOutfit(db, { ...input, ownerId: actor.userId });
+  const outcome = await addTripOutfit(db, {
+    ...input,
+    ownerId: actor.userId,
+    madeBy,
+  });
   if (outcome === 'no-outfit') throw outfitNotFound();
   if (outcome === 'added' || outcome === 'already') return outcome;
   return refuseTripSlot(outcome, input.day);
@@ -201,6 +207,8 @@ export async function pickIdeaForTrip(
     name?: string;
     /** `idea` for a picked idea, `person` for Styling's composed save (#659). */
     origin: OutfitOrigin;
+    /** The person or the agent's token (#682): the outfit's and the trip outfit's stamp. */
+    madeBy: WriteOrigin;
   } & TripSlot,
 ): Promise<{ outfit: PickResult; added: TripOutfitAdded }> {
   const outcome = await pickForTrip(db, actor.userId, input);

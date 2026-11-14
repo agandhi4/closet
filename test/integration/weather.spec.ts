@@ -34,6 +34,7 @@ import { deviceToken, expectProblem } from './api';
 import { callTool, createAccessToken, mcpRequest, tool } from './mcp';
 import { expectFragment, expectFullPage, HX_FRAGMENT } from './pages';
 import { startWeatherStub, type WeatherStub } from '../support/weather-stub';
+import { BY_PERSON } from '../../src/web/write-origin';
 
 /**
  * Weather (#14): the settings a user keeps, the forecast the server fetches
@@ -940,12 +941,14 @@ describe('weather', () => {
         slots: [],
         plan: { day: '2026-09-28', occasion: 'evening' },
         origin: 'person',
+        madeBy: BY_PERSON,
       });
       await createOutfit(t.db, t.owner.id, {
         name: 'Far ahead',
         slots: [],
         plan: { day: '2026-10-20', occasion: 'all-day' },
         origin: 'person',
+        madeBy: BY_PERSON,
       });
       const calendar = await tool<{
         entries: {

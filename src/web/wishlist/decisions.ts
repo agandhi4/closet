@@ -462,7 +462,7 @@ export function markSuggestion(
       .update(garment)
       .set({
         suggestedAt: sql`now()`,
-        suggestedByTokenId: provenance.tokenId,
+        addedByTokenId: provenance.tokenId,
         suggestionGroupId: groupId,
         suggestionNote: provenance.note,
         suggestionRank: provenance.rank,

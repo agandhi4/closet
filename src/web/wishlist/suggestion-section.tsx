@@ -1,4 +1,5 @@
 import { t } from '../i18n';
+import { museName } from '../write-origin';
 import { categoryLabel } from '../wardrobe/garment';
 import type { GarmentDetail } from '../wardrobe/queries';
 import { garmentUrl, needUrl } from '../wardrobe/urls';
@@ -71,7 +72,7 @@ export function SuggestionSection(props: {
     <section
       class="card bg-base-100 border border-base-300"
       aria-label={t('muse.FROM', {
-        agent: suggestion.agent ?? t('muse.AGENT'),
+        agent: museName(suggestion.agent),
       })}
       data-suggestion-state={state}
     >

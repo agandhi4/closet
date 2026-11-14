@@ -66,6 +66,7 @@ import {
   withPresets,
 } from './garment-input';
 import { GarmentParams, OwnerQuery } from '../schemas';
+import { BY_PERSON } from '../write-origin';
 
 /** A garment's page; its actions are paths under it. */
 const GARMENT_PATH = '/wardrobe/:id';
@@ -236,6 +237,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           access.ownerId,
           form.fields,
           status,
+          BY_PERSON,
           withGarment,
         );
         created(id);
@@ -248,6 +250,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         form.fields,
         linkPhoto,
         status,
+        BY_PERSON,
         withGarment,
       );
       if (!claimed) {
@@ -306,7 +309,12 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       );
       const { id } = request.params;
       const today = todayIn(config.timeZone, new Date());
-      const context = await garmentContext(db, garment, access, today);
+      const context = await garmentContext(
+        db,
+        garment,
+        { ...access, viewerId: sessionUserId(request) },
+        today,
+      );
       const { own } = context;
       return renderPage(
         reply,

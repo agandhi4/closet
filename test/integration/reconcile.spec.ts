@@ -12,6 +12,7 @@ import {
 } from '../../src/maintenance/reconcile';
 import { addDays } from '../../src/calendar-date';
 import { variantFileName } from '../../src/web/files/image-variant';
+import { STORAGE_MARKER } from '../../src/web/files/storage';
 import {
   createGarment,
   jpegPhoto,
@@ -111,10 +112,11 @@ describe('storage reconciliation', () => {
 
     const filesBefore = await storedFiles();
     const rowsBefore = await photoRowCount(t);
-    // Files only: DATA_PATH/.incoming (in-flight writes) is not an object.
+    // Files only: DATA_PATH/.incoming (in-flight writes) is not an object,
+    // nor is the storage marker.
     const objectsBefore = (
       await readdir(t.dataPath, { withFileTypes: true })
-    ).filter((entry) => entry.isFile()).length;
+    ).filter((entry) => entry.isFile() && entry.name !== STORAGE_MARKER).length;
     const expected: Omit<ReconciliationReport, 'durationMs' | 'dryRun'> = {
       storedObjects: objectsBefore,
       // live, lost (its thumb), staleOrphan, recentOrphan, staleRow

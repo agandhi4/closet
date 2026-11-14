@@ -19,12 +19,14 @@ import {
   OUTFIT_SLOTS_MAX,
   type OutfitGarment,
   type OutfitPageDetail,
+  type OutfitProposal,
   type SlotInput,
   type SyncedOutfitRow,
   type ToolOutfit,
 } from './queries';
 import { piecesToBuy } from './references';
 import { DECLINE_NOTE_MAX, SlotCategory } from './schemas';
+import { AgentResource, agentNameOf, toAgentResource } from '../write-origin';
 
 /**
  * The API's outfit resources and inputs (#193a; docs/plans/2026-11-12-json-
@@ -91,6 +93,7 @@ const outfitFields = {
       'Its garments not bought yet (wishlist items): an outfit with any cannot be planned, packed or worn until they are',
   }),
   proposal: Type.Optional(OutfitProposalResource),
+  agent: Type.Optional(AgentResource),
 };
 
 export const OutfitListItem = Type.Object(outfitFields, {
@@ -149,8 +152,17 @@ function toOutfitFields(outfit: ToolOutfit | OutfitPageDetail) {
     origin: outfit.origin,
     garments: outfit.garments.map(toOutfitGarment),
     toBuy: piecesToBuy(outfit.garments).map(({ id }) => id),
-    ...(outfit.proposal && { proposal: withoutNulls(outfit.proposal) }),
+    ...(outfit.proposal && { proposal: proposalOf(outfit.proposal) }),
+    agent: toAgentResource(outfit.agent),
   };
+}
+
+/** A proposal's fields, its agent worded (only the outfit page reads it). */
+function proposalOf(proposal: OutfitProposal | Omit<OutfitProposal, 'agent'>) {
+  return withoutNulls({
+    ...proposal,
+    agent: 'agent' in proposal ? agentNameOf(proposal.agent) : undefined,
+  });
 }
 
 export function toOutfitListItem(outfit: ToolOutfit): OutfitListItem {
@@ -206,6 +218,7 @@ export const SyncedOutfit = Type.Object(
         },
       ),
     ),
+    agent: Type.Optional(AgentResource),
   },
   {
     title: 'SyncedOutfit',
@@ -223,6 +236,7 @@ export function toSyncedOutfit(
     origin: row.origin,
     slots: row.slots.map((slot) => withoutNulls(slot)),
     ...(row.proposal && { proposal: withoutNulls(row.proposal) }),
+    agent: toAgentResource(row.agent),
   };
 }
 

@@ -5,6 +5,7 @@ import type {
 } from 'fastify';
 import { lastMigrationAt, newestMigrationAt } from '../../db/migrate';
 import { ownershipFix, probeWritable } from '../../storage-probe';
+import { identityRefusal, STORAGE_MARKER_FIX } from '../files/storage-identity';
 import type { WebOptions } from '../plugin';
 import { enforceLimit, HEALTH_LIMIT } from '../security/rate-limit';
 import {
@@ -32,7 +33,7 @@ import {
  */
 export const healthRoutes: FastifyPluginCallback<WebOptions> = (
   app,
-  { config, db, logger, jobs, cutouts },
+  { config, db, logger, jobs, cutouts, photos },
   done,
 ) => {
   const log = logger.child({ logger: 'Health' });
@@ -43,6 +44,11 @@ export const healthRoutes: FastifyPluginCallback<WebOptions> = (
     directories: config.storageDirs,
     probe: probeWritable,
     fix: ownershipFix,
+    identity: async () => {
+      const problem = await photos.storage.identityProblem();
+      return problem && identityRefusal(problem);
+    },
+    identityFix: `see ${STORAGE_MARKER_FIX}`,
     logger: log,
   });
 

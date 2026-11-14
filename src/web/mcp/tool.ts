@@ -14,6 +14,7 @@ import {
   type WardrobeNeed,
 } from '../sharing/access';
 import type { WeatherService } from '../weather/service';
+import type { WriteOrigin } from '../write-origin';
 
 /**
  * The MCP tools' shared shape (#33). A tool is data (name, description,
@@ -82,6 +83,15 @@ export function defineTool<Input extends z.ZodObject>(
 /** The token's user as a domain function's Actor: no session, so no share read ahead. */
 export function actorOf(ctx: Pick<ToolContext, 'userId'>): Actor {
   return { userId: ctx.userId };
+}
+
+/**
+ * The calling token as a writer's WriteOrigin (#682): every stamping writer
+ * a tool reaches takes it, so what the agent made carries its token
+ * (MCP_WRITES' `attribution`, src/web/api/operations.ts).
+ */
+export function originOf(ctx: Pick<ToolContext, 'tokenId'>): WriteOrigin {
+  return { agentTokenId: ctx.tokenId };
 }
 
 /**

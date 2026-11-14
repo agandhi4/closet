@@ -12,11 +12,11 @@ import { runSeed } from './seed';
  * dist/, so `npm run build` first when developing. In production:
  * `docker exec closet npm run seed -- --persona demo`.
  */
-runCli('Seed', ({ config, logger, db }) =>
+runCli('Seed', async ({ config, logger, db }) =>
   runSeed({
     args: process.argv.slice(2),
     db,
-    photos: createPhotos(
+    photos: await createPhotos(
       photosConfig(config),
       db,
       logger.child({ logger: 'Photos' }),

@@ -8,6 +8,7 @@ import {
 import { requireCurrentSchema, SchemaBehindError } from '../db/migrate';
 import { createBootLogger, createLogger, type Logger } from '../logger';
 import { configurePasswordHashing } from '../web/auth/passwords';
+import { StorageIdentityError } from '../web/files/storage-identity';
 
 export interface CliContext {
   config: Config;
@@ -86,7 +87,11 @@ export function runCli(
     (error: unknown) => {
       const boot = createBootLogger();
       // Refusals name their reason; anything else is logged with its stack.
-      if (error instanceof ConfigError || error instanceof SchemaBehindError) {
+      if (
+        error instanceof ConfigError ||
+        error instanceof SchemaBehindError ||
+        error instanceof StorageIdentityError
+      ) {
         boot.fatal(`${name}: ${error.message}`);
       } else {
         boot.fatal({ err: error }, `${name} failed`);

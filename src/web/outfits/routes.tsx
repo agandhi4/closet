@@ -48,6 +48,7 @@ import {
   decisionToastOf,
 } from '../wishlist/suggestion-parts';
 import { withParams } from '../wardrobe/urls';
+import { BY_PERSON } from '../write-origin';
 
 /**
  * Validation, decided per route:
@@ -143,7 +144,7 @@ const OutfitBody = Type.Object({
 type OutfitForm = Static<typeof OutfitBody>;
 
 /** The form's rows and fields: an edit as posted, a create once its origin is said. */
-function outfitInput(body: OutfitForm): Omit<OutfitInput, 'origin'> {
+function outfitInput(body: OutfitForm): Omit<OutfitInput, 'origin' | 'madeBy'> {
   const categories = body.category ?? [];
   const garmentIds = body.garmentId ?? [];
   if (categories.length !== garmentIds.length) {
@@ -376,6 +377,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const result = await createOutfit(db, ownerId, {
         ...input,
         origin: 'person',
+        madeBy: BY_PERSON,
       });
       logger.info(createMessage(ownerId, result, input.plan));
       return reply.redirect(afterSave(request.body, result.id, result), 302);

@@ -70,6 +70,7 @@ import {
   expectNativePostForms,
   expectNoScriptNavigation,
 } from './pages';
+import { BY_PERSON } from '../../src/web/write-origin';
 
 /**
  * The weekly auto-plan (#16): the Profile's week template, "Plan my week"
@@ -228,7 +229,12 @@ describe('the weekly auto-plan', () => {
       notes: null,
     });
     expect(
-      await addTripOutfit(t.db, { tripId, ownerId: t.owner.id, outfitId }),
+      await addTripOutfit(t.db, {
+        tripId,
+        ownerId: t.owner.id,
+        outfitId,
+        madeBy: BY_PERSON,
+      }),
     ).toBe('added');
     return tripId;
   };
@@ -713,7 +719,7 @@ describe('the weekly auto-plan', () => {
           outfitId: thursday.outfitId,
           day: WEEK[3],
           occasion: 'all-day',
-          plannedBy: 'auto',
+          chooser: 'planner',
         }),
       ).toEqual({ outcome: 'already-scheduled', adopted: false });
       expect(
@@ -934,6 +940,7 @@ describe('the weekly auto-plan', () => {
           outfitId: twice.outfitId,
           day: addDays(TODAY, 20),
           occasion: 'evening',
+          chooser: BY_PERSON,
         }),
       ).toMatchObject({ outcome: 'scheduled' });
 

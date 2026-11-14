@@ -18,6 +18,7 @@ import { photoRowExists, STORED_PHOTO_COLUMNS } from '../web/files/queries';
 import { photoIsReferenced } from '../web/files/references';
 import type { Photos } from '../web/files/photos';
 import type { StoredObject } from '../web/files/storage';
+import { identityRefusal } from '../web/files/storage-identity';
 import type { Logger } from '../logger';
 
 // Younger objects and rows are left alone: an upload writes its bytes before
@@ -90,6 +91,8 @@ interface StoredPhotoSet {
 interface FileRow extends StoredPhoto {
   id: number;
   createdOn: string;
+  /** photoIsReferenced at the read. */
+  referenced: boolean;
 }
 
 /**
@@ -110,6 +113,10 @@ interface FileRow extends StoredPhoto {
  * before the plan, outside the guard, and younger ones are left out of the
  * plan. Pending rows whose bytes are gone are deleted.
  *
+ * Before any of it the directory must be the household's storage (#650):
+ * no marker (an unmounted share), another install's marker, or file rows
+ * with not one stored photo set refuse the run whole, `--force` or not.
+ *
  * Runs nightly from the server (nightly.ts, server.ts) unless
  * MAINTENANCE_ENABLED is false, and on demand through
  * `npm run maintenance:reconcile` (reconcile.cli.ts).
@@ -129,30 +136,54 @@ export async function reconcileStorage(
     `Storage reconciliation started${dryRun ? ' (dry run)' : ''}, cutoff ${cutoff.toISOString()}`,
   );
 
-  // Link imports first: their orphans are explained, so they are removed
+  // The directory first: a bare mountpoint (the share not mounted) looks
+  // like storage whose every photo is gone. Nothing is read or deleted,
+  // pending rows included, and --force does not override (#650).
+  const identity = await deps.photos.storage.identityProblem();
+  if (identity) {
+    return refuse(deps, dryRun, startedAt, identityRefusal(identity));
+  }
+  // Pending rows before the scan (see planReconciliation), file rows after
+  // it, and both before any deletion: the mirror rule below needs them.
+  const pendingRows = await pendingPhotoRows(deps.db);
+  const scan = await scanStorage(deps.photos);
+  const rows = await fileRows(deps.db);
+  const mirror = mirrorRefusal(
+    rows.length,
+    unpendingSetCount(scan.photoSets, pendingRows),
+  );
+  if (mirror) return refuse(deps, dryRun, startedAt, mirror);
+  return cleanUp(
+    deps,
+    { pendingRows, rows, ...scan },
+    { cutoff, startedAt, dryRun, force },
+  );
+}
+
+// The run once the directory is proven: the pending pass, the plan, the
+// guard, the deletions and the report.
+async function cleanUp(
+  deps: ReconcileDeps,
+  state: ReconciliationState,
+  {
+    cutoff,
+    startedAt,
+    dryRun,
+    force,
+  }: { cutoff: Date; startedAt: number; dryRun: boolean; force: boolean },
+): Promise<ReconciliationReport> {
+  const { logger } = deps;
+  // Link imports next: their orphans are explained, so they are removed
   // outside the guard (an evening of abandoned imports must not stop the
   // clean-up), and the plan below never counts a pending photo.
-  const pendingRows = await pendingPhotoRows(deps.db);
   const agedPending = await removeAgedPendingPhotos(
     deps,
-    pendingRows,
+    state.pendingRows,
     pendingCutoffs(cutoff, startedAt),
     dryRun,
   );
-  const plan = await planReconciliation(deps, cutoff, pendingRows, agedPending);
-  const refused = force
-    ? undefined
-    : guardRefusal({
-        rows: plan.rowCount,
-        storedPhotoSets: plan.photoSets.size - plan.pendingSets,
-        // A photo with superseded variants counts as a set: a database
-        // restored behind its storage makes every newer cutout look
-        // superseded, and the guard is what stops that.
-        deletions:
-          plan.orphanedSets.length +
-          plan.orphanedRows.length +
-          plan.superseded.size,
-      });
+  const plan = planReconciliation(logger, cutoff, state, agedPending, dryRun);
+  const refused = force ? undefined : planRefusal(plan);
   if (refused) {
     logger.warn(
       `Storage reconciliation refused to delete anything: ${refused}`,
@@ -178,6 +209,73 @@ export async function reconcileStorage(
     pendingRowsWithoutFiles,
     supersededVariantsDeleted: deleted.superseded,
     ...(refused ? { refused } : {}),
+    durationMs: Date.now() - startedAt,
+  };
+  logger.info(summary(report));
+  return report;
+}
+
+/**
+ * The guard's mirror rule: rows and not one stored photo set is storage
+ * that is not the household's (an emptied or swapped share), never a
+ * trickle to clean. Checked ahead of the pending pass, which would delete
+ * every pending row as "without files"; --force does not override it.
+ */
+function mirrorRefusal(
+  rows: number,
+  storedPhotoSets: number,
+): string | undefined {
+  if (rows === 0 || storedPhotoSets > 0) return undefined;
+  return (
+    `the file table has ${rows} rows while storage holds no photo sets ` +
+    '(an emptied or unmounted share?)'
+  );
+}
+
+// The stored sets that are not a pending upload's: what the mirror rule and
+// the guard count as the household's photos (a pending photo is explained
+// by its row, so one on a swapped share must not vouch for the rest).
+function unpendingSetCount(
+  photoSets: ReadonlyMap<string, StoredPhotoSet>,
+  pendingRows: readonly { fileName: string }[],
+): number {
+  const pendingNames = new Set(pendingRows.map((row) => row.fileName));
+  return [...photoSets.keys()].filter((name) => !pendingNames.has(name)).length;
+}
+
+function planRefusal(plan: ReconciliationPlan): string | undefined {
+  return guardRefusal({
+    rows: plan.rowCount,
+    storedPhotoSets: plan.unpendingSets,
+    // A photo with superseded variants counts as a set: a database
+    // restored behind its storage makes every newer cutout look
+    // superseded, and the guard is what stops that.
+    deletions:
+      plan.orphanedSets.length +
+      plan.orphanedRows.length +
+      plan.superseded.size,
+  });
+}
+
+// A run refused before any deletion: the report of a run that did nothing.
+function refuse(
+  { logger }: ReconcileDeps,
+  dryRun: boolean,
+  startedAt: number,
+  refused: string,
+): ReconciliationReport {
+  logger.warn(`Storage reconciliation refused to delete anything: ${refused}`);
+  const report: ReconciliationReport = {
+    dryRun,
+    storedObjects: 0,
+    storedPhotoSets: 0,
+    orphanedObjectsDeleted: 0,
+    orphanedRowsDeleted: 0,
+    missingOriginals: 0,
+    pendingPhotosDeleted: 0,
+    pendingRowsWithoutFiles: 0,
+    supersededVariantsDeleted: 0,
+    refused,
     durationMs: Date.now() - startedAt,
   };
   logger.info(summary(report));
@@ -259,32 +357,25 @@ interface ReconciliationPlan {
   /** Photo sets older than the cutoff with no row, by base name. */
   orphanedSets: [string, StoredPhotoSet][];
   missingOriginals: number;
-  /** Stored photo sets explained by a pending row (never orphans). */
-  pendingSets: number;
+  /** Stored photo sets that no pending row explains. */
+  unpendingSets: number;
   /** Pending rows (read before the scan) whose original is not stored. */
   pendingRowsWithoutFiles: string[];
   /** Live rows' superseded variant files (supersededVariants), by base name. */
   superseded: Map<string, string[]>;
 }
 
-// Reads storage and both tables once and decides everything; deletes nothing.
-// The pending rows were read before the scan: a pending photo's bytes are
-// written before its row, so a row read first whose original the scan does
-// not list really has lost its bytes.
-async function planReconciliation(
-  { db, photos, logger }: ReconcileDeps,
-  cutoff: Date,
-  pendingRows: readonly { fileName: string }[],
-  agedPending: ReadonlySet<string>,
-): Promise<ReconciliationPlan> {
-  // created_on is an ISO timestamp as text (NewPhotoRow), so it orders as text.
-  const cutoffIso = cutoff.toISOString();
-  const { photoSets, storedObjects } = await scanStorage(photos);
-  const pendingNames = new Set(pendingRows.map((row) => row.fileName));
-  const pendingRowsWithoutFiles = [...pendingNames].filter(
-    (name) => !agedPending.has(name) && !holdsOriginal(photoSets, name),
-  );
-  const rows = await db
+interface ReconciliationState {
+  /** Read before the scan. */
+  pendingRows: Awaited<ReturnType<typeof pendingPhotoRows>>;
+  /** Read after the scan. */
+  rows: readonly FileRow[];
+  photoSets: Map<string, StoredPhotoSet>;
+  storedObjects: number;
+}
+
+function fileRows(db: Db): Promise<FileRow[]> {
+  return db
     .select({
       id: file.id,
       ...STORED_PHOTO_COLUMNS,
@@ -292,11 +383,36 @@ async function planReconciliation(
       referenced: photoIsReferenced(file.id),
     })
     .from(file);
+}
 
+// Decides everything from one read of storage and both tables; deletes
+// nothing. The pending rows were read before the scan: a pending photo's
+// bytes are written before its row, so a row read first whose original the
+// scan does not list really has lost its bytes. The scan ran before the
+// pending pass, so the sets that pass deleted (an aged pending photo with
+// no `file` row) leave the map here, as if scanned after it.
+function planReconciliation(
+  logger: Logger,
+  cutoff: Date,
+  { pendingRows, rows, photoSets, storedObjects }: ReconciliationState,
+  agedPending: ReadonlySet<string>,
+  dryRun: boolean,
+): ReconciliationPlan {
+  // created_on is an ISO timestamp as text (NewPhotoRow), so it orders as text.
+  const cutoffIso = cutoff.toISOString();
+  const knownNames = new Set(rows.map((row) => row.fileName));
+  if (!dryRun) {
+    for (const name of agedPending) {
+      if (!knownNames.has(name)) photoSets.delete(name);
+    }
+  }
+  const pendingNames = new Set(pendingRows.map((row) => row.fileName));
+  const pendingRowsWithoutFiles = [...pendingNames].filter(
+    (name) => !agedPending.has(name) && !holdsOriginal(photoSets, name),
+  );
   const orphanedRows = rows.filter(
     (row) => !row.referenced && row.createdOn < cutoffIso,
   );
-  const knownNames = new Set(rows.map((row) => row.fileName));
   const orphanedSets = [...photoSets].filter(([baseName, set]) => {
     if (knownNames.has(baseName) || pendingNames.has(baseName)) return false;
     if (set.newest >= cutoff) {
@@ -325,7 +441,7 @@ async function planReconciliation(
     orphanedRows,
     orphanedSets,
     missingOriginals,
-    pendingSets: [...pendingNames].filter((name) => photoSets.has(name)).length,
+    unpendingSets: unpendingSetCount(photoSets, pendingRows),
     pendingRowsWithoutFiles,
     superseded,
   };

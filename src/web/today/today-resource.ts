@@ -1,4 +1,5 @@
 import { CloneType, type Static, Type } from '@sinclair/typebox';
+import { agentNameOf } from '../write-origin';
 import { DEFAULT_OCCASION, OCCASIONS } from '../../wardrobe/occasions';
 import type { MatchGarment } from '../../weather/match';
 import { literals, withoutNulls } from '../api/resource';
@@ -115,14 +116,17 @@ function toMuse(
       roundId: round.id,
       outfits: round.outfits,
       pieces: round.pieces,
-      ...withoutNulls({ agent: round.agent, summary: round.summary }),
+      ...withoutNulls({
+        agent: agentNameOf(round.agent),
+        summary: round.summary,
+      }),
     };
   }
   if (needs) {
     return {
       kind: 'needs',
       needs: needs.count,
-      ...withoutNulls({ agent: needs.agent }),
+      ...withoutNulls({ agent: agentNameOf(needs.agent) }),
     };
   }
   return undefined;

@@ -82,6 +82,7 @@ import {
 import { mirrorSelfieSvg, SELFIE_ROOMS } from './selfie-art';
 import { PLANNED_DAYS, type SimulatedLife, simulate } from './simulate';
 import { forecastDayOf } from './weather';
+import { BY_PERSON } from '../web/write-origin';
 
 /**
  * `npm run seed`: writes the personas (src/seed/personas/*.md) through the
@@ -185,6 +186,7 @@ export async function seedPersona(
           // The bible's outfits are the persona's own; the planned week's
           // are the planner's (planMyWeek), so a seeded Saved is clean.
           origin: 'person',
+          madeBy: BY_PERSON,
           slots: garments.map((g) => ({
             category: g.fields.category,
             garmentId: ids.get(g.id)!,
@@ -377,6 +379,7 @@ async function writeGarments(
       },
       await photoIdOf(garment.id),
       'closet',
+      BY_PERSON,
     );
     if (garment.away) await setAway(tx, userId, id, garment.away);
     for (const repair of garment.repairs) {
@@ -399,6 +402,7 @@ async function writeGarments(
       },
       await photoIdOf(item.id),
       'wishlist',
+      BY_PERSON,
     );
   }
   return ids;
@@ -464,6 +468,7 @@ async function writeTrips(
       const added = await addTripOutfit(tx, {
         tripId,
         ownerId: userId,
+        madeBy: BY_PERSON,
         outfitId: outfitIdOf.get(planned.outfit)!,
         day: shifted(planned.day),
         occasion: planned.occasion,
@@ -580,6 +585,7 @@ async function writeHistory(
       outfitId: ids.outfitIds[entry.outfit],
       day: entry.day,
       occasion: entry.occasion,
+      chooser: BY_PERSON,
     });
     // The simulation plans each (day, outfit) once: always a new entry.
     if (!entry.worn || scheduled.outcome !== 'scheduled') continue;

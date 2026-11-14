@@ -14,7 +14,7 @@ runCli('Reconciliation', async ({ config, logger, db }) => {
   const report = await reconcileStorage(
     {
       db,
-      photos: createPhotos(
+      photos: await createPhotos(
         photosConfig(config),
         db,
         logger.child({ logger: 'Photos' }),
