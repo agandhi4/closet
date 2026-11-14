@@ -309,7 +309,12 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       );
       const { id } = request.params;
       const today = todayIn(config.timeZone, new Date());
-      const context = await garmentContext(db, garment, access, today);
+      const context = await garmentContext(
+        db,
+        garment,
+        { ...access, viewerId: sessionUserId(request) },
+        today,
+      );
       const { own } = context;
       return renderPage(
         reply,

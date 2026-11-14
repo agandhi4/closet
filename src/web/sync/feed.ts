@@ -113,7 +113,7 @@ export const FEED: Readonly<Record<SyncResource, FeedEntry>> = {
     read: async (db, ids, viewerId) =>
       (await garmentsByIds(db, viewerId, ids)).map((row) => ({
         id: row.id,
-        data: toSyncedGarment(row, viewerId),
+        data: toSyncedGarment(row),
       })),
   }),
   garment_wear: feedEntry({

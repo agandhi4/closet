@@ -24,7 +24,8 @@ import {
   type Replacement,
   replacementsOfSql,
 } from '../wishlist/queries';
-import type { GarmentDetail } from './queries';
+import type { AgentLabel } from '../write-origin';
+import { type GarmentDetail, garmentAgentSql } from './queries';
 import { type RepairEntry, repairLogSql, type RepairLog } from './repairs';
 
 /**
@@ -54,7 +55,9 @@ interface OwnerRecords {
  *   body, so never read for a grantee;
  * - `suggestion`: Muse's note and the need it is a pick of, with its
  *   siblings (#333), for a suggestion; anyone who sees it reads Muse's
- *   notes (owner decision, 2026-10-05).
+ *   notes (owner decision, 2026-10-05);
+ * - `agent`: the agent that made it over MCP (#682), as the viewer may see
+ *   it (agentLabelSql: a grantee's agent's token name is that grantee's).
  */
 export interface GarmentContext {
   capsules: GarmentCapsule[];
@@ -64,6 +67,14 @@ export interface GarmentContext {
   goesWith: GoesWithInputs | undefined;
   brandSize: BrandSize | undefined;
   suggestion: SuggestionContext | undefined;
+  agent: AgentLabel | null;
+}
+
+/** Who reads the page: the wardrobe's access, and the viewer the agent's name depends on. */
+interface ContextReader {
+  isOwner: boolean;
+  ownerId: number;
+  viewerId: number;
 }
 
 /**
@@ -80,7 +91,7 @@ export interface GarmentContext {
 export async function garmentContext(
   db: Db,
   garment: GarmentDetail,
-  access: { isOwner: boolean; ownerId: number },
+  access: ContextReader,
   today: IsoDate,
 ): Promise<GarmentContext> {
   const row = await selectScalars(db, contextColumns(garment, access, today));
@@ -97,6 +108,7 @@ export async function garmentContext(
     goesWith: row.goesWith && readGoesWithInputs(row.goesWith),
     brandSize: row.brandSize ?? undefined,
     suggestion: row.suggestion ?? undefined,
+    agent: row.agent ?? null,
   };
 }
 
@@ -109,8 +121,9 @@ function contextColumns(
     brand,
     suggestedAt,
     suggestionGroupId,
+    madeByAgent,
   }: GarmentDetail,
-  { isOwner, ownerId }: { isOwner: boolean; ownerId: number },
+  { isOwner, ownerId, viewerId }: ContextReader,
   today: IsoDate,
 ) {
   const owned = status !== 'wishlist';
@@ -129,6 +142,9 @@ function contextColumns(
       !owned && isOwner && brand ? brandSizeSql(ownerId, brand) : undefined,
     suggestion: when(suggestedAt !== null, () =>
       suggestionContextSql(ownerId, id, suggestionGroupId),
+    ),
+    agent: when(madeByAgent, () =>
+      garmentAgentSql(id, { viewerId, ownsWardrobe: isOwner }),
     ),
   };
 }

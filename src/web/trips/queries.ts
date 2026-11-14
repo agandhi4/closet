@@ -31,7 +31,7 @@ import {
 } from '../outfits/references';
 import { intArray, lockedTripCte, lockTrip, prunePacked } from './packed';
 import type { WriteOrigin } from '../write-origin';
-import { type AgentStamp, agentStampSql } from '../write-origin';
+import { type AgentLabel, agentLabelSql, OWNER_READS } from '../write-origin';
 
 /**
  * Trips' reads and writes (#10; docs/plans/2026-09-26-wardrobe-features.md,
@@ -900,7 +900,7 @@ export interface StoredTripOutfit {
   day: IsoDate | null;
   occasion: Occasion | null;
   /** The agent that put it on the trip (#682), null for the person. */
-  agent: AgentStamp | null;
+  agent: AgentLabel | null;
 }
 
 /** A trip as the changes feed carries it (tripsByIds, trip-resource.ts). */
@@ -931,7 +931,7 @@ export async function tripsByIds(
           'outfitId', ${tripOutfit.outfitId},
           'day', ${tripOutfit.day},
           'occasion', ${tripOutfit.occasion},
-          'agent', ${agentStampSql(tripOutfit.plannedByTokenId)}
+          'agent', ${agentLabelSql(tripOutfit.plannedByTokenId, OWNER_READS)}
         ) order by ${tripOutfit.id}), '[]')
         from ${tripOutfit} where ${tripOutfit.tripId} = ${trip.id}
       )`,

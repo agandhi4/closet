@@ -15,6 +15,7 @@ import {
 } from '../../outfits/queries';
 import { piecesToBuy } from '../../outfits/references';
 import { actorOf, defineTool, originOf } from '../tool';
+import { agentNameOf } from '../../write-origin';
 import { isoDate, occasionInput, rowId } from './common';
 
 function outfitOut(outfit: ToolOutfit) {
@@ -26,6 +27,8 @@ function outfitOut(outfit: ToolOutfit) {
     origin: outfit.origin,
     // One of Muse's proposals (#335): its note and the owner's reaction.
     proposal: outfit.proposal,
+    // Your agent made it over MCP (#682): its token's name.
+    agent: agentNameOf(outfit.agent),
     garments: outfit.garments.map(({ id, name }) => ({ id, name })),
     // Incomplete (#335): it cannot be planned or packed until these are bought.
     toBuy: piecesToBuy(outfit.garments).map(({ id, name }) => ({ id, name })),

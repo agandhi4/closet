@@ -25,7 +25,7 @@ import {
 } from './queries';
 import { piecesToBuy } from './references';
 import { DECLINE_NOTE_MAX, SlotCategory } from './schemas';
-import { AgentResource, ownAgentName, toAgentResource } from '../write-origin';
+import { AgentResource, toAgentResource } from '../write-origin';
 
 /**
  * The API's outfit resources and inputs (#193a; docs/plans/2026-11-12-json-
@@ -92,6 +92,7 @@ const outfitFields = {
       'Its garments not bought yet (wishlist items): an outfit with any cannot be planned, packed or worn until they are',
   }),
   proposal: Type.Optional(OutfitProposalResource),
+  agent: Type.Optional(AgentResource),
 };
 
 export const OutfitListItem = Type.Object(outfitFields, {
@@ -151,6 +152,7 @@ function toOutfitFields(outfit: ToolOutfit | OutfitPageDetail) {
     garments: outfit.garments.map(toOutfitGarment),
     toBuy: piecesToBuy(outfit.garments).map(({ id }) => id),
     ...(outfit.proposal && { proposal: withoutNulls(outfit.proposal) }),
+    agent: toAgentResource(outfit.agent),
   };
 }
 
@@ -225,7 +227,7 @@ export function toSyncedOutfit(
     origin: row.origin,
     slots: row.slots.map((slot) => withoutNulls(slot)),
     ...(row.proposal && { proposal: withoutNulls(row.proposal) }),
-    agent: toAgentResource(row.agent, ownAgentName),
+    agent: toAgentResource(row.agent),
   };
 }
 

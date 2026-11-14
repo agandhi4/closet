@@ -8211,6 +8211,20 @@
                                 "type": "string"
                               }
                             }
+                          },
+                          "agent": {
+                            "title": "Agent",
+                            "description": "The agent that made it over MCP, by its personal access token (absent: a person did)",
+                            "type": "object",
+                            "required": [
+                              "name"
+                            ],
+                            "properties": {
+                              "name": {
+                                "description": "Your token's name when it was yours, \"<first name>'s agent\" for a grantee's agent on your wardrobe, else \"Agent\"",
+                                "type": "string"
+                              }
+                            }
                           }
                         }
                       }
@@ -8758,6 +8772,20 @@
                           ]
                         },
                         "agent": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "agent": {
+                      "title": "Agent",
+                      "description": "The agent that made it over MCP, by its personal access token (absent: a person did)",
+                      "type": "object",
+                      "required": [
+                        "name"
+                      ],
+                      "properties": {
+                        "name": {
+                          "description": "Your token's name when it was yours, \"<first name>'s agent\" for a grantee's agent on your wardrobe, else \"Agent\"",
                           "type": "string"
                         }
                       }

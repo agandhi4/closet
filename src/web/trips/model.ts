@@ -35,7 +35,7 @@ import {
   tripRow,
   tripsWithItemsSql,
 } from './queries';
-import { type AgentStamp, agentStampSql } from '../write-origin';
+import { type AgentLabel, agentLabelSql, OWNER_READS } from '../write-origin';
 
 /**
  * A trip as its page and get_trip read it (#10): the trip, its days with
@@ -58,7 +58,7 @@ export interface TripOutfitView {
   occasion: Occasion | null;
   garments: OutfitGarment[];
   /** The agent that put it on the trip (#682), null for the person. */
-  agent: AgentStamp | null;
+  agent: AgentLabel | null;
 }
 
 interface TripDay {
@@ -122,7 +122,7 @@ function tripOutfitViewsSql(
         'name', ${outfit.name},
         'day', ${tripOutfit.day},
         'occasion', ${tripOutfit.occasion},
-        'agent', ${agentStampSql(tripOutfit.plannedByTokenId)},
+        'agent', ${agentLabelSql(tripOutfit.plannedByTokenId, OWNER_READS)},
         'garments', ${outfitGarmentsSql()}
       )),
       '[]'

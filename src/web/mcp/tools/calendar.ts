@@ -16,7 +16,7 @@ import { actorOf, defineTool, wardrobeFor } from '../tool';
 import { isoDate, ownerIdInput, rowId } from './common';
 import { type DayWeatherOf, reachesForecast, weatherOfDays } from './weather';
 import { garmentNotFound } from '../../wardrobe/garment-access';
-import { ownAgentName } from '../../write-origin';
+import { agentNameOf } from '../../write-origin';
 
 /**
  * The calendar and the wears are the caller's own records (src/web/wears):
@@ -93,7 +93,7 @@ export const calendarTools = [
             // Whether a mirror photo was taken (#19); never the image.
             selfie: entry.selfie !== null,
             plannedBy: entry.plannedBy,
-            agent: entry.agent ? ownAgentName(entry.agent) : undefined,
+            agent: agentNameOf(entry.agent),
             outfit: { id: entry.outfit.id, name: entry.outfit.name },
             weather: weatherOf?.(entry.day, entry.occasion),
           })),

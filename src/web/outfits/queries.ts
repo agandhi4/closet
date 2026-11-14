@@ -37,9 +37,10 @@ import type { IsoDate } from '../../calendar-date';
 import { type Chooser, PERSONS_CHOICE } from '../calendar/planned-by';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
 import {
-  type AgentStamp,
-  agentStampSql,
+  type AgentLabel,
+  agentLabelSql,
   BY_PERSON,
+  OWNER_READS,
   type WriteOrigin,
 } from '../write-origin';
 import { entrySelfieSql, type SelfieRef } from '../selfies/queries';
@@ -173,6 +174,9 @@ export interface CreateResult extends SaveResult {
   adopted: boolean;
 }
 
+/** The agent that made the outfit (#682): outfits are their owner's alone. */
+const outfitAgentSql = agentLabelSql(outfit.addedByTokenId, OWNER_READS);
+
 /**
  * Outfits matching `where`, newest first, each with its chosen garments in
  * slot order (empty slots show nothing) and its proposal when Muse proposed
@@ -194,6 +198,7 @@ function toolOutfitsSql(where: SQL, limit?: number): SQL<ToolOutfit[]> {
       'notes', ${outfit.notes},
       'origin', ${outfit.origin},
       'shareableId', ${outfit.shareableId},
+      'agent', ${outfitAgentSql},
       'garments', ${outfitGarmentsSql()},
       'proposal', ${proposalSql({ agent: false })}
     ) order by ${outfit.id} desc), '[]')
@@ -380,8 +385,14 @@ export function outfitsWithGarmentSql(
   )`;
 }
 
-/** The outfit page's outfit: what it shows, and its share link. */
-type OutfitDetail = OutfitSummary & { shareableId: string };
+/**
+ * The outfit page's outfit: what it shows, its share link, and the agent
+ * that made it over MCP (#682; null for the person's).
+ */
+type OutfitDetail = OutfitSummary & {
+  shareableId: string;
+  agent: AgentLabel | null;
+};
 
 /** One of Muse's proposals as its outfit page says it (#335; proposals.ts). */
 export interface OutfitProposal {
@@ -413,6 +424,7 @@ export function outfitDetailSql(
       'notes', ${outfit.notes},
       'origin', ${outfit.origin},
       'shareableId', ${outfit.shareableId},
+      'agent', ${outfitAgentSql},
       'garments', ${outfitGarmentsSql({ away: true })},
       'proposal', ${proposalSql({ agent: true })}
     )
@@ -448,7 +460,7 @@ export interface SyncedOutfitRow {
   slots: SlotInput[];
   proposal: Omit<OutfitProposal, 'agent'> | null;
   /** The agent that made it over MCP (#682), null for a person's. */
-  agent: AgentStamp | null;
+  agent: AgentLabel | null;
 }
 
 /**
@@ -479,7 +491,7 @@ export function outfitsByIds(
       proposal: sql<
         SyncedOutfitRow['proposal']
       >`${proposalSql({ agent: false })}`,
-      agent: agentStampSql(outfit.addedByTokenId),
+      agent: outfitAgentSql,
     })
     .from(outfit)
     .where(inArray(outfit.id, [...ids]));

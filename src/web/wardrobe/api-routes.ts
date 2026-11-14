@@ -269,13 +269,10 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       const context = await garmentContext(
         db,
         garment,
-        access,
+        { ...access, viewerId: actorOf(request).userId },
         todayIn(config.timeZone, new Date()),
       );
-      return toGarmentResource(garment, context, {
-        viewerId: actorOf(request).userId,
-        ownerId: access.ownerId,
-      });
+      return toGarmentResource(garment, context);
     },
   );
 

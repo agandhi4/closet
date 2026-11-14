@@ -13,8 +13,9 @@ import { selectScalars } from '../../db/select-scalars';
 import type { Occasion } from '../../wardrobe/occasions';
 import type { PlannedBy } from '../../wardrobe/week';
 import {
-  agentStampSql,
-  type AgentStamp,
+  agentLabelSql,
+  type AgentLabel,
+  OWNER_READS,
   type WriteOrigin,
 } from '../write-origin';
 import { ownerTransaction } from '../auth/queries';
@@ -59,8 +60,9 @@ import {
 export type EntryMiss = 'not-found';
 
 /** An agent's entry's agent (#682): planned_by says so even once its token is gone. */
-const entryAgentSql = agentStampSql(
+const entryAgentSql = agentLabelSql(
   outfitCalendar.plannedByTokenId,
+  OWNER_READS,
   sql`${outfitCalendar.plannedBy} = 'agent'`,
 );
 
@@ -402,7 +404,7 @@ export interface EntryRow {
   outfitId: number;
   worn: boolean;
   plannedBy: PlannedBy;
-  agent: AgentStamp | null;
+  agent: AgentLabel | null;
 }
 
 /** EntryRow's columns, `worn` as its stamp (readEntryRow). */

@@ -36,7 +36,11 @@ import type {
 } from './queries';
 import type { RepairEntry } from './repairs';
 import type { SwappedCutout } from './writes';
-import { AgentResource, agentName, toAgentResource } from '../write-origin';
+import {
+  type AgentLabel,
+  AgentResource,
+  toAgentResource,
+} from '../write-origin';
 
 /**
  * The API's garment resources (#192a; docs/plans/2026-11-12-json-api.md
@@ -272,7 +276,7 @@ export const SyncedGarment = Type.Object(
 function recordOf(
   garment: GarmentDetail,
   repairs: RepairEntry[] | null,
-  viewer: GarmentViewer,
+  agent: AgentLabel | null,
 ) {
   return {
     id: garment.id,
@@ -313,14 +317,8 @@ function recordOf(
       notes: garment.washingDetails,
     }),
     repairs: repairs && repairs.map((entry) => withoutNulls({ ...entry })),
-    agent: toAgentResource(garment.agent, (stamp) => agentName(stamp, viewer)),
+    agent: toAgentResource(agent),
   };
-}
-
-/** Who reads the garment, in whose wardrobe: the agent's name is theirs to see (agentName). */
-export interface GarmentViewer {
-  viewerId: number;
-  ownerId: number;
 }
 
 /**
@@ -331,11 +329,10 @@ export interface GarmentViewer {
 export function toGarmentResource(
   garment: GarmentDetail,
   context: GarmentContext,
-  viewer: GarmentViewer,
 ): Garment {
   const { own } = context;
   return withoutNulls({
-    ...recordOf(garment, own ? own.repairs.entries : null, viewer),
+    ...recordOf(garment, own ? own.repairs.entries : null, context.agent),
     capsules: context.capsules
       .filter((capsule) => capsule.member)
       .map(({ id, name }) => ({ id, name })),
@@ -350,13 +347,9 @@ export function toGarmentResource(
  */
 export function toSyncedGarment(
   garment: SyncedGarmentRow,
-  viewerId: number,
 ): Static<typeof SyncedGarment> {
   return withoutNulls({
-    ...recordOf(garment, garment.repairs, {
-      viewerId,
-      ownerId: garment.ownerId,
-    }),
+    ...recordOf(garment, garment.repairs, garment.agent),
     care:
       garment.repairs === null
         ? null

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { and, eq, isNotNull, or } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { addDays } from '../../src/calendar-date';
@@ -7,12 +8,18 @@ import {
   outfitCalendar,
   personalAccessToken,
   tripOutfit,
+  user,
+  wardrobeShare,
+  weekTemplate,
 } from '../../src/db/schema';
+import { WEEKDAYS } from '../../src/wardrobe/week';
 import { MCP_WRITES, type Stamped } from '../../src/web/api/operations';
+import { deleteAccount } from '../../src/web/auth/account';
+import { createCapsule } from '../../src/web/capsules/queries';
 import { createTrip } from '../../src/web/trips/queries';
 import { deviceToken } from './api';
 import { createGarment } from './garments';
-import { asFixture, createTestApp, type TestApp } from './harness';
+import { asFixture, createTestApp, type TestApp, userIdOf } from './harness';
 import {
   html,
   jpeg,
@@ -181,6 +188,43 @@ describe('agent writes carry their token (#682)', () => {
     async mark_washed() {
       await tool(t, token, 'mark_washed', { garmentIds: [g.top3] });
     },
+    async plan_week() {
+      // The planner's choice, the agent only pressed the button: `auto`.
+      // Evenings every day: slots no other scenario fills.
+      await asFixture(t.db, (tx) =>
+        tx.insert(weekTemplate).values(
+          WEEKDAYS.map((weekday) => ({
+            userId: t.owner.id,
+            weekday,
+            occasion: 'evening' as const,
+          })),
+        ),
+      );
+      const before = await t.db.$count(outfitCalendar);
+      await tool(t, token, 'plan_week', {});
+      expect(await t.db.$count(outfitCalendar)).toBeGreaterThan(before);
+    },
+    async add_inspiration() {
+      await tool(t, token, 'add_inspiration', { url: sites.url('/lookbook') });
+    },
+    async set_inspiration_pieces() {
+      const look = await tool<{ id: number }>(t, token, 'add_inspiration', {
+        url: sites.url('/lookbook'),
+      });
+      await tool(t, token, 'set_inspiration_pieces', {
+        id: look.id,
+        pieces: [{ role: 'top', colors: ['white'] }],
+      });
+    },
+    async set_capsule_membership() {
+      const id = await asFixture(t.db, (tx) =>
+        createCapsule(tx, t.owner.id, { name: 'Office', notes: null }),
+      );
+      await tool(t, token, 'set_capsule_membership', {
+        id,
+        add: [g.top1, g.bottom1],
+      });
+    },
   };
 
   /** A saved outfit of the owner's, through the API as the person. */
@@ -211,6 +255,13 @@ describe('agent writes carry their token (#682)', () => {
   beforeAll(async () => {
     sites = await startLinkSites();
     sites.serve('/img/tee.jpg', jpeg(await productShot('#223355')));
+    sites.serve('/look.jpg', jpeg(await productShot('#eeeeee')));
+    sites.serve(
+      '/lookbook',
+      html(
+        `<html><head><title>White tee</title><meta property="og:image" content="${sites.url('/look.jpg')}"></head><body></body></html>`,
+      ),
+    );
     sites.serve(
       '/products/tee',
       html(`<!doctype html><html><head><title>Pocket Tee</title>
@@ -256,10 +307,13 @@ describe('agent writes carry their token (#682)', () => {
   });
 
   it('classifies every writing tool, and has a scenario for each', () => {
-    const stamping = Object.entries(MCP_WRITES)
-      .filter(([, write]) => 'stamps' in write.attribution)
-      .map(([name]) => name);
-    expect(Object.keys(STAMPING).sort()).toEqual(stamping.sort());
+    const classified = (kind: 'stamps' | 'none') =>
+      Object.entries(MCP_WRITES)
+        .filter(([, write]) => kind in write.attribution)
+        .map(([name]) => name)
+        .sort();
+    expect(Object.keys(STAMPING).sort()).toEqual(classified('stamps'));
+    expect(Object.keys(UNSTAMPED).sort()).toEqual(classified('none'));
   });
 
   it.each(Object.keys(STAMPING))(
@@ -338,6 +392,11 @@ describe('agent writes carry their token (#682)', () => {
     expect(await read()).toContainEqual(
       expect.objectContaining({ agent: { name: 'Laptop Claude' } }),
     );
+    // Back in service for the scenarios after this one.
+    await t.db
+      .update(personalAccessToken)
+      .set({ revokedAt: null })
+      .where(eq(personalAccessToken.id, tokenId));
     // A hand-made entry carries no agent.
     const mine = await ownOutfit([g.top4, g.bottom5]);
     const entryId = await planAsPerson(mine, day(6));
@@ -346,5 +405,222 @@ describe('agent writes carry their token (#682)', () => {
     );
     expect(hand).toMatchObject({ plannedBy: 'user' });
     expect(hand).not.toHaveProperty('agent');
+  });
+  it("keeps what the agent made out of Muse's inbox and proposals: only the explicit markers make one", async () => {
+    // An agent-made outfit and an agent's link import carry the token, not
+    // the proposal's or the suggestion's mark (proposed_at, suggested_at).
+    const made = await tool<{ id: number }>(t, token, 'create_outfit', {
+      garmentIds: [g.top6, g.bottom7],
+    });
+    const imported = await tool<{ garment: { id: number } }>(
+      t,
+      token,
+      'add_garment_from_link',
+      { url: sites.url('/products/tee') },
+    );
+    const proposed = await tool<{ id: number }>(t, token, 'suggest_outfit', {
+      garmentIds: [g.top7, g.bottom6],
+      note: 'Weekend',
+    });
+    expect(await stampColumn('outfit', [made.id, proposed.id])).toEqual([
+      tokenId,
+      tokenId,
+    ]);
+
+    const outfits = async (query: string) => {
+      const res = await t.api(device, {
+        method: 'GET',
+        url: `/api/v1/outfits?${query}`,
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      return res.json<{ data: { id: number }[] }>().data.map(({ id }) => id);
+    };
+    const waiting = await outfits('proposed=true');
+    expect(waiting).toContain(proposed.id);
+    expect(waiting).not.toContain(made.id);
+    expect(await outfits('limit=100')).toContain(made.id);
+
+    const inbox = await t.api(device, {
+      method: 'GET',
+      url: '/api/v1/wishlist',
+    });
+    expect(inbox.statusCode, inbox.body).toBe(200);
+    const { items, needs, readyToBuy } = inbox.json<{
+      items: { id: number; fromMuse: boolean }[];
+      needs: unknown[];
+      readyToBuy: unknown[];
+    }>();
+    expect(items).toContainEqual(
+      expect.objectContaining({ id: imported.garment.id, fromMuse: false }),
+    );
+    expect(needs).toEqual([]);
+    expect(readyToBuy).toEqual([]);
+    // Its page is the plain wishlist item's: no "Why Muse suggests this".
+    const page = await t.inject({
+      method: 'GET',
+      url: `/wardrobe/${imported.garment.id}`,
+    });
+    expect(page.statusCode).toBe(200);
+    expect(page.body).not.toContain('data-suggestion-state');
+  });
+
+  it('names the agent in the outfit resources and get_trip', async () => {
+    const made = await tool<{ id: number }>(t, token, 'create_outfit', {
+      garmentIds: [g.top5, g.bottom6],
+    });
+    await tool(t, token, 'plan_trip_outfit', { tripId, outfitId: made.id });
+    const mine = await ownOutfit([g.top6, g.bottom5]);
+
+    const detail = await t.api(device, {
+      method: 'GET',
+      url: `/api/v1/outfits/${made.id}`,
+    });
+    expect(detail.statusCode, detail.body).toBe(200);
+    expect(detail.json()).toMatchObject({ agent: { name: 'Laptop Claude' } });
+    const list = await t.api(device, {
+      method: 'GET',
+      url: '/api/v1/outfits?limit=100',
+    });
+    const listed = list.json<{ data: { id: number; agent?: unknown }[] }>()
+      .data;
+    expect(listed.find(({ id }) => id === made.id)).toMatchObject({
+      agent: { name: 'Laptop Claude' },
+    });
+    expect(listed.find(({ id }) => id === mine)).not.toHaveProperty('agent');
+
+    const trip = await tool<{
+      days: { outfits: { outfitId: number; agent?: string }[] }[];
+      anyDay: { outfitId: number; agent?: string }[];
+    }>(t, token, 'get_trip', { tripId });
+    const onTrip = [
+      ...trip.anyDay,
+      ...trip.days.flatMap((day) => day.outfits),
+    ].filter(({ outfitId }) => outfitId === made.id);
+    expect(onTrip).toEqual([
+      expect.objectContaining({ agent: 'Laptop Claude' }),
+    ]);
+  });
+
+  describe("a grantee's agent on a shared wardrobe", () => {
+    let managerId: number;
+    let managerDevice: string;
+    let viewerDevice: string;
+    let viewerToken: string;
+    let garmentId: number;
+
+    async function share(email: string, permission: 'MANAGE' | 'VIEW') {
+      const cookie = await t.register(email);
+      const granteeId = await userIdOf(t, email);
+      await t.db.insert(wardrobeShare).values({
+        grantorId: t.owner.id,
+        granteeId,
+        permission,
+        inviteToken: randomUUID(),
+        createdAt: new Date(),
+        acceptedAt: new Date(),
+      });
+      return { cookie, granteeId };
+    }
+
+    /** The garment as `bearer`'s changes feed carries it, every page read. */
+    async function syncedGarment(bearer: string) {
+      let cursor: string | undefined;
+      for (;;) {
+        const res = await t.api(bearer, {
+          method: 'GET',
+          url: `/api/v1/changes?limit=100${cursor ? `&cursor=${cursor}` : ''}`,
+        });
+        expect(res.statusCode, res.body).toBe(200);
+        const page = res.json<{
+          changes: {
+            resource: string;
+            id: number;
+            data: { agent?: { name: string } };
+          }[];
+          cursor: string;
+          more: boolean;
+        }>();
+        const found = page.changes.find(
+          (change) => change.resource === 'garment' && change.id === garmentId,
+        );
+        if (found) return found;
+        if (!page.more) throw new Error(`garment ${garmentId} not in the feed`);
+        cursor = page.cursor;
+      }
+    }
+
+    /** The garment's agent as `bearer` reads it through the API and the feed. */
+    async function agentAs(bearer: string) {
+      const res = await t.api(bearer, {
+        method: 'GET',
+        url: `/api/v1/garments/${garmentId}?ownerId=${t.owner.id}`,
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      const synced = await syncedGarment(bearer);
+      const api = res.json<{ agent?: { name: string } }>().agent?.name;
+      expect(synced.data.agent?.name).toBe(api);
+      return api;
+    }
+
+    beforeAll(async () => {
+      const manager = await share('dana@example.com', 'MANAGE');
+      managerId = manager.granteeId;
+      await t.db
+        .update(user)
+        .set({ firstName: 'Dana' })
+        .where(eq(user.id, managerId));
+      const managerToken = await createAccessToken(t, {
+        cookie: manager.cookie,
+        name: 'Dana’s laptop',
+      });
+      managerDevice = (await deviceToken(t, { email: 'dana@example.com' }))
+        .token;
+      const viewer = await share('sam@example.com', 'VIEW');
+      viewerToken = await createAccessToken(t, {
+        cookie: viewer.cookie,
+        name: 'Sam’s agent token',
+      });
+      viewerDevice = (await deviceToken(t, { email: 'sam@example.com' })).token;
+      const added = await tool<{ garment: { id: number } }>(
+        t,
+        managerToken,
+        'add_garment_from_link',
+        { url: sites.url('/products/tee'), ownerId: t.owner.id },
+      );
+      garmentId = added.garment.id;
+    });
+
+    it('shows its author the token\'s name, the owner the grantee\'s first name, anyone else "Agent"', async () => {
+      expect(await agentAs(managerDevice)).toBe('Dana’s laptop');
+      expect(await agentAs(device)).toBe('Dana’s agent');
+      expect(await agentAs(viewerDevice)).toBe('Agent');
+      const got = await tool<{ agent?: string }>(
+        t,
+        viewerToken,
+        'get_garment',
+        {
+          id: garmentId,
+          ownerId: t.owner.id,
+        },
+      );
+      expect(got.agent).toBe('Agent');
+      const own = await tool<{ agent?: string }>(t, token, 'get_garment', {
+        id: garmentId,
+      });
+      expect(own.agent).toBe('Dana’s agent');
+    });
+
+    it('still says "Agent" to the owner once the grantee\'s account is gone', async () => {
+      await deleteAccount(
+        { db: t.db, photos: t.photos, logger: t.logger },
+        managerId,
+      );
+      expect(await agentAs(device)).toBe('Agent');
+      const page = await t.inject({
+        method: 'GET',
+        url: `/wardrobe/${garmentId}`,
+      });
+      expect(page.statusCode).toBe(200);
+    });
   });
 });

@@ -12,7 +12,7 @@ import {
 } from '../outfits/outfit-resource';
 import { IsoDateSchema, RowId } from '../schemas';
 import { SelfiePhoto, toSelfiePhoto } from '../selfies/selfie-resource';
-import { AgentResource, ownAgentName, toAgentResource } from '../write-origin';
+import { AgentResource, toAgentResource } from '../write-origin';
 import type { CalendarEntry } from './calendar-view';
 import {
   type EntryRow,
@@ -72,7 +72,7 @@ export function toCalendarEntryResource(
     occasion: entry.occasion,
     worn: entry.worn,
     plannedBy: entry.plannedBy,
-    agent: toAgentResource(entry.agent, ownAgentName),
+    agent: toAgentResource(entry.agent),
     ...(entry.selfie && {
       selfieId: entry.selfie.id,
       selfiePhoto: toSelfiePhoto(entry.selfie.photo),
@@ -118,7 +118,7 @@ export function toSyncedCalendarEntry(
     occasion: entry.occasion,
     worn: entry.worn,
     plannedBy: entry.plannedBy,
-    agent: toAgentResource(entry.agent, ownAgentName),
+    agent: toAgentResource(entry.agent),
     outfitId: entry.outfitId,
   };
 }

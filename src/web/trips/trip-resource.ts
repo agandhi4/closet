@@ -28,7 +28,7 @@ import {
   TRIP_NOTES_MAX,
   type TripField,
 } from './validation';
-import { AgentResource, ownAgentName, toAgentResource } from '../write-origin';
+import { AgentResource, toAgentResource } from '../write-origin';
 
 /**
  * The API's trip resources and inputs (#194a; docs/plans/2026-11-12-json-
@@ -260,7 +260,7 @@ export function toSyncedTrip(row: SyncedTripRow): Static<typeof SyncedTrip> {
     endsOn: row.endsOn,
     outfits: row.outfits.map(({ agent, ...outfit }) => ({
       ...withoutNulls(outfit),
-      agent: toAgentResource(agent, ownAgentName),
+      agent: toAgentResource(agent),
     })),
     extras: row.extras,
     packedGarmentIds: row.packedGarmentIds,
@@ -300,7 +300,7 @@ function toTripOutfit(
       occasion: view.occasion,
       wornTodayEntryId: wornToday.get(view.id) ?? null,
     }),
-    agent: toAgentResource(view.agent, ownAgentName),
+    agent: toAgentResource(view.agent),
     garments: view.garments.map(toOutfitGarment),
   };
 }

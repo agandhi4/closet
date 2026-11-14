@@ -13,6 +13,7 @@ import {
   requireTripModel,
 } from '../../trips/trip-actions';
 import { actorOf, defineTool, originOf, type ToolContext } from '../tool';
+import { agentNameOf } from '../../write-origin';
 import { isoDate, occasionInput, rowId } from './common';
 import { dayWeather, typicalDayWeather } from '../../weather/weather-resource';
 
@@ -29,6 +30,8 @@ function outfitOut(outfit: TripOutfitView) {
     name: outfit.name,
     day: outfit.day,
     occasion: outfit.occasion,
+    // Your agent put it on the trip (#682): its token's name.
+    agent: agentNameOf(outfit.agent),
     garments: outfit.garments.map((g) => ({
       id: g.id,
       name: g.name,
