@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 import sharp from 'sharp';
 import { test } from './support/cutout-hold';
+import { createGarment } from './support/e2e-data';
 import { signIn } from './support/e2e-session';
 
 /**
@@ -11,7 +12,8 @@ import { signIn } from './support/e2e-session';
  * is prepared on the phone and posted, the new garment form opens with it,
  * and saving lands on the garment with its cutout under way (held pending
  * until the page has shown it, test/support/cutout-stub.ts); then the
- * search box finds it by two of its words in any order (#673).
+ * search box finds it by two of its words in any order (#673). The filter
+ * sheet (#674) rides along at the same width.
  */
 
 test.use({ viewport: { width: 390, height: 844 } });
@@ -107,4 +109,68 @@ test('the camera row takes a photo, the form opens with it, and saving lands on 
   await searched;
   await expect(grid.getByText('Blue camera shirt')).toBeVisible();
   await expect(page.locator('[data-tile]')).toHaveCount(1);
+
+  await checkFilterSheet(page);
 });
+
+/**
+ * The filter sheet (#674): blue shirts in five taps, and by keyboard one
+ * choice cleared alone. Run at the end of the scenario above (the closet
+ * already holds its camera shirt, a custom category), not as a scenario of
+ * its own.
+ */
+async function checkFilterSheet(page: Page) {
+  await createGarment(page, 'Blue shirt', 'tops', {
+    props: '1',
+    color: 'blue',
+    type: 'shirt',
+  });
+  await createGarment(page, 'Blue tee', 'tops', {
+    props: '1',
+    color: 'blue',
+    type: 't-shirt',
+  });
+  await createGarment(page, 'Red shirt', 'tops', {
+    props: '1',
+    color: 'red',
+    type: 'shirt',
+  });
+  await page.goto('/wardrobe');
+  const tiles = page.locator('[data-tile]');
+  await expect(tiles).toHaveCount(4);
+
+  // Filters, Tops, Shirt, Blue, Apply: the type chips are there as soon as
+  // the category is chosen, with no Apply between.
+  const sheet = page.getByRole('dialog', { name: 'Filters' });
+  // "Shirt" is also the camera garment's custom category: scope to Type.
+  const types = sheet.getByRole('group', { name: 'Type · Tops' });
+  const shirtType = types.getByRole('radio', { name: 'Shirt', exact: true });
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  await sheet.getByRole('radio', { name: 'Tops', exact: true }).click();
+  await shirtType.click();
+  await sheet.getByRole('radio', { name: 'Blue', exact: true }).click();
+  await sheet.getByRole('button', { name: 'Apply Filters' }).click();
+  await expect(tiles).toHaveCount(1);
+  await expect(tiles.first()).toContainText('Blue shirt');
+
+  // Keyboard only: Tab enters the sheet's first chip, then walks to each
+  // group's chosen chip, and the arrow keys move to the group's clear chip.
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  await page.keyboard.press('Tab');
+  await expect(
+    sheet.getByRole('radio', { name: 'Tops', exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(
+    sheet.getByRole('radio', { name: 'Blue', exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(shirtType).toBeFocused();
+  // The group offers what the closet holds: Clear, T-shirt, Shirt.
+  for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowLeft');
+  await expect(types.getByRole('radio', { name: '× Clear' })).toBeChecked();
+  await sheet.getByRole('button', { name: 'Apply Filters' }).click();
+  // The type alone is cleared: both blue tops stay, the red one is out.
+  await expect(tiles).toHaveCount(2);
+  await expect(page.locator('#wardrobe-grid')).not.toContainText('Red shirt');
+}

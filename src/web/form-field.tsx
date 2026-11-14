@@ -1,4 +1,5 @@
 import type { Child } from 'hono/jsx';
+import { t } from './i18n';
 
 /**
  * A post form's labelled field: the garment, capsule, trip, "Bought it",
@@ -102,5 +103,42 @@ export function ChipGroup(props: {
       {props.hint && <p class="text-xs text-muted mb-1">{props.hint}</p>}
       <div class="flex flex-wrap gap-2">{props.children}</div>
     </div>
+  );
+}
+
+/**
+ * One choice among `options` as radio chips (real focusable inputs named by
+ * `aria-label`), and a clear chip (value '') while something is chosen:
+ * radios cannot be unchecked, and a choice must stay settable back to unset.
+ * The garment form's properties and the grid's filter sheet.
+ */
+export function Chips(props: {
+  name: string;
+  options: readonly (string | number)[];
+  selected: string;
+  label: (option: string | number) => string;
+}) {
+  return (
+    <>
+      {props.selected && (
+        <input
+          type="radio"
+          name={props.name}
+          value=""
+          class="btn btn-sm btn-ghost rounded-full"
+          aria-label={`× ${t('CLEAR_CHOICE')}`}
+        />
+      )}
+      {props.options.map((option) => (
+        <input
+          type="radio"
+          name={props.name}
+          value={String(option)}
+          class="btn btn-sm rounded-full"
+          aria-label={props.label(option)}
+          checked={props.selected === String(option)}
+        />
+      ))}
+    </>
   );
 }
