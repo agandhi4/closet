@@ -104,7 +104,7 @@ function readText(
   const close = findClosingTag(html, name, pos);
   const text = html.slice(pos, close < 0 ? html.length : close);
   if (name === 'title') {
-    scan.title ??= decodeEntities(text).replace(/\s+/g, ' ').trim() || null;
+    scan.title ??= plainText(text);
   } else if (
     name === 'script' &&
     isJsonLd(attributes) &&
@@ -206,6 +206,26 @@ const NAMED_ENTITIES: Readonly<Record<string, string>> = {
   ouml: 'ö',
   auml: 'ä',
 };
+
+// C0, DEL and C1. NUL among them is what Postgres' text refuses (#693).
+// eslint-disable-next-line no-control-regex -- the control characters are what is removed
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]+/g;
+
+/**
+ * A page's text as display text: entities decoded, then every control
+ * character a space, whitespace collapsed, trimmed; null when nothing is
+ * left. Controls go after decoding (`&#1;` decodes to one), so no stored
+ * value can hold one: the title here, and every text field extract.ts reads
+ * (its cleanText), which the poll stores and link import prefills.
+ */
+export function plainText(text: string): string | null {
+  return (
+    decodeEntities(text)
+      .replace(CONTROL_CHARACTERS, ' ')
+      .replace(/\s+/g, ' ')
+      .trim() || null
+  );
+}
 
 /**
  * Character references: numeric ones and the named ones product pages use.

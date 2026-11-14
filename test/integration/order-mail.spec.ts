@@ -2,12 +2,15 @@ import { eq } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { garment, orderEmail, orderItem } from '../../src/db/schema';
+import { PartialFailure } from '../../src/metrics/partial-failure';
 import { t as text } from '../../src/web/i18n';
 import { JmapError } from '../../src/web/wardrobe/order-mail/jmap';
 import {
   OrderMailOwnerError,
   pollOrderMail,
+  pollOrderMailWhole,
 } from '../../src/web/wardrobe/order-mail/poll';
+import { pollStart } from '../../src/web/wardrobe/order-mail/queries';
 import {
   type JmapStub,
   startJmapStub,
@@ -24,7 +27,7 @@ import {
   type TestApp,
   unescapeHtml,
 } from './harness';
-import { type LinkSites, startLinkSites } from './link-sites';
+import { html, type LinkSites, startLinkSites } from './link-sites';
 import {
   expectAppBar,
   expectFullPage,
@@ -45,6 +48,9 @@ import {
 // Fastmail's shape (fmu1- and hex groups): the scrubbing and log checks
 // look for exactly this.
 const TOKEN = 'fmu1-0a1b2c3d-4e5f60718293a4b5c6d7e8f9a0b1c2d3-0-e4f5a6b7c8d9';
+
+/** A poll's summary when no email failed or was parked. */
+const SETTLED = { failing: 0, firstFailures: 0, parked: 0 };
 
 /** The rules every page keeps (pages.spec.ts), for pages only this feature has. */
 function expectPageRules(res: LightMyRequestResponse): void {
@@ -113,7 +119,12 @@ describe('order email import', () => {
         summary = await poll();
       });
 
-      expect(summary).toEqual({ queried: 1, read: 1, listed: 2 });
+      expect(summary).toEqual({
+        ...SETTLED,
+        queried: 1,
+        read: 1,
+        listed: 2,
+      });
       // #173: the owner and the watermark in one statement, which of the
       // inbox's ids are known, then the email: begin, the email and its
       // items in one statement, its count and outcome, commit.
@@ -188,7 +199,12 @@ describe('order email import', () => {
         summary = await poll();
       });
 
-      expect(summary).toEqual({ queried: 1, read: 0, listed: 0 });
+      expect(summary).toEqual({
+        ...SETTLED,
+        queried: 1,
+        read: 0,
+        listed: 0,
+      });
       // #173: the poll every few minutes is two statements (it was three):
       // the owner with the watermark, then which ids are known.
       expect(recorded.statements).toBe(2);
@@ -481,6 +497,244 @@ describe('order email import', () => {
     } finally {
       await other.cleanup();
     }
+  });
+
+  // #693: one email that fails no longer stalls the rest. Each test leaves
+  // its emails settled, so the next starts from a clean watermark.
+  describe('each email its own outcome', () => {
+    const whole = () => pollOrderMailWhole(t.orderMail!);
+    const listedNames = async () =>
+      (await items()).map((row) => row.name).filter((name) => name !== null);
+
+    /** A trusted email naming one product page of its own on the shop. */
+    const productEmail = (id: string, receivedAt: string, name: string) => {
+      const path = `/products/${id.toLowerCase()}`;
+      sites.serve(
+        path,
+        html(`<!doctype html><html><head><title>${name}</title>
+<meta property="og:type" content="product">
+<meta property="og:title" content="${name}">
+<meta property="product:price:amount" content="30.00">
+</head><body></body></html>`),
+      );
+      return variant(id, receivedAt, {
+        htmlBody: [{ partId: '1', type: 'text/html' }],
+        bodyValues: {
+          '1': {
+            value: `<p>Your order</p><a href="${sites.url(path)}">${name}</a>`,
+          },
+        },
+      });
+    };
+
+    it('reads past a poison email: the good one is listed, the poison failed with attempt 1', async () => {
+      jmap.deliver(
+        productEmail('Mpoison001', '2026-09-28T08:00:00Z', 'Poison Tee'),
+      );
+      jmap.deliver(
+        productEmail('Mgood00001', '2026-09-28T08:05:00Z', 'Good Tee'),
+      );
+      jmap.failBodyOf('Mpoison001', 'shape');
+
+      const failure = await whole().catch((error: unknown) => error);
+
+      // The job fails, and this run reports it: the poison's first attempt.
+      expect(failure).toBeInstanceOf(PartialFailure);
+      expect(failure).toMatchObject({
+        counts: { failing: 1 },
+        reported: false,
+      });
+      expect(await listedNames()).toContain('Good Tee');
+      expect(await emailRow('Mgood00001')).toMatchObject({
+        status: 'decided',
+        outcome: 'imported',
+        items: 1,
+      });
+      expect(await emailRow('Mpoison001')).toMatchObject({
+        status: 'failed',
+        outcome: null,
+        attempts: 1,
+        mailboxFailures: 0,
+        errorKind: 'JmapError',
+      });
+      expect(
+        t.logs
+          .messages('error', 'OrderMail')
+          .some((line) =>
+            line.startsWith(
+              'Order mail Mpoison001 failed (JmapError): attempt 1 of 3',
+            ),
+          ),
+      ).toBe(true);
+    });
+
+    it('retries it each poll, failing uncaptured, then parks it and never reads it again', async () => {
+      const second = await whole().catch((error: unknown) => error);
+      expect(second).toMatchObject({ counts: { failing: 1 }, reported: true });
+      expect(await emailRow('Mpoison001')).toMatchObject({
+        status: 'failed',
+        attempts: 2,
+      });
+
+      // The third attempt parks it: the job succeeds again.
+      const parked = await whole();
+      expect(parked).toMatchObject({ failing: 0, firstFailures: 0, parked: 1 });
+      expect(await emailRow('Mpoison001')).toMatchObject({
+        status: 'parked',
+        attempts: 3,
+        outcome: null,
+        errorKind: 'JmapError',
+      });
+
+      // The watermark passes it: a later email is read, the poison never.
+      const reads = jmap.calls.length;
+      jmap.deliver(
+        productEmail('Mafter0001', '2026-09-28T09:00:00Z', 'After Tee'),
+      );
+      await whole();
+      const since = jmap.calls.slice(reads);
+      expect(since.filter((c) => c === 'Email/get body')).toHaveLength(1);
+      expect(await listedNames()).toContain('After Tee');
+      const { accountId } = await emailRow('Mpoison001');
+      const start = await pollStart(t.db, OWNER_EMAIL.toLowerCase(), accountId);
+      expect(start.watermark).toEqual(new Date('2026-09-28T09:00:00Z'));
+      expect(start.failing).toEqual([]);
+      jmap.failBodyOf('Mpoison001', undefined);
+    });
+
+    it('decides an email that fails and then succeeds on its retry', async () => {
+      jmap.deliver(
+        productEmail('Mflaky0001', '2026-09-28T10:00:00Z', 'Flaky Tee'),
+      );
+      jmap.failBodyOf('Mflaky0001', 404);
+      await expect(whole()).rejects.toBeInstanceOf(PartialFailure);
+      expect(await emailRow('Mflaky0001')).toMatchObject({
+        status: 'failed',
+        attempts: 1,
+        errorKind: 'JmapError',
+      });
+
+      jmap.failBodyOf('Mflaky0001', undefined);
+      await expect(whole()).resolves.toMatchObject({ failing: 0, listed: 1 });
+      expect(await emailRow('Mflaky0001')).toMatchObject({
+        status: 'decided',
+        outcome: 'imported',
+        attempts: 1,
+        errorKind: null,
+      });
+      expect(await listedNames()).toContain('Flaky Tee');
+    });
+
+    it('lists the good one of two emails that arrived together, and reads the failing one again', async () => {
+      jmap.deliver(
+        productEmail('Mtwin00001', '2026-09-28T11:00:00Z', 'Twin One'),
+      );
+      jmap.deliver(
+        productEmail('Mtwin00002', '2026-09-28T11:00:00Z', 'Twin Two'),
+      );
+      jmap.failBodyOf('Mtwin00001', 'shape');
+      await expect(whole()).rejects.toBeInstanceOf(PartialFailure);
+      expect(await listedNames()).toContain('Twin Two');
+      expect(await emailRow('Mtwin00001')).toMatchObject({ status: 'failed' });
+
+      // The watermark is the failing one's arrival, which the good one
+      // shares: it is queried again and dropped as decided.
+      jmap.failBodyOf('Mtwin00001', undefined);
+      const run = await whole();
+      expect(run).toMatchObject({ read: 1, listed: 1, failing: 0 });
+      expect(await listedNames()).toContain('Twin One');
+      expect(await emailRow('Mtwin00002')).toMatchObject({ items: 1 });
+    });
+
+    it('spends no attempt on a mailbox failure until it repeats on the same email', async () => {
+      jmap.deliver(
+        productEmail('Mstuck0001', '2026-09-28T12:00:00Z', 'Stuck Tee'),
+      );
+      jmap.failBodyOf('Mstuck0001', 503);
+      for (const strikes of [1, 2]) {
+        await expect(whole()).rejects.toThrow(
+          'JMAP body refused (http-status 503)',
+        );
+        expect(await emailRow('Mstuck0001')).toMatchObject({
+          status: 'failed',
+          attempts: 0,
+          mailboxFailures: strikes,
+        });
+      }
+
+      // The third in a row is the email's: one attempt, and the run goes on.
+      const third = await whole().catch((error: unknown) => error);
+      expect(third).toMatchObject({ counts: { failing: 1 }, reported: false });
+      expect(await emailRow('Mstuck0001')).toMatchObject({
+        attempts: 1,
+        mailboxFailures: 0,
+      });
+
+      jmap.failBodyOf('Mstuck0001', undefined);
+      await whole();
+      expect(await emailRow('Mstuck0001')).toMatchObject({ status: 'decided' });
+    });
+
+    it('parks a failing email that left the inbox, so it stops holding the watermark', async () => {
+      jmap.deliver(
+        productEmail('Mgone00001', '2026-09-28T13:00:00Z', 'Gone Tee'),
+      );
+      jmap.failBodyOf('Mgone00001', 'shape');
+      await expect(whole()).rejects.toBeInstanceOf(PartialFailure);
+
+      jmap.remove('Mgone00001');
+      await expect(whole()).resolves.toMatchObject({ failing: 0, parked: 1 });
+      expect(await emailRow('Mgone00001')).toMatchObject({
+        status: 'parked',
+        attempts: 1,
+        errorKind: 'gone',
+      });
+      jmap.failBodyOf('Mgone00001', undefined);
+    });
+
+    it("counts a JMAP method error as the mailbox's, never the email's", async () => {
+      jmap.deliver(
+        productEmail('Mmethod001', '2026-09-28T14:00:00Z', 'Method Tee'),
+      );
+      jmap.failBodyOf('Mmethod001', 'method');
+      await expect(whole()).rejects.toThrow(
+        'JMAP body failed: serverUnavailable',
+      );
+      expect(await emailRow('Mmethod001')).toMatchObject({
+        status: 'failed',
+        attempts: 0,
+        mailboxFailures: 1,
+      });
+      jmap.failBodyOf('Mmethod001', undefined);
+      await whole();
+      expect(await emailRow('Mmethod001')).toMatchObject({
+        status: 'decided',
+      });
+    });
+
+    it('reports a first failure in the event of a run a later mailbox failure stopped', async () => {
+      jmap.deliver(
+        productEmail('Mfirst0001', '2026-09-28T15:00:00Z', 'First Tee'),
+      );
+      jmap.deliver(
+        productEmail('Mstop00001', '2026-09-28T15:05:00Z', 'Stop Tee'),
+      );
+      jmap.failBodyOf('Mfirst0001', 'shape');
+      jmap.failBodyOf('Mstop00001', 503);
+
+      const stopped = await whole().catch((error: unknown) => error);
+      expect(stopped).toBeInstanceOf(PartialFailure);
+      expect(stopped).toMatchObject({
+        reported: false,
+        counts: { failing: 1, 'stopped by a mailbox failure': 1 },
+      });
+      expect((stopped as Error).cause).toBeInstanceOf(JmapError);
+      expect(await emailRow('Mfirst0001')).toMatchObject({ attempts: 1 });
+
+      jmap.failBodyOf('Mfirst0001', undefined);
+      jmap.failBodyOf('Mstop00001', undefined);
+      await expect(whole()).resolves.toMatchObject({ failing: 0 });
+    });
   });
 });
 

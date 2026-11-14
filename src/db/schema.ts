@@ -58,8 +58,10 @@ import {
 } from '../wardrobe/measurements';
 import {
   ORDER_EMAIL_OUTCOMES,
+  ORDER_EMAIL_STATUSES,
   ORDER_ITEM_STATES,
   type OrderEmailOutcome,
+  type OrderEmailStatus,
   type OrderItemState,
 } from '../wardrobe/order-items';
 import { LOOK_REACTIONS, type LookReaction } from '../wardrobe/look-reaction';
@@ -2585,10 +2587,11 @@ export const weatherNormals = pgTable(
 
 // One row per email the order mail read (#25, src/web/wardrobe/order-mail/):
 // the processed ids, so closet never marks, moves or deletes mail (its
-// token is read-only). Written with that email's items in one transaction,
-// after its links were fetched (recordOrderEmail); an email a run did not
-// finish has no row and is read again. The newest received_at is the next
-// poll's watermark.
+// token is read-only). A decided email is written with its items in one
+// transaction, after its links were fetched (recordOrderEmail); a read that
+// failed is a `failed` row with its attempts (recordOrderEmailFailure, #693),
+// read again until decided or parked. The watermark is the oldest failing
+// email's received_at, else the newest.
 export const orderEmail = pgTable(
   'order_email',
   {
@@ -2600,9 +2603,22 @@ export const orderEmail = pgTable(
     processedAt: timestamp('processed_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
-    outcome: text('outcome').$type<OrderEmailOutcome>().notNull(),
+    // Null until decided.
+    outcome: text('outcome').$type<OrderEmailOutcome>(),
     // How many products it added to the review list.
     items: smallint('items').notNull().default(0),
+    status: text('status')
+      .$type<OrderEmailStatus>()
+      .notNull()
+      .default('decided'),
+    // The email's own failed reads (ORDER_MAIL_ATTEMPTS parks it).
+    attempts: smallint('attempts').notNull().default(0),
+    // Mailbox-level failures in a row while it was being read
+    // (ORDER_MAIL_MAILBOX_STRIKES of them count as one attempt).
+    mailboxFailures: smallint('mailbox_failures').notNull().default(0),
+    // The last failure's kind (a SQLSTATE, an error's name, `gone`), never
+    // its message: that can quote the page's or the email's text.
+    errorKind: text('error_kind'),
   },
   (table) => [
     unique('order_email_account_id_email_id_unique').on(
@@ -2614,6 +2630,18 @@ export const orderEmail = pgTable(
     check(
       'order_email_outcome_check',
       sql`${table.outcome} in (${sqlList(ORDER_EMAIL_OUTCOMES)})`,
+    ),
+    check(
+      'order_email_status_check',
+      sql`${table.status} in (${sqlList(ORDER_EMAIL_STATUSES)})`,
+    ),
+    check(
+      'order_email_decided_check',
+      sql`(${table.status} = 'decided') = (${table.outcome} is not null) and (${table.status} = 'decided') = (${table.errorKind} is null)`,
+    ),
+    check(
+      'order_email_attempts_check',
+      sql`${table.attempts} >= 0 and ${table.mailboxFailures} >= 0`,
     ),
   ],
 );

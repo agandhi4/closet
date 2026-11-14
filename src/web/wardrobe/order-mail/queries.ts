@@ -1,17 +1,24 @@
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, type SQL, sql } from 'drizzle-orm';
 import type { Db, Queryable } from '../../../db/client';
 import { orderEmail, orderItem, user } from '../../../db/schema';
 import { selectScalars } from '../../../db/select-scalars';
 import type { IsoDate } from '../../../calendar-date';
 import {
+  ORDER_MAIL_ATTEMPTS,
+  ORDER_MAIL_MAILBOX_STRIKES,
+  type OrderEmailFailureScope,
   type OrderEmailOutcome,
+  type OrderEmailStatus,
   type OrderItemEvent,
   orderItemTransition,
 } from '../../../wardrobe/order-items';
 
 /**
  * The order mail's rows (#25; src/db/schema.ts, order_email and
- * order_item). One writer each: recordOrderEmail (the poll), and an item's
+ * order_item). An email's row is written by the poll only: its outcome
+ * (recordOrderEmail), a failed read (recordOrderEmailFailure) or parking
+ * one that left the inbox (parkGoneEmails, #693). An item has one writer
+ * each: recordOrderEmail, and an item's
  * one move out of pending through decideOrderItem (the review list's
  * dismissal, and the garment save's `added` inside its own transaction).
  * Every read of an item names its owner, so another user's id is a 404.
@@ -21,22 +28,27 @@ import {
 export interface PollStart {
   /** ORDER_MAIL_OWNER's account; undefined when no account has the address. */
   ownerId: number | undefined;
-  /** The newest processed email's arrival in the account: the next query's `after`. */
+  /**
+   * The next query's `after` (inclusive): the oldest failing email's
+   * arrival, so it is read again, else the newest settled one's (#693).
+   */
   watermark: Date | undefined;
+  /** The account's failing emails (`status = 'failed'`), oldest first. */
+  failing: { emailId: string; receivedAt: Date }[];
 }
 
 /**
- * The owner's account and the account's watermark, in one statement (#173:
- * a poll was a statement for each). `ownerEmail` must already be
- * normalized (lower case), as findUserByEmail's is; only the id is read,
- * never the password hash that lookup carries.
+ * The owner's account, the account's watermark and its failing emails, in
+ * one statement (#173: a poll was a statement for each). `ownerEmail` must
+ * already be normalized (lower case), as findUserByEmail's is; only the id
+ * is read, never the password hash that lookup carries.
  */
 export async function pollStart(
   db: Db,
   ownerEmail: string,
   accountId: string,
 ): Promise<PollStart> {
-  const { ownerId, newest } = await selectScalars(db, {
+  const { ownerId, newest, failing } = await selectScalars(db, {
     ownerId: sql<number | null>`(
       select ${user.id} from ${user}
       where lower(${user.email}) = ${ownerEmail} limit 1
@@ -44,17 +56,36 @@ export async function pollStart(
     // As JSON: an ISO string, which Date reads (the raw row's timestamptz
     // text is not ISO).
     newest: sql<string | null>`(
-      select to_json(max(${orderEmail.receivedAt})) from ${orderEmail}
+      select to_json(coalesce(
+        min(${orderEmail.receivedAt}) filter (where ${orderEmail.status} = 'failed'),
+        max(${orderEmail.receivedAt})
+      )) from ${orderEmail}
       where ${orderEmail.accountId} = ${accountId}
+    )`,
+    failing: sql<{ emailId: string; receivedAt: string }[]>`(
+      select coalesce(json_agg(
+        json_build_object('emailId', ${orderEmail.emailId}, 'receivedAt', ${orderEmail.receivedAt})
+        order by ${orderEmail.receivedAt}
+      ), '[]'::json)
+      from ${orderEmail}
+      where ${orderEmail.accountId} = ${accountId}
+        and ${orderEmail.status} = 'failed'
     )`,
   });
   return {
     ownerId: ownerId ?? undefined,
     watermark: newest === null ? undefined : new Date(newest),
+    failing: failing.map(({ emailId, receivedAt }) => ({
+      emailId,
+      receivedAt: new Date(receivedAt),
+    })),
   };
 }
 
-/** Which of `emailIds` the account's emails were processed already. */
+/**
+ * Which of `emailIds` the account's emails are settled: decided or parked.
+ * A failing one is read again.
+ */
 export async function processedEmailIds(
   db: Db,
   accountId: string,
@@ -68,6 +99,7 @@ export async function processedEmailIds(
       and(
         eq(orderEmail.accountId, accountId),
         inArray(orderEmail.emailId, [...emailIds]),
+        ne(orderEmail.status, 'failed'),
       ),
     );
   return new Set(rows.map((row) => row.emailId));
@@ -82,10 +114,14 @@ export interface FoundProduct {
   currency: string | null;
 }
 
-export interface ProcessedEmail {
+/** An email as the poll addresses its row. */
+export interface MailboxEmail {
   accountId: string;
   emailId: string;
   receivedAt: Date;
+}
+
+export interface ProcessedEmail extends MailboxEmail {
   outcome: OrderEmailOutcome;
 }
 
@@ -94,8 +130,13 @@ export interface ProcessedEmail {
  * `ownerId`, atomically. A product the owner has listed before (pending,
  * added or dismissed) is skipped, so a confirmation and a shipping email
  * name it once; `imported` becomes `no-products` when every product was
- * such a repeat. How many were listed; 0 too when another run recorded the
+ * such a repeat. How many were listed; 0 too when another run settled the
  * email first (an overlapping deploy).
+ *
+ * Every outcome takes a `failed` row to `decided` through this one guarded
+ * upsert (insertEmail): a failing email that succeeds on a retry, however
+ * it ends, stops pinning the watermark. A decided or parked row is never
+ * touched again.
  *
  * An email without products (untrusted, too large, none found) is one
  * insert. With products, one transaction of four statements (#173; it was
@@ -115,7 +156,18 @@ export async function recordOrderEmail(
     tx
       .insert(orderEmail)
       .values({ ...email, outcome, items: 0 })
-      .onConflictDoNothing()
+      .onConflictDoUpdate({
+        target: [orderEmail.accountId, orderEmail.emailId],
+        set: {
+          outcome,
+          items: 0,
+          status: 'decided',
+          errorKind: null,
+          mailboxFailures: 0,
+          processedAt: sql`now()`,
+        },
+        where: eq(orderEmail.status, 'failed'),
+      })
       .returning({ id: orderEmail.id });
   if (products.length === 0) {
     // Nothing listed: an `imported` email with no products is `no-products`.
@@ -161,6 +213,98 @@ export async function recordOrderEmail(
     }
     return listed;
   });
+}
+
+/** A failed read's row after it was recorded. */
+export interface FailedRead {
+  status: Exclude<OrderEmailStatus, 'decided'>;
+  attempts: number;
+  mailboxFailures: number;
+}
+
+/**
+ * Records a failed read of `email` (#693): an `email` failure spends one
+ * attempt; a `mailbox` one counts a strike, and ORDER_MAIL_MAILBOX_STRIKES
+ * in a row spend one too. ORDER_MAIL_ATTEMPTS attempts park it. One upsert,
+ * guarded like the outcome's: undefined when another run settled the email
+ * meanwhile. `errorKind` is a kind, never an error's text.
+ *
+ * Runs on `db`, never inside the transaction recordOrderEmail rolled back
+ * for this email: in there it would be rolled back too, and the count
+ * would never move.
+ */
+export async function recordOrderEmailFailure(
+  db: Db,
+  email: MailboxEmail,
+  scope: OrderEmailFailureScope,
+  errorKind: string,
+): Promise<FailedRead | undefined> {
+  const zero = sql`0`;
+  const first = failedRead(scope, { attempts: zero, mailboxFailures: zero });
+  const next = failedRead(scope, {
+    attempts: sql`${orderEmail.attempts}`,
+    mailboxFailures: sql`${orderEmail.mailboxFailures}`,
+  });
+  const [row] = await db
+    .insert(orderEmail)
+    .values({ ...email, ...first, errorKind })
+    .onConflictDoUpdate({
+      target: [orderEmail.accountId, orderEmail.emailId],
+      set: { ...next, errorKind, processedAt: sql`now()` },
+      where: eq(orderEmail.status, 'failed'),
+    })
+    .returning({
+      status: orderEmail.status,
+      attempts: orderEmail.attempts,
+      mailboxFailures: orderEmail.mailboxFailures,
+    });
+  return row as FailedRead | undefined;
+}
+
+/**
+ * The failure rule over a row's previous counts (zeros for a new row), as
+ * SQL, so the insert and the update share it: whether this read spends an
+ * attempt, and whether the attempts reached the budget.
+ */
+function failedRead(
+  scope: OrderEmailFailureScope,
+  old: { attempts: SQL; mailboxFailures: SQL },
+): { attempts: SQL; mailboxFailures: SQL; status: SQL } {
+  const spends =
+    scope === 'email'
+      ? sql`true`
+      : sql`${old.mailboxFailures} + 1 >= ${ORDER_MAIL_MAILBOX_STRIKES}::int`;
+  const attempts = sql`${old.attempts} + case when ${spends} then 1 else 0 end`;
+  return {
+    attempts,
+    mailboxFailures: sql`case when ${spends} then 0 else ${old.mailboxFailures} + 1 end`,
+    status: sql`case when ${attempts} >= ${ORDER_MAIL_ATTEMPTS}::int then 'parked' else 'failed' end`,
+  };
+}
+
+/**
+ * Parks the account's failing `emailIds` that left the inbox (deleted or
+ * moved while failing): never read again, or the oldest would hold the
+ * watermark for good. How many it parked.
+ */
+export async function parkGoneEmails(
+  db: Db,
+  accountId: string,
+  emailIds: readonly string[],
+): Promise<number> {
+  if (emailIds.length === 0) return 0;
+  const parked = await db
+    .update(orderEmail)
+    .set({ status: 'parked', errorKind: 'gone', processedAt: sql`now()` })
+    .where(
+      and(
+        eq(orderEmail.accountId, accountId),
+        inArray(orderEmail.emailId, [...emailIds]),
+        eq(orderEmail.status, 'failed'),
+      ),
+    )
+    .returning({ id: orderEmail.id });
+  return parked.length;
 }
 
 export interface ReviewItem {

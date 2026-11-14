@@ -10,19 +10,34 @@ import type { JobName } from './metrics';
  * The message names the job and counts, never a person or a path (it
  * reaches the error tracker). Each cause is already logged with its ids
  * where it happened.
+ *
+ * `reported`: every cause was captured by an earlier run, so this one is
+ * still `failure` but captures nothing (the order mail's email failing on
+ * each retry: one event per email, #693). `cause`: the error that ended
+ * the run early, carried in the same event (the tracker links causes).
  */
 export class PartialFailure extends Error {
+  readonly reported: boolean;
+
   constructor(
     readonly job: JobName,
     readonly counts: Readonly<Record<string, number>>,
+    { reported = false, cause }: PartialFailureOptions = {},
   ) {
     super(
       `${job} ended partially: ${Object.entries(counts)
         .map(([what, n]) => `${n} ${what}`)
         .join(', ')}`,
+      { cause },
     );
     this.name = 'PartialFailure';
+    this.reported = reported;
   }
+}
+
+interface PartialFailureOptions {
+  reported?: boolean;
+  cause?: unknown;
 }
 
 /**
@@ -34,10 +49,11 @@ export function endWhole<T>(
   job: JobName,
   counts: Readonly<Record<string, number>>,
   run: T,
+  { reported = false }: { reported?: boolean } = {},
 ): T {
   const nonzero = Object.entries(counts).filter(([, n]) => n > 0);
   if (nonzero.length > 0)
-    throw new PartialFailure(job, Object.fromEntries(nonzero));
+    throw new PartialFailure(job, Object.fromEntries(nonzero), { reported });
   return run;
 }
 
