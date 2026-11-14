@@ -7,6 +7,7 @@ import { THEME_BASE_100 } from '../theme-colors';
 import type { ViewContext } from '../view-context';
 import { PhotoViewer } from '../files/photo-viewer';
 import { AppStatus } from './app-status';
+import { ConfirmSheet } from './confirm-sheet';
 
 /**
  * The document shell of every page. The pages render the app bar and dock
@@ -49,6 +50,7 @@ function importMap(version: string) {
       'pwa-install': `/modules/pwa-install.bundle.js${v}`,
       pulltorefreshjs: `/modules/pulltorefresh/index.esm.js${v}`,
       toast: `/js/toast.js${v}`,
+      'confirm-sheet': `/js/confirm-sheet.js${v}`,
       'mask-editor': `/js/mask-editor.js${v}`,
       'photo-input': `/js/photo-input.js${v}`,
       'snap-strip': `/js/snap-strip.js${v}`,
@@ -186,6 +188,9 @@ export function Layout({
         {/* Heartbeat-driven online/offline state and the banner in
             AppStatus; runs everywhere, service worker or not. */}
         <script type="module" src={`/js/connectivity.js${v}`}></script>
+        {/* The confirmation sheet (ConfirmSheet): hx-confirm and a PostForm's
+            confirm. Before submit-once, which skips a declined submit. */}
+        <script type="module" src={`/js/confirm-sheet.js${v}`}></script>
         {/* Every PostForm posts once per tap (double-submit guard). */}
         <script type="module" src={`/js/submit-once.js${v}`}></script>
         {/* Save-on-change forms drop answers a newer edit overtook
@@ -235,6 +240,7 @@ export function Layout({
         {children}
         <AppStatus ctx={ctx} />
         <PhotoViewer />
+        <ConfirmSheet />
       </body>
     </html>
   );

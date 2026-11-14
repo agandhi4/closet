@@ -14,7 +14,8 @@ const REFUSED_WHILE_LEAVING =
 
 /**
  * Collects what went wrong in the page while a spec runs, for it to assert
- * none: uncaught errors, and with `console`, console errors too.
+ * none: uncaught errors, and with `console`, console errors too. (Native
+ * dialogs fail every spec through test/support/fixtures.ts.)
  */
 export function pageErrors(
   page: Page,

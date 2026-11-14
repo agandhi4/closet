@@ -15,6 +15,7 @@
     "types": [],
     "paths": {
       "toast": ["../../public/js/toast.js"],
+      "confirm-sheet": ["../../public/js/confirm-sheet.js"],
       "single-flight": ["../../public/js/single-flight.js"]
     }
   },

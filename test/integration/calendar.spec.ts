@@ -697,6 +697,172 @@ describe('calendar', () => {
       expect(columns.get('2030-10-07')).toContain(`/calendar/${keep}/delete`);
     });
 
+    // #686: removing acts at once; the toast carries the post that puts it back.
+    it('offers Undo for an unworn entry, and the restore puts it back as it was', async () => {
+      const outfit = await createOutfit('Undoable entry');
+      const entry = await schedule(outfit, '2030-10-14');
+      const hx = { ...form({}).headers, 'hx-request': 'true' };
+
+      const removed = await t.inject({
+        method: 'POST',
+        url: `/calendar/${entry}/delete`,
+        ...form({ week: '2030-10-14' }),
+        headers: hx,
+      });
+      const status = JSON.parse(String(removed.headers['hx-trigger']))[
+        'closet:status'
+      ] as {
+        message: string;
+        undo: { label: string; action: string; fields: { token: string } };
+      };
+      expect(status.message).toBe('Removed from the calendar');
+      expect(status.undo).toEqual({
+        label: 'Undo',
+        action: '/calendar/restore',
+        fields: { token: expect.stringMatching(/^[\w-]{22}$/) },
+      });
+      expect(await entriesOf(outfit)).toHaveLength(0);
+
+      const restored = await t.inject({
+        method: 'POST',
+        url: status.undo.action,
+        ...form(status.undo.fields),
+        headers: hx,
+      });
+      expect(restored.statusCode).toBe(200);
+      expect(hxLocationPath(restored)).toBe('/calendar?week=2030-10-14');
+      expect(await entriesOf(outfit)).toMatchObject([
+        { day: '2030-10-14', occasion: 'all-day', plannedBy: 'user' },
+      ]);
+
+      // A second tap on the same toast adds nothing.
+      await t.inject({
+        method: 'POST',
+        url: status.undo.action,
+        ...form(status.undo.fields),
+        headers: hx,
+      });
+      expect(await entriesOf(outfit)).toHaveLength(1);
+    });
+
+    it('restores only what the server held: a forged entry, another account’s token and a reused token are refused', async () => {
+      const outfit = await createOutfit('Token entry');
+      const entry = await schedule(outfit, '2030-10-15');
+      const hx = { ...form({}).headers, 'hx-request': 'true' };
+      const removed = await t.inject({
+        method: 'POST',
+        url: `/calendar/${entry}/delete`,
+        ...form({ week: '2030-10-15' }),
+        headers: hx,
+      });
+      const { token } = JSON.parse(String(removed.headers['hx-trigger']))[
+        'closet:status'
+      ].undo.fields as { token: string };
+
+      // Fields the client invents are not the server's (no provenance minted).
+      const forged = await t.inject({
+        method: 'POST',
+        url: '/calendar/restore',
+        ...form({
+          token: 'forged',
+          date: '2030-10-16',
+          outfitId: String(outfit),
+          occasion: 'work',
+          plannedBy: 'auto',
+        }),
+      });
+      expect(forged.statusCode).toBe(404);
+      expect(await entriesOf(outfit)).toHaveLength(0);
+
+      const stranger = await t.register('restore-stranger@example.com');
+      const theirs = await t.inject({
+        method: 'POST',
+        url: '/calendar/restore',
+        ...form({ token }),
+        headers: { ...form({}).headers, cookie: stranger },
+      });
+      expect(theirs.statusCode).toBe(404);
+      expect(await entriesOf(outfit)).toHaveLength(0);
+
+      const mine = await t.inject({
+        method: 'POST',
+        url: '/calendar/restore',
+        ...form({ token }),
+      });
+      expect(mine.statusCode).toBe(303);
+      expect(await entriesOf(outfit)).toMatchObject([
+        { day: '2030-10-15', plannedBy: 'user' },
+      ]);
+      const again = await t.inject({
+        method: 'POST',
+        url: '/calendar/restore',
+        ...form({ token }),
+      });
+      expect(again.statusCode).toBe(404);
+      expect(await entriesOf(outfit)).toHaveLength(1);
+    });
+
+    it('asks first for a worn entry, whatever page asked, and offers no Undo for it', async () => {
+      const outfit = await createOutfit('Worn entry');
+      const entry = await schedule(outfit, '2020-10-07');
+      const hx = { ...form({}).headers, 'hx-request': 'true' };
+      const week = unescapeHtml(
+        (await t.inject({ method: 'GET', url: '/calendar?week=2020-10-07' }))
+          .body,
+      );
+      // Unworn and kept: no sheet.
+      expect(week).not.toMatch(
+        new RegExp(`hx-post="/calendar/${entry}/delete"[^>]*hx-confirm`),
+      );
+      const worn = await t.inject({
+        method: 'POST',
+        url: `/calendar/${entry}/worn`,
+        ...form({ week: '2020-10-07', worn: '1' }),
+        headers: hx,
+      });
+      expect(worn.statusCode).toBe(200);
+      expect(
+        unescapeHtml(
+          (await t.inject({ method: 'GET', url: '/calendar?week=2020-10-07' }))
+            .body,
+        ),
+      ).toMatch(
+        new RegExp(
+          `hx-post="/calendar/${entry}/delete"[^>]*hx-confirm="Remove this scheduled outfit\\?"`,
+        ),
+      );
+      // A page rendered before the wear still posts without `confirmed`: the
+      // server refuses, asks, and deletes nothing.
+      const stale = await t.inject({
+        method: 'POST',
+        url: `/calendar/${entry}/delete`,
+        ...form({ week: '2020-10-07' }),
+        headers: hx,
+      });
+      expect(stale.statusCode).toBe(409);
+      expect(
+        JSON.parse(String(stale.headers['hx-trigger']))['closet:confirm'],
+      ).toEqual({
+        question: 'Remove this scheduled outfit?',
+        label: 'Remove from calendar',
+        action: `/calendar/${entry}/delete`,
+        fields: { week: '2020-10-07', confirmed: '1' },
+      });
+      expect(await entryById(entry)).toBeDefined();
+
+      const removed = await t.inject({
+        method: 'POST',
+        url: `/calendar/${entry}/delete`,
+        ...form({ week: '2020-10-07', confirmed: '1' }),
+        headers: hx,
+      });
+      expect(removed.statusCode).toBe(200);
+      expect(
+        JSON.parse(String(removed.headers['hx-trigger']))['closet:status'],
+      ).toEqual({ message: 'Removed from the calendar' });
+      expect(await entryById(entry)).toBeUndefined();
+    });
+
     it('answers a native post (no htmx) with a 303 to the week', async () => {
       const outfit = await createOutfit('Native delete');
       const entry = await schedule(outfit, '2030-10-09');

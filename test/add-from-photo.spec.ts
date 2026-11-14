@@ -1,4 +1,5 @@
-import { expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { expect } from './support/fixtures';
 import sharp from 'sharp';
 import { test } from './support/cutout-hold';
 import { createGarment } from './support/e2e-data';

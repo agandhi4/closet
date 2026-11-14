@@ -13,6 +13,8 @@ export const CALENDAR_PATH = '/calendar';
 export const CALENDAR_MONTH_PATH = `${CALENDAR_PATH}/month`;
 /** The plan page: Change (#69), Today's "+ Plan another outfit" and links cached before R6. */
 export const CALENDAR_PLAN_PATH = `${CALENDAR_PATH}/plan`;
+/** Undo of a removed entry (#686): puts it back on its day. */
+export const CALENDAR_RESTORE_PATH = `${CALENDAR_PATH}/restore`;
 
 /** The week holding `day`; the current week without one. */
 export function weekUrl(day?: IsoDate): string {

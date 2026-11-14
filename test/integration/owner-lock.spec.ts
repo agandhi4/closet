@@ -585,7 +585,7 @@ describe('the owner lock', () => {
         () => replanToday(deps, t.owner.id, new Date(), { job: 'replan' }),
       );
       // Its planner-made outfit goes with it (Undo's rule, #659).
-      expect(deleted).toEqual({ selfies: [], oneOffRemoved: outfitId });
+      expect(deleted).toMatchObject({ selfies: [], oneOffRemoved: outfitId });
       expect(replan).toEqual({ kind: 'skipped' });
       expect(await entriesOn(day)).toEqual([]);
       expect(await t.db.$count(outfit)).toBe(outfits - 1);

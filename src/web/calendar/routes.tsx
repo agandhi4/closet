@@ -10,7 +10,7 @@ import {
   replayRefused,
   requestTap,
 } from '../offline-writes';
-import { announce } from '../announce';
+import { announce, askFirst } from '../announce';
 import { t } from '../i18n';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
@@ -53,6 +53,7 @@ import { OccasionRow } from './occasion-row';
 import {
   markEntryWorn,
   planOutfit,
+  calendarEntryNotFound,
   removeEntry,
   requireEntry,
 } from './entry-actions';
@@ -62,9 +63,11 @@ import {
   CALENDAR_MONTH_PATH,
   CALENDAR_PATH,
   CALENDAR_PLAN_PATH,
+  CALENDAR_RESTORE_PATH,
   weekUrl,
 } from './urls';
 import { weekContext } from './week-context';
+import { createUndoStore, restorable } from './restore';
 import { BY_PERSON } from '../write-origin';
 
 /**
@@ -90,8 +93,12 @@ import { BY_PERSON } from '../write-origin';
 const EntryParams = Type.Object({ id: RowId });
 
 // null: a post without a body (Fastify validates a missing body as null).
-const WeekBody = Type.Union([
-  Type.Object({ week: Type.Optional(IsoDateSchema) }),
+// Remove's body: `confirmed` is posted by the confirm sheet's yes (#686).
+const DeleteBody = Type.Union([
+  Type.Object({
+    week: Type.Optional(IsoDateSchema),
+    confirmed: Type.Optional(Type.Literal('1')),
+  }),
   Type.Null(),
 ]);
 
@@ -348,19 +355,85 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // The chip's form (hx-confirm): htmx swaps the page to the week the chip
-  // was on; the same form posted natively gets the 303 there.
+  // The row's Remove (#686). The server decides whether it may go unasked
+  // (removeEntry's `asksFirst`, from the current row, never the page's): an
+  // unworn entry Undo can restore goes at once and the toast offers Undo
+  // (POST /calendar/restore, a token for the snapshot held here); a worn
+  // entry, an agent's or one that takes a one-off outfit with it is refused
+  // 409 with nothing deleted, and the answer opens the confirm sheet, whose
+  // yes posts again with `confirmed`. A native post (no htmx) never asks.
+  // htmx swaps the page to the week the chip was on; a native post gets the
+  // 303 there.
+  const undo = createUndoStore();
   app.post(
     '/calendar/:id/delete',
-    { schema: { params: EntryParams, body: WeekBody } },
+    { schema: { params: EntryParams, body: DeleteBody } },
     async (request, reply) => {
-      await removeEntry(
-        { db, photos, logger },
-        actorOf(request),
-        request.params.id,
+      const actor = actorOf(request);
+      const { id } = request.params;
+      const week = request.body?.week;
+      const htmx = Boolean(request.headers['hx-request']);
+      const removed = await removeEntry({ db, photos, logger }, actor, id, {
+        asksFirst: htmx && request.body?.confirmed !== '1',
+      });
+      const target = weekUrl(week);
+      if (removed === 'needs-confirmation') {
+        return askFirst(reply, {
+          question: t('CALENDAR_DELETE_CONFIRM'),
+          label: t('CALENDAR_REMOVE'),
+          action: `/calendar/${id}/delete`,
+          fields: { ...(week && { week }), confirmed: '1' },
+        });
+      }
+      if (htmx) {
+        const snapshot = restorable(removed);
+        announce(
+          reply,
+          t('CALENDAR_REMOVED'),
+          snapshot && {
+            label: t('UNDO'),
+            action: CALENDAR_RESTORE_PATH,
+            fields: { token: undo.put(actor.userId, snapshot) },
+          },
+        );
+        return navigateTo(reply, target);
+      }
+      return reply.redirect(target, 303);
+    },
+  );
+
+  // Undo of the delete above: only the token the delete's toast carried.
+  // The server re-plans the entry it held, as it was (the planner's `auto`
+  // or the person's `user`); nothing about it comes from the client. The
+  // token is the owner's, works once and expires; the outfit it held was
+  // kept, so it is still there unless deleted since: 404.
+  app.post(
+    CALENDAR_RESTORE_PATH,
+    {
+      schema: { body: Type.Object({ token: Type.String({ maxLength: 64 }) }) },
+    },
+    async (request, reply) => {
+      const actor = actorOf(request);
+      const removed = undo.take(actor.userId, request.body.token);
+      if (!removed) throw calendarEntryNotFound();
+      const scheduled = await planOutfit(
+        db,
+        actor,
+        {
+          outfitId: removed.outfitId,
+          day: removed.day,
+          occasion: removed.occasion,
+        },
+        removed.plannedBy === 'auto' ? 'planner' : BY_PERSON,
       );
-      const target = weekUrl(request.body?.week);
-      if (request.headers['hx-request']) return navigateTo(reply, target);
+      logger.info(
+        `Calendar entry ${scheduled.entryId} restored (${removed.plannedBy}) by user ${actor.userId} (Undo)`,
+      );
+      const target = weekUrl(removed.day);
+      if (request.headers['hx-request']) {
+        announce(reply, t('CALENDAR_RESTORED'));
+        return navigateTo(reply, target);
+      }
       return reply.redirect(target, 303);
     },
   );

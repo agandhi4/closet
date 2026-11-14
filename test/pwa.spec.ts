@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { expect, test } from './support/fixtures';
 import { CACHED_AT_TIMING_NAME } from '../src/web/page-cache';
 import { signIn } from './support/e2e-session';
 import {
