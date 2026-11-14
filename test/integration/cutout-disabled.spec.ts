@@ -145,6 +145,26 @@ describe('cutouts switched off', () => {
     );
   });
 
+  // The common case: an upload made while removal is off has no cutout
+  // file, so the turn has nothing to carry and the photo stays `none`.
+  it('turns a plain none photo and keeps it none', async () => {
+    const id = await createGarment(t, { name: 'Plain turn' });
+    await uploadPhoto(t, id, await jpegPhoto());
+    const before = await photoFileName(t, id);
+    const res = await t.inject({
+      method: 'POST',
+      url: `/wardrobe/${id}/photo/rotate`,
+      payload: { direction: 'left' },
+    });
+    expect(res.statusCode).toBe(303);
+    const after = await photoFileName(t, id);
+    expect(after).not.toBe(before);
+    expect(await photoRow(t, after)).toMatchObject({ cutoutStatus: 'none' });
+    expect(existsSync(join(t.dataPath, variantFileName(after, 'nobg')))).toBe(
+      false,
+    );
+  });
+
   // The API and the changes feed agree with the page: nothing to poll for.
   it('answers none, never pending or failed, on the API and the feed', async () => {
     const { token } = await deviceToken(t);
