@@ -27,7 +27,7 @@ import {
   createSessionResolver,
 } from './web/auth/session';
 import { createSessionTokens } from './web/auth/tokens';
-import { createErrorHandler, HttpError } from './web/errors';
+import { createErrorHandler, DatabaseOutage, HttpError } from './web/errors';
 import { configurePhotoUrls } from './web/files/image-url';
 import { configurePasswordHashing } from './web/auth/passwords';
 import { createPhotos, type Photos, photosConfig } from './web/files/photos';
@@ -197,7 +197,13 @@ export async function createApp(
   const database = dbConfig(config);
   // Before anything queries: the schema is current or the boot fails.
   await runMigrations(database, logger.child({ logger: 'Migrations' }));
-  const db = createDb(database, logger.child({ logger: 'Db' }));
+  const dbLogger = logger.child({ logger: 'Db' });
+  // An outage is one error-tracker event (createErrorHandler); it ends the
+  // first time the database answers again.
+  const outage = new DatabaseOutage(dbLogger);
+  const db = createDb(database, dbLogger, {
+    onAnswer: () => outage.recovered(),
+  });
   // Refuses an unmounted photo share (StorageIdentityError, main.ts); the
   // pool is ended here, since no onClose hook exists yet to end it.
   const photos = await createPhotos(
@@ -343,7 +349,15 @@ export async function createApp(
   // read there, and without a page context their errors answer as data.
   app.addHook('preValidation', async (request, reply) => {
     if (isStaticPath(request.url) || surfaceOf(request) !== 'page') return;
-    request.auth = await resolveSession(request, reply);
+    try {
+      request.auth = await resolveSession(request, reply);
+    } catch (error) {
+      // The session could not be read (the database out of reach, #643):
+      // the error handler answers with a page only when it has a context,
+      // so it gets a signed-out one rather than a JSON body for a document.
+      reply.locals = buildViewContext(request, undefined);
+      throw error;
+    }
     reply.locals = buildViewContext(request, request.auth);
   });
 
@@ -414,7 +428,7 @@ export async function createApp(
   );
 
   const web = logger.child({ logger: 'Web' });
-  app.setErrorHandler(createErrorHandler(web, errors));
+  app.setErrorHandler(createErrorHandler(web, errors, outage));
   // A path no route matches is the 404 page (a static path, which has no
   // page context, gets data from the error handler instead; an htmx
   // fragment request its trigger); under /api a problem 404. Neither

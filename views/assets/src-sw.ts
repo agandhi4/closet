@@ -25,7 +25,6 @@ import {
   forbidsStorage,
   type FreshPage,
   isBackingOff,
-  isRenderedPage,
   navigationPostAnswer,
   nextRefreshBackoff,
   pageAccount,
@@ -39,9 +38,11 @@ import {
   type RefetchStep,
   type RefetchVerdict,
   refetchVerdict,
+  renderedAccount,
   type Revalidation,
   revalidationOutcome,
   sentToLogin,
+  serverUnavailable,
   servesStaleWhileRevalidate,
   PAGES_CACHE,
 } from '../../src/web/page-cache';
@@ -474,8 +475,9 @@ function claimPageCache(
 }
 
 // Every page either strategy stores, after the 200 filter: a rendered page
-// (isRenderedPage: an image or a download opened as a document says nothing
-// about who is signed in, and a selfie must never be stored), answering a
+// (renderedAccount: a 200 HTML answer; an image or a download opened as a
+// document says nothing about who is signed in, a selfie must never be
+// stored, and a busy page is rendered signed out, #643), answering a
 // request of the current generation, owner-checked and stamped with when it
 // arrived. A followed redirect is not stored under the URL that redirected:
 // the body is another page's. One that landed on the login page (a boosted
@@ -502,13 +504,10 @@ const pageStore: WorkboxPlugin = {
       if (sentToLogin(response)) await claimPageCache('', since, path, event);
       return null;
     }
-    if (!isRenderedPage(response.headers)) return null;
-    const claimed = await claimPageCache(
-      pageAccount(response.headers),
-      since,
-      path,
-      event,
-    );
+    // The claim's own rule, not only the 200 filter's order before it.
+    const account = renderedAccount(response);
+    if (account === undefined) return null;
+    const claimed = await claimPageCache(account, since, path, event);
     if (!claimed || forbidsStorage(response.headers)) return null;
     return copyResponse(response, (init) => {
       const headers = new Headers(init.headers);
@@ -616,7 +615,36 @@ const pagePlugins: WorkboxPlugin[] = [
   }),
 ];
 
-const pages = new NetworkFirst({
+/**
+ * NetworkFirst, with the server's own "unwell" answers (serverUnavailable:
+ * the 503 `busy` of a database outage, #643; a proxy's 502 or 504; a 429)
+ * taken like a timeout: the cached copy answers, with its freshness stamp,
+ * when the cache has one, and the server's answer only when it has none
+ * (its busy page or toast says more than the offline page). In the handler,
+ * not a fetchDidSucceed plugin: a navigation's preload response skips the
+ * fetch plugins. Such an answer is never stored (the 200 filter).
+ */
+class ServerFirstPages extends NetworkFirst {
+  override async _handle(
+    request: Request,
+    handler: StrategyHandler,
+  ): Promise<Response> {
+    const answer = await super._handle(request, handler);
+    if (!serverUnavailable(answer.status)) return answer;
+    const path = new URL(request.url).pathname;
+    const cached = await handler.cacheMatch(request);
+    if (!cached) {
+      console.warn(`[sw] ${path}: server answered ${answer.status}, no copy`);
+      return answer;
+    }
+    console.info(
+      `[sw] ${path}: server answered ${answer.status}, the cached copy answers`,
+    );
+    return cached;
+  }
+}
+
+const pages = new ServerFirstPages({
   cacheName: PAGES_CACHE,
   networkTimeoutSeconds: 3,
   plugins: pagePlugins,
@@ -674,7 +702,7 @@ async function revalidate(
     fresh = {
       status: response.status,
       redirected: response.type === 'opaqueredirect' || response.redirected,
-      account: pageAccount(response.headers),
+      account: renderedAccount(response),
       body: response.status === 200 ? await response.text() : '',
     };
   } catch (error) {

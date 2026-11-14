@@ -250,6 +250,26 @@ export function pageAccount(headers: {
 }
 
 /**
+ * Who an answer says is signed in, read only from a page that rendered: a
+ * 200 HTML answer, its account ('' signed out); undefined for anything else.
+ * The one rule both of the worker's account checks share (pageStore's claim,
+ * claimPageCache, and a tab root's revalidation, revalidationOutcome): any
+ * other answer says nothing about the session. The server's busy page (a 503
+ * when the database is out of reach, #643) is rendered signed out, since the
+ * session could not be read; taken as "signed out" it would drop the session
+ * caches just before ServerFirstPages answers with their copy.
+ */
+export function renderedAccount(response: {
+  status: number;
+  headers: { get(name: string): string | null };
+}): string | undefined {
+  if (response.status !== 200 || !isRenderedPage(response.headers)) {
+    return undefined;
+  }
+  return pageAccount(response.headers);
+}
+
+/**
  * What a revalidation found, compared with the copy on screen:
  *  - current: the server renders the same page;
  *  - updated: it renders a different one (someone changed something);
@@ -276,7 +296,8 @@ export interface FreshPage {
   status: number;
   /** A redirect the worker saw (opaque for a navigation). */
   redirected: boolean;
-  account: string;
+  /** renderedAccount's: undefined unless the answer is a rendered page. */
+  account: string | undefined;
   /** Read only for a 200. */
   body: string;
 }
@@ -289,7 +310,7 @@ export function revalidationOutcome(
   if (!fresh) return 'failed';
   // A tab root only redirects or refuses without a session.
   if (fresh.redirected || fresh.status === 401) return 'signed-out';
-  if (fresh.status !== 200) return 'failed';
+  if (fresh.account === undefined) return 'failed';
   if (fresh.account !== cached.account) {
     return fresh.account === '' ? 'signed-out' : 'account-changed';
   }
@@ -331,6 +352,18 @@ export type RefetchVerdict =
 /** The answers that say the server, not the page, is unwell. */
 const UNAVAILABLE_STATUSES = new Set([429, 502, 503, 504]);
 
+/**
+ * Whether an answer says the server, not the page, is unwell (a 429, or a
+ * 502, 503 or 504 from it or the proxy before it; the server's 503 `busy`
+ * when its database is out of reach, #643). The worker treats it as no
+ * answer: a refetch stops (refetchVerdict), and a page or htmx GET is
+ * answered from its cached copy when it has one (ServerFirstPages,
+ * views/assets/src-sw.ts), like a timeout.
+ */
+export function serverUnavailable(status: number): boolean {
+  return UNAVAILABLE_STATUSES.has(status);
+}
+
 export function refetchVerdict(answer: {
   status: number;
   redirected: boolean;
@@ -347,7 +380,7 @@ export function refetchVerdict(answer: {
   if (answer.redirected) return 'kept';
   if (answer.status === 200) return 'stored';
   if (answer.status === 404 || answer.status === 403) return 'deleted';
-  if (UNAVAILABLE_STATUSES.has(answer.status)) return 'stop';
+  if (serverUnavailable(answer.status)) return 'stop';
   if (answer.status >= 500) return 'failed';
   return 'kept';
 }

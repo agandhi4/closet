@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { CACHED_AT_TIMING_NAME } from '../src/web/page-cache';
 import { signIn } from './support/e2e-session';
 import {
   cachePage,
@@ -61,6 +62,45 @@ test.describe('installed app delivery', () => {
     await expect(
       page.getByRole('heading', { level: 1, name: 'Outfits' }),
     ).toBeVisible();
+
+    // The server up but its database not (#643): its 503 busy page is taken
+    // like a timeout, and the cached copy answers with its freshness stamp
+    // (the Server-Timing entry only a stored copy carries). Insights, not a
+    // tab root: those open from the cache whatever the server says.
+    await cachePage(page, '/wardrobe/insights');
+    // context.route sees the worker's own fetch, never the navigation
+    // preload; ServerFirstPages judges either answer the same way.
+    const setPreload = (enabled: boolean) =>
+      page.evaluate(async (on) => {
+        const { navigationPreload } = await navigator.serviceWorker.ready;
+        await (on ? navigationPreload.enable() : navigationPreload.disable());
+      }, enabled);
+    await setPreload(false);
+    await context.route(/\/wardrobe\/insights$/, (route) =>
+      route.fulfill({
+        status: 503,
+        contentType: 'text/html',
+        headers: { 'Retry-After': '5' },
+        body: '<!DOCTYPE html><title>busy</title><h1>Busy</h1>',
+      }),
+    );
+    const busy = await page.goto('/wardrobe/insights');
+    expect(busy?.status()).toBe(200);
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Insights' }),
+    ).toBeVisible();
+    const stamp = await page.evaluate(
+      (name) =>
+        (
+          performance.getEntriesByType(
+            'navigation',
+          )[0] as PerformanceNavigationTiming
+        ).serverTiming.some((entry) => entry.name === name),
+      CACHED_AT_TIMING_NAME,
+    );
+    expect(stamp).toBe(true);
+    await context.unroute(/\/wardrobe\/insights$/);
+    await setPreload(true);
 
     await expect(page.locator('#connectivity-banner')).toBeHidden();
     await context.setOffline(true);
