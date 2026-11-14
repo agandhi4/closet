@@ -104,8 +104,9 @@ export function sessionAccount(request: FastifyRequest): AccountRow {
  * A cookie that no longer opens a session is ended here, on whatever route
  * it arrives (endSession: the cookie cleared, Clear-Site-Data sent). That
  * covers every way a session ends away from this device: a password changed
- * on another one or by `user:set-password` (the fingerprint), the account
- * deleted elsewhere (no row), a rotated ACCESS_TOKEN_SECRET or a garbled
+ * on another one or by `user:set-password` (the fingerprint), a database
+ * restore (`maintenance:after-restore`'s epoch bump: `sep`, #908), the
+ * account deleted elsewhere (no row), a rotated ACCESS_TOKEN_SECRET or a garbled
  * token (the signature), and expiry. This is the one place such a device is
  * noticed, so it is where it drops the account's HTTP cache (selfies,
  * pages); the session gate's redirect or 401 then carries both headers (and
@@ -136,6 +137,11 @@ export function createSessionResolver(deps: {
     if (row.fingerprint !== claims.pwf) {
       return { rejected: `password fingerprint mismatch for user ${row.id}` };
     }
+    if ((claims.sep ?? null) !== row.sessionEpoch) {
+      return {
+        rejected: `issued before the database was restored, for user ${row.id}`,
+      };
+    }
     const user = { id: row.id, email: row.email };
     return {
       auth: { user },
@@ -143,7 +149,11 @@ export function createSessionResolver(deps: {
       account:
         row.password === undefined
           ? undefined
-          : { ...user, password: row.password },
+          : {
+              ...user,
+              password: row.password,
+              sessionEpoch: row.sessionEpoch,
+            },
       share:
         shareOf === undefined
           ? undefined

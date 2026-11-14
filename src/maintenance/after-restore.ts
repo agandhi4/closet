@@ -1,10 +1,12 @@
-import { and, asc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, lt, sql } from 'drizzle-orm';
+import type { TokenKind } from '../credential-names';
 import { recordCutoutEvent } from '../cutout/queries';
 import { CUTOUT_TIMEOUT_MS } from '../cutout/runner';
 import type { Db } from '../db/client';
 import { file, garment } from '../db/schema';
 import { bumpSyncEpoch } from '../db/sync-epoch';
 import type { Logger } from '../logger';
+import { revokeEveryonesTokens } from '../web/auth/personal-tokens';
 import type { Photos } from '../web/files/photos';
 import { reconcileStorage, type ReconciliationReport } from './reconcile';
 import { revokeAllPushDevices } from './revoke-push';
@@ -36,8 +38,13 @@ export interface MissingOriginalGarment {
 }
 
 export interface AfterRestoreReport {
-  /** The changes feed's new epoch: every device re-syncs in full. */
+  /**
+   * The database's new epoch: every device re-syncs in full, and every
+   * session cookie issued before it is ended (restoreEpochSql).
+   */
   syncEpoch: string;
+  /** Personal access tokens revoked, by kind: re-issued by their owners. */
+  accessTokensRevoked: Record<TokenKind, number>;
   pushDevicesRevoked: number;
   cutoutLeasesReleased: number;
   /** A dry run: what the next reconciliation would do. */
@@ -53,9 +60,14 @@ export interface AfterRestoreReport {
  *
  * 1. bumpSyncEpoch: every device's cursor answered before is a 410, so each
  *    re-syncs in full (the dump's revisions and ids would be read as the
- *    history it already has).
- * 2. Every push subscription revoked (a restore brings back ones a new
- *    password ended); each device turns notifications on again.
+ *    history it already has), and every session cookie issued before it no
+ *    longer opens a session (its `sep`, #908): the household signs in again.
+ * 2. Every personal access token, agent and device, revoked through the
+ *    statement a new password uses (revokeAllTokensStatement), and every
+ *    push subscription (#908): a restore brings back what was revoked after
+ *    the dump (a lost phone's token), and nothing outside the database
+ *    remembers it. Owners re-issue their tokens; each device turns
+ *    notifications on again.
  * 3. Cutout leases older than DEAD_LEASE_MS released, each through the state
  *    machine (`release` naming the row's own worker, under the owner and
  *    row locks), so their photos run again at once.
@@ -64,9 +76,9 @@ export interface AfterRestoreReport {
  *    it did not find listed for the operator.
  *
  * Every step is safe to repeat: a second run bumps the epoch again (one
- * more full re-sync) and finds nothing to revoke or release. The epoch and
- * the revocation run even when reconciliation refuses: the database was
- * restored either way. Never migrates (runCli's schema check).
+ * more full re-sync, everyone signed out again) and finds nothing to revoke
+ * or release. The epoch and the revocations run even when reconciliation
+ * refuses: the database was restored either way. Never migrates (runCli's schema check).
  */
 export async function afterRestore(
   deps: AfterRestoreDeps,
@@ -74,7 +86,10 @@ export async function afterRestore(
   const { db, logger } = deps;
   logger.info('After-restore started');
   const syncEpoch = await bumpSyncEpoch(db);
-  logger.info(`Sync epoch bumped to ${syncEpoch}: every device re-syncs`);
+  logger.info(
+    `Sync epoch bumped to ${syncEpoch}: every device re-syncs and every session is signed out`,
+  );
+  const accessTokensRevoked = await revokeAllAccessTokens(db, logger);
   const { devices } = await revokeAllPushDevices(db, logger);
   const cutoutLeasesReleased = await releaseDeadLeases(db, logger);
   const reconciliation = await reconcileStorage(deps, { dryRun: true });
@@ -88,7 +103,9 @@ export async function afterRestore(
     );
   }
   logger.info(
-    `After-restore done: ${devices} push devices revoked, ${cutoutLeasesReleased} cutout leases released, ` +
+    `After-restore done: every session ended, ${accessTokensRevoked.mcp} MCP tokens, ` +
+      `${accessTokensRevoked.device} device tokens and ${devices} push devices revoked, ` +
+      `${cutoutLeasesReleased} cutout leases released, ` +
       `${missingOriginals.length} garments missing their original` +
       (reconciliation.refused
         ? `; reconciliation refused: ${reconciliation.refused}`
@@ -96,11 +113,25 @@ export async function afterRestore(
   );
   return {
     syncEpoch,
+    accessTokensRevoked,
     pushDevicesRevoked: devices,
     cutoutLeasesReleased,
     reconciliation,
     missingOriginals,
   };
+}
+
+// Every agent and device token (revokeEveryonesTokens), counted by kind.
+async function revokeAllAccessTokens(
+  db: Db,
+  logger: Logger,
+): Promise<Record<TokenKind, number>> {
+  const total: Record<TokenKind, number> = { mcp: 0, device: 0 };
+  for (const { userId, kinds } of await revokeEveryonesTokens(db)) {
+    for (const kind of kinds) total[kind] += 1;
+    logger.info(`Access tokens revoked for user ${userId}: ${kinds.length}`);
+  }
+  return total;
 }
 
 async function releaseDeadLeases(db: Db, logger: Logger): Promise<number> {
@@ -138,6 +169,17 @@ function garmentsShowing(
   photos: readonly string[],
 ): Promise<MissingOriginalGarment[]> {
   if (photos.length === 0) return Promise.resolve([]);
+  return garmentsShowingStatement(db, photos);
+}
+
+/**
+ * garmentsShowing's statement, built apart so a spec can read its parameter
+ * count: the names are bound once, as one array parameter (#916), as
+ * missingMarksStatement binds its ids. inArray binds one parameter per
+ * name, which passes Postgres' 65535 after a restore that lost the
+ * originals of tens of thousands of photos.
+ */
+export function garmentsShowingStatement(db: Db, photos: readonly string[]) {
   return db
     .select({
       garmentId: garment.id,
@@ -147,6 +189,6 @@ function garmentsShowing(
     })
     .from(garment)
     .innerJoin(file, eq(file.id, garment.photoId))
-    .where(inArray(file.fileName, [...photos]))
+    .where(sql`${file.fileName} = any(${sql.param([...photos])}::text[])`)
     .orderBy(asc(garment.ownerId), asc(garment.id));
 }

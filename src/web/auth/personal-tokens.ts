@@ -24,7 +24,8 @@ import type { SessionUser } from './session';
  * the token is 256 random bits, so there is nothing to guess, and a slow
  * one would cost every call. A token acts exactly as its user; a new
  * password revokes every token of both kinds (revokeAllTokensStatement, in
- * updatePasswordHash), as it ends every session.
+ * updatePasswordHash), as it ends every session; so does a database
+ * restore (maintenance:after-restore, #908).
  */
 
 /** Characters of the token the profile shows: the fixed prefix and four more. */
@@ -259,6 +260,32 @@ export function revokeAllTokensStatement(
       ),
     )
     .returning({ kind: personalAccessToken.kind });
+}
+
+/**
+ * Every user's tokens in force, of both kinds, revoked in one transaction,
+ * per user through revokeAllTokensStatement (a new password's), keeping
+ * none: the post-restore command's (#908). Returns each user's revoked
+ * kinds, in id order. No user lock, unlike a password change: a token
+ * minted meanwhile is one its owner just stepped up for against the
+ * restored database.
+ */
+export function revokeEveryonesTokens(
+  db: Db,
+): Promise<{ userId: number; kinds: TokenKind[] }[]> {
+  return db.transaction(async (tx) => {
+    const holders = await tx
+      .selectDistinct({ userId: personalAccessToken.userId })
+      .from(personalAccessToken)
+      .where(isNull(personalAccessToken.revokedAt))
+      .orderBy(personalAccessToken.userId);
+    const revoked: { userId: number; kinds: TokenKind[] }[] = [];
+    for (const { userId } of holders) {
+      const rows = await revokeAllTokensStatement(tx, userId);
+      revoked.push({ userId, kinds: rows.map((row) => row.kind) });
+    }
+    return revoked;
+  });
 }
 
 export interface TokenAuth {

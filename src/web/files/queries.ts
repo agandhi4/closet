@@ -28,7 +28,8 @@ import type {
 
 /**
  * Whether a left-joined `file` row is a photo to show: there is one, and
- * something of it is in storage (`original_missing_since` unset, #653).
+ * its original or its cutout is in storage (`original_missing_since` unset,
+ * #653, #917: a thumb alone is no photo for the garment and share pages).
  * Every helper below answers no photo otherwise, so each page draws the
  * placeholder it draws for a garment without one, never a broken image.
  * Reads only: a write finds its photo by the garment's `photo_id`

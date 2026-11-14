@@ -16,6 +16,14 @@ interface SessionClaims {
    * password ends every session issued before the change.
    */
   pwf: string;
+  /**
+   * The database's restore epoch the token was issued under
+   * (restoreEpochSql), absent while it was never restored. The session
+   * resolver compares it on every request, so the post-restore command's
+   * bump ends every session issued before the restore (#908), which the
+   * fingerprint cannot: the restore brings back the old hashes too.
+   */
+  sep?: string;
 }
 
 /** A token's lifetime; the cookie's Max-Age is the same span in seconds. */
@@ -40,7 +48,12 @@ export function passwordFingerprint(passwordHash: string): string {
 export const passwordFingerprintSql = sql<string>`right(${user.password}, ${PASSWORD_FINGERPRINT_LENGTH})`;
 
 export interface SessionTokens {
-  issue(user: { id: number; email: string | null; password: string }): string;
+  issue(user: {
+    id: number;
+    email: string | null;
+    password: string;
+    sessionEpoch: string | null;
+  }): string;
   /** The claims of a valid, unexpired token signed with our secret; else undefined. */
   verify(token: string): SessionClaims | undefined;
 }
@@ -57,6 +70,7 @@ export function createSessionTokens(secret: string): SessionTokens {
         userId: user.id,
         email: user.email,
         pwf: passwordFingerprint(user.password),
+        ...(user.sessionEpoch === null ? {} : { sep: user.sessionEpoch }),
       };
       return jwt.sign(claims, secret, {
         algorithm: 'HS256',
@@ -75,7 +89,8 @@ export function createSessionTokens(secret: string): SessionTokens {
       if (
         typeof decoded === 'string' ||
         typeof decoded.userId !== 'number' ||
-        typeof decoded.pwf !== 'string'
+        typeof decoded.pwf !== 'string' ||
+        (decoded.sep !== undefined && typeof decoded.sep !== 'string')
       ) {
         return undefined;
       }
@@ -83,6 +98,7 @@ export function createSessionTokens(secret: string): SessionTokens {
         userId: decoded.userId,
         email: typeof decoded.email === 'string' ? decoded.email : null,
         pwf: decoded.pwf,
+        ...(typeof decoded.sep === 'string' ? { sep: decoded.sep } : {}),
       };
     },
   };

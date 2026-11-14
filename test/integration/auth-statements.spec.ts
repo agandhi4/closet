@@ -109,7 +109,7 @@ describe('auth, account and push statements (#171)', () => {
       expect(record.rows).toBe(1);
       const [lookup] = record.sql;
       expect(lookup).toMatch(
-        /^select "id", "email", right\("password", \$\d\) from "user"/,
+        /^select "id", "email", right\("password", \$\d\), \(select case when "bumped_at" .* from "sync_epoch"\) from "user"/,
       );
       // The hash as a column of its own (the checksPassword shape below).
       expect(lookup).not.toMatch(/, "password"(,| from)/);
@@ -123,6 +123,7 @@ describe('auth, account and push statements (#171)', () => {
         id,
         email: t.owner.email,
         fingerprint: passwordFingerprint(hash),
+        sessionEpoch: null,
       });
       expect(await findSessionAccount(t.db, id, { withHash: true })).toEqual({
         ...account,
