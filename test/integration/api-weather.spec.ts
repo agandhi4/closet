@@ -545,6 +545,15 @@ describe("a trip's weather", () => {
     };
     expect((await api('PUT', '/weather/home', home)).statusCode).toBe(200);
     expect((await api('GET', '/weather')).statusCode).toBe(200);
+    const kept200 = await api('PUT', `/trips/${id}/destination`, {
+      ...home,
+      timeZone: 'America/Chicago',
+    });
+    expect(kept200.statusCode).toBe(200);
+    // The answer names the zone that was saved.
+    expect(kept200.json<{ timeZone: string | null }>().timeZone).toBe(
+      'America/Chicago',
+    );
     expect(
       (await api('PUT', `/trips/${id}/destination`, home)).statusCode,
     ).toBe(200);
