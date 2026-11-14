@@ -12,7 +12,7 @@ import {
   saveEditedGarmentCutout,
   turnGarmentPhoto,
 } from './garment-actions';
-import { GarmentPhotoView } from './garment-page';
+import { GarmentPhotoView, pollCount } from './garment-page';
 import { batchEnd } from './draft-redirects';
 import { nextDraft } from './draft-queue';
 import { refuseOtherWardrobesDraft } from './render-form';
@@ -138,7 +138,7 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           garment={garment}
           viewOwner={viewOwner}
           canEdit={access.canManage}
-          poll={request.query.poll}
+          poll={pollCount(request.query.poll)}
           modelUnavailable={options.cutouts.state.name === 'waiting-for-model'}
         />,
       );

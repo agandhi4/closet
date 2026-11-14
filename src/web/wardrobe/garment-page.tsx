@@ -606,6 +606,17 @@ const FAST_PHASE_SECONDS = 30;
 const SLOW_POLL_SECONDS = 10;
 const POLL_CAP_SECONDS = 120;
 const FAST_POLLS = FAST_PHASE_SECONDS / FAST_POLL_SECONDS;
+const MAX_POLL_COUNT = 1000;
+
+/**
+ * The `poll` query as a count: anything but digits is 0 (a poll the page
+ * never wrote starts the backoff over), and a count past the point where
+ * every delay is the same is clamped, so an endless poll never outgrows it.
+ */
+export function pollCount(raw: string | undefined): number {
+  if (raw === undefined || !/^\d+$/.test(raw)) return 0;
+  return Math.min(Number(raw), MAX_POLL_COUNT);
+}
 
 /**
  * The seconds until poll number `poll + 1`, or undefined once the polls so
