@@ -94,7 +94,7 @@ export function WearStatus(props: {
     wearsSinceWash: summary.sinceWash,
   });
   const needsWash = limit !== null && dirty > 0;
-  const shows = tapsShown(summary, limit);
+  const shows = tapsShown(garment, summary);
   const lostFocus = props.after !== undefined && !shows[props.after];
   return (
     <div
@@ -122,7 +122,7 @@ export function WearStatus(props: {
         {garment.status === 'closet' && (
           <StyleThisLink garmentId={garment.id} viewOwner={undefined} />
         )}
-        <WoreToday garment={garment} panel={panel} />
+        <WoreToday garment={garment} panel={panel} offered={shows.wear} />
         {shows.wash && <Washed garment={garment} />}
       </div>
     </div>
@@ -132,14 +132,18 @@ export function WearStatus(props: {
 /**
  * Which taps the row offers: Wore today unless a worn calendar entry today
  * already wore it, Washed once something is worn since a wash that is due.
+ * The one decision: the row renders from it and WearStatus's focus follows
+ * it, so a button is never gone while focus waits on it.
  */
-function tapsShown(
-  summary: WearSummary,
-  limit: number | null,
+export function tapsShown(
+  garment: Pick<WearGarment, 'category' | 'washAfterWears'>,
+  summary: Pick<WearSummary, 'today' | 'sinceWash'>,
 ): Record<WearTap, boolean> {
   return {
     wear: summary.today !== 'entry',
-    wash: summary.sinceWash > 0 && limit !== null,
+    wash:
+      summary.sinceWash > 0 &&
+      washLimit(garment.category, garment.washAfterWears) !== null,
   };
 }
 
@@ -195,9 +199,14 @@ function WashState(props: { dirty: number; quantity: number }) {
  * WornControl (worn-control.tsx), which marks a calendar entry: this is a
  * garment's own record, in the same words ("Wore …", "✓ Worn …", Undo).
  */
-function WoreToday(props: { garment: WearGarment; panel: WearPanel }) {
+function WoreToday(props: {
+  garment: WearGarment;
+  panel: WearPanel;
+  /** tapsShown's decision: false once a worn calendar entry wore it today. */
+  offered: boolean;
+}) {
   const { garment, panel } = props;
-  if (panel.summary.today === 'entry') {
+  if (!props.offered) {
     return (
       <span class="badge badge-success self-center">
         ✓ {t('wear.WORN_TODAY_CALENDAR')}

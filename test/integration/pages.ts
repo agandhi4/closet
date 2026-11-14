@@ -471,6 +471,8 @@ export function expectOneStatusRegion(res: LightMyRequestResponse): void {
   expect(regions).toHaveLength(1);
   expect(regions![0]).toContain('role="status"');
   expect(regions![0]).toContain('aria-live="polite"');
+  // The same node across boosted navigations (public/js/toast.js).
+  expect(regions![0]).toContain('hx-preserve');
 }
 
 /**

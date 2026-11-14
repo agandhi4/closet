@@ -41,13 +41,19 @@ const IdeasQuery = Type.Object({
   page: Type.Optional(Type.String()),
 });
 
-// URL state, so lenient: a malformed `wore` is no flag, never a 400.
-const TodayQuery = Type.Object({ wore: Type.Optional(Type.String()) });
+// URL state, so lenient: a malformed or repeated `wore` (`?wore=1&wore=2`
+// arrives as an array) is no flag or the first valid one, never a 400.
+const TodayQuery = Type.Object({
+  wore: Type.Optional(Type.Union([Type.String(), Type.Array(Type.String())])),
+});
 
-function parseEntryId(value: string | undefined): number | undefined {
-  return value !== undefined && /^\d{1,9}$/.test(value)
-    ? Number(value)
-    : undefined;
+function parseEntryId(
+  value: string | string[] | undefined,
+): number | undefined {
+  const id = [value ?? []]
+    .flat()
+    .find((candidate) => /^\d{1,9}$/.test(candidate));
+  return id === undefined ? undefined : Number(id);
 }
 
 const WearBody = Type.Object({

@@ -13,9 +13,11 @@
  *   (outbox.ts), connectivity changes (connectivity.js), service worker
  *   updates (pwa.js) and a newer page (freshness.js), through showToast.
  *
- * hx-boost body swaps replace the host, so callers that need a toast to
- * persist re-show it on htmx:afterSettle. The layout loads this module on
- * every page; the others import the same instance through the import map.
+ * The host carries `hx-preserve`: a boosted body swap keeps the same node
+ * (and the toasts in it), so a message is added to a region that was already
+ * there, and a caller re-showing a toast on htmx:afterSettle checks that its
+ * own is still connected. The layout loads this module on every page; the
+ * others import the same instance through the import map.
  */
 
 const STATUS_EVENT = 'closet:status';
@@ -66,13 +68,19 @@ function showResult(text) {
   result = showToast({ text, kind: 'success', ttlMs: SUCCESS_TOAST_MS });
 }
 
-/** Says each SavedToast the page (or a swap) brought, once. */
+/**
+ * Says each SavedToast the page (or a swap) brought, once, a frame later: the
+ * region has been rendered and attached by then, and text added to a live
+ * region that is already on screen is what a screen reader reads.
+ */
 function sayLandingMessages() {
-  for (const template of document.querySelectorAll(SAVED_MESSAGE)) {
-    const text = template.content.textContent?.trim();
-    template.remove();
-    if (text) showResult(text);
-  }
+  requestAnimationFrame(() => {
+    for (const template of document.querySelectorAll(SAVED_MESSAGE)) {
+      const text = template.content.textContent?.trim();
+      template.remove();
+      if (text) showResult(text);
+    }
+  });
 }
 
 document.addEventListener(STATUS_EVENT, (event) => {

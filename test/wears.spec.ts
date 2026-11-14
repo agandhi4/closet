@@ -117,8 +117,23 @@ test('mark an outfit worn, wash it, log a wear alone, and do the laundry', async
   ).toBeFocused();
   await expect(toast).toContainText(text('wear.status.WORE_TODAY'));
 
+  // A boosted navigation keeps the very same status region (hx-preserve), so
+  // a landing message is added to a live region already on the page, and
+  // the toast still showing goes on showing.
+  await page.evaluate(() => {
+    Object.assign(document.getElementById('toast-host')!, { survivor: true });
+  });
+  await page.locator('.dock a[href="/wardrobe"]').click();
+  await expect(page).toHaveURL(/\/wardrobe$/);
+  await expect(page.getByText('1 garment needs a wash')).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => 'survivor' in document.getElementById('toast-host')!,
+    ),
+  ).toBe(true);
+  await expect(toast).toContainText(text('wear.status.WORE_TODAY'));
+
   // The wardrobe prompts the laundry; Mark washed empties the hamper.
-  await page.goto('/wardrobe');
   await expect(page.getByText('1 garment needs a wash')).toBeVisible();
   await page
     .locator('#wardrobe-main')

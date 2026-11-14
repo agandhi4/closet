@@ -492,6 +492,12 @@ describe('Today', () => {
       const stale = await get(`/?wore=${entry.id + 1000}`);
       expect(stale.body).not.toContain('data-status-message');
       expect(stale.body).not.toMatch(/-worn" autofocus/);
+      // URL state is a fallback, never a 400: a repeated flag reads its
+      // first valid value, a malformed one is no flag.
+      const repeated = await get(`/?wore=junk&wore=${entry.id}&wore=1`);
+      expect(repeated.statusCode).toBe(200);
+      expect(repeated.body).toContain('data-status-message');
+      expect((await get('/?wore=junk&wore=')).statusCode).toBe(200);
     });
 
     // adoptOutfit only raises an origin (#659): an idea's reuse of a kept
