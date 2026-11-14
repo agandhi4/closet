@@ -1211,3 +1211,9 @@ Consequence: a step the signal cannot cut (a statement in flight, the owner lock
 Why: the #653 rule marked a photo missing only when original, nobg and thumb were all absent, so a row left with a lone thumb drew a tile its pages cannot show (they render the original or nobg, never the thumb).
 Decision: `file.original_missing_since` means "its pages cannot show it": the original AND the row's nobg are absent, whatever the thumb. Everything else in the #653 entry stands (set and cleared by reconciliation's plan, cleared by repoint, dry runs never mark).
 Consequence: a lone thumb no longer keeps a photo unmarked; the photo-ref helpers and the API's `photoMissingSince` follow the new rule.
+
+## 2026-11-14 — web-push and onnxruntime-node stay pinned; @sentry/node moves to 11 (#697)
+
+Why: the runtime dependencies are brought current before the tag, except two whose newest release does not fit. web-push 4.0.0 is ESM-only (no CJS build, no types) and the build is CommonJS; onnxruntime-node 1.31.1 drops `bin/napi-v3` (binaries move to `napi-v6`, which the Dockerfile's per-arch pruning names) and only the real-model nightly can prove the model still cuts.
+Decision: web-push stays `^3.6.7` (the range blocks 4; revisit with an ESM migration, not `require(esm)`); onnxruntime-node stays exactly 1.21.0 until a change that bumps it, fixes the Dockerfile path and passes the nightly. `@sentry/node` 11 ships a CJS build; `sendDefaultPii` is gone, so the tracker sets every `dataCollection` category off and `attachStacktrace: false`, keeping v10's events.
+Consequence: `npm audit --omit=dev` is 0, so the pins cost no advisory; the reasons are in `src/push/AGENTS.md` and `src/cutout/AGENTS.md`.
