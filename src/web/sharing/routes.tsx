@@ -15,6 +15,7 @@ import {
   findInvite,
   removeShare,
 } from './queries';
+import { wardrobeUrl } from '../wardrobe/urls';
 import { LEGACY_MANAGE_PATH, SHARING_PATH, sharingRefusalUrl } from './urls';
 
 const LegacyManageQuery = Type.Object({
@@ -129,7 +130,9 @@ export const sharingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       logger.info(
         `User ${id} accepted share ${result.shareId} of user ${result.grantorId}'s wardrobe`,
       );
-      return reply.redirect(SHARING_PATH, 302);
+      // Straight into what was shared: the grantor of the invite this write
+      // accepted, never an id the request named.
+      return reply.redirect(wardrobeUrl(result.grantorId), 302);
     },
   );
 

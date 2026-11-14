@@ -505,7 +505,8 @@ export function describeMatrix(
         url: `/wardrobe-share/invite/${token}/accept`,
         headers: { cookie: actors[grantee].cookie },
       });
-      expect(accept.headers.location).toBe('/auth/profile#sharing');
+      // Accept lands on the grantor's wardrobe (#661).
+      expect(accept.headers.location).toMatch(/^\/wardrobe\?ownerId=\d+$/);
     };
 
     /** The owner's Muse needs and picks (#333), written through the one writers. */

@@ -1,10 +1,19 @@
 import { and, count, eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { type SharePermission, wardrobeShare } from '../../src/db/schema';
+import { type SharePermission, user, wardrobeShare } from '../../src/db/schema';
 import { LOGIN_PATH } from '../../src/web/auth/login-path';
+import { loginUrl, registerUrl } from '../../src/web/auth/return-to';
+import { invitePath } from '../../src/web/sharing/urls';
 import { createGarment, garmentRow, garmentsNamed } from './garments';
-import { createTestApp, TestApp, unescapeHtml, userIdOf } from './harness';
+import {
+  createTestApp,
+  TEST_PASSWORD,
+  TestApp,
+  unescapeHtml,
+  uniqueClient,
+  userIdOf,
+} from './harness';
 
 /**
  * A wardrobe share after it is created (share.spec.ts covers creating and
@@ -84,10 +93,11 @@ describe('wardrobe share lifecycle', () => {
   const decline = (token: string, account?: Account) =>
     post(`/wardrobe-share/invite/${token}/decline`, account);
 
+  /** Accepted: straight into the grantor's wardrobe (#661), every invite here the owner's. */
   const acceptOk = async (token: string, account: Account) => {
     const res = await accept(token, account);
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe(SHARING);
+    expect(res.headers.location).toBe(`/wardrobe?ownerId=${owner.id}`);
   };
 
   /**
@@ -375,6 +385,133 @@ describe('wardrobe share lifecycle', () => {
       expect(res.headers.location).toBe(LOGIN_PATH);
       expect(await shareByToken(token)).not.toBeNull();
     });
+  });
+
+  // #661: a partner opening an invite signed out signs in or registers and
+  // comes back to it, then Accept opens the grantor's wardrobe.
+  describe('an invite opened signed out', () => {
+    const grantorNamed = async (firstName: string | null) => {
+      const grantor = await signUp('named-grantor');
+      await t.db.update(user).set({ firstName }).where(eq(user.id, grantor.id));
+      return grantor;
+    };
+
+    const landing = (token: string, account?: Account) =>
+      t.inject({
+        method: 'GET',
+        url: invitePath(token),
+        headers: account ? { cookie: account.cookie } : {},
+        anonymous: !account,
+      });
+
+    it('names the owner in the invitee’s words, never by email', async () => {
+      const grantor = await grantorNamed('James');
+      const view = unescapeHtml(
+        (await landing(await createInvite(grantor, 'VIEW'))).body,
+      );
+      // A name ending in s keeps the house possessive, as WARDROBE_OF does.
+      expect(view).toContain(
+        'You’ll be able to see everything in James’s wardrobe. You can’t add, edit or delete.',
+      );
+      expect(view).not.toContain('They can view');
+      expect(view).not.toMatch(/named-grantor-[0-9a-f]+@example\.com/);
+
+      const manage = unescapeHtml(
+        (await landing(await createInvite(grantor, 'MANAGE'))).body,
+      );
+      expect(manage).toContain(
+        'You’ll be able to see, add and edit garments in James’s wardrobe.',
+      );
+    });
+
+    it('says “this wardrobe” for a grantor with no name, never their email', async () => {
+      const grantor = await grantorNamed(null);
+      const body = unescapeHtml(
+        (await landing(await createInvite(grantor, 'VIEW'))).body,
+      );
+      expect(body).toContain(
+        'You’ll be able to see everything in this wardrobe.',
+      );
+      expect(body).not.toMatch(/named-grantor-[0-9a-f]+@example\.com/);
+    });
+
+    it('signing in from it returns to it, and Accept opens the grantor’s wardrobe', async () => {
+      const grantor = await grantorNamed('Theo');
+      const token = await createInvite(grantor, 'VIEW');
+      const page = await landing(token);
+      expect(page.body).toContain(`href="${loginUrl(invitePath(token))}"`);
+      expect(page.body).toContain(`href="${registerUrl(invitePath(token))}"`);
+
+      const invitee = await signUp('invitee');
+      const email = (await t.db.query.user.findFirst({
+        where: eq(user.id, invitee.id),
+      }))!.email!;
+      const signedIn = await t.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: {
+          email,
+          password: TEST_PASSWORD,
+          returnTo: invitePath(token),
+        },
+        headers: uniqueClient(),
+        anonymous: true,
+      });
+      expect(signedIn.statusCode).toBe(302);
+      expect(signedIn.headers.location).toBe(invitePath(token));
+      const cookie = signedIn.cookies.find((c) => c.name === 'access_token')!;
+      const session = {
+        id: invitee.id,
+        cookie: `access_token=${cookie.value}`,
+      };
+
+      expect((await landing(token, session)).body).toContain(
+        `action="${invitePath(token)}/accept"`,
+      );
+      const accepted = await accept(token, session);
+      expect(accepted.headers.location).toBe(`/wardrobe?ownerId=${grantor.id}`);
+      // The new grantee's way in: a page, not a refusal.
+      const wardrobe = await t.inject({
+        method: 'GET',
+        url: accepted.headers.location,
+        headers: { cookie: session.cookie },
+      });
+      expect(wardrobe.statusCode).toBe(200);
+    });
+
+    it('registering from it returns to it', async () => {
+      const token = await createInvite(owner, 'VIEW');
+      const res = await t.inject({
+        method: 'POST',
+        url: '/auth/register',
+        payload: {
+          email: `new-invitee-${randomUUID().slice(0, 8)}@example.com`,
+          password: TEST_PASSWORD,
+          confirmPassword: TEST_PASSWORD,
+          returnTo: invitePath(token),
+        },
+        headers: uniqueClient(),
+        anonymous: true,
+      });
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.location).toBe(invitePath(token));
+    });
+
+    it.each(['accept', 'decline'])(
+      'a %s whose session ended returns to the invite page, never the post',
+      async (answer) => {
+        const token = await createInvite(owner, 'VIEW');
+        const res = await t.inject({
+          method: 'POST',
+          url: `${invitePath(token)}/${answer}`,
+          headers: { referer: `http://localhost${invitePath(token)}` },
+          anonymous: true,
+        });
+        expect(res.statusCode).toBe(302);
+        expect(res.headers.location).toBe(loginUrl(invitePath(token)));
+        expect(await shareByToken(token)).toMatchObject({ acceptedAt: null });
+      },
+    );
   });
 
   describe('accept edge cases (POST /wardrobe-share/invite/:token/accept)', () => {

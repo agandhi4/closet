@@ -342,8 +342,11 @@ export function expectAppBar(res: LightMyRequestResponse): void {
       1,
     );
   } else {
-    // A link in, or on the login page its own form.
-    expect(body).toMatch(/(?:href|action)="\/auth\/(?:login|register)"/);
+    // A link in (carrying the page to return to, #661), or on the login
+    // page its own form.
+    expect(body).toMatch(
+      /(?:href|action)="\/auth\/(?:login|register)(?:\?returnTo=[^"]+)?"/,
+    );
   }
 }
 

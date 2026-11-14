@@ -480,10 +480,11 @@ describe('delivery (PWA_ENABLED=true)', () => {
       expect(res.headers['cache-control']).toBe('private, no-cache');
     });
 
+    // Not the sign-in pages: those are no-store (their returnTo, #661).
     it('sends a signed-out page private, no-cache', async () => {
       const res = await t.inject({
         method: 'GET',
-        url: '/auth/login',
+        url: '/about',
         anonymous: true,
       });
       expect(res.statusCode).toBe(200);

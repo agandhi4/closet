@@ -217,6 +217,22 @@ export function isRenderedPage(headers: {
   return mediaType?.trim().toLowerCase() === 'text/html';
 }
 
+/**
+ * Whether the server asked that no cache keep this answer (`no-store`): the
+ * sign-in pages, whose URL and hidden field can carry an invite token
+ * (#661), and the page showing a new access token once. The worker still
+ * learns from it who is signed in (claimPageCache), but never stores it
+ * under a page key. Workbox itself ignores Cache-Control.
+ */
+export function forbidsStorage(headers: {
+  get(name: string): string | null;
+}): boolean {
+  const directives = headers.get('Cache-Control')?.toLowerCase().split(',');
+  return (
+    directives?.some((directive) => directive.trim() === 'no-store') ?? false
+  );
+}
+
 /** The account a response says it was rendered for; '' when signed out. */
 export function pageAccount(headers: {
   get(name: string): string | null;

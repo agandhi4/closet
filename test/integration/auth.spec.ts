@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { loginUrl } from '../../src/web/auth/return-to';
 import {
   createTestApp,
   recordQueries,
   TEST_PASSWORD,
   TestApp,
+  uniqueClient,
 } from './harness';
 
 describe('sessions', () => {
@@ -18,7 +20,7 @@ describe('sessions', () => {
 
   afterAll(() => t?.cleanup());
 
-  it('register sets an httpOnly session cookie and lands on the profile', async () => {
+  it('register sets an httpOnly session cookie and lands on Today', async () => {
     const res = await t.inject({
       method: 'POST',
       url: '/auth/register',
@@ -30,7 +32,7 @@ describe('sessions', () => {
       anonymous: true,
     });
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe('/auth/profile');
+    expect(res.headers.location).toBe('/');
     const token = res.cookies.find((c) => c.name === 'access_token');
     expect(token?.httpOnly).toBe(true);
     expect(token?.path).toBe('/');
@@ -68,22 +70,26 @@ describe('sessions', () => {
       '/auth/profile',
       '/auth/update-email',
       '/auth/delete-account',
-    ])('anonymous navigation to %s -> 302 /auth/login', async (url) => {
-      for (const headers of [
-        {},
-        { 'sec-fetch-mode': 'navigate' },
-        { 'hx-request': 'true', 'hx-boosted': 'true' },
-      ]) {
-        const res = await t.inject({
-          method: 'GET',
-          url,
-          headers,
-          anonymous: true,
-        });
-        expect(res.statusCode).toBe(302);
-        expect(res.headers.location).toBe('/auth/login');
-      }
-    });
+    ])(
+      'anonymous navigation to %s -> 302 /auth/login, returning there',
+      async (url) => {
+        for (const headers of [
+          {},
+          { 'sec-fetch-mode': 'navigate' },
+          { 'hx-request': 'true', 'hx-boosted': 'true' },
+        ]) {
+          const res = await t.inject({
+            method: 'GET',
+            url,
+            headers,
+            anonymous: true,
+          });
+          expect(res.statusCode).toBe(302);
+          // Today (the start_url) and the account's forms return to Today.
+          expect(res.headers.location).toBe(loginUrl(url));
+        }
+      },
+    );
 
     it.each([
       ['htmx fragment', 'GET', '/wardrobe', { 'hx-request': 'true' }],
@@ -125,7 +131,7 @@ describe('sessions', () => {
       anonymous: true,
     });
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe('/auth/login');
+    expect(res.headers.location).toBe('/auth/login?returnTo=%2Fwardrobe');
     expect(t.logs.messages('warn')).toEqual([]);
     expect(t.logs.messages('error')).toEqual([]);
   });
@@ -154,7 +160,7 @@ describe('sessions', () => {
       headers: { cookie: 'access_token=not-a-jwt' },
     });
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe('/auth/login');
+    expect(res.headers.location).toBe(loginUrl('/wardrobe'));
   });
 
   it('login issues a session only for the right password', async () => {
@@ -232,5 +238,188 @@ describe('sessions', () => {
     } finally {
       query.mockRestore();
     }
+  });
+
+  // #661: where signing in lands. The page a refused request came from
+  // travels as ?returnTo= (signInReturnTo, src/web/auth/return-to.ts), then
+  // as the form's hidden field; anything unusable is Today.
+  describe('where sign-in lands', () => {
+    const WEEK = '/calendar?week=2026-11-09';
+    const HIDDEN = (path: string) =>
+      `type="hidden" name="returnTo" value="${path}"`;
+
+    const signInFrom = (returnTo?: unknown, password = TEST_PASSWORD) =>
+      t.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: {
+          email,
+          password,
+          ...(returnTo === undefined ? {} : { returnTo }),
+        },
+        headers: uniqueClient(),
+        anonymous: true,
+      });
+
+    it('a plain sign-in lands on Today', async () => {
+      const res = await signInFrom();
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.location).toBe('/');
+    });
+
+    it('a bounced navigation returns to its page after sign-in', async () => {
+      const bounced = await t.inject({
+        method: 'GET',
+        url: WEEK,
+        anonymous: true,
+      });
+      expect(bounced.headers.location).toBe(
+        '/auth/login?returnTo=%2Fcalendar%3Fweek%3D2026-11-09',
+      );
+
+      const page = await t.inject({
+        method: 'GET',
+        url: bounced.headers.location,
+        anonymous: true,
+      });
+      expect(page.statusCode).toBe(200);
+      // The token an invite's returnTo carries must stay in no cache.
+      expect(page.headers['cache-control']).toBe('no-store');
+      expect(page.body).toContain(HIDDEN(WEEK));
+
+      const res = await signInFrom(WEEK);
+      expect(res.headers.location).toBe(WEEK);
+    });
+
+    it.each([
+      ['an absolute URL', 'https://evil.example/'],
+      ['a protocol-relative URL', '//evil.example'],
+      ['a backslash protocol-relative URL', '/\\evil.example'],
+      ['the login page itself', '/auth/login?returnTo=%2Fcalendar'],
+      ['a POST-only route', '/wardrobe-share/invite/abc/accept'],
+      ['a repeated field', ['/calendar', '/insights']],
+    ])('a hostile returnTo (%s) lands on Today', async (_label, returnTo) => {
+      const res = await signInFrom(returnTo);
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.location).toBe('/');
+    });
+
+    it('a refused sign-in keeps its returnTo on the page it renders again', async () => {
+      const res = await signInFrom(WEEK, 'WrongPassword1');
+      expect(res.statusCode).toBe(401);
+      expect(res.headers['cache-control']).toBe('no-store');
+      expect(res.body).toContain(HIDDEN(WEEK));
+    });
+
+    it.each([
+      [
+        'a repeated parameter',
+        '/auth/login?returnTo=%2Fcalendar&returnTo=%2Finsights',
+      ],
+      ['a value past 2 KB', `/auth/login?returnTo=%2F${'a'.repeat(2100)}`],
+      ['an absolute URL', '/auth/login?returnTo=https%3A%2F%2Fevil.example'],
+    ])(
+      'the login page answers %s with no returnTo, never a 400',
+      async (_label, url) => {
+        const res = await t.inject({ method: 'GET', url, anonymous: true });
+        expect(res.statusCode).toBe(200);
+        expect(res.body).not.toContain('name="returnTo"');
+      },
+    );
+
+    it('registration carries its returnTo through a refusal and lands there', async () => {
+      const register = (password: string, confirmPassword: string) =>
+        t.inject({
+          method: 'POST',
+          url: '/auth/register',
+          payload: {
+            email: 'returning@example.com',
+            password,
+            confirmPassword,
+            returnTo: '/insights',
+          },
+          headers: uniqueClient(),
+          anonymous: true,
+        });
+      const page = await t.inject({
+        method: 'GET',
+        url: '/auth/register?returnTo=%2Finsights',
+        anonymous: true,
+      });
+      expect(page.headers['cache-control']).toBe('no-store');
+      expect(page.body).toContain(HIDDEN('/insights'));
+      // The app bar's way back to sign in keeps it too.
+      expect(page.body).toContain('href="/auth/login?returnTo=%2Finsights"');
+
+      const refused = await register(TEST_PASSWORD, 'Different1Password');
+      expect(refused.statusCode).toBe(400);
+      expect(refused.body).toContain(HIDDEN('/insights'));
+
+      const res = await register(TEST_PASSWORD, TEST_PASSWORD);
+      expect(res.headers.location).toBe('/insights');
+    });
+
+    it('an htmx fragment returns to the page it was on, read from HX-Current-URL', async () => {
+      const fragment = (current: string) =>
+        t.inject({
+          method: 'GET',
+          url: '/wardrobe',
+          headers: { 'hx-request': 'true', 'hx-current-url': current },
+          anonymous: true,
+        });
+      const own = await fragment('http://localhost/insights?range=year');
+      expect(own.statusCode).toBe(401);
+      expect(own.headers['hx-redirect']).toBe(loginUrl('/insights?range=year'));
+
+      const foreign = await fragment('https://evil.example/insights');
+      expect(foreign.headers['hx-redirect']).toBe('/auth/login');
+    });
+
+    it.each([
+      [
+        'a same-origin Referer',
+        'http://localhost/wardrobe/12',
+        loginUrl('/wardrobe/12'),
+      ],
+      // A foreign Referer never gets this far: the same-origin hook 403s
+      // the post (bounceReturnTo's unit spec covers reading one).
+      ['no Referer', undefined, '/auth/login'],
+    ])(
+      'a form post whose session ended, with %s, returns to its page',
+      async (_label, referer, location) => {
+        const res = await t.inject({
+          method: 'POST',
+          url: '/calendar/1/worn',
+          headers: referer ? { referer } : {},
+          anonymous: true,
+        });
+        expect(res.statusCode).toBe(302);
+        expect(res.headers.location).toBe(location);
+      },
+    );
+
+    it('a bounce never copies a credential-shaped query into the login URL or a log line', async () => {
+      t.logs.clear();
+      const res = await t.inject({
+        method: 'GET',
+        url: '/calendar?token=closet_leakedtoken123',
+        anonymous: true,
+      });
+      expect(res.headers.location).toBe('/auth/login');
+      expect(JSON.stringify(t.logs.records)).not.toContain('leakedtoken123');
+    });
+
+    it('the login page logs its pattern, never the returnTo it carries', async () => {
+      t.logs.clear();
+      const res = await t.inject({
+        method: 'GET',
+        url: '/auth/login?returnTo=%2Fwardrobe-share%2Finvite%2Fsecret-invite-token',
+        anonymous: true,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(JSON.stringify(t.logs.records)).not.toContain(
+        'secret-invite-token',
+      );
+    });
   });
 });

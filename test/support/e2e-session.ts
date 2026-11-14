@@ -93,6 +93,16 @@ export async function switchAccount(page: Page, email: string): Promise<void> {
     .getByRole('button', { name: 'Logout' })
     .click();
   await expect(page).toHaveURL(/\/auth\/login$/);
+  await submitLogin(page, email);
+  // A plain sign-in lands on Today (#661).
+  await page.waitForURL((url) => url.pathname === '/');
+}
+
+/**
+ * Fills and posts the login form the page shows, as a person does: where it
+ * lands is the caller's to assert (Today, or the page its returnTo names).
+ */
+export async function submitLogin(page: Page, email: string): Promise<void> {
   // The browser posts from the address every spec shares, and login allows
   // 5 a minute per address: the post names a client of its own, as signIn's
   // registration does.
@@ -104,7 +114,6 @@ export async function switchAccount(page: Page, email: string): Promise<void> {
   await page.locator('#email').fill(email);
   await page.locator('#password').fill(E2E_PASSWORD);
   await page.getByRole('button', { name: 'Login' }).click();
-  await expect(page).toHaveURL(/\/auth\/profile$/);
 }
 
 /**

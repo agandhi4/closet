@@ -1,3 +1,4 @@
+import { loginUrl } from '../../src/web/auth/return-to';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -197,7 +198,7 @@ describe('app shell', () => {
         anonymous: true,
       });
       expect(res.statusCode).toBe(302);
-      expect(res.headers.location).toBe('/auth/login');
+      expect(res.headers.location).toBe(loginUrl('/auth/profile'));
     });
 
     it('shows a refused invite in Sharing, and ignores an unknown code', async () => {
@@ -250,7 +251,7 @@ describe('app shell', () => {
         anonymous: true,
       });
       expect(res.statusCode).toBe(302);
-      expect(res.headers.location).toBe('/auth/login');
+      expect(res.headers.location).toBe(loginUrl('/wardrobe-share/manage'));
     });
 
     it('keeps the public invite landing working, signed out', async () => {

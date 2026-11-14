@@ -1,3 +1,4 @@
+import { loginUrl } from '../../src/web/auth/return-to';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { RouteOptions } from 'fastify';
 import { connect } from 'node:net';
@@ -194,7 +195,7 @@ describe('the api surface', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(page.statusCode).toBe(302);
-    expect(page.headers.location).toBe('/auth/login');
+    expect(page.headers.location).toBe(loginUrl('/wardrobe'));
     const mcp = await mcpRequest(t, token, 'tools/list');
     expect(mcp.statusCode).toBe(401);
   });
