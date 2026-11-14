@@ -16,8 +16,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/app';
 import { file, pendingPhoto } from '../../src/db/schema';
 import { reconcileStorage } from '../../src/maintenance/reconcile';
-import { STORAGE_MARKER } from '../../src/web/files/storage';
-import { StorageIdentityError } from '../../src/web/files/storage-identity';
+import { PhotoStorage, STORAGE_MARKER } from '../../src/web/files/storage';
+import {
+  claimStorage,
+  StorageIdentityError,
+} from '../../src/web/files/storage-identity';
 import {
   createGarment,
   jpegPhoto,
@@ -232,6 +235,30 @@ describe('the photo storage marker', () => {
       (JSON.parse(marker) as { installId: string }).installId,
     );
     expect(await storedFiles()).toContain(live);
+  });
+
+  it('refuses a boot whose racing process left a malformed marker, naming the code only', async () => {
+    await rm(markerPath());
+    const racing = new PhotoStorage(t.dataPath, silentLogger, {
+      readText: (path) => readFile(path, 'utf8'),
+      writeNew: (path, text) => writeFile(path, text, { flag: 'wx' }),
+      link: async () => {
+        await writeFile(markerPath(), 'not json');
+        throw Object.assign(new Error('EEXIST: /secret/path'), {
+          code: 'EEXIST',
+        });
+      },
+      remove: (path) => rm(path, { force: true }),
+    });
+    const error = await claimStorage(racing, t.db, silentLogger).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(StorageIdentityError);
+    expect((error as StorageIdentityError).message).toMatch(
+      /^DATA_PATH storage unreadable: MALFORMED /,
+    );
+    expect((error as StorageIdentityError).message).not.toContain(t.dataPath);
+    expect(await readFile(markerPath(), 'utf8')).toBe('not json');
   });
 
   // The bug's own story: uploads made while the share was unmounted left
