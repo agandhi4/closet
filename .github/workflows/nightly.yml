@@ -36,7 +36,7 @@ jobs:
       DATABASE_HOST: localhost
       DATABASE_USER: test
       DATABASE_PASS: Password123
-      DATABASE_SCHEMA: postgres-test
+      DATABASE_NAME: postgres-test
       # Required, 32+ characters (src/config.ts); the page audit sets its own.
       ACCESS_TOKEN_SECRET: ci-only-access-token-secret-not-for-deployment
     steps:
@@ -96,7 +96,7 @@ jobs:
       DATABASE_HOST: localhost
       DATABASE_USER: test
       DATABASE_PASS: Password123
-      DATABASE_SCHEMA: postgres-test
+      DATABASE_NAME: postgres-test
       # Required, 32+ characters (src/config.ts): the fetch CLI checks the
       # whole configuration, though it opens no database.
       ACCESS_TOKEN_SECRET: ci-only-access-token-secret-not-for-deployment
@@ -153,7 +153,7 @@ jobs:
         run: |
           mkdir -p models
           docker run --rm -v "$PWD/models:/app/models" \
-            -e DATABASE_HOST -e DATABASE_USER -e DATABASE_PASS -e DATABASE_SCHEMA -e ACCESS_TOKEN_SECRET \
+            -e DATABASE_HOST -e DATABASE_USER -e DATABASE_PASS -e DATABASE_NAME -e ACCESS_TOKEN_SECRET \
             "$IMAGE_ID" npm run cutout:fetch-model
       # Saved at once, not in a post step, so a red run below still keeps it.
       - if: steps.model-cache.outputs.cache-hit != 'true'
@@ -205,7 +205,7 @@ jobs:
       DATABASE_HOST: localhost
       DATABASE_USER: test
       DATABASE_PASS: Password123
-      DATABASE_SCHEMA: postgres-test
+      DATABASE_NAME: postgres-test
       PWA_ENABLED: "true"
       SITE_URL: https://closet.test
       # Required, 32+ characters (src/config.ts). Signs only this job's

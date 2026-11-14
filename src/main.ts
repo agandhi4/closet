@@ -23,7 +23,9 @@ async function main(): Promise<void> {
   const boot = createBootLogger();
   let config: Config;
   try {
-    config = loadConfig();
+    // A renamed variable or value still set (DATABASE_SCHEMA,
+    // DATABASE_SSL=true) boots, saying so once per boot.
+    config = loadConfig({ onDeprecated: (message) => boot.warn(message) });
   } catch (error) {
     // A ConfigError names the bad keys (never their values); anything else
     // is a bug, logged with its stack.

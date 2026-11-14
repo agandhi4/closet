@@ -85,14 +85,14 @@ docker exec pgvault-dev-postgres-1 psql -U postgres -c 'CREATE DATABASE closet_w
 # The production config, as the nightly runs it (PWA on, VAPID keys, https: SITE_URL),
 # plus what playwright.config.ts would set for its own server (SENTRY_DSN, ORDER_MAIL_*).
 PORT=3107 DATABASE_HOST=localhost DATABASE_USER=postgres DATABASE_PASS=postgres \
-  DATABASE_SCHEMA=closet_webkit PWA_ENABLED=true SITE_URL=https://closet.test \
+  DATABASE_NAME=closet_webkit PWA_ENABLED=true SITE_URL=https://closet.test \
   PUBLIC_VAPID_KEY=.. PRIVATE_VAPID_KEY=.. ACCESS_TOKEN_SECRET=<32+ chars> \
   METRICS_ENABLED=true ORDER_MAIL_JMAP_TOKEN=fmu1-e2e-stand-in \
   ORDER_MAIL_SENDERS=orders-owner@example.com ORDER_MAIL_OWNER=orders-owner@example.com \
   SENTRY_DSN=http://publickey@127.0.0.1:13107/1 npm run start:test &
 docker run --rm --network host --ipc host -u "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD:$PWD" -w "$PWD" -e PORT=3107 -e DATABASE_HOST=localhost \
-  -e DATABASE_USER=postgres -e DATABASE_PASS=postgres -e DATABASE_SCHEMA=closet_webkit \
+  -e DATABASE_USER=postgres -e DATABASE_PASS=postgres -e DATABASE_NAME=closet_webkit \
   -e PWA_ENABLED=true -e PUBLIC_VAPID_KEY=.. -e PRIVATE_VAPID_KEY=.. \
   mcr.microsoft.com/playwright:v1.60.0-noble \
   npx playwright test --project=webkit --project="Mobile Safari" --workers=4

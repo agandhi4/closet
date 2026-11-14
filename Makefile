@@ -155,7 +155,7 @@ define e2e_server
 	  export PUBLIC_VAPID_KEY PRIVATE_VAPID_KEY \
 	    CI=true APP_ENV=gate PWA_ENABLED=true SITE_URL=https://closet.test \
 	    ACCESS_TOKEN_SECRET=ci-only-access-token-secret-not-for-deployment \
-	    DATABASE_HOST=127.0.0.1 DATABASE_PORT=$$port DATABASE_USER=ci DATABASE_PASS=ci DATABASE_SCHEMA=ci \
+	    DATABASE_HOST=127.0.0.1 DATABASE_PORT=$$port DATABASE_USER=ci DATABASE_PASS=ci DATABASE_NAME=ci \
 	    PORT=$${PORT:-$$(awk 'BEGIN { srand(); print 3200 + int(rand() * 600) }')}; \
 	  echo "$(2): app on :$$PORT, Postgres $(PG_CONTAINER) on :$$port"; \
 	  $(1)
@@ -183,7 +183,7 @@ ci-smoke:
 	@port=$$($(PG) up $(SMOKE_PG_CONTAINER) | sed -n 's/^PG_PORT=//p'); \
 	  trap '$(PG) down $(SMOKE_PG_CONTAINER)' EXIT INT TERM; \
 	  [ -n "$$port" ] || exit 1; \
-	  DATABASE_HOST=127.0.0.1 DATABASE_PORT=$$port DATABASE_USER=ci DATABASE_PASS=ci DATABASE_SCHEMA=ci \
+	  DATABASE_HOST=127.0.0.1 DATABASE_PORT=$$port DATABASE_USER=ci DATABASE_PASS=ci DATABASE_NAME=ci \
 	    SMOKE_PORT=$${SMOKE_PORT:-$$(awk 'BEGIN { srand(); print 3800 + int(rand() * 600) }')} \
 	    BOOT_EXPECT_VERSION=$(CI_BUILD_VERSION) $(TIER) smoke --budget $(SMOKE_BUDGET_SECONDS) -- scripts/smoke-image.sh $(CI_IMAGE)
 

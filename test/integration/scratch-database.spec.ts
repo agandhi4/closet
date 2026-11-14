@@ -90,7 +90,7 @@ describe('scratch database hygiene', () => {
       const client = new Client({
         host: clone.env.DATABASE_HOST,
         port: Number(clone.env.DATABASE_PORT),
-        database: clone.env.DATABASE_SCHEMA,
+        database: clone.env.DATABASE_NAME,
         user: clone.env.DATABASE_USER,
         password: clone.env.DATABASE_PASS,
       });
@@ -123,7 +123,7 @@ describe('scratch database hygiene', () => {
     } finally {
       vi.useRealTimers();
     }
-    const name = database.env.DATABASE_SCHEMA;
+    const name = database.env.DATABASE_NAME;
     try {
       const created = scratchDatabaseCreatedAt(name) ?? 0;
       expect(Math.abs((await serverNow()) - created)).toBeLessThan(60_000);

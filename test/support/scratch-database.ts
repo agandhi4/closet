@@ -114,8 +114,8 @@ function databaseEnv(url: URL, name: string): Record<string, string> {
     DATABASE_PORT: url.port || '5432',
     DATABASE_USER: decodeURIComponent(url.username),
     DATABASE_PASS: decodeURIComponent(url.password),
-    DATABASE_SCHEMA: name,
-    DATABASE_SSL: 'false',
+    DATABASE_NAME: name,
+    DATABASE_SSL: 'off',
   };
 }
 
