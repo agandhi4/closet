@@ -56,6 +56,7 @@ import {
   REPLAN_HOUR,
   type ReplanDeps,
   ReplanRetries,
+  replanToday,
   replanWeeks,
   replanWeeksWhole,
 } from '../../src/web/week-plan/replan';
@@ -1299,6 +1300,46 @@ describe('the weekly auto-plan', () => {
       });
     });
 
+    it('the reminder and the minutely run each report their own first failure (#858)', async () => {
+      await planWarm();
+      forecastDays = weekAt(() => -2);
+      const retrying: ReplanDeps = { ...deps, retries: new ReplanRetries() };
+      const reminderAt = at(TODAY, 5);
+      await withFailingSwaps(async () => {
+        // The reminder's re-plan fails first, and is its job's one report.
+        expect(
+          await replanToday(retrying, t.owner.id, reminderAt, {
+            announcesToday: true,
+            job: 'reminders',
+          }),
+        ).toEqual({ kind: 'failed', reported: true });
+
+        // The minutely run's retry is still its own first: a PartialFailure.
+        const run = await replanWeeksWhole(
+          retrying,
+          new Date(reminderAt.getTime() + 5 * 60_000),
+        ).catch((error: unknown) => error);
+        expect(run).toBeInstanceOf(PartialFailure);
+        expect(run).toMatchObject({ job: 'replan', counts: { failed: 1 } });
+
+        // Neither reports again on a later retry.
+        expect(
+          await replanToday(
+            retrying,
+            t.owner.id,
+            new Date(reminderAt.getTime() + 20 * 60_000),
+            { announcesToday: true, job: 'reminders' },
+          ),
+        ).toEqual({ kind: 'failed', reported: false });
+        expect(
+          await replanWeeksWhole(
+            retrying,
+            new Date(reminderAt.getTime() + 80 * 60_000),
+          ),
+        ).toMatchObject({ failed: 0 });
+      });
+    });
+
     it('a retry that succeeds re-plans the person and claims the day (#687)', async () => {
       await planWarm();
       forecastDays = weekAt(() => -2);
@@ -1729,6 +1770,24 @@ describe('the weekly auto-plan', () => {
         }
       });
 
+      it('a person whose re-plan and whose send both failed is one failed person (#858)', async () => {
+        await planWarm();
+        await remindAt(REPLAN_HOUR);
+        forecastDays = weekAt(() => -2);
+        const down = {
+          ...reminders.sender,
+          sendEach: () => Promise.reject(new Error('devices unreadable')),
+        } as unknown as typeof reminders.sender;
+        const run = await withFailingSwaps(() =>
+          sendDueReminders(
+            { ...reminders, sender: down },
+            at(TODAY, REPLAN_HOUR),
+          ),
+        );
+        expect(run).toMatchObject({ claimed: 1, sent: 0, failed: 1 });
+        expect([...run.failedUsers]).toEqual([t.owner.id]);
+      });
+
       it('an entry the person took over is named as they left it, and a failed re-plan still lets the reminder go', async () => {
         await planWarm();
         await remindAt(REPLAN_HOUR);
@@ -1743,7 +1802,8 @@ describe('the weekly auto-plan', () => {
         const run = await withFailingSwaps(() =>
           sendDueReminders(reminders, at(TODAY, REPLAN_HOUR)),
         );
-        expect(run).toMatchObject({ claimed: 1, sent: 1, failed: 0 });
+        // Sent anyway, and the reminders job reports the re-plan's failure (#858).
+        expect(run).toMatchObject({ claimed: 1, sent: 1, failed: 1 });
         expect(reminderTo()[0].payload.body).toContain(
           await nameOf(planned.outfitId),
         );
