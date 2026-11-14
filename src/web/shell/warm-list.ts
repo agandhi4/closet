@@ -58,8 +58,10 @@ export async function warmList(
       oneOffs: savedOutfitsSql(ownerId, 'one-offs'),
       nearTerm: plannedOutfitIdsSql(ownerId, today, nextWeekEnd),
       needs: inboxNeedIdsSql(ownerId),
-      trips: tripIdsAheadSql(ownerId, today),
+      trips: ownTripsSql(ownerId, today),
     });
+  const aheadTrips = trips.filter((row) => row.ahead);
+  const warmedTrips = aheadTrips.slice(0, WARM_TRIP_CAP);
   const planned = new Set(nearTerm);
   const warmable = [...oneOffs.filter((row) => planned.has(row.id)), ...kept];
   const unplanned = oneOffs.filter((row) => !planned.has(row.id));
@@ -93,7 +95,7 @@ export async function warmList(
     pages: [
       weekUrl(addDays(weekOf(today).start, 7)),
       LAUNDRY_PAGE,
-      ...trips.map((id) => tripUrl(id)),
+      ...warmedTrips.map((row) => tripUrl(row.id)),
       ...warmed.map((row) => garmentUrl(row.id, undefined)),
       ...warmedOutfits.map((row) => outfitUrl(row.id)),
       ...inboxPages,
@@ -115,24 +117,38 @@ export async function warmList(
       ...[...warmable.slice(WARM_OUTFIT_CAP), ...unplanned].map((row) =>
         outfitUrl(row.id),
       ),
+      // Trips past the cap and the ended ones still exist: their visited
+      // copies stay.
+      ...[
+        ...aheadTrips.slice(WARM_TRIP_CAP),
+        ...trips.filter((row) => !row.ahead),
+      ].map((row) => tripUrl(row.id)),
     ],
   };
 }
 
+interface OwnTrip {
+  id: number;
+  /** Ahead or on: the last day is not before today. */
+  ahead: boolean;
+}
+
 /**
- * The ids of the owner's trips ahead or on (the last day not past `today`),
- * nearest first, at most WARM_TRIP_CAP: a past trip has nothing left to pack.
+ * The owner's trips, nearest first, each with whether it is ahead or on
+ * (the last day not past `today`): a past trip has nothing left to pack, so
+ * it is only kept, like a garment past its cap.
  */
-function tripIdsAheadSql(ownerId: number, today: IsoDate): SQL<number[]> {
-  return sql<number[]>`(
-    select coalesce(json_agg(ahead.id order by ahead.starts_on, ahead.id), '[]')
-    from (
-      select ${trip.id} as id, ${trip.startsOn} as starts_on
-      from ${trip}
-      where ${and(eq(trip.ownerId, ownerId), gte(trip.endsOn, today))}
-      order by ${trip.startsOn}, ${trip.id}
-      limit ${WARM_TRIP_CAP}
-    ) as ahead
+function ownTripsSql(ownerId: number, today: IsoDate): SQL<OwnTrip[]> {
+  return sql<OwnTrip[]>`(
+    select coalesce(
+      json_agg(
+        json_build_object('id', ${trip.id}, 'ahead', ${trip.endsOn} >= ${today})
+        order by ${trip.startsOn}, ${trip.id}
+      ),
+      '[]'
+    )
+    from ${trip}
+    where ${eq(trip.ownerId, ownerId)}
   )`;
 }
 

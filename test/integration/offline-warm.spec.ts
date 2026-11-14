@@ -530,28 +530,35 @@ describe('GET /offline/warm', () => {
       // Right after next week, before the wardrobe's pages.
       expect(list.pages.indexOf(LAUNDRY_PAGE)).toBe(1);
       expect(list.pages).not.toContain(`/trips/${tripIds.past}`);
-      expect(list.keep).not.toContain(`/trips/${tripIds.past}`);
+      // A past trip still exists: its visited copy stays.
+      expect(list.keep).toEqual([`/trips/${tripIds.past}`]);
     });
 
-    it('caps the trips a warm names', async () => {
+    it('caps the trips a warm names and keeps the rest', async () => {
       const email = 'warm-trip-cap@example.com';
       const capped = await t.register(email);
       const id = await userIdOf(t, email);
       const day = addDays(t.today(), 1);
-      await asFixture(t.db, (tx) =>
-        tx.insert(trip).values(
-          Array.from({ length: WARM_TRIP_CAP + 1 }, (_, i) => ({
-            ownerId: id,
-            name: `Trip ${i}`,
-            startsOn: day,
-            endsOn: day,
-          })),
-        ),
+      const rows = await asFixture(t.db, (tx) =>
+        tx
+          .insert(trip)
+          .values(
+            Array.from({ length: WARM_TRIP_CAP + 1 }, (_, i) => ({
+              ownerId: id,
+              name: `Trip ${i}`,
+              startsOn: day,
+              endsOn: day,
+            })),
+          )
+          .returning({ id: trip.id }),
       );
+      // The same first day: by id, so the last one made is past the cap.
+      const ids = rows.map((row) => row.id).sort((a, b) => a - b);
       const list = await warmList(capped);
-      expect(list.pages.filter((p) => p.startsWith('/trips/'))).toHaveLength(
-        WARM_TRIP_CAP,
+      expect(list.pages.filter((p) => p.startsWith('/trips/'))).toEqual(
+        ids.slice(0, WARM_TRIP_CAP).map((n) => `/trips/${n}`),
       );
+      expect(list.keep).toEqual([`/trips/${ids[WARM_TRIP_CAP]}`]);
     });
 
     // The invariant: a page showsQueuedWrite names is Today, a tab root, a
