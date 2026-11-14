@@ -98,3 +98,20 @@ document.addEventListener('submit', (event) => {
     form.requestSubmit(submitter);
   });
 });
+
+// The server's refusal to delete unasked (src/web/announce.ts askFirst, #686):
+// a page that judged the write reversible was stale. A yes posts it again with
+// the fields the server named (`confirmed`).
+document.addEventListener('closet:confirm', (event) => {
+  const { question, label, action, fields } = event.detail;
+  void confirmAction({ question, label, trigger: event.target }).then(
+    (confirmed) => {
+      if (!confirmed) return;
+      window.htmx.ajax('post', action, {
+        source: document.body,
+        target: 'body',
+        values: fields,
+      });
+    },
+  );
+});

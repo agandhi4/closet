@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './support/fixtures';
 import { E2E_PASSWORD, signUpHeaders } from './support/e2e-session';
 import { pageErrors } from './support/page-errors';
 

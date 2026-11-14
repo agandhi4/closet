@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
-import { expect, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { expect } from './support/fixtures';
 import sharp from 'sharp';
 import { addDays } from '../src/calendar-date';
 import { test } from './support/cutout-hold';

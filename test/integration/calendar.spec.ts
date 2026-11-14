@@ -713,19 +713,13 @@ describe('calendar', () => {
         'closet:status'
       ] as {
         message: string;
-        undo: { label: string; action: string; fields: Record<string, string> };
+        undo: { label: string; action: string; fields: { token: string } };
       };
       expect(status.message).toBe('Removed from the calendar');
       expect(status.undo).toEqual({
         label: 'Undo',
         action: '/calendar/restore',
-        fields: {
-          date: '2030-10-14',
-          outfitId: String(outfit),
-          occasion: 'all-day',
-          plannedBy: 'user',
-          week: '2030-10-14',
-        },
+        fields: { token: expect.stringMatching(/^[\w-]{22}$/) },
       });
       expect(await entriesOf(outfit)).toHaveLength(0);
 
@@ -751,51 +745,64 @@ describe('calendar', () => {
       expect(await entriesOf(outfit)).toHaveLength(1);
     });
 
-    it('restores the planner’s pick as the planner’s, so its re-plan may still swap it', async () => {
-      const outfit = await createOutfit('Auto entry');
-      const res = await t.inject({
+    it('restores only what the server held: a forged entry, another account’s token and a reused token are refused', async () => {
+      const outfit = await createOutfit('Token entry');
+      const entry = await schedule(outfit, '2030-10-15');
+      const hx = { ...form({}).headers, 'hx-request': 'true' };
+      const removed = await t.inject({
+        method: 'POST',
+        url: `/calendar/${entry}/delete`,
+        ...form({ week: '2030-10-15' }),
+        headers: hx,
+      });
+      const { token } = JSON.parse(String(removed.headers['hx-trigger']))[
+        'closet:status'
+      ].undo.fields as { token: string };
+
+      // Fields the client invents are not the server's (no provenance minted).
+      const forged = await t.inject({
         method: 'POST',
         url: '/calendar/restore',
         ...form({
-          date: '2030-10-15',
+          token: 'forged',
+          date: '2030-10-16',
           outfitId: String(outfit),
           occasion: 'work',
           plannedBy: 'auto',
         }),
       });
-      expect(res.statusCode).toBe(303);
-      expect(res.headers.location).toBe('/calendar?week=2030-10-15');
-      expect(await entriesOf(outfit)).toMatchObject([
-        { occasion: 'work', plannedBy: 'auto' },
-      ]);
-    });
+      expect(forged.statusCode).toBe(404);
+      expect(await entriesOf(outfit)).toHaveLength(0);
 
-    it('404s a restore of an outfit that is not the user’s, 400s an agent’s plannedBy', async () => {
       const stranger = await t.register('restore-stranger@example.com');
-      const outfit = await createOutfit('Not theirs');
-      const fields = {
-        date: '2030-10-16',
-        outfitId: String(outfit),
-        occasion: 'work',
-        plannedBy: 'user',
-      };
-      const refused = await t.inject({
+      const theirs = await t.inject({
         method: 'POST',
         url: '/calendar/restore',
-        ...form(fields),
+        ...form({ token }),
         headers: { ...form({}).headers, cookie: stranger },
       });
-      expect(refused.statusCode).toBe(404);
-      const agent = await t.inject({
+      expect(theirs.statusCode).toBe(404);
+      expect(await entriesOf(outfit)).toHaveLength(0);
+
+      const mine = await t.inject({
         method: 'POST',
         url: '/calendar/restore',
-        ...form({ ...fields, plannedBy: 'agent' }),
+        ...form({ token }),
       });
-      expect(agent.statusCode).toBe(400);
-      expect(await entriesOf(outfit)).toHaveLength(0);
+      expect(mine.statusCode).toBe(303);
+      expect(await entriesOf(outfit)).toMatchObject([
+        { day: '2030-10-15', plannedBy: 'user' },
+      ]);
+      const again = await t.inject({
+        method: 'POST',
+        url: '/calendar/restore',
+        ...form({ token }),
+      });
+      expect(again.statusCode).toBe(404);
+      expect(await entriesOf(outfit)).toHaveLength(1);
     });
 
-    it('offers no Undo for a worn entry (its wears went with it) and the row asks first', async () => {
+    it('asks first for a worn entry, whatever page asked, and offers no Undo for it', async () => {
       const outfit = await createOutfit('Worn entry');
       const entry = await schedule(outfit, '2020-10-07');
       const hx = { ...form({}).headers, 'hx-request': 'true' };
@@ -824,15 +831,36 @@ describe('calendar', () => {
           `hx-post="/calendar/${entry}/delete"[^>]*hx-confirm="Remove this scheduled outfit\\?"`,
         ),
       );
-      const removed = await t.inject({
+      // A page rendered before the wear still posts without `confirmed`: the
+      // server refuses, asks, and deletes nothing.
+      const stale = await t.inject({
         method: 'POST',
         url: `/calendar/${entry}/delete`,
         ...form({ week: '2020-10-07' }),
         headers: hx,
       });
+      expect(stale.statusCode).toBe(409);
+      expect(
+        JSON.parse(String(stale.headers['hx-trigger']))['closet:confirm'],
+      ).toEqual({
+        question: 'Remove this scheduled outfit?',
+        label: 'Remove from calendar',
+        action: `/calendar/${entry}/delete`,
+        fields: { week: '2020-10-07', confirmed: '1' },
+      });
+      expect(await entryById(entry)).toBeDefined();
+
+      const removed = await t.inject({
+        method: 'POST',
+        url: `/calendar/${entry}/delete`,
+        ...form({ week: '2020-10-07', confirmed: '1' }),
+        headers: hx,
+      });
+      expect(removed.statusCode).toBe(200);
       expect(
         JSON.parse(String(removed.headers['hx-trigger']))['closet:status'],
       ).toEqual({ message: 'Removed from the calendar' });
+      expect(await entryById(entry)).toBeUndefined();
     });
 
     it('answers a native post (no htmx) with a 303 to the week', async () => {

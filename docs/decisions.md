@@ -1149,3 +1149,9 @@ Consequence: a poisoned record is retried a little more often early on; no secon
 Why: `unrouteAll({ behavior: 'wait' })` awaits every in-flight handler invocation, and `networkSwitch`'s handler awaits `route.abort()`, a browser round trip Playwright races only against the request's page or worker closing (a request tied to neither races a scope that never closes). One unanswered abort hung trips' teardown until the 30 s test timeout. A handler that never settles reproduces it: 'wait' never returns, 'ignoreErrors' returns at once.
 Decision: setOffline(true), `unrouteAll({ behavior: 'ignoreErrors' })` (Playwright drops in-flight handlers' target-closed errors without waiting on them, the #867 failure), then close().
 Consequence: teardown waits on no handler. A route handler on a switched context must not catch its own `abort()` rejection: Playwright then never marks the route handled and the invocation stays pending.
+
+## 2026-11-14 — Remove's reversibility and Undo are the server's (#686 review)
+
+Why: the row's guess let a stale page delete a worn entry unasked, and an Undo that posted the entry's fields let any session mint planner-owned entries.
+Decision: `deleteEntry({ asksFirst })` rolls back and answers 409 + `closet:confirm` unless `confirmed=1`; Undo posts only a token for an in-process snapshot (`createUndoStore`, 30 s, owner-scoped, single use).
+Consequence: a restart or the TTL loses Undo, nothing else. Playwright's `test` comes from `test/support/fixtures.ts`, which fails a scenario on any native dialog.

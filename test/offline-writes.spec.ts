@@ -1,4 +1,5 @@
-import { expect, type Page, type Route, test } from '@playwright/test';
+import { type Page, type Route } from '@playwright/test';
+import { expect, test } from './support/fixtures';
 import { createGarment, createOutfit } from './support/e2e-data';
 import {
   APP_ORIGIN,

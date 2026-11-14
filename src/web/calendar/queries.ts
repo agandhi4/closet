@@ -671,6 +671,10 @@ export interface DeletedEntry {
  * entry, one the planner reused, and any `person` or `agent` outfit stay,
  * as in Change.
  *
+ * `asksFirst`: a delete Undo could not restore (worn, an agent's, a one-off it
+ * created) rolls back and answers 'needs-confirmation' until the caller
+ * confirmed (removeEntry).
+ *
  * Two statements inside the lock, no look-up first (#165): the selfie's
  * delete is scoped to the owner, so for another's or a missing entry it
  * finds nothing, and the entry's own delete (which locks its row) answers
@@ -678,11 +682,29 @@ export interface DeletedEntry {
  * created that one-off (read in the RETURNING). The selfie goes first, while the entry still points at
  * it. Two more only for a one-off.
  */
-export function deleteEntry(
+export async function deleteEntry(
   db: Queryable,
   id: number,
   ownerId: number,
-): Promise<DeletedEntry | EntryMiss> {
+  { asksFirst = false }: { asksFirst?: boolean } = {},
+): Promise<DeletedEntry | EntryMiss | 'needs-confirmation'> {
+  try {
+    return await deleteEntryAsking(db, id, ownerId, asksFirst);
+  } catch (error) {
+    if (error instanceof NeedsConfirmation) return 'needs-confirmation';
+    throw error;
+  }
+}
+
+/** Thrown inside deleteEntry's transaction to roll the delete back: Undo could not restore this one. */
+class NeedsConfirmation extends Error {}
+
+function deleteEntryAsking(
+  db: Queryable,
+  id: number,
+  ownerId: number,
+  asksFirst: boolean,
+) {
   return ownerTransaction(db, ownerId, 'deleteEntry', async (tx) => {
     const selfies = await deleteEntrySelfie(tx, id, ownerId);
     // The target aliased and every column qualified: the RETURNING's
@@ -713,6 +735,17 @@ export function deleteEntry(
           sql`, `,
         )}) from ${outfit} as ${held} where ${held.id} = ${entry.outfitId}), false) as one_off`);
     if (!deleted) return 'not-found';
+    // The server, not the page the tap came from, decides whether this goes
+    // without asking (#686): the row may have been worn or become a one-off
+    // since. Rolled back, so nothing (not even the selfie row) is gone.
+    if (
+      asksFirst &&
+      (deleted.worn ||
+        deleted.planned_by === 'agent' ||
+        (deleted.created && deleted.one_off))
+    ) {
+      throw new NeedsConfirmation();
+    }
     const removed =
       deleted.created &&
       deleted.one_off &&

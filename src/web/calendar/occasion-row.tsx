@@ -174,7 +174,11 @@ function EntryMenu(props: { entry: CalendarEntry; name: string }) {
             type="button"
             class="text-error"
             hx-post={remove}
-            hx-vals={JSON.stringify({ week: entry.day })}
+            hx-vals={JSON.stringify({
+              week: entry.day,
+              // The row asks in the sheet, so its yes is the confirmation (#686).
+              ...(!removalIsReversible(entry) && { confirmed: '1' }),
+            })}
             hx-confirm={
               removalIsReversible(entry)
                 ? undefined

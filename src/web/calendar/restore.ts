@@ -1,9 +1,8 @@
-import type { StatusUndo } from '../announce';
-import { t } from '../i18n';
+import { randomBytes } from 'node:crypto';
 import type { IsoDate } from '../../calendar-date';
+import type { Occasion } from '../../wardrobe/occasions';
 import type { CalendarEntry } from './calendar-view';
 import type { DeletedEntry } from './queries';
-import { CALENDAR_RESTORE_PATH } from './urls';
 
 /**
  * Removing a calendar entry is reversible (#686) when putting it back
@@ -11,10 +10,12 @@ import { CALENDAR_RESTORE_PATH } from './urls';
  * wears and selfie, a one-off outfit (the planner's, an idea's: the row
  * shows its collage, not a name) is pruned with it (#748), and an agent's
  * choice carries a token the restore does not rewrite. Those are asked
- * first, by the row's confirm sheet; the rest act at once and the toast
- * offers Undo. The row decides before the tap (this), the server after the
- * delete (`restorable`): a page gone stale can disagree, never lose more
- * than the sheet said.
+ * first, by the confirm sheet; the rest act at once and the toast offers
+ * Undo.
+ *
+ * `removalIsReversible` is the row's hint, so a tap asks only where it
+ * must; the decision is the server's (deleteEntry's `asksFirst`, from the
+ * current row), so a page gone stale never deletes irreversibly unasked.
  */
 export function removalIsReversible(
   entry: Pick<CalendarEntry, 'worn' | 'plannedBy' | 'outfit'>,
@@ -22,23 +23,59 @@ export function removalIsReversible(
   return !entry.worn && entry.outfit.kept && entry.plannedBy !== 'agent';
 }
 
-/** The Undo for a delete that took nothing else with it (POST /calendar/restore). */
-export function restorable(
-  removed: DeletedEntry,
-  week: IsoDate | undefined,
-): StatusUndo | undefined {
+/** What Undo puts back: the removed entry as the server saw it. */
+export interface RemovedEntry {
+  outfitId: number;
+  day: IsoDate;
+  occasion: Occasion;
+  plannedBy: 'auto' | 'user';
+}
+
+/** The snapshot of a delete that took nothing else with it, else undefined. */
+export function restorable(removed: DeletedEntry): RemovedEntry | undefined {
   const { entry } = removed;
   if (entry.worn || removed.oneOffRemoved !== null) return undefined;
   if (entry.plannedBy === 'agent') return undefined;
   return {
-    label: t('UNDO'),
-    action: CALENDAR_RESTORE_PATH,
-    fields: {
-      date: entry.day,
-      outfitId: String(entry.outfitId),
-      occasion: entry.occasion,
-      plannedBy: entry.plannedBy,
-      ...(week && { week }),
+    outfitId: entry.outfitId,
+    day: entry.day,
+    occasion: entry.occasion,
+    plannedBy: entry.plannedBy,
+  };
+}
+
+/** Longer than the toast shows Undo (toast.js UNDO_TOAST_MS), so a tap in time always finds it. */
+const UNDO_TTL_MS = 30_000;
+
+/**
+ * The removed entries Undo may restore, held by the server (#686): the
+ * restore takes only a random token, never the entry's fields, so a client
+ * cannot mint an entry with provenance (the planner's `auto`) it never
+ * had. In memory and short-lived: a restart or the TTL just loses Undo.
+ * One per app instance. A token is the owner's alone and works once.
+ */
+export function createUndoStore(now: () => number = Date.now) {
+  const held = new Map<
+    string,
+    { ownerId: number; entry: RemovedEntry; expires: number }
+  >();
+  return {
+    put(ownerId: number, entry: RemovedEntry): string {
+      for (const [token, kept] of held) {
+        if (kept.expires <= now()) held.delete(token);
+      }
+      const token = randomBytes(16).toString('base64url');
+      held.set(token, { ownerId, entry, expires: now() + UNDO_TTL_MS });
+      return token;
+    },
+    /** Consumes the token: undefined when unknown, expired, used or another owner's. */
+    take(ownerId: number, token: string): RemovedEntry | undefined {
+      const kept = held.get(token);
+      if (kept?.ownerId !== ownerId) return undefined;
+      held.delete(token);
+      return kept.expires > now() ? kept.entry : undefined;
     },
   };
 }
+
+export type UndoStore = ReturnType<typeof createUndoStore>;

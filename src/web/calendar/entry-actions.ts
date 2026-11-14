@@ -100,15 +100,23 @@ export async function requireEntry(
  * rule: #659), then the selfie's bytes,
  * which no transaction holds (AGENTS.md Gotchas, "The DB cascade deletes
  * rows, never bytes"). Answers what was removed: the page route's Undo
- * restores from it.
+ * restores from it, or 'needs-confirmation' (nothing deleted) when `asksFirst`
+ * and Undo could not restore it.
  */
 export async function removeEntry(
   { db, photos, logger }: { db: Db; photos: Photos; logger: Logger },
   actor: Actor,
   id: number,
-): Promise<DeletedEntry> {
-  const outcome = await deleteEntry(db, id, actor.userId);
+  { asksFirst = false }: { asksFirst?: boolean } = {},
+): Promise<DeletedEntry | 'needs-confirmation'> {
+  const outcome = await deleteEntry(db, id, actor.userId, { asksFirst });
   if (outcome === 'not-found') throw calendarEntryNotFound();
+  if (outcome === 'needs-confirmation') {
+    logger.info(
+      `Calendar entry ${id} not deleted for user ${actor.userId}: asks first (worn, an agent's or a one-off)`,
+    );
+    return outcome;
+  }
   // Only after commit: an unlink cannot be rolled back.
   for (const fileName of outcome.selfies) {
     await photos.deleteVariants(unkeyedPhoto(fileName));

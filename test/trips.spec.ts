@@ -1,4 +1,5 @@
-import { expect, type Page, test } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { expect, test } from './support/fixtures';
 import { addDays } from '../src/calendar-date';
 import { createGarment } from './support/e2e-data';
 import {

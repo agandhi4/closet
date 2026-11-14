@@ -189,7 +189,9 @@ describe("another user's entry is not found, whatever they share", () => {
       { id: ENTRY, day: DAY },
       DAY,
     );
-    expect(deleteEntry).toHaveBeenCalledWith(db, ENTRY, OTHER);
+    expect(deleteEntry).toHaveBeenCalledWith(db, ENTRY, OTHER, {
+      asksFirst: false,
+    });
     expect(lockEntryToReplace).toHaveBeenCalledWith(db, OTHER, target);
   });
 });
