@@ -123,7 +123,6 @@ test('offline: PostForms are guarded, and queued writes wait, save and stay orde
   browser,
   browserName,
 }) => {
-  test.setTimeout(90_000);
   await page.clock.install();
   const errors = pageErrors(page);
 
@@ -483,7 +482,10 @@ test('offline: PostForms are guarded, and queued writes wait, save and stay orde
   await test.step('a write the server keeps failing is given up on, and the ones behind it save', async () => {
     await signIn(page, 'outbox-poison');
     const poisoned = await createGarment(page, 'Poison chinos');
-    const behind = await createGarment(page, 'Behind shirt');
+    const neighbours: Awaited<ReturnType<typeof createGarment>>[] = [];
+    for (let n = 1; n <= SERVER_ERROR_MAX_ATTEMPTS; n += 1) {
+      neighbours.push(await createGarment(page, `Behind shirt ${n}`));
+    }
     const wore = page.getByRole('button', { name: 'Wore today', exact: true });
     const undo = page.getByRole('button', { name: 'Undo “Wore today”' });
     const banner = page.locator('#outbox-banner');
@@ -497,33 +499,29 @@ test('offline: PostForms are guarded, and queued writes wait, save and stay orde
     await setWritesReachable(page, false);
     await wore.click();
     await expect(undo).toBeVisible();
-    await page.goto(`/wardrobe/${behind}`);
-    await wore.click();
-    await expect(undo).toBeVisible();
-
-    const attempt = (n: number) =>
-      page.waitForEvent('console', (message) =>
-        message.text().includes(`server error ${n},`),
+    // A 5xx counts against the record only while the server answers another
+    // one: each round queues a healthy neighbour behind it and reconnects (a
+    // drain starts at once; no backoff is waited for).
+    for (const [index, garment] of neighbours.entries()) {
+      await page.goto(`/wardrobe/${garment}`);
+      await wore.click();
+      await expect(undo).toBeVisible();
+      const last = index === neighbours.length - 1;
+      const answered = page.waitForEvent('console', (message) =>
+        message
+          .text()
+          .includes(last ? 'not saved: server' : 'server-error, retry'),
       );
-    let attempted = attempt(1);
-    await setWritesReachable(page, true);
-    await attempted;
-    // Online and backing off: the banner says the server is not answering.
-    await expect(banner).toContainText('not saved yet');
-    await expect(notice).toBeHidden();
-    // 5 s, 10 s, 20 s, 40 s: each timer fires once per jump.
-    for (let n = 2; n < SERVER_ERROR_MAX_ATTEMPTS; n += 1) {
-      attempted = attempt(n);
-      await page.clock.fastForward(60_000);
-      await attempted;
+      await setWritesReachable(page, true);
+      await answered;
+      if (!last) {
+        // Online and backing off: the banner says the server is not answering.
+        await expect(banner).toContainText('not saved yet');
+        await setWritesReachable(page, false);
+      }
     }
-    const settled = page.waitForEvent('console', (message) =>
-      message.text().includes('not saved: the server answered'),
-    );
-    await page.clock.fastForward(60_000);
-    await settled;
 
-    // Given up: named in the notice, and the record behind it was sent.
+    // Given up: named in the notice, and every record behind it was sent.
     await expect(notice).toContainText('Poison chinos');
     await expect(notice).toContainText(
       'the server kept answering with an error',

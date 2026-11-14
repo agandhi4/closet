@@ -17,9 +17,11 @@ import {
   queuedWritesGoneAtClaim,
   REPLAY_WINDOW_DAYS,
   replayVerdict,
-  afterRetry,
-  spendServerError,
-  SERVER_ERROR_MAX_AGE_MS,
+  type ReplayDriver,
+  type ReplayRecord,
+  replayQueue,
+  type ReplayVerdict,
+  SERVER_ERROR_WINDOW_MS,
   SERVER_ERROR_MAX_ATTEMPTS,
   retryDelayMs,
   routesThroughOutbox,
@@ -325,85 +327,133 @@ describe('replayVerdict', () => {
   });
 });
 
-describe('spendServerError', () => {
-  it('fails a record at its Nth 5xx, and not before', () => {
-    let budget = {};
-    for (let attempt = 1; attempt < SERVER_ERROR_MAX_ATTEMPTS; attempt += 1) {
-      const next = spendServerError(budget, 'server', 1_000);
-      expect(next.exhausted).toBe(false);
-      budget = next;
-    }
-    expect(spendServerError(budget, 'server', 1_000).exhausted).toBe(true);
+describe('replayQueue: a 5xx is a record’s fault only if the server answers others', () => {
+  type Row = ReplayRecord & { id: string; reason?: string };
+  const row = (id: string, key = id): Row => ({
+    id,
+    account: '1',
+    key,
+    state: 'pending',
+    attempts: 0,
   });
+  const OK = { verdict: 'saved', changed: true } as const;
+  const SERVER = { verdict: 'retry', cause: 'server' } as const;
+  const UNREACHABLE = { verdict: 'retry', cause: 'unreachable' } as const;
 
-  it('fails a record whose first 5xx is old enough', () => {
-    const first = spendServerError({}, 'server', 1_000);
+  /** A store and a server in one: `answers` says what each id gets. */
+  function world(
+    rows: Row[],
+    answers: (id: string) => ReplayVerdict,
+    clock: { now: number } = { now: 0 },
+  ) {
+    const sent: string[] = [];
+    const stored = new Map(rows.map((r) => [r.id, r]));
+    const driver: ReplayDriver<Row> = {
+      now: () => clock.now,
+      skip: () => Promise.resolve(false),
+      send(record) {
+        sent.push(record.id);
+        return Promise.resolve(answers(record.id));
+      },
+      settle(record, step) {
+        if (step.step === 'saved') stored.delete(record.id);
+        else stored.set(record.id, step.record);
+        return Promise.resolve(true);
+      },
+    };
+    const drain = () =>
+      replayQueue(
+        [...stored.values()].filter((r) => r.state === 'pending'),
+        driver,
+      );
+    return { stored, sent, drain, clock };
+  }
+
+  it('fails nothing while the whole server answers 5xx, for ten minutes', async () => {
+    const w = world([row('a'), row('b'), row('c')], () => SERVER);
+    for (let at = 0; at <= 10 * 60_000; at += 30_000) {
+      w.clock.now = at;
+      expect((await w.drain()).end).toBe('backoff');
+    }
+    expect([...w.stored.values()].map((r) => r.state)).toEqual([
+      'pending',
+      'pending',
+      'pending',
+    ]);
     expect(
-      spendServerError(first, 'server', 1_000 + SERVER_ERROR_MAX_AGE_MS - 1)
-        .exhausted,
-    ).toBe(false);
-    expect(
-      spendServerError(first, 'server', 1_000 + SERVER_ERROR_MAX_AGE_MS)
-        .exhausted,
+      [...w.stored.values()].every((r) => r.serverErrors === undefined),
     ).toBe(true);
   });
 
-  it('is never spent by the network, a timeout, a 429 or a 503', () => {
-    const spent = {
-      serverErrors: SERVER_ERROR_MAX_ATTEMPTS - 1,
-      serverErrorSince: 0,
-    };
-    expect(
-      spendServerError(spent, 'unreachable', 10 * SERVER_ERROR_MAX_AGE_MS),
-    ).toEqual({
-      ...spent,
-      exhausted: false,
-    });
-    expect(spendServerError({}, 'unreachable', 5)).toEqual({
-      exhausted: false,
-    });
-  });
-
-  it('starts a budget for a record queued by an older client', () => {
-    expect(spendServerError({}, 'server', 7)).toEqual({
-      serverErrors: 1,
-      serverErrorSince: 7,
-      exhausted: false,
-    });
-  });
-});
-
-describe('afterRetry', () => {
-  const record = {
-    account: '1',
-    key: 'wear:1:d',
-    state: 'pending' as const,
-    attempts: 0,
-  };
-
-  it('settles a poisoned record as failed and lets the drain go on', () => {
-    let current: typeof record & {
-      serverErrors?: number;
-      serverErrorSince?: number;
-    } = record;
+  it('fails the record whose neighbours succeed, after N, and sends those behind it', async () => {
+    const w = world([row('bad')], (id) => (id === 'bad' ? SERVER : OK));
     for (let n = 1; n < SERVER_ERROR_MAX_ATTEMPTS; n += 1) {
-      const step = afterRetry(current, 'server', 1_000);
-      expect(step).toMatchObject({
-        stop: true,
-        record: { state: 'pending', attempts: n },
+      w.stored.set(`ok${n}`, row(`ok${n}`));
+      expect((await w.drain()).end).toBe('backoff');
+      expect(w.stored.get('bad')).toMatchObject({
+        state: 'pending',
+        serverErrors: n,
       });
-      current = step.record;
+      expect(w.stored.has(`ok${n}`)).toBe(false);
     }
-    const last = afterRetry(current, 'server', 1_000);
-    expect(last.stop).toBe(false);
-    expect(last.record).toMatchObject({ state: 'failed', reason: 'server' });
+    w.stored.set('last', row('last'));
+    w.stored.set('after', row('after'));
+    expect((await w.drain()).end).toBe('done');
+    expect(w.stored.get('bad')).toMatchObject({
+      state: 'failed',
+      reason: 'server',
+    });
+    expect([...w.stored.keys()]).toEqual(['bad']);
   });
 
-  it('keeps counting attempts, and stops, for an unreachable server', () => {
-    const step = afterRetry({ ...record, attempts: 40 }, 'unreachable', 1_000);
-    expect(step.stop).toBe(true);
-    expect(step.record).toMatchObject({ state: 'pending', attempts: 41 });
-    expect(step.record).not.toHaveProperty('serverErrors');
+  it('counts only recent 5xx answers', async () => {
+    const w = world([row('bad')], (id) => (id === 'bad' ? SERVER : OK));
+    w.stored.set('ok1', row('ok1'));
+    await w.drain();
+    expect(w.stored.get('bad')?.serverErrors).toBe(1);
+    w.clock.now = SERVER_ERROR_WINDOW_MS;
+    w.stored.set('ok2', row('ok2'));
+    await w.drain();
+    expect(w.stored.get('bad')).toMatchObject({
+      serverErrors: 1,
+      serverErrorSince: SERVER_ERROR_WINDOW_MS,
+    });
+  });
+
+  it('the network, a timeout or a 503 neither spends nor clears the count', async () => {
+    const w = world(
+      [{ ...row('bad'), serverErrors: 4, serverErrorSince: 0 }],
+      () => UNREACHABLE,
+    );
+    expect((await w.drain()).end).toBe('backoff');
+    expect(w.stored.get('bad')).toMatchObject({
+      state: 'pending',
+      serverErrors: 4,
+    });
+  });
+
+  it('never sends a record past an older one with its key', async () => {
+    const w = world(
+      [row('old', 'wear:1'), row('same', 'wear:1'), row('other')],
+      (id) => (id === 'old' ? SERVER : OK),
+    );
+    await w.drain();
+    expect(w.sent).toEqual(['old', 'other']);
+  });
+
+  it('keeps a lone 5xx record: nothing shows it is the record', async () => {
+    const w = world([row('only')], () => SERVER);
+    expect((await w.drain()).end).toBe('backoff');
+    expect(w.stored.get('only')).toMatchObject({
+      state: 'pending',
+      attempts: 1,
+    });
+    expect(w.stored.get('only')?.serverErrors).toBeUndefined();
+  });
+
+  it('stops for a sign-in', async () => {
+    const w = world([row('a')], () => ({ verdict: 'signed-out' }));
+    expect((await w.drain()).end).toBe('no-session');
   });
 });
 

@@ -1096,11 +1096,6 @@ Decision: the per-person loop is unchanged; the scheduled wrapper (`*Whole`, `sr
 Consequence: a new per-person job throws at its end the same way; callers wanting the report call the unwrapped function.
 
 ## 2026-11-14 — The outbox gives up on a record the server keeps failing (#691)
-Why: `replayVerdict` retried every 5xx forever and the drain stops at the first retry, so one deterministic 500 left every later queued write unsent with no sign online.
-Decision: only a 5xx spends a per-record budget (5 answers, or 10 min since the first); then the record is `failed` ("server") and the drain continues. Network errors, timeouts, 408, 429 and 503 (the busy page) never spend it. The counters are optional fields on the IndexedDB record, so no schema version bump.
-Consequence: a real outage answered with 500s for ~2.5 min fails the queued writes (named in the notice, not retried automatically); a tap on a failed record's key is sent as a newer intent.
-
-## 2026-11-14 — Each re-plan job reports its own first failure (#858)
-Why: the minutely re-plan and the morning reminder share one `ReplanRetries`; a reminder failing first used up the person-day's single `reported` slot where nothing counted it, so `replanWeeksWhole` never ended as a PartialFailure.
-Decision: the retry schedule stays shared; "first failure" is tracked per job (`ReplanJob`: `replan`, `reminders`) and the reminder counts its own into its `run.failed`.
-Consequence: a person-day failing in both paths yields one failure metric and capture per job; a reminder whose re-plan failed still sends and its run reports `failed`.
+Why: `replayVerdict` retried every 5xx forever and the drain stops at the first retry, so one deterministic 500 left every later queued write unsent with no sign online. A per-record count alone would let a server-wide outage (restart, deploy) fail the whole queue.
+Decision: a 5xx counts against a record only when the server answers another record properly in the same drain (`replayQueue`: the head waits as a suspect, the next is tried); 5 counted answers within 10 min fail it ("server") and the drain goes on. Two 5xx in a row, or a lone record, back off and spend nothing. Network errors, timeouts, 408, 429 and 503 (the busy page) never spend it; they neither spend nor clear the count. The counters are optional fields on the IndexedDB record, so no schema bump.
+Consequence: an outage never fails a wear; a lone poisoned record retries until a neighbour proves the server healthy. A tap on a failed record's key is sent as a newer intent.
