@@ -14,6 +14,7 @@ import {
 } from '../../wardrobe/week-planner';
 import type { TemplateSlot } from '../../wardrobe/week';
 import type { DayForecast } from '../../weather/forecast';
+import { type MatchGarment, weatherNeeds } from '../../weather/match';
 import { ownerTransaction } from '../auth/queries';
 import { addDays, hourIn, type IsoDate, todayIn } from '../../calendar-date';
 import { entryOf } from '../calendar/queries';
@@ -28,6 +29,7 @@ import {
   weekPoolSql,
 } from '../gallery/queries';
 import type { ReadOptions } from '../weather/location-cache';
+import { rainGearFor } from '../weather/queries';
 import {
   type UserWeather,
   userWeather,
@@ -101,6 +103,28 @@ export function forecastOf({ settings, cached }: UserWeather): WeekForecast {
     days: new Map((cached?.forecast.days ?? []).map((day) => [day.day, day])),
     offset: settings.offset,
   };
+}
+
+/**
+ * The closet's rain gear for the slots being planned or judged, from the
+ * one reader every surface uses (rainGearFor): no statement unless a slot's
+ * day asks for water resistance. The planner takes it as `rainGear`, so a
+ * hat in the wash answers a rainy day here as it does on Today.
+ */
+export function weekRainGear(
+  db: Queryable,
+  ownerId: number,
+  forecast: WeekForecast,
+  slots: readonly Slot[],
+): Promise<MatchGarment[]> {
+  return rainGearFor(
+    db,
+    ownerId,
+    slots.map(({ day, occasion }) => {
+      const found = forecast.days.get(day);
+      return found && weatherNeeds(found, occasion, forecast.offset);
+    }),
+  );
 }
 
 /** The days "Plan my week" fills: today and the six after it. */
@@ -193,7 +217,8 @@ export function planMyWeek(
     // planned by hand): nothing to plan, so neither the pool nor the
     // generator's memory is read (#165: two round trips). planWeek plans
     // exactly these slots.
-    if (emptySlots({ today, hour, days, template, entries }).length === 0) {
+    const empty = emptySlots({ today, hour, days, template, entries });
+    if (empty.length === 0) {
       return { templateSet: true, weekPlanId: null, planned: [], unfilled: [] };
     }
     const plan = planWeek({
@@ -205,6 +230,7 @@ export function planMyWeek(
       template,
       forecast: input.forecast.days,
       offset: input.forecast.offset,
+      rainGear: await weekRainGear(tx, ownerId, input.forecast, empty),
     });
     const result: WeekPlanResult = {
       templateSet: true,
@@ -248,7 +274,7 @@ export function weekSql(ownerId: number, today: IsoDate, last: IsoDate) {
 export function readWeekColumns(
   today: IsoDate,
   row: ScalarValues<ReturnType<typeof weekSql>>,
-): Omit<WeekContext<WeekPoolGarment>, 'forecast' | 'offset'> {
+): Omit<WeekContext<WeekPoolGarment>, 'forecast' | 'offset' | 'rainGear'> {
   return {
     today,
     entries: readWindowEntries(row.entries),

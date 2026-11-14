@@ -609,14 +609,18 @@ export async function recordFailedNormals(
 }
 
 /**
- * What keeps the rain off beside an outfit in the owner's closet right now
- * (an available water-resistant hat or cap, `MatchGarment.rainGear`), as the
- * matching reads it. The closet's, never a capsule's or a pool's: the hat is
- * in the house whatever the filter.
+ * What keeps the rain off beside an outfit (a water-resistant hat or cap,
+ * `MatchGarment.rainGear`), as the matching reads it. By default the
+ * owner's closet right now: available, never a capsule's or a pool's (the
+ * hat is in the house whatever the filter). With `listed` (a subquery of
+ * garment ids: a trip's packing list), the gear that is going along,
+ * whatever its state at home: a hat the list plans to bring is the trip's
+ * umbrella answer even in the wash or marked away.
  */
-async function closetRainGear(
+async function rainGearIn(
   db: Queryable,
   ownerId: number,
+  listed: SQL | undefined,
 ): Promise<MatchGarment[]> {
   const rows = await db
     .select({
@@ -631,28 +635,32 @@ async function closetRainGear(
       and(
         eq(garment.ownerId, ownerId),
         eq(garment.waterResistant, true),
-        availableGarment(),
+        listed ? sql`${garment.id} in ${listed}` : availableGarment(),
       ),
     );
   return rows.map(matchGarment).filter((g) => g.rainGear);
 }
 
 /**
- * The one owner of "does the closet answer this rain": the closet's rain
- * gear for the days whose `needs` ask the outfit for water resistance, and
- * none (no statement: production pays a round trip each) when no day does.
+ * The one owner of "does the owner's gear answer this rain": the rain gear
+ * for the days whose `needs` ask the outfit for water resistance, and none
+ * (no statement: production pays a round trip each) when no day does.
  * Every surface that reports or judges a day's needs (the ideas, Today, the
- * weather resource, trips, the calendar, the MCP tools) reads it here and
- * applies it with `withRainGear`, so `takeUmbrella` is one answer on all of
- * them.
+ * weather resource, trips, the calendar, the MCP tools, the week planner)
+ * reads it here and applies it with `withRainGear`, so `takeUmbrella` is
+ * one answer on all of them. `listed` narrows it to a trip's packing list
+ * (rainGearIn).
  */
 export async function rainGearFor(
   db: Queryable,
   ownerId: number,
   needs: Iterable<WeatherNeeds | null | undefined>,
+  listed?: SQL,
 ): Promise<MatchGarment[]> {
   for (const day of needs) {
-    if (day && needsWaterResistance(day)) return closetRainGear(db, ownerId);
+    if (day && needsWaterResistance(day)) {
+      return rainGearIn(db, ownerId, listed);
+    }
   }
   return [];
 }

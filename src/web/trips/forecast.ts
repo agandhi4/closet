@@ -28,6 +28,7 @@ import type {
   CachedNormals,
   WeatherService,
 } from '../weather/service';
+import { listGarmentIdsSql } from './packed';
 import type { TripRow } from './queries';
 
 /**
@@ -140,12 +141,15 @@ export async function tripForecast(
   const { offset, unit } = prefs;
   const days = forecastDays(cached, within, offset);
   const typical = typicalDays(normals, later, trip.endsOn, offset);
-  // The closet's rain gear, read once and only when a day asks for water
-  // resistance, so every consumer of a trip's needs agrees (rainGearFor).
-  const rainGear = await rainGearFor(deps.db, ownerId, [
-    ...days.map((d) => d.needs),
-    ...typical.map((d) => d.needs),
-  ]);
+  // The rain gear on the trip's packing list (planned to come, packed or
+  // not, whatever its state at home), read once and only when a day asks for
+  // water resistance; none on the list means the days need it (rainGearFor).
+  const rainGear = await rainGearFor(
+    deps.db,
+    ownerId,
+    [...days.map((d) => d.needs), ...typical.map((d) => d.needs)],
+    listGarmentIdsSql(trip.id),
+  );
   const withGear = (needs: WeatherNeeds | null) =>
     needs && withRainGear(needs, rainGear);
   return {

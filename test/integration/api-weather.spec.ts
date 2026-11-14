@@ -648,6 +648,19 @@ describe('one answer to the rain on every surface (#759)', () => {
         mcpWeather.days[0].outfit,
       ].map(pick);
     };
+    // "Plan my week" for the rainy day, undone so it can be asked again.
+    const planProblems = async () => {
+      const planned = await api('POST', '/week-plans');
+      expect(planned.statusCode, planned.body).toBe(200);
+      const plan = planned.json<{
+        weekPlanId: number;
+        planned: { day: IsoDate; problems: string[] }[];
+      }>();
+      const day = plan.planned.find((p) => p.day === REFERENCE_ANCHOR);
+      expect(day, 'the rainy day is planned').toBeDefined();
+      await api('DELETE', `/week-plans/${plan.weekPlanId}`);
+      return day!.problems;
+    };
     try {
       await rainy();
       const bare = await everywhere();
@@ -657,6 +670,25 @@ describe('one answer to the rain on every surface (#759)', () => {
           takeUmbrella: false,
         }),
       );
+
+      expect(
+        (
+          await api('PUT', '/week-template', {
+            days: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
+              weekday,
+              around: ['night-out'],
+            })),
+          })
+        ).statusCode,
+      ).toBe(200);
+      for (let i = 0; i < 4; i += 1) {
+        await createGarment(t, { name: `Plan top ${i}`, category: 'tops' });
+        await createGarment(t, {
+          name: `Plan jeans ${i}`,
+          category: 'bottoms',
+        });
+      }
+      expect(await planProblems()).toContain('needs-water-resistance');
 
       const hat = await t.inject({
         method: 'POST',
@@ -671,12 +703,49 @@ describe('one answer to the rain on every surface (#759)', () => {
         },
       });
       expect(hat.statusCode).toBe(302);
-      const geared = await everywhere();
-      expect(geared).toEqual(
-        Array(geared.length).fill({
-          needsWaterResistance: false,
-          takeUmbrella: true,
-        }),
+      // A trip day answers with what is on its packing list, never with the
+      // closet at home: the hat is not on the list yet.
+      const TRIP_SURFACES = [3, 6];
+      const answers = (all: ReturnType<typeof pick>[], trip: boolean) =>
+        all.map((_, i) => ({
+          needsWaterResistance: TRIP_SURFACES.includes(i) ? !trip : false,
+          takeUmbrella: TRIP_SURFACES.includes(i) ? trip : true,
+        }));
+      const atHome = await everywhere();
+      expect(atHome).toEqual(answers(atHome, false));
+      // The plan reads the gear as Today does: the hat answers the rain.
+      expect(await planProblems()).not.toContain('needs-water-resistance');
+
+      // Planned to come: the umbrella answer, packed or not.
+      const [hatRow] = await t.db
+        .select({ id: garment.id })
+        .from(garment)
+        .where(eq(garment.name, 'Rain hat'));
+      const hatOutfit = await api('POST', '/outfits', {
+        slots: [{ category: 'accessories', garmentId: hatRow.id }],
+      });
+      const added = await api('POST', `/trips/${tripId}/outfits`, {
+        outfitId: hatOutfit.json<{ id: number }>().id,
+      });
+      expect(added.statusCode, added.body).toBe(201);
+      const listed = await everywhere();
+      expect(listed).toEqual(answers(listed, true));
+
+      // Lent out, the closet at home has no gear (not available), but it is
+      // still the one on the trip's list.
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(garment)
+          .set({ away: 'lent' })
+          .where(eq(garment.id, hatRow.id)),
+      );
+      const lent = await everywhere();
+      expect(lent).toEqual(
+        lent.map((_, i) =>
+          TRIP_SURFACES.includes(i)
+            ? { needsWaterResistance: false, takeUmbrella: true }
+            : { needsWaterResistance: true, takeUmbrella: false },
+        ),
       );
     } finally {
       for (const row of rows) {

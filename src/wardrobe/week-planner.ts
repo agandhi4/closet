@@ -117,6 +117,12 @@ export interface WeekContext<G extends PlannerGarment> {
   forecast: ReadonlyMap<IsoDate, DayForecast>;
   /** The personal temperature offset, °C. */
   offset: number;
+  /**
+   * The closet's rain gear (rainGearFor), read by the caller once, so the
+   * planner judges a rainy day as every other surface does; empty when no
+   * planned day asks for water resistance.
+   */
+  rainGear: readonly MatchGarment[];
   avoid: readonly (readonly [number, number])[];
   /** The owner's outfit rules (outfit_rule). */
   rules: readonly OutfitRule[];
@@ -482,27 +488,19 @@ function weatherScore(
 
 // ---- Shared by both --------------------------------------------------------
 
-/**
- * The slot's needs with the closet's rain gear: the pool is the owner's
- * whole closet, so a water-resistant hat in it answers a cool rainy day as
- * it does on every other surface (withRainGear). A hat in the wash still
- * counts: the planner decides cleanliness per garment, not for the gear.
- */
+/** The slot's needs with the closet's rain gear (withRainGear). */
 function needsOf(
-  context: Pick<WeekContext<PlannerGarment>, 'forecast' | 'offset' | 'pool'>,
+  context: Pick<
+    WeekContext<PlannerGarment>,
+    'forecast' | 'offset' | 'rainGear'
+  >,
   slot: Slot,
 ): WeatherNeeds | null {
   const forecast = context.forecast.get(slot.day);
   const needs = forecast
     ? weatherNeeds(forecast, slot.occasion, context.offset)
     : null;
-  return (
-    needs &&
-    withRainGear(
-      needs,
-      context.pool.map((g) => g.weather),
-    )
-  );
+  return needs && withRainGear(needs, context.rainGear);
 }
 
 /** The slot's seed: the same slot draws the same ideas. */
