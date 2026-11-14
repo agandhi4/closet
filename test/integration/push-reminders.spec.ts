@@ -640,7 +640,7 @@ describe('push reminders', () => {
       return phones;
     };
 
-    it('a send that failed ends the scheduled run as one recorded failure, claims given back (#687)', async () => {
+    it('a batch whose devices cannot be read ends the scheduled run as one recorded failure, claims given back (#687)', async () => {
       const day = addDays(DAY, 30);
       const phones = await twoMorningPeople('send-down');
       const down = senderThat(() =>
@@ -673,6 +673,42 @@ describe('push reminders', () => {
       expect((await t.metrics.exposition()).body).toMatch(
         /^job_duration_seconds_count\{name="reminders",outcome="success"\} 1$/m,
       );
+    });
+
+    it("one person's refused send fails the run once and the other's reminder is sent (#687)", async () => {
+      const day = addDays(DAY, 32);
+      const [refused, fine] = await twoMorningPeople('refused');
+      const record = vi
+        .mocked(webpush.sendNotification)
+        .getMockImplementation()!;
+      vi.mocked(webpush.sendNotification).mockImplementation(
+        (target, payload, options) =>
+          target.endpoint === refused
+            ? Promise.reject(new Error('push service answered 500'))
+            : record(target, payload, options),
+      );
+      const failures = async () =>
+        Number(
+          /^job_duration_seconds_count\{name="reminders",outcome="failure"\} (\d+)$/m.exec(
+            (await t.metrics.exposition()).body,
+          )?.[1] ?? 0,
+        );
+      const before = await failures();
+      const scheduled = t.metrics.timeJob('reminders', (now: Date) =>
+        sendDueRemindersWhole(deps, now),
+      );
+
+      const failure = await scheduled(onTheMinute(day, 6, 15)).catch(
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(PartialFailure);
+      expect(failure).toMatchObject({
+        job: 'reminders',
+        counts: { failed: 1 },
+      });
+      expect(sentTo(refused)).toEqual([]);
+      expect(sentTo(fine)).toHaveLength(1);
+      expect(await failures()).toBe(before + 1);
     });
 
     it('a forecast fetch that fails with nothing cached is no forecast, not a failed reminder (#687)', async () => {

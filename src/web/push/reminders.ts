@@ -288,8 +288,20 @@ async function sendAll(
 ): Promise<void> {
   if (composed.length === 0) return;
   try {
-    await deps.sender.sendEach(composed.map((c) => c.message));
-    run.sent += composed.length;
+    const reports = await deps.sender.sendEach(composed.map((c) => c.message));
+    reports.forEach((report, index) => {
+      // A device the push service refused (not a gone one: those are
+      // pruned) fails that person alone; the others' reminders went out
+      // (the sender isolates per device, and has counted and logged it).
+      if (report.failed === 0) {
+        run.sent += 1;
+        return;
+      }
+      run.failed += 1;
+      deps.logger.error(
+        `The ${composed[index].message.payload.tag ?? 'reminder'} for user ${composed[index].message.userId} reached ${report.delivered} of ${report.devices} device(s)`,
+      );
+    });
   } catch (error) {
     run.failed += composed.length;
     const users = composed.map((c) => c.message.userId).join(', ');
