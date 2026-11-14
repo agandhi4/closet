@@ -94,6 +94,20 @@ export function PlannedWeekBanner({ banner }: { banner: PlannedBanner }) {
           })}
         </p>
       )}
+      {/* An empty workout may be the closet's: the planner never dresses one
+          in everyday wear (#647). */}
+      {banner.activewearGap && (
+        <p
+          class="text-sm text-muted"
+          data-needs-activewear={banner.activewearGap}
+        >
+          {t(
+            banner.activewearGap === 'no-activewear'
+              ? 'weekPlan.NEEDS_ACTIVEWEAR'
+              : 'weekPlan.ACTIVEWEAR_AWAY',
+          )}
+        </p>
+      )}
       {banner.weekPlanId !== null && (
         <PostForm
           action={undoWeekPlanUrl(banner.weekPlanId)}

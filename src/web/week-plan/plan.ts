@@ -1,7 +1,12 @@
 import type { Db, Queryable } from '../../db/client';
 import { type ScalarValues, selectScalars } from '../../db/select-scalars';
 import type { IdeaProblem } from '../../wardrobe/generator';
-import type { Occasion } from '../../wardrobe/occasions';
+import {
+  type ActivewearGap,
+  lacksActivewear,
+  OCCASION_HINTS,
+  type Occasion,
+} from '../../wardrobe/occasions';
 import {
   emptySlots,
   PLAN_DAYS,
@@ -18,6 +23,7 @@ import { type MatchGarment, weatherNeeds } from '../../weather/match';
 import { ownerTransaction } from '../auth/queries';
 import { addDays, hourIn, type IsoDate, todayIn } from '../../calendar-date';
 import { entryOf } from '../calendar/queries';
+import type { ClosetKind } from '../gallery/queries';
 import { pickIdea } from '../outfits/pick';
 import { NotFound } from '../refusals';
 import type { Actor } from '../sharing/access';
@@ -402,6 +408,12 @@ export interface PlannedBanner {
   entries: BatchEntry[];
   /** Template slots of the next 7 days still without an outfit. */
   stillEmpty: Slot[];
+  /**
+   * Why an empty active slot (a workout) is empty, when it is the closet's
+   * activewear (#647): none at all, or none clean and at home. Undefined
+   * when no empty slot is active.
+   */
+  activewearGap: ActivewearGap | undefined;
 }
 
 /**
@@ -419,19 +431,33 @@ export function plannedBanner(
     batch: BatchEntry[];
     template: readonly TemplateSlot[];
     window: readonly Pick<WeekEntry, 'day' | 'occasion'>[];
+    /** The closet's kinds (closetKindsSql), read for the banner. */
+    closetKinds: readonly ClosetKind[];
   },
   now: { today: IsoDate; hour: number },
 ): PlannedBanner | undefined {
   if (planned !== 'none' && reads.batch.length === 0) return undefined;
+  const stillEmpty = emptySlots({
+    today: now.today,
+    hour: now.hour,
+    days: planDays(now.today),
+    template: reads.template,
+    entries: reads.window,
+  });
+  // The banner reads the calendar, not the plan's reasons: an empty active
+  // slot is the closet's when it lacks the kinds, else they are out (the
+  // planner counts the week's wears and washes day by day).
+  const active = stillEmpty
+    .map((slot) => OCCASION_HINTS[slot.occasion].active)
+    .find((demand) => demand !== undefined);
   return {
     weekPlanId: planned === 'none' ? null : planned,
     entries: reads.batch,
-    stillEmpty: emptySlots({
-      today: now.today,
-      hour: now.hour,
-      days: planDays(now.today),
-      template: reads.template,
-      entries: reads.window,
-    }),
+    stillEmpty,
+    activewearGap:
+      active &&
+      (lacksActivewear(active, reads.closetKinds)
+        ? 'no-activewear'
+        : 'none-available'),
   };
 }

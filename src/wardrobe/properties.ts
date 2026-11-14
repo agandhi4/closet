@@ -305,11 +305,41 @@ interface WeightStep {
   warmth: Warmth;
 }
 
+/**
+ * What a type is made for, beyond everyday wear (#647): `active`, a run or
+ * the gym. An occasion may require it of some roles (OccasionHints.active).
+ * Of the type, never stored: no column, no migration. Swimwear needs none:
+ * it is never drawn at all (GarmentType.drawn).
+ */
+export type GarmentPurpose = 'active';
+
 export interface GarmentType {
   value: string;
   presets: Presets;
   weightSteps?: readonly WeightStep[];
+  /**
+   * False for what is worn under or apart from an outfit (socks, underwear,
+   * swimwear, sleepwear, #685): the generator never draws one (isDrawnType).
+   */
+  drawn?: false;
+  purpose?: GarmentPurpose;
 }
+
+/**
+ * The type a person picks when none of a category's types is what the
+ * garment is (#685): an explicit answer, so tagging mode stops asking.
+ * Only the categories whose list cannot be complete end in it: tops and
+ * bottoms always have a closest type, which brings the presets the weather
+ * reads (sleeve, length). Stored like any type, so it needs no column.
+ */
+export const OTHER_TYPE = 'other';
+const OTHER: GarmentType = { value: OTHER_TYPE, presets: {} };
+
+// The everyday types no outfit is drawn with (GarmentType.drawn). Swimwear
+// and sleepwear come as tops, bottoms or one-pieces; socks and underwear
+// are filed beside the accessories, which are never drawn either.
+const SWIMWEAR = { value: 'swimwear', drawn: false } as const;
+const SLEEPWEAR = { value: 'sleepwear', drawn: false } as const;
 
 // Tees and knits: heavyweight from 6 oz (200 gsm); a sheer tee under
 // 4 oz (135 gsm) reads as very light.
@@ -332,7 +362,8 @@ const DENIM_WEIGHTS: readonly WeightStep[] = [
 /**
  * The types of each built-in category, in the order the form offers them,
  * with their presets (docs/plans/2026-09-26-wardrobe-features.md, section
- * 6: a first cut, tuned on real garments). `other` has none.
+ * 6: a first cut, tuned on real garments). `other` has none. A category
+ * whose list ends in OTHER cannot list everything a garment of it may be.
  */
 export const GARMENT_TYPES: Record<GarmentCategory, readonly GarmentType[]> = {
   [GarmentCategory.TOPS]: [
@@ -369,6 +400,18 @@ export const GARMENT_TYPES: Record<GarmentCategory, readonly GarmentType[]> = {
       value: 'turtleneck',
       presets: { warmth: 3, formality: 3, sleeve: 'long' },
     },
+    // Tank or tee, made for a run or the gym. Short like a t-shirt, its
+    // commonest form: a top tagged from the tagging card must not reach
+    // ideas and plans with no sleeve (the tank and long-sleeve forms are one
+    // edit away). A workout does not require an active top (any light top
+    // does), but this is what it suits.
+    {
+      value: 'sports-top',
+      presets: { warmth: 1, formality: 1, sleeve: 'short' },
+      purpose: 'active',
+    },
+    { ...SWIMWEAR, presets: { warmth: 1, formality: 1 } },
+    { ...SLEEPWEAR, presets: { warmth: 2, formality: 1 } },
   ],
   [GarmentCategory.BOTTOMS]: [
     {
@@ -378,19 +421,39 @@ export const GARMENT_TYPES: Record<GarmentCategory, readonly GarmentType[]> = {
     },
     { value: 'chinos', presets: { warmth: 2, formality: 3, length: 'full' } },
     { value: 'trousers', presets: { warmth: 2, formality: 3, length: 'full' } },
-    { value: 'joggers', presets: { warmth: 3, formality: 1, length: 'full' } },
+    {
+      value: 'joggers',
+      presets: { warmth: 3, formality: 1, length: 'full' },
+      purpose: 'active',
+    },
+    // Not active: sweatpants are lounge wear (a Sunday on the sofa), and a
+    // cold run that asks for full length has joggers or leggings.
     {
       value: 'sweatpants',
       presets: { warmth: 3, formality: 1, length: 'full' },
     },
     { value: 'shorts', presets: { warmth: 1, formality: 2, length: 'short' } },
     { value: 'skirt', presets: { warmth: 2, formality: 3, length: 'knee' } },
-    { value: 'leggings', presets: { warmth: 2, formality: 1, length: 'full' } },
+    {
+      value: 'leggings',
+      presets: { warmth: 2, formality: 1, length: 'full' },
+      purpose: 'active',
+    },
+    {
+      value: 'running-shorts',
+      presets: { warmth: 1, formality: 1, length: 'short' },
+      purpose: 'active',
+    },
+    { ...SWIMWEAR, presets: { warmth: 1, formality: 1, length: 'short' } },
+    { ...SLEEPWEAR, presets: { warmth: 2, formality: 1, length: 'full' } },
   ],
   [GarmentCategory.DRESSES]: [
     { value: 'day-dress', presets: { warmth: 2, formality: 3 } },
     { value: 'evening-dress', presets: { warmth: 2, formality: 4 } },
     { value: 'jumpsuit', presets: { warmth: 2, formality: 3, length: 'full' } },
+    { ...SWIMWEAR, presets: { warmth: 1, formality: 1 } },
+    { ...SLEEPWEAR, presets: { warmth: 2, formality: 1 } },
+    OTHER,
   ],
   [GarmentCategory.OUTERWEAR]: [
     { value: 'jacket', presets: { warmth: 3, formality: 2 } },
@@ -413,16 +476,22 @@ export const GARMENT_TYPES: Record<GarmentCategory, readonly GarmentType[]> = {
     },
     { value: 'vest', presets: { warmth: 3, formality: 2 } },
     { value: 'fleece', presets: { warmth: 3, formality: 1 } },
+    OTHER,
   ],
   [GarmentCategory.FOOTWEAR]: [
     { value: 'sneakers', presets: { warmth: 2, formality: 2 } },
-    { value: 'running-shoes', presets: { warmth: 2, formality: 1 } },
+    {
+      value: 'running-shoes',
+      presets: { warmth: 2, formality: 1 },
+      purpose: 'active',
+    },
     { value: 'boots', presets: { warmth: 4, formality: 3 } },
     { value: 'loafers', presets: { warmth: 2, formality: 3 } },
     { value: 'dress-shoes', presets: { warmth: 2, formality: 4 } },
     { value: 'sandals', presets: { warmth: 1, formality: 2 } },
     { value: 'slides', presets: { warmth: 1, formality: 1 } },
     { value: 'heels', presets: { warmth: 2, formality: 4 } },
+    OTHER,
   ],
   [GarmentCategory.ACCESSORIES]: [
     { value: 'hat', presets: {} },
@@ -435,6 +504,9 @@ export const GARMENT_TYPES: Record<GarmentCategory, readonly GarmentType[]> = {
     { value: 'tie', presets: { formality: 4 } },
     { value: 'jewelry', presets: {} },
     { value: 'watch', presets: {} },
+    { value: 'socks', presets: { warmth: 2, formality: 1 }, drawn: false },
+    { value: 'underwear', presets: { warmth: 1, formality: 1 }, drawn: false },
+    OTHER,
   ],
   [GarmentCategory.BAGS]: [
     { value: 'backpack', presets: { formality: 2 } },
@@ -442,6 +514,7 @@ export const GARMENT_TYPES: Record<GarmentCategory, readonly GarmentType[]> = {
     { value: 'crossbody', presets: { formality: 2 } },
     { value: 'handbag', presets: { formality: 3 } },
     { value: 'duffel', presets: { formality: 1 } },
+    OTHER,
   ],
   [GarmentCategory.OTHER]: [],
 };
@@ -456,6 +529,22 @@ export function findType(
   type: string | null | undefined,
 ): GarmentType | undefined {
   return type ? typesOf(category).find((t) => t.value === type) : undefined;
+}
+
+/**
+ * Whether the generator may draw a garment of this type (GarmentType.drawn):
+ * untyped and unknown types are, socks and swimwear are not.
+ */
+export function isDrawnType(category: string, type: string | null): boolean {
+  return findType(category, type)?.drawn !== false;
+}
+
+/** What a garment's type is made for (GarmentType.purpose); undefined for everyday, untyped and unknown types. */
+export function purposeOf(
+  category: string,
+  type: string | null,
+): GarmentPurpose | undefined {
+  return findType(category, type)?.purpose;
 }
 
 /**

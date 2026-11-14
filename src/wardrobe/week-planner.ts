@@ -25,6 +25,7 @@ import {
   compareOccasions,
   DAY_OCCASIONS,
   OCCASION_HINTS,
+  occasionDemands,
   type Occasion,
 } from './occasions';
 import type { OutfitRule } from './outfit-rules';
@@ -47,9 +48,11 @@ import { occasionsOn, type TemplateSlot } from './week';
  *   (OCCASION_HINTS) has ended are left alone.
  * - **Ideas come from the generator** (generateIdeas: its colour, clash,
  *   outfit and saved-outfit rules, the slot's weather needs and the occasion's
- *   formality), one per slot, seeded by (day, occasion). The best idea is
- *   taken, a near miss included (its problems travel with it); a slot with
- *   no idea at all stays empty and is reported.
+ *   demands, occasionDemands), one per slot, seeded by (day, occasion). The
+ *   best idea is taken, a near miss included (its problems travel with it);
+ *   a slot with no idea at all stays empty and is reported. A workout's
+ *   activewear is a hard rule, never a near miss (ActiveDemand): without
+ *   running shoes and athletic bottoms clean that day, it stays empty.
  * - **Wash limits across the week**: the week's own future wears count.
  *   Every unworn entry already in the window and every outfit planned so
  *   far adds its garments' wear days (distinct days, as the app counts
@@ -151,7 +154,7 @@ interface PlannedSlot<G extends PlannerGarment> extends Slot {
 
 export interface WeekPlan<G extends PlannerGarment> {
   planned: PlannedSlot<G>[];
-  /** Empty slots no idea could fill (nothing clean left for them). */
+  /** Empty slots no idea could fill (nothing clean left for them, or no activewear for a workout). */
   unfilled: Slot[];
 }
 
@@ -546,7 +549,7 @@ function ideaFor<G extends PlannerGarment>(
     seed: slotSeed(slot),
     pool,
     needs,
-    formality: OCCASION_HINTS[slot.occasion].formality,
+    ...occasionDemands(slot.occasion),
     avoid: context.avoid,
     rules: context.rules,
     saved: ledger.outfits,

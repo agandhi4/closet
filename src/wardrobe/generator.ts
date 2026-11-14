@@ -2,6 +2,7 @@ import { seededRandom } from '../random';
 import {
   assessOutfit,
   FIT_PROBLEMS,
+  legsTooColdForRun,
   type MatchGarment,
   type WeatherNeeds,
 } from '../weather/match';
@@ -14,11 +15,14 @@ import {
   type OutfitRule,
   type RuleGarment,
 } from './outfit-rules';
+import type { ActiveDemand } from './occasions';
 import {
   categoryRole,
   type Formality,
   type GarmentColor,
   type GarmentRole,
+  isDrawnType,
+  purposeOf,
 } from './properties';
 
 /**
@@ -52,7 +56,11 @@ import {
  *   rules (outfit-rules.ts: never A with B, always B with A, the avoided
  *   pairs of generator_avoid among the never-rules); no combination equal
  *   to a saved outfit (compared on the drawn roles, so a saved outfit with
- *   a belt still counts); every locked garment in every idea. A never-rule
+ *   a belt still counts); every locked garment in every idea; for an
+ *   occasion dressed for moving (`active`, OCCASION_HINTS: a workout) its
+ *   roles filled with activewear (GarmentType.purpose), or no idea at all
+ *   (the soft rules spare its legs' cold floor and its layer's
+ *   formality: ActiveDemand). A never-rule
  *   the locked garments break among themselves does not empty the ideas:
  *   each is flagged 'breaks-rule', naming it (brokenRules).
  * - Soft rules, a score: the weather (assessOutfit, src/weather/match.ts)
@@ -69,7 +77,7 @@ import {
  */
 
 /** Bump to reshuffle every seed's ideas on purpose. */
-const GENERATOR_VERSION = 4;
+const GENERATOR_VERSION = 5;
 
 /** Draws per page request: bounds the work on a closet with few combinations. */
 export const MAX_DRAWS = 2000;
@@ -196,6 +204,8 @@ export interface IdeaRequest<G extends IdeaGarment = IdeaGarment> {
   needs?: WeatherNeeds | null;
   /** The occasion's formality range; null for any. */
   formality?: { min: Formality; max: Formality } | null;
+  /** The occasion is dressed for moving (ActiveDemand); null for everyday wear. */
+  active?: ActiveDemand | null;
   /** Garment pairs never to combine (generator_avoid): never-rules beside `rules`. */
   avoid?: readonly (readonly [number, number])[];
   /** The owner's outfit rules (outfit_rule); none over a share. */
@@ -244,8 +254,9 @@ export function generateIdeas<G extends IdeaGarment>(
   const locked = request.locked ?? [];
   const lockedIds = new Set(locked.map((g) => g.id));
   const lockedRoles = new Set(locked.map((g) => g.role));
-  const byRole = drawableByRole(request.pool, locked);
-  const templates = templatesFor(byRole, lockedRoles);
+  const active = request.active ?? null;
+  const byRole = drawableByRole(request.pool, locked, active, request.needs);
+  const templates = templatesFor(byRole, lockedRoles, active);
   const rules = compileRules(rulesOf(request));
   const compatible = compatibleWith(rules, lockedIds);
   // Every idea holds the locked garments, and a garment added never mends a
@@ -282,13 +293,7 @@ export function generateIdeas<G extends IdeaGarment>(
       repairer(request.seed, always, placeOf),
     ),
     bases,
-    floor: scoreFloor(
-      templates,
-      viable,
-      locked,
-      lockedRoles,
-      request.formality,
-    ),
+    floor: scoreFloor(templates, viable, locked, lockedRoles, request),
     layersFor: (base) =>
       rotationOrder(
         layers,
@@ -452,13 +457,15 @@ function scoreFloor(
   byRole: Map<GarmentRole, readonly IdeaGarment[]>,
   locked: readonly IdeaGarment[],
   lockedRoles: Set<GarmentRole>,
-  range: IdeaRequest['formality'],
+  request: IdeaRequest<IdeaGarment>,
 ): number {
-  if (!range) return 0;
+  if (!request.formality) return 0;
+  const miss = (g: IdeaGarment) =>
+    formalityMiss(g, formalityRangeFor(g, request));
   const missOf = (garments: readonly IdeaGarment[]) =>
-    garments.reduce((sum, g) => sum + formalityMiss(g, range), 0);
+    garments.reduce((sum, g) => sum + miss(g), 0);
   const leastMiss = (role: GarmentRole) =>
-    Math.min(...(byRole.get(role) ?? []).map((g) => formalityMiss(g, range)));
+    Math.min(...(byRole.get(role) ?? []).map(miss));
   return (
     missOf(locked) +
     Math.min(
@@ -471,15 +478,37 @@ function scoreFloor(
   );
 }
 
-/** Formality steps a garment sits outside the range, below or above (0 without one). */
-function formalityMiss(
+/**
+ * The formality range a garment is judged against: the request's, except
+ * that a layer is free for an occasion dressed for moving (ActiveDemand: a
+ * cold run's jacket). judge and scoreFloor both read it, or the floor stops
+ * bounding the scores.
+ */
+function formalityRangeFor(
+  { role }: Pick<IdeaGarment, 'role'>,
+  request: Pick<IdeaRequest, 'formality' | 'active'>,
+): IdeaRequest['formality'] {
+  return request.active && role === 'layer' ? null : request.formality;
+}
+
+/** Formality steps a garment sits below and above the range (0 without either). */
+function formalityMisses(
   { formality }: Pick<IdeaGarment, 'formality'>,
-  range: { min: Formality; max: Formality },
+  range: IdeaRequest['formality'],
+): { casual: number; dressy: number } {
+  if (formality === null || !range) return { casual: 0, dressy: 0 };
+  return {
+    casual: Math.max(0, range.min - formality),
+    dressy: Math.max(0, formality - range.max),
+  };
+}
+
+function formalityMiss(
+  garment: Pick<IdeaGarment, 'formality'>,
+  range: IdeaRequest['formality'],
 ): number {
-  if (formality === null) return 0;
-  return (
-    Math.max(0, range.min - formality) + Math.max(0, formality - range.max)
-  );
+  const { casual, dressy } = formalityMisses(garment, range);
+  return casual + dressy;
 }
 
 /**
@@ -526,7 +555,12 @@ function pageOf<G extends IdeaGarment>(
 }
 
 /**
- * The pool by role: only the roles drawn, and never a locked garment twice.
+ * The pool by role: only the roles drawn, never a type no outfit is drawn
+ * with (socks, swimwear: isDrawnType; one still rides along locked), never
+ * an everyday garment in a role an active occasion keeps for activewear
+ * (ActiveDemand; a locked one rides along: the person chose it; in a cold
+ * snap, bottoms too light for it, legsTooColdForRun), and never
+ * a locked garment twice.
  * Each role's garments in id order, whatever order the pool came in: the
  * draws pick by position, and a pool is a query's rows, whose order
  * Postgres does not promise without ORDER BY (it follows the heap and the
@@ -537,11 +571,30 @@ function pageOf<G extends IdeaGarment>(
 function drawableByRole<G extends IdeaGarment>(
   pool: readonly G[],
   locked: readonly G[],
+  active: ActiveDemand | null,
+  needs: WeatherNeeds | null | undefined,
 ): Map<GarmentRole, G[]> {
   const lockedIds = new Set(locked.map((g) => g.id));
+  // A cold snap asks full-length bottoms, not running shorts.
+  const tooLightForRun = (garment: G) =>
+    needs != null &&
+    garment.role === 'bottom' &&
+    legsTooColdForRun(needs, garment.weather);
+  const notActivewear = (garment: G) =>
+    purposeOf(garment.category, garment.type) !== 'active' ||
+    tooLightForRun(garment);
+  const everyday = (garment: G) =>
+    active !== null &&
+    active.roles.includes(garment.role) &&
+    notActivewear(garment);
   const byRole = new Map<GarmentRole, G[]>();
   for (const garment of [...pool].sort((a, b) => a.id - b.id)) {
-    if (lockedIds.has(garment.id) || !DRAWN_ROLES.includes(garment.role)) {
+    if (
+      lockedIds.has(garment.id) ||
+      !DRAWN_ROLES.includes(garment.role) ||
+      !isDrawnType(garment.category, garment.type) ||
+      everyday(garment)
+    ) {
       continue;
     }
     const role = byRole.get(garment.role);
@@ -589,6 +642,22 @@ function drawer<G extends IdeaGarment>(
  * only one.
  */
 function templatesFor(
+  byRole: Map<GarmentRole, readonly IdeaGarment[]>,
+  lockedRoles: Set<GarmentRole>,
+  active: ActiveDemand | null,
+): Template[] {
+  // An active occasion's roles are required: a template without one of
+  // them (a dress; no shoes when the closet has no running shoes) is no
+  // workout outfit, so none is left and the request has no idea.
+  const templates = everydayTemplates(byRole, lockedRoles);
+  return active
+    ? templates.filter((template) =>
+        active.roles.every((role) => template.roles.includes(role)),
+      )
+    : templates;
+}
+
+function everydayTemplates(
   byRole: Map<GarmentRole, readonly IdeaGarment[]>,
   lockedRoles: Set<GarmentRole>,
 ): Template[] {
@@ -860,14 +929,16 @@ function judge(
   }
   // casual + dressy is the sum of formalityMiss over the garments, never
   // below it: scoreFloor's bound depends on it.
-  const range = request.formality;
-  if (range) {
+  if (request.formality) {
     let casual = 0;
     let dressy = 0;
-    for (const { formality } of garments) {
-      if (formality === null) continue;
-      casual += Math.max(0, range.min - formality);
-      dressy += Math.max(0, formality - range.max);
+    for (const garment of garments) {
+      const miss = formalityMisses(
+        garment,
+        formalityRangeFor(garment, request),
+      );
+      casual += miss.casual;
+      dressy += miss.dressy;
     }
     if (casual > 0) problems.push('too-casual');
     if (dressy > 0) problems.push('too-dressy');

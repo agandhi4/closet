@@ -173,6 +173,15 @@ export const IdeaList = ListOf(IdeaResource, {
     occasion: Occasion,
     seed: Type.Integer({ description: 'The seed these ideas were drawn by' }),
     weather: Type.Optional(IdeaWeather),
+    emptyReason: Type.Optional(
+      Type.Union(
+        [Type.Literal('no-activewear'), Type.Literal('none-available')],
+        {
+          description:
+            "Present only when there are no ideas and the occasion is dressed for moving (a workout), which takes running shoes and athletic bottoms: 'no-activewear' when the closet has none (set garment types), 'none-available' when it has but none is clean and at home that day",
+        },
+      ),
+    ),
   },
 });
 
@@ -287,6 +296,7 @@ export function toIdeaList(
     occasion: asked.occasion,
     seed: asked.seed,
     ...(result.weather && { weather: toIdeaWeather(result.weather) }),
+    ...(result.emptyReason && { emptyReason: result.emptyReason }),
   };
 }
 

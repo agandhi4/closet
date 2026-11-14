@@ -103,6 +103,18 @@ describe('ideas', () => {
     );
   });
 
+  it('says why a workout has no idea: this closet has no activewear (#647)', async () => {
+    const res = await api('GET', '/ideas?occasion=workout');
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json<IdeaList & { emptyReason?: string }>()).toMatchObject({
+      data: [],
+      emptyReason: 'no-activewear',
+    });
+    expect((await api('GET', '/ideas')).json()).not.toHaveProperty(
+      'emptyReason',
+    );
+  });
+
   it('holds every garment sent in `with`; one not in your closet, or a capsule not yours, is a 404', async () => {
     const [top] = closet.tops;
     const [bottom] = closet.bottoms;

@@ -18,6 +18,7 @@ import {
   typesOf,
   WARMTHS,
 } from './properties';
+import { DRAWN_ROLES } from './generator';
 
 const UNSET: PresetValues = {
   warmth: null,
@@ -102,6 +103,30 @@ describe('the type table', () => {
       }
       if (waterResistant !== undefined) {
         expect(propertyApplies('waterResistant', category)).toBe(true);
+      }
+    }
+  });
+
+  // Blouses and dresses are cut too many ways for one preset sleeve or length.
+  const VARIES = new Set(['blouse', 'day-dress', 'evening-dress']);
+
+  it('gives every drawn type the presets its role is matched on', () => {
+    for (const { category, type } of entries) {
+      // `other` has no presets by design (OTHER_TYPE).
+      if (type.drawn === false || type.value === 'other') continue;
+      const where = `${category}/${type.value}`;
+      const role = categoryRole(category);
+      if (!DRAWN_ROLES.includes(role)) continue;
+      if (propertyApplies('warmth', category)) {
+        expect(type.presets.warmth, `${where} warmth`).toBeDefined();
+      }
+      expect(type.presets.formality, `${where} formality`).toBeDefined();
+      if (VARIES.has(type.value)) continue;
+      if (role === 'top') {
+        expect(type.presets.sleeve, `${where} sleeve`).toBeDefined();
+      }
+      if (role === 'bottom') {
+        expect(type.presets.length, `${where} length`).toBeDefined();
       }
     }
   });

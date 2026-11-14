@@ -108,6 +108,10 @@ export const galleryTools = [
         seed: usedSeed,
         page,
         more: result.more,
+        // A workout with no idea for want of activewear: 'no-activewear'
+        // (the closet has none: set garment types) or 'none-available'
+        // (none clean and at home that day).
+        emptyReason: result.emptyReason ?? null,
         formality: OCCASION_HINTS[occasion].formality,
         weather: needs
           ? {

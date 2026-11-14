@@ -187,6 +187,23 @@ const SHAPES: Record<string, () => Shape> = {
     { d: 'M310 150 Q400 250 490 150', line: 'seam', fill: 'none', width: 8 },
   ],
   sweater: () => [{ d: LONG_SLEEVES }, CREW_NECK, ...CUFFS, HEM_BAND],
+  // A raglan tee with mesh side panels: the run and the gym.
+  'sports-top': () => [
+    { d: SHORT_SLEEVES },
+    CREW_NECK,
+    { d: 'M318 150 L245 318 M482 150 L555 318', line: 'seam', fill: 'none' },
+    { d: 'M255 360 L290 360 L290 650 L255 650 Z', fill: 'trim' },
+    { d: 'M510 360 L545 360 L545 650 L510 650 Z', fill: 'trim' },
+  ],
+  // Pyjamas: a piped camp-collar shirt, buttoned.
+  sleepwear: () => [
+    { d: LONG_SLEEVES },
+    ...CUFFS,
+    ...COLLAR,
+    { d: 'M400 214 L400 650', line: 'seam', width: 10 },
+    ...buttons(414, 260, 600, 5),
+    { d: 'M290 300 L350 300 L350 350 L290 350 Z', fill: 'trim' },
+  ],
   cardigan: () => [
     { d: LONG_SLEEVES },
     ...CUFFS,
@@ -241,6 +258,28 @@ const SHAPES: Record<string, () => Shape> = {
       line: 'seam',
       fill: 'none',
     },
+  ],
+  'running-shorts': () => [
+    { d: 'M276 220 L524 220 L556 420 L420 436 L400 330 L380 436 L244 420 Z' },
+    { d: 'M276 220 L524 220 L526 256 L274 256 Z', fill: 'trim' },
+    // The split hems.
+    { d: 'M532 424 L520 380 M268 424 L280 380', line: 'seam', width: 6 },
+  ],
+  // Swim trunks: short, with a drawstring.
+  swimwear: () => [
+    { d: 'M282 230 L518 230 L548 430 L416 444 L400 340 L384 444 L252 430 Z' },
+    { d: 'M282 230 L518 230 L520 262 L280 262 Z', fill: 'trim' },
+    {
+      d: 'M392 262 L380 320 M408 262 L420 320',
+      line: 'seam',
+      fill: 'none',
+      width: 6,
+    },
+  ],
+  // Boxer briefs: a waistband and short legs.
+  underwear: () => [
+    { d: 'M286 260 L514 260 L540 420 L430 432 L400 370 L370 432 L260 420 Z' },
+    { d: 'M286 260 L514 260 L516 300 L284 300 Z', fill: 'trim' },
   ],
   skirt: () => [
     { d: 'M300 170 L500 170 L600 640 Q400 668 200 640 Z' },

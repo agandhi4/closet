@@ -318,6 +318,39 @@ describe('tagging mode', () => {
     await t.inject({ method: 'POST', url: `/wardrobe/${id}/archive` });
   });
 
+  it('takes "Other" where no type of the category applies, and the garment leaves the queue (#685)', async () => {
+    const id = await create({
+      name: 'Hair clip',
+      category: 'accessories',
+      warmth: '1',
+      formality: '2',
+    });
+    const res = await card();
+    expect(res.body).toContain('Hair clip');
+    expect(res.body).toContain('1 left to tag');
+    expect(res.body).toContain('value="other"');
+    expect(res.body).toContain('aria-label="Socks"');
+
+    const tapped = await tag(id, {
+      type: 'other',
+      warmth: '1',
+      formality: '2',
+    });
+    expect(tapped.statusCode).toBe(200);
+    expect(tapped.body).toContain('0 left to tag');
+    expect(await row(id)).toMatchObject({ type: 'other', warmth: 1 });
+    // "Other" brings no presets, so what was chosen stays.
+    expect((await row(id)).formality).toBe(2);
+
+    // Tops always have a closest type: no "Other" on their card.
+    const tee = await create({ name: 'Odd top', category: 'tops' });
+    const tops = await card();
+    expect(tops.body).toContain('Odd top');
+    expect(tops.body).toContain('aria-label="Sports top"');
+    expect(tops.body).not.toContain('value="other"');
+    await t.inject({ method: 'POST', url: `/wardrobe/${tee}/archive` });
+  });
+
   it('says so when every garment is tagged, and the prompt goes', async () => {
     const res = await t.inject({ method: 'GET', url: '/wardrobe/tag' });
     expectNoRawI18nKeys(res);

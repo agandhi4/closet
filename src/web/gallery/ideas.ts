@@ -6,7 +6,12 @@ import {
   type Idea,
   inOutfitOrderByCategory,
 } from '../../wardrobe/generator';
-import { OCCASION_HINTS, type Occasion } from '../../wardrobe/occasions';
+import {
+  type ActivewearGap,
+  activewearGap,
+  occasionDemands,
+  type Occasion,
+} from '../../wardrobe/occasions';
 import { FORECAST_DAYS, forecastDay } from '../../weather/forecast';
 import type { Location } from '../../weather/location';
 import {
@@ -55,6 +60,7 @@ import {
   generatorMemorySql,
   type GoesWithInputs,
   goesWithInputs,
+  closetKindsSql,
   ideaPoolSql,
   type ManyGoesWithInputs,
   type PoolGarment,
@@ -188,6 +194,11 @@ export interface IdeasResult {
   weather: IdeasWeather | null;
   /** The owner's capsules by name, with `capsuleMenu`; else undefined. */
   capsules: CapsuleRef[] | undefined;
+  /**
+   * Why a workout has no idea, when it is the closet's activewear
+   * (activewearGap); undefined otherwise, and whenever there are ideas.
+   */
+  emptyReason: ActivewearGap | undefined;
 }
 
 export async function ideasFor(
@@ -225,6 +236,10 @@ export function ideasColumns(
     ...generatorMemorySql(ownerId),
     weather: weatherColumn(deps, ownerId, input, now),
     capsules: input.capsuleMenu ? capsuleNamesSql(ownerId) : undefined,
+    // Only an active occasion tells why it is empty (ideasFrom).
+    closetKinds: occasionDemands(input.occasion).active
+      ? closetKindsSql(ownerId)
+      : undefined,
   };
 }
 
@@ -246,19 +261,28 @@ export async function ideasFrom(
     ownerId,
     await weatherFrom(deps, input, row.weather, now),
   );
+  const demands = occasionDemands(input.occasion);
   const page = generateIdeas({
     seed: input.seed,
     pool,
     locked: input.locked ?? [],
     needs: weather?.needs ?? null,
-    formality: OCCASION_HINTS[input.occasion].formality,
+    ...demands,
     avoid,
     rules,
     saved,
     offset: input.offset,
     limit: input.limit,
   });
-  return { ...page, weather, capsules: row.capsules };
+  return {
+    ...page,
+    weather,
+    capsules: row.capsules,
+    emptyReason:
+      page.ideas.length === 0
+        ? activewearGap(demands.active, row.closetKinds ?? [], pool)
+        : undefined,
+  };
 }
 
 /**
