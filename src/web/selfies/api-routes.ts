@@ -70,6 +70,7 @@ export const selfieApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
   app.put(
     '/calendar-entries/:id/selfie',
     {
+      config: { photoUpload: true },
       schema: {
         operationId: 'setCalendarEntrySelfie',
         tags: ['selfies'],

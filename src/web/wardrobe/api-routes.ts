@@ -628,6 +628,7 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
   app.put(
     `${GARMENT_PATH}/photo`,
     {
+      config: { photoUpload: true },
       schema: {
         operationId: 'replaceGarmentPhoto',
         tags: ['photos'],
@@ -685,6 +686,7 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
   app.put(
     `${GARMENT_PATH}/photo/cutout`,
     {
+      config: { photoUpload: true },
       schema: {
         operationId: 'saveGarmentCutout',
         tags: ['photos'],

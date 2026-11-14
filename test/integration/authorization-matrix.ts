@@ -1116,6 +1116,9 @@ export function describeMatrix(
       t = await createTestApp(features.env, {
         ...features.options,
         outboundFetch: sites.outboundFetch,
+        // Each case's fixture uploads its photos and selfies as the owner:
+        // hundreds a minute, past PHOTO_UPLOAD_LIMIT (photo-upload-limit.spec.ts).
+        photoUploadMax: Number.MAX_SAFE_INTEGER,
       });
       [photo, cutout] = await Promise.all([
         jpegPhoto(320, 240),

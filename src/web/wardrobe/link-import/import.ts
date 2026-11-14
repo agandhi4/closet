@@ -348,6 +348,9 @@ function imageSource(resource: FetchedResource): ImageSource {
     // For Photos' log lines: the host only, never the path (a product link
     // can carry a token).
     filename: `a photo from ${resource.url.hostname}`,
+    // A stranger's bytes are never decoded as HEIC (#699): the fetcher
+    // refuses its types, and this keeps a name or a type from reaching it.
+    fetched: true,
   };
 }
 

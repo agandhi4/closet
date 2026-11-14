@@ -12,7 +12,7 @@ import type { Logger } from '../../logger';
  * unless its route opts in with `config: { rateLimit: SIGN_IN_LIMIT }` (or
  * ACCOUNT_LIMIT, LINK_IMPORT_LIMIT, WEATHER_SEARCH_LIMIT, WEATHER_LOCATION_LIMIT,
  * VITALS_LIMIT, CLIENT_ERROR_LIMIT, MCP_LIMIT; HEALTH_LIMIT, SIGN_IN_LIMIT's
- * two sign-in doors, SIGN_IN_ACCOUNT_LIMIT, BEARER_REFUSAL_LIMIT, API_LIMIT and API_PHOTO_LIMIT through one
+ * two sign-in doors, SIGN_IN_ACCOUNT_LIMIT, BEARER_REFUSAL_LIMIT, API_LIMIT, API_PHOTO_LIMIT and PHOTO_UPLOAD_LIMIT through one
  * createRateLimit checker each). Every limited route counts on its own. Counters live in
  * process memory, which is right for the single container this runs as.
  *
@@ -368,6 +368,64 @@ export const API_PHOTO_LIMIT = {
   keyGenerator: (request: FastifyRequest) =>
     `token ${request.accessToken!.tokenId} photos`,
 };
+
+declare module 'fastify' {
+  interface FastifyContextConfig {
+    /**
+     * A route that reads an uploaded file (a photo, a mask): it counts on
+     * PHOTO_UPLOAD_LIMIT (photoUploadHook). A multipart request to any
+     * other route is a 415 before its handler, so an upload route without
+     * the mark refuses its own uploads.
+     */
+    photoUpload?: boolean;
+  }
+}
+
+/**
+ * Every route that reads an uploaded file (`config: { photoUpload: true }`),
+ * pages and /api/v1 alike, on ONE checker (`photoUploadHook`, webPlugin):
+ * per user, the session's or the device token's, so a user's doors are one
+ * budget. Each upload is buffered or decoded (a HEIC on the one decoder
+ * thread, #699), so this is a ceiling on how much of that one account can
+ * ask for. A page's library pick of many photos is one request, but a
+ * device syncing through the API sends one per photo, and a camera roll's
+ * worth (MAX_DRAFTS_PER_USER, 30) must fit with room to spare. Counted
+ * before the body is read.
+ */
+export const PHOTO_UPLOAD_LIMIT = {
+  max: 60,
+  timeWindow: MINUTE_MS,
+  keyGenerator: (request) =>
+    `user ${request.accessToken?.user.id ?? request.auth!.user.id} uploads`,
+} satisfies RateLimitOptions;
+
+/**
+ * webPlugin's preHandler for every route under it (after the session gate
+ * and the bearer gate, before any handler reads a part): a `photoUpload`
+ * route counts on PHOTO_UPLOAD_LIMIT; a multipart body sent anywhere else
+ * is a 415 (the share target's stateless fallback aside, which reads no
+ * file: share-fallback.ts).
+ */
+export function photoUploadHook(
+  checker: RateLimitChecker,
+  logger: Logger,
+): (request: FastifyRequest) => Promise<void> {
+  return async (request) => {
+    const { config } = request.routeOptions;
+    if (config.photoUpload === true) {
+      await enforceLimit(checker, request, {
+        logger,
+        who: `user ${request.accessToken?.user.id ?? request.auth!.user.id}`,
+      });
+      return;
+    }
+    if (request.isMultipart() && config.stateless !== true) {
+      throw new HttpError(415, undefined, {
+        logDetail: 'a multipart body to a route that takes no upload',
+      });
+    }
+  };
+}
 
 /**
  * The MCP tool that imports a link (add_garment_from_link) fetches a
