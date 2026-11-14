@@ -64,11 +64,11 @@ function heicBusy(error: HeicDecodeError): HttpError {
  * decoder's thread. Rejects with a 413 HttpError past the byte cap, with
  * imageTooLarge() past `maxPixels` before any pixel is allocated (a small
  * file can declare a 20000x20000 grid), and with a 503 when the decoder
- * has no room or the deadline passes, before the bytes are buffered; any other HeicDecodeError
- * (undecodable, a crashed thread) is passed through for
- * the caller to map to a client error. The stream is fully drained on
- * every path: an unconsumed multipart part hangs the request (see
- * Photos.storeImage).
+ * has no room (before the bytes are buffered) or the deadline passes
+ * (after); any other HeicDecodeError (undecodable, a crashed thread) is
+ * passed through for the caller to map to a client error. The stream is
+ * fully drained on every path: an unconsumed multipart part hangs the
+ * request (see Photos.storeImage).
  */
 export async function decodeHeic(
   stream: Readable,
