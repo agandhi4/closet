@@ -271,6 +271,9 @@ describe('select mode verbs', () => {
       },
     );
     expect(res.headers.location).toContain('bulkWashed=1');
+    expect(res.headers.location).toContain('bulkSkipped=1');
+    const toast = (await get(res.headers.location!)).body;
+    expect(toast).toContain('1 garment marked washed · 1 archived skipped');
     const [closet, archived] = await rows([kept.id, shelved.id]);
     expect(closet.lastWashedOn).toBe(t.today());
     expect(archived.lastWashedOn).toBeNull();

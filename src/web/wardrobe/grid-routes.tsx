@@ -160,7 +160,11 @@ function bulkOutcome(query: GridQuery): BulkOutcome | undefined {
     return { verb: 'archive', count: query.bulkArchived };
   }
   if (query.bulkWashed !== undefined) {
-    return { verb: 'wash', count: query.bulkWashed };
+    return {
+      verb: 'wash',
+      count: query.bulkWashed,
+      skipped: query.bulkSkipped ?? 0,
+    };
   }
   if (query.bulkAdded !== undefined) {
     return { verb: 'capsule', count: query.bulkAdded };
@@ -479,6 +483,7 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       return reply.redirect(
         backToSelection(viewOwner, selection.search, selection, {
           bulkWashed: washed.length,
+          bulkSkipped: ids.length - washed.length,
         }),
         303,
       );
