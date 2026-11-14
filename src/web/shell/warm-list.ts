@@ -50,13 +50,14 @@ export async function warmList(
   ownerId: number,
   today: IsoDate,
 ): Promise<WarmList> {
-  const nextWeekEnd = weekOf(addDays(weekOf(today).start, 7)).end;
+  const thisWeekStart = weekOf(today).start;
+  const nextWeekEnd = weekOf(addDays(thisWeekStart, 7)).end;
   const { garments, kept, oneOffs, nearTerm, needs, trips } =
     await selectScalars(db, {
       garments: ownGarmentsSql(ownerId),
       kept: savedOutfitsSql(ownerId, 'kept'),
       oneOffs: savedOutfitsSql(ownerId, 'one-offs'),
-      nearTerm: plannedOutfitIdsSql(ownerId, today, nextWeekEnd),
+      nearTerm: plannedOutfitIdsSql(ownerId, thisWeekStart, nextWeekEnd),
       needs: inboxNeedIdsSql(ownerId),
       trips: ownTripsSql(ownerId, today),
     });
@@ -93,7 +94,7 @@ export async function warmList(
 
   return {
     pages: [
-      weekUrl(addDays(weekOf(today).start, 7)),
+      weekUrl(addDays(thisWeekStart, 7)),
       LAUNDRY_PAGE,
       ...warmedTrips.map((row) => tripUrl(row.id)),
       ...warmed.map((row) => garmentUrl(row.id, undefined)),

@@ -9,6 +9,7 @@ import {
 import { outfit } from '../../src/db/schema';
 import { OWNER_LOCK_TIMEOUT_MS } from '../../src/db/owner-lock';
 import { lockOwner, ownerTransaction } from '../../src/web/auth/queries';
+import { isDatabaseUnavailable } from '../../src/db/errors';
 import { HttpError } from '../../src/web/errors';
 import { t as translate } from '../../src/web/i18n';
 import { createGarment } from './garments';
@@ -36,8 +37,9 @@ describe('database timeouts', () => {
   async function withPool<T>(
     timeouts: DbTimeouts,
     use: (db: Db) => Promise<T>,
+    max?: number,
   ): Promise<T> {
-    const db = createDb(t.database, t.logger, timeouts);
+    const db = createDb(t.database, t.logger, { timeouts, max });
     try {
       return await use(db);
     } finally {
@@ -56,6 +58,8 @@ describe('database timeouts', () => {
     expect(SERVER_TIMEOUTS).toEqual({
       statementMs: 15_000,
       idleInTransactionMs: 30_000,
+      connectMs: 5_000,
+      queryMs: 16_000,
     });
     expect(await setting(t.db, 'statement_timeout')).toBe('15s');
     expect(await setting(t.db, 'idle_in_transaction_session_timeout')).toBe(
@@ -156,7 +160,7 @@ describe('database timeouts', () => {
 
   it('ends a transaction left idle past idle_in_transaction_session_timeout, and the pool recovers', async () => {
     await withPool(
-      { statementMs: SERVER_TIMEOUTS.statementMs, idleInTransactionMs: 200 },
+      { ...SERVER_TIMEOUTS, idleInTransactionMs: 200 },
       async (db) => {
         let pid = 0;
         const stalled = await db
@@ -196,19 +200,61 @@ describe('database timeouts', () => {
   });
 
   it('cancels a statement past statement_timeout', async () => {
+    await withPool({ ...SERVER_TIMEOUTS, statementMs: 200 }, async (db) => {
+      const outcome = await db.execute(sql`select pg_sleep(2)`).then(
+        () => 'finished',
+        // drizzle's error names the statement; the driver's, its cause.
+        (error: Error) => String((error.cause as Error | undefined)?.message),
+      );
+      expect(outcome).toBe('canceling statement due to statement timeout');
+    });
+  });
+
+  // The client's query_timeout fails the query but leaves it running on its
+  // connection; a transaction's ROLLBACK then waited behind it, and the
+  // connection went back to the pool still busy (#643). A pool of one shows
+  // it: the next query would queue behind the sleeping statement.
+  it('ends a connection whose query ran past query_timeout, so the next query gets a fresh one at once', async () => {
     await withPool(
-      {
-        statementMs: 200,
-        idleInTransactionMs: SERVER_TIMEOUTS.idleInTransactionMs,
-      },
+      { ...SERVER_TIMEOUTS, statementMs: 60_000, queryMs: 200 },
       async (db) => {
-        const outcome = await db.execute(sql`select pg_sleep(2)`).then(
-          () => 'finished',
-          // drizzle's error names the statement; the driver's, its cause.
-          (error: Error) => String((error.cause as Error | undefined)?.message),
+        const pidOf = async (q: Pick<Db, 'execute'>) => {
+          const { rows } = await q.execute<{ pid: number }>(
+            sql`select pg_backend_pid() as pid`,
+          );
+          return rows[0].pid;
+        };
+        // Both of Drizzle's paths: a single statement (pool.query, released
+        // with its error) and a transaction (released without one).
+        const stuck: number[] = [];
+        const single = await db.execute(sql`select pg_sleep(30)`).then(
+          () => undefined,
+          (error: unknown) => error,
         );
-        expect(outcome).toBe('canceling statement due to statement timeout');
+        expect(isDatabaseUnavailable(single)).toBe(true);
+        const inTransaction = await db
+          .transaction(async (tx) => {
+            stuck.push(await pidOf(tx));
+            await tx.execute(sql`select pg_sleep(30)`);
+          })
+          .then(
+            () => undefined,
+            (error: unknown) => error,
+          );
+        expect(isDatabaseUnavailable(inTransaction)).toBe(true);
+
+        const started = performance.now();
+        const next = await pidOf(db);
+        // Not behind a 30 s sleep: a fresh connection, opened at once.
+        expect(performance.now() - started).toBeLessThan(5_000);
+        expect(next).not.toBe(stuck[0]);
+        // The server never heard the client leave: its sleeps run on.
+        await t.db.execute(
+          sql`select pg_terminate_backend(pid) from pg_stat_activity
+              where datname = current_database() and query = 'select pg_sleep(30)'`,
+        );
       },
+      1,
     );
   });
 });
