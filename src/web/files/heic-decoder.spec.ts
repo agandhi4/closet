@@ -123,6 +123,7 @@ describe('HeicDecoder bounds', () => {
     // Let the first be read and handed to the thread: it no longer waits.
     await new Promise((resolve) => setImmediate(resolve));
     const waiting = failureOf(decoder.decode(command('ok'), 100));
+    await new Promise((resolve) => setImmediate(resolve));
     const read = vi.fn(command('ok'));
 
     await expect(failureOf(decoder.decode(read, 100))).resolves.toBe('busy');
@@ -130,6 +131,18 @@ describe('HeicDecoder bounds', () => {
     // One deadline from the queue: the waiting decode's covers its wait.
     await expect(running).resolves.toBe('timeout');
     await expect(waiting).resolves.toBe('timeout');
+  });
+
+  it('holds no place for an upload still sending its bytes', async () => {
+    const { decoder } = build({ workerPath: STUB, maxWaiting: 1 });
+    const stillSending = () => new Promise<Buffer>(() => undefined);
+    for (let upload = 0; upload < 3; upload++) {
+      void decoder.decode(stillSending, 100);
+    }
+
+    await expect(decoder.decode(command('ok'), 100)).resolves.toMatchObject({
+      width: 2,
+    });
   });
 
   it('rejects what is unanswered when closed', async () => {

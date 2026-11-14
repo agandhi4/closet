@@ -14,9 +14,11 @@ import type { HeicReply, HeicRequest } from './heic-worker';
 export const HEIC_DEADLINE_MS = 30_000;
 
 /**
- * Decodes admitted but not yet running (reading their bytes or queued):
- * each holds its container, up to MAX_HEIC_BYTES. One more is refused
- * before its bytes are read (HeicDecodeError 'busy', the caller's 503).
+ * Decodes queued behind the running one, each holding its container (up to
+ * MAX_HEIC_BYTES). With the queue full a decode is refused before its
+ * bytes are read, and again if it filled while they were (HeicDecodeError
+ * 'busy', the caller's 503). An upload still sending holds no place: four
+ * slow bodies cannot shut everyone else out.
  */
 export const HEIC_MAX_WAITING = 4;
 
@@ -111,8 +113,6 @@ export class HeicDecoder {
   private readonly deadlineMs: number;
   private readonly maxWaiting: number;
   private readonly idleMs: number;
-  // Admitted and not yet running: reading their bytes, or in `waiting`.
-  private admitted = 0;
   private readonly waiting: Job[] = [];
   private running: Job | undefined;
   private worker: Worker | undefined;
@@ -131,33 +131,18 @@ export class HeicDecoder {
 
   /**
    * Decodes the container `read` answers. Refused as 'busy' before `read`
-   * is called when HEIC_MAX_WAITING decodes are already admitted, so a
-   * refused upload never holds its bytes; whatever `read` throws (the byte
-   * cap's 413) is passed through. Rejects with a HeicDecodeError otherwise.
+   * is called while HEIC_MAX_WAITING decodes are queued, so a refused
+   * upload never holds its bytes, and after it when the queue filled
+   * meanwhile; whatever `read` throws (the byte cap's 413) is passed
+   * through. Rejects with a HeicDecodeError otherwise.
    */
   async decode(
     read: () => Promise<Buffer>,
     maxPixels: number,
   ): Promise<HeicPixels> {
-    if (this.closed) throw shuttingDown();
-    if (this.admitted >= this.maxWaiting) {
-      throw new HeicDecodeError(
-        'busy',
-        `${this.admitted} decodes already waiting`,
-      );
-    }
-    this.admitted += 1;
-    let container: Buffer;
-    try {
-      container = await read();
-    } catch (error) {
-      this.admitted -= 1;
-      throw error;
-    }
-    if (this.closed) {
-      this.admitted -= 1;
-      throw shuttingDown();
-    }
+    this.refuseWithoutRoom();
+    const container = await read();
+    this.refuseWithoutRoom();
     return new Promise<HeicPixels>((resolve, reject) => {
       const job: Job = {
         container,
@@ -194,6 +179,16 @@ export class HeicDecoder {
     }
   }
 
+  private refuseWithoutRoom(): void {
+    if (this.closed) throw shuttingDown();
+    if (this.waiting.length >= this.maxWaiting) {
+      throw new HeicDecodeError(
+        'busy',
+        `${this.waiting.length} decodes already waiting`,
+      );
+    }
+  }
+
   private next(): void {
     if (this.running || this.closed) return;
     const job = this.waiting.shift();
@@ -201,7 +196,6 @@ export class HeicDecoder {
       this.idle();
       return;
     }
-    this.admitted -= 1;
     this.running = job;
     job.startedAt = performance.now();
     clearTimeout(this.idleTimer);
@@ -282,7 +276,6 @@ export class HeicDecoder {
     }
     const index = this.waiting.indexOf(job);
     this.waiting.splice(index, 1);
-    this.admitted -= 1;
     this.logger.warn(
       `HEIC decode dropped after ${waited} ms waiting for the thread (deadline ${this.deadlineMs} ms)`,
     );

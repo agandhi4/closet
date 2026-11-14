@@ -85,7 +85,7 @@ export async function decodeHeic(
     if (!(error instanceof HeicDecodeError)) throw error;
     if (error.reason === 'too-large') throw imageTooLarge();
     if (error.reason === 'busy' || error.reason === 'closed') {
-      // Refused before `read` ran (or after it buffered): drained here.
+      // Refused before `read` ran, or after it buffered: drained either way.
       stream.resume();
       await finished(stream);
       throw heicBusy(error);
