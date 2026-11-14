@@ -303,7 +303,7 @@ describe('Styling', () => {
         ]);
         const html = unescapeHtml(res.body);
         expect(/<button[^>]*data-styling-shuffle[^>]*>/.exec(html)![0]).toMatch(
-          /class="btn btn-primary"/,
+          /class="btn btn-primary /,
         );
         expect(html).toContain('Nothing chosen yet');
         // The strips: every closet garment of the role, newest first; the
@@ -355,6 +355,11 @@ describe('Styling', () => {
           rowsOf(styled).map(([, id]) => id),
         );
         expect(previewOf(styled).slots).toContain(bottoms[0]);
+        // The photo-less garment still sets the attribute the bar's CSS
+        // reads (Shuffle and Save's emphasis, the empty hint, #665).
+        expect(unescapeHtml(styled)).toContain(
+          `data-preview-garment="${bottoms[0]}"`,
+        );
       });
 
       // Nothing steps before public/js/snap-strip.js runs, which enables

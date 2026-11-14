@@ -16,6 +16,9 @@ import { MOBILE_WEBKIT_CANNOT_SWIPE } from './support/webkit-limits';
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
+/** An outline button's fill (daisyUI); a leading one's is the theme's colour. */
+const TRANSPARENT = 'rgba(0, 0, 0, 0)';
+
 const row = (page: Page, role: string) =>
   page.locator(`[data-styling-row="${role}"]`).first();
 
@@ -142,14 +145,27 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
   for (const role of ['top', 'bottom', 'footwear']) {
     await expect(chosen(row(page, role))).toHaveValue('');
   }
-  await expect(page.getByRole('button', { name: /Shuffle/ })).toHaveClass(
-    /btn-primary/,
+  await expect(page.getByRole('button', { name: /Shuffle/ })).not.toHaveCSS(
+    'background-color',
+    TRANSPARENT,
   );
+  await expect(
+    page.getByRole('button', { name: 'Save', exact: true }),
+  ).toHaveCSS('background-color', TRANSPARENT);
   await test.step('one tap on Shuffle fills the rows with an idea', async () => {
     await page.getByRole('button', { name: /Shuffle/ }).click();
     for (const role of ['top', 'bottom', 'footwear']) {
       await expect(chosen(row(page, role))).not.toHaveValue('');
     }
+    // The emphasis follows the bar's own state, no swap of the bar: Save
+    // leads now, Shuffle steps back, the empty hint is gone.
+    const save = page.getByRole('button', { name: 'Save', exact: true });
+    await expect(save).not.toHaveCSS('background-color', TRANSPARENT);
+    await expect(page.getByRole('button', { name: /Shuffle/ })).toHaveCSS(
+      'background-color',
+      TRANSPARENT,
+    );
+    await expect(page.getByText('Nothing chosen yet')).toBeHidden();
     await page.goto('/styling');
   });
   // Centre the newest tee for the steps below.

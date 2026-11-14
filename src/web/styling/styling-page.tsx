@@ -247,7 +247,7 @@ function StylingAside(props: { ctx: ViewContext; model: StylingModel }) {
   return (
     <div
       data-styling-bar=""
-      class="sticky bottom-dock z-10 flex max-h-[calc(100dvh-var(--app-bar-h)-var(--spacing-dock))] flex-col border-t border-base-300 bg-base-100 lg:top-20 lg:max-h-none lg:bottom-auto lg:z-auto lg:gap-4 lg:self-start lg:border-0 lg:bg-transparent"
+      class="group/bar sticky bottom-dock z-10 flex max-h-[calc(100dvh-var(--app-bar-h)-var(--spacing-dock))] flex-col border-t border-base-300 bg-base-100 lg:top-20 lg:max-h-none lg:bottom-auto lg:z-auto lg:gap-4 lg:self-start lg:border-0 lg:bg-transparent"
     >
       {/* A tap opens the strip into the whole outfit (CSS off `open`, the
           PREVIEW_* classes). The open panel scrolls inside the space between
@@ -396,9 +396,11 @@ export function StylingPreview(props: {
       aria-hidden="true"
     >
       <p class={PREVIEW_HEADING}>{t('styling.PREVIEW')}</p>
-      {/* Shown only while no slot holds a look (the bare page, #665); CSS
-          off the slots, so styling.js's copying needs no case for it. */}
-      <p class="whitespace-nowrap text-sm text-muted [:has(svg,img)>&]:hidden">
+      {/* Shown only while no slot holds a garment (the bare page, #665): CSS
+          off `data-preview-garment`, the one chosen-state attribute the
+          server draws, a rows answer redraws and styling.js keeps, so it
+          follows Shuffle and a swipe. A look without a photo still counts. */}
+      <p class="whitespace-nowrap text-sm text-muted group-has-[[data-preview-garment]:not([data-preview-garment=''])]/bar:hidden">
         {t('styling.PREVIEW_EMPTY')}
       </p>
       <div class={PREVIEW_WORN}>
@@ -677,19 +679,17 @@ function AddRow({ model }: { model: StylingModel }) {
 }
 
 /**
- * Shuffle, and Save (the sheet), or over a shared wardrobe the reason there
+ * Shuffle, which leads while the preview holds no garment, then Save
+ * (the sheet), which takes over once it does (the `group/bar` classes), or over a shared wardrobe the reason there
  * is no Save: in a line at the foot of the phone's bar (StylingAside), and
  * from lg under the preview, its buttons stacked full width.
  */
 function ActionBar({ model }: { model: StylingModel }) {
-  // Shuffle leads while nothing is chosen (the bare page, #665); the
-  // server's state at render, so the bytes stay a function of the wardrobe.
-  const empty = model.rows.every((row) => row.garmentId === null);
   return (
     <div class="flex w-full items-center gap-2 px-4 py-2 max-w-page-narrow mx-auto lg:flex-col lg:items-stretch lg:p-0 lg:max-w-none">
       <button
         type="button"
-        class={`btn ${emphasis(empty)}`}
+        class="btn btn-primary group-has-[[data-preview-garment]:not([data-preview-garment=''])]/bar:btn-outline"
         hx-get={STYLING_SHUFFLE_PATH}
         hx-include="#styling-form"
         hx-target="#styling-rows"
@@ -704,7 +704,7 @@ function ActionBar({ model }: { model: StylingModel }) {
       ) : (
         <button
           type="button"
-          class={`btn flex-1 lg:flex-none ${emphasis(!empty)}`}
+          class="btn btn-primary flex-1 lg:flex-none group-not-has-[[data-preview-garment]:not([data-preview-garment=''])]/bar:btn-outline"
           onclick="document.getElementById('styling-save').showModal()"
         >
           {t(model.outfit ? SAVE_CHANGES_KEY : 'SAVE')}
