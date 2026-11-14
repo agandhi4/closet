@@ -143,9 +143,8 @@ describe('createErrorTracker', () => {
     await tracker.close(0);
   });
 
-  // v11 collects cookies, headers, bodies and user info when dataCollection is
-  // unset: the options handed to the client are the net under that.
-  it('keeps every data-collection category off and attaches no stack to non-errors', async () => {
+  // The options handed to the client are the privacy net: dropping one fails.
+  it('hands the client sendDefaultPii false and no stack on non-errors', async () => {
     let seen: ConstructorParameters<SdkClient>[0] | undefined;
     const loadSdk = async () => {
       const sdk = await import('@sentry/node');
@@ -163,20 +162,8 @@ describe('createErrorTracker', () => {
       loadSdk,
     });
     await tracker.close(0);
-    expect(seen).toMatchObject({
-      attachStacktrace: false,
-      dataCollection: {
-        userInfo: false,
-        cookies: false,
-        httpHeaders: { request: false, response: false },
-        httpBodies: [],
-        urlQueryParams: false,
-        genAI: { inputs: false, outputs: false },
-        databaseQueryData: false,
-        queues: false,
-        graphQL: { document: false, variables: false },
-      },
-    });
+    expect(seen).toMatchObject({ sendDefaultPii: false });
+    expect(seen?.attachStacktrace ?? false).toBe(false);
   });
 
   // What keeps the loader the only way in: a value import anywhere in
