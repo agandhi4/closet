@@ -20,6 +20,8 @@ import type { Photos } from '../web/files/photos';
 import type { StoredObject } from '../web/files/storage';
 import { identityRefusal } from '../web/files/storage-identity';
 import type { Logger } from '../logger';
+import { type IsoDate, todayIn } from '../calendar-date';
+import { purgeTrash } from './trash';
 
 // Younger objects and rows are left alone: an upload writes its bytes before
 // its row exists, and a delete removes the row before the bytes, so anything
@@ -44,6 +46,8 @@ export interface ReconcileOptions {
   dryRun?: boolean;
   /** Delete even when the guard refuses (the operator has looked). */
   force?: boolean;
+  /** The run's clock: the cutoff, the quarantine's day and the purge's. */
+  now?: Date;
 }
 
 export interface ReconciliationReport {
@@ -52,8 +56,14 @@ export interface ReconciliationReport {
   storedObjects: number;
   /** Distinct photos in storage (an original and its variants are one set). */
   storedPhotoSets: number;
-  /** Photo sets in storage with no `file` row. */
-  orphanedObjectsDeleted: number;
+  /**
+   * Photo sets in storage with no `file` row, moved to `.trash/<today>/`
+   * (#649): after a database restore they may be the only copy of photos
+   * added since the dump.
+   */
+  orphanedSetsQuarantined: number;
+  /** Quarantined sets past TRASH_RETENTION_DAYS, deleted with their day. */
+  trashSetsPurged: number;
   /** `file` rows nothing references (photoIsReferenced), deleted with their photo sets. */
   orphanedRowsDeleted: number;
   /** `file` rows whose original is gone from storage; reported, never deleted. */
@@ -81,6 +91,8 @@ export interface ReconcileDeps {
   db: Db;
   photos: Photos;
   logger: Logger;
+  /** APP_TIMEZONE: the quarantine's day directories are household days. */
+  timeZone: string;
 }
 
 interface StoredPhotoSet {
@@ -105,7 +117,11 @@ interface FileRow extends StoredPhoto {
  *   rows -> variants     a live photo's cutout and thumb files under another
  *                        variant key than its row's (superseded)
  * An unreferenced row is an orphan by definition. Everything is planned
- * first and checked by the guard; only then are the orphans deleted.
+ * first and checked by the guard; only then are the orphans removed. A row
+ * is the photo's whole explanation, so an unreferenced row's set is
+ * deleted; a set with no row may be the one copy of a photo whose row a
+ * database restore lost, so it is quarantined (`.trash/<today>/`, purged
+ * after TRASH_RETENTION_DAYS by the same run; trash.ts), never deleted.
  *
  * Link imports' pending photos (`pending_photo`, bytes without a `file`
  * row) are not unexplained orphans: day-old ones (a batch's drafts:
@@ -127,11 +143,12 @@ export async function reconcileStorage(
     olderThanMs = DEFAULT_OLDER_THAN_MS,
     dryRun = false,
     force = false,
+    now = new Date(),
   }: ReconcileOptions = {},
 ): Promise<ReconciliationReport> {
   const { logger } = deps;
   const startedAt = Date.now();
-  const cutoff = new Date(startedAt - olderThanMs);
+  const cutoff = new Date(now.getTime() - olderThanMs);
   logger.info(
     `Storage reconciliation started${dryRun ? ' (dry run)' : ''}, cutoff ${cutoff.toISOString()}`,
   );
@@ -156,7 +173,7 @@ export async function reconcileStorage(
   return cleanUp(
     deps,
     { pendingRows, rows, ...scan },
-    { cutoff, startedAt, dryRun, force },
+    { cutoff, now, startedAt, dryRun, force },
   );
 }
 
@@ -167,10 +184,17 @@ async function cleanUp(
   state: ReconciliationState,
   {
     cutoff,
+    now,
     startedAt,
     dryRun,
     force,
-  }: { cutoff: Date; startedAt: number; dryRun: boolean; force: boolean },
+  }: {
+    cutoff: Date;
+    now: Date;
+    startedAt: number;
+    dryRun: boolean;
+    force: boolean;
+  },
 ): Promise<ReconciliationReport> {
   const { logger } = deps;
   // Link imports next: their orphans are explained, so they are removed
@@ -179,7 +203,7 @@ async function cleanUp(
   const agedPending = await removeAgedPendingPhotos(
     deps,
     state.pendingRows,
-    pendingCutoffs(cutoff, startedAt),
+    pendingCutoffs(cutoff, now.getTime()),
     dryRun,
   );
   const plan = planReconciliation(logger, cutoff, state, agedPending, dryRun);
@@ -189,9 +213,15 @@ async function cleanUp(
       `Storage reconciliation refused to delete anything: ${refused}`,
     );
   }
+  const today = todayIn(deps.timeZone, now);
   const deleted = refused
-    ? { rows: 0, objects: 0, superseded: 0 }
-    : await removeOrphans(deps, plan, dryRun);
+    ? { rows: 0, quarantined: 0, superseded: 0 }
+    : await removeOrphans(deps, plan, today, dryRun);
+  // Not while the guard refuses: storage and the database disagreeing
+  // wholesale is exactly when the trash may hold what is needed back.
+  const trashSetsPurged = refused
+    ? 0
+    : await purgeTrash(deps.photos.storage, today, logger, dryRun);
   const pendingRowsWithoutFiles = await removePendingRowsWithoutFiles(
     deps,
     plan.pendingRowsWithoutFiles,
@@ -202,7 +232,8 @@ async function cleanUp(
     dryRun,
     storedObjects: plan.storedObjects,
     storedPhotoSets: plan.photoSets.size,
-    orphanedObjectsDeleted: deleted.objects,
+    orphanedSetsQuarantined: deleted.quarantined,
+    trashSetsPurged,
     orphanedRowsDeleted: deleted.rows,
     missingOriginals: plan.missingOriginals,
     pendingPhotosDeleted: agedPending.size,
@@ -269,7 +300,8 @@ function refuse(
     dryRun,
     storedObjects: 0,
     storedPhotoSets: 0,
-    orphanedObjectsDeleted: 0,
+    orphanedSetsQuarantined: 0,
+    trashSetsPurged: 0,
     orphanedRowsDeleted: 0,
     missingOriginals: 0,
     pendingPhotosDeleted: 0,
@@ -287,8 +319,10 @@ function summary(report: ReconciliationReport): string {
   return (
     `Storage reconciliation ${report.dryRun ? 'dry run ' : ''}done in ${report.durationMs}ms: ` +
     `${report.storedObjects} objects scanned (${report.storedPhotoSets} photo sets), ` +
-    `${report.orphanedObjectsDeleted} orphaned photo sets and ${report.orphanedRowsDeleted} orphaned rows ` +
-    `${would}deleted, ${report.missingOriginals} rows missing their original, ` +
+    `${report.orphanedSetsQuarantined} orphaned photo sets ${would}quarantined, ` +
+    `${report.trashSetsPurged} quarantined sets ${would}purged, ` +
+    `${report.orphanedRowsDeleted} orphaned rows ${would}deleted, ` +
+    `${report.missingOriginals} rows missing their original, ` +
     `${report.pendingPhotosDeleted} abandoned link imports and ${report.pendingRowsWithoutFiles} ` +
     `pending rows without files ${would}deleted, ` +
     `${report.supersededVariantsDeleted} superseded variant files ${would}deleted` +
@@ -562,16 +596,16 @@ function keyLabel(variantKey: string | null): string {
 async function removeOrphans(
   deps: ReconcileDeps,
   plan: ReconciliationPlan,
+  today: IsoDate,
   dryRun: boolean,
-): Promise<{ rows: number; objects: number; superseded: number }> {
+): Promise<{ rows: number; quarantined: number; superseded: number }> {
   const rows = await removeOrphanedRows(deps, plan, dryRun);
-  // The files the scan found: a base name alone no longer names them all
-  // (variant keys, image-variant.ts).
-  for (const [, set] of plan.orphanedSets) {
-    const names = set.objects.map((object) => object.name);
-    deps.logger.debug(`${deleteVerb(dryRun)} orphaned ${names.join(', ')}`);
-    if (!dryRun) await deps.photos.deleteFiles(names);
-  }
+  const quarantined = await quarantineOrphanedSets(
+    deps,
+    plan.orphanedSets,
+    today,
+    dryRun,
+  );
   let superseded = 0;
   for (const [baseName, names] of plan.superseded) {
     deps.logger.info(
@@ -580,7 +614,38 @@ async function removeOrphans(
     if (!dryRun) await deps.photos.deleteFiles(names);
     superseded += names.length;
   }
-  return { rows, objects: plan.orphanedSets.length, superseded };
+  return { rows, quarantined, superseded };
+}
+
+// The files the scan found: a base name alone no longer names them all
+// (variant keys, image-variant.ts). One set that cannot be moved is a
+// warning and stays for the next run, like an orphaned row.
+async function quarantineOrphanedSets(
+  { photos, logger }: ReconcileDeps,
+  sets: ReconciliationPlan['orphanedSets'],
+  today: IsoDate,
+  dryRun: boolean,
+): Promise<number> {
+  let quarantined = 0;
+  for (const [baseName, set] of sets) {
+    const names = set.objects.map((object) => object.name);
+    if (dryRun) {
+      logger.info(`Would quarantine orphaned ${names.join(', ')}`);
+      quarantined += 1;
+      continue;
+    }
+    try {
+      const trashed = await photos.storage.quarantine(baseName, names, today);
+      if (!trashed) continue;
+      logger.info(
+        `Quarantined orphaned ${trashed.files.join(', ')} to .trash/${trashed.day}/${trashed.entry}`,
+      );
+      quarantined += 1;
+    } catch (error) {
+      logger.warn({ err: error }, `Could not quarantine orphaned ${baseName}`);
+    }
+  }
+  return quarantined;
 }
 
 /**

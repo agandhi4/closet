@@ -17,6 +17,7 @@ import { AvoidedPartners } from '../gallery/avoided';
 import { GoesWithSection } from '../gallery/goes-with';
 import type { GoesWithCloset } from '../gallery/ideas';
 import type { AvoidedPartner } from '../gallery/queries';
+import { AgentBadge } from '../agent-badge';
 import { t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
@@ -44,6 +45,7 @@ import {
   WhereaboutsSection,
 } from '../wears/wear-section';
 import type { SuggestionContext } from '../wishlist/inbox';
+import type { AgentLabel } from '../write-origin';
 import type { GarmentRef } from '../wishlist/queries';
 import type { DecisionToast } from '../wishlist/suggestion-parts';
 import { SuggestionSection } from '../wishlist/suggestion-section';
@@ -121,6 +123,8 @@ export interface GarmentPageModel {
    * (SuggestionSection); undefined for any other garment.
    */
   suggestion: SuggestionContext | undefined;
+  /** The agent that made it over MCP, as the viewer may see it (#822). */
+  agent: AgentLabel | null;
   /** A Muse decision made on this page landed here: its toast. */
   decided: DecisionToast | undefined;
 }
@@ -237,6 +241,14 @@ function Summary({ model }: { model: GarmentPageModel }) {
     <section class="flex flex-col gap-4" aria-label={t('garment.SUMMARY')}>
       <div class="flex flex-col gap-2">
         <StatusMark model={model} />
+        {model.agent && (
+          <p>
+            <AgentBadge
+              agent={model.agent}
+              byMuse={model.garment.suggestedAt !== null}
+            />
+          </p>
+        )}
         <FactsLine garment={garment} />
         <BrandSizeNote note={model.brandSize} />
       </div>

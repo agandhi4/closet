@@ -3178,6 +3178,7 @@ const jobs: Step[] = [
         db: f.closet.db,
         photos: f.closet.photos,
         logger: f.logger.child({ logger: 'Reconciliation' }),
+        timeZone: f.timeZone,
       });
     },
   }),

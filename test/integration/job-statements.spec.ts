@@ -471,6 +471,7 @@ describe('background jobs: statements per run (#173)', () => {
       reconcileStorage({
         db: t.db,
         photos: t.photos,
+        timeZone: t.timeZone,
         logger: t.logger.child({ logger: 'Reconciliation' }),
       }),
     );

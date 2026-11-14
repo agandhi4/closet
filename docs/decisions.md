@@ -1054,6 +1054,7 @@ Consequence: MCP_WRITES' required `attribution` says what each tool stamps; `mcp
 **Why:** #532 put a bootstrap step between `uses: actions/checkout` and its `with:`; GitHub refused nightly.yml, so no scheduled run existed for two days and nothing said so (no PR job parses workflows; a nightly that never starts opens no issue).
 **Decision:** `make actionlint-check` (in `ci-guards`, so both hooks and ci-quick) runs `scripts/ci/actionlint.sh`: the upstream release, pinned by version and sha256, cached under `~/.cache/closet`, never vendored. The npm `actionlint` wasm is 1.6.x (rejects `ubuntu-24.04`) and was refused. `nightly-watchdog.yml`, a file of its own, runs `scripts/nightly-staleness.sh` daily: no completed scheduled nightly in 48 h opens or updates one issue.
 **Consequence:** the first run on a machine needs curl and network (or `ACTIONLINT_BIN`); a version bump needs the four checksums from the release's checksums.txt.
+
 ## 2026-11-14 — A warm whose list a drop overtook runs again (#812)
 
 **Why:** the first signed-in page claims the cache from the sign-in page's empty owner, which is a drop (generation +1). A warm already fetching its list then found the claim stale, returned with nothing stored, and nothing re-queued it: the device stayed unwarmed until its next load or visibility event (the trips spec's offline step failed first try, and sometimes never saw the trip).
@@ -1065,6 +1066,17 @@ Consequence: MCP_WRITES' required `attribution` says what each tool stamps; `mcp
 **Decision:** `npm run generate:notices` (`scripts/third-party-notices.ts`, in `build` before `generate:sw`) writes `public/THIRD-PARTY-NOTICES.txt` from `package-lock.json` (every non-`dev` package, plus the build-bundled fonts, daisyUI and the workbox modules with their dependencies) and each installed package's licence files, no new dependency; icons (Heroicons, Hugeicons, MIT) and the weather credit are hand-written sections. It is served by the static root (`/THIRD-PARTY-NOTICES.txt`: a static path, revalidating since /about links it without `?v=`, not precached) and the image gets it with `public/`. Every forecast surface renders `OpenMeteoCredit` (`src/web/weather/views.tsx`): plain text, no link.
 **Consequence:** a new `CLIENT_MODULES` entry or bundled devDependency must be in the lock's production tree or `BUNDLED_AT_BUILD` (`third-party-notices.spec.ts` fails otherwise). Optional platform packages appear only where installed.
 **Versions are omitted** from the public notices (an anonymous fingerprint of known-vulnerable server dependencies); names, licences and licence texts are what a notice needs. Normals are Open-Meteo data too, so the credit shows on typical days as well.
+
+## 2026-11-14 — Reconciliation quarantines unexplained photo sets (#649)
+
+**Why:** after a database restore from an older dump, the photo sets of garments added since have no `file` row and are the only copy; a dozen of them passes the wholesale guard, so the nightly unlinked them.
+**Decision:** the orphan pass renames each set into `DATA_PATH/.trash/<APP_TIMEZONE day>/<base name>/` (`PhotoStorage.quarantine`; a second set of a name that day gets a `~<hex>` entry, never an overwrite), and the same run purges day directories older than 30 days (`TRASH_RETENTION_DAYS`), not while the guard refuses. `--restore-from-trash` links files back whole or not at all, stamped now, and refuses over a live set. Unreferenced rows' sets, pending photos and superseded variants stay direct deletions: a row explains them.
+**Consequence:** DATA_PATH holds at most 30 days of orphans. A restored set without its row is quarantined again the next night; re-attaching is out of scope.
+
+## 2026-11-14 — One AgentBadge shows who made a row (#822)
+**Why:** #821 resolved the viewer's label in SQL (`agentLabelSql`) but nothing in the app showed it.
+**Decision:** `src/web/agent-badge.tsx` words an `AgentLabel` (`agentName`) as a `badge-soft badge-secondary` pill, the name truncating inside it, "Made by <name>" for assistive tech. Pages get the label as one more column of their own statement (the Saved tab's `savedOutfitsSql`, the wishlist's `ownItemsSql`, the garment page's existing context), so no statement count moves. Muse's rows keep "From Muse" and get no second badge.
+**Consequence:** the month grid shows none (its cells are collages only). A new surface for an agent-made row adds its label to its own query and renders `AgentBadge`, never a token name read another way.
 
 ## 2026-11-14 — The database out of reach is a 503 busy, captured once per outage (#643)
 

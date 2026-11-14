@@ -16,9 +16,10 @@ import { Readable } from 'node:stream';
 import { text } from 'node:stream/consumers';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  type MarkerFs,
+  type StorageFs,
   PhotoStorage,
   STORAGE_MARKER,
+  TRASH_DIR,
 } from '../../src/web/files/storage';
 import { captureLogs } from '../support/log-capture';
 
@@ -220,7 +221,7 @@ describe('photo storage on disk', () => {
 
   // #650's marker: what the disk does to it, injected.
   describe('the storage marker', () => {
-    const nodeFs: MarkerFs = {
+    const nodeFs: StorageFs = {
       readText: (file) => readFile(file, 'utf8'),
       writeNew: (file, content) => writeFile(file, content, { flag: 'wx' }),
       link: (from, to) => link(from, to),
@@ -308,6 +309,41 @@ describe('photo storage on disk', () => {
       ).toEqual(secondMarker);
       // Neither temp file is left behind.
       expect(await incoming()).toEqual([]);
+    });
+
+    // #649: restoring from the trash is whole or nothing.
+    it('rolls a restore back when a link fails midway: storage and the trash as before', async () => {
+      const names = ['a.webp', 'a-nobg.webp', 'a-thumb.webp'];
+      for (const name of names) {
+        await writeFile(join(directory, name), `bytes of ${name}`);
+      }
+      const trashed = await storage.quarantine('a.webp', names, '2026-01-01');
+      let links = 0;
+      const failing = new PhotoStorage(directory, captureLogs().logger, {
+        ...nodeFs,
+        link: (from, to) => {
+          links += 1;
+          return links === 2 ? Promise.reject(errno('EIO')) : link(from, to);
+        },
+      });
+
+      await expect(failing.restore([trashed!], new Date())).rejects.toThrow(
+        'EIO',
+      );
+      expect(
+        (await readdir(directory)).filter((name) => name.endsWith('.webp')),
+      ).toEqual([]);
+      expect(await storage.trash()).toEqual([
+        { ...trashed, files: [...names].sort() },
+      ]);
+      for (const name of names) {
+        expect(
+          await readFile(
+            join(directory, TRASH_DIR, '2026-01-01', 'a.webp', name),
+            'utf8',
+          ),
+        ).toBe(`bytes of ${name}`);
+      }
     });
   });
 });

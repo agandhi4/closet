@@ -5,7 +5,7 @@ import {
   createOutfitOf,
 } from './support/e2e-data';
 import { expectCollagePiecesInsidePlinths } from './support/collage-fit';
-import { SAME_ORIGIN, signIn } from './support/e2e-session';
+import { E2E_PASSWORD, SAME_ORIGIN, signIn } from './support/e2e-session';
 import { pageErrors } from './support/page-errors';
 
 /**
@@ -78,7 +78,7 @@ test('the outfit page plans the outfit from its sheet and lands on that week; Pl
   const coat = await addPhotographedGarment(page, 'Fit coat', 'outerwear');
   // The top has no photo: its hanger placeholder must fit the cell too.
   const tee = await createGarment(page, 'Fit tee', 'tops');
-  await createOutfitOf(
+  const layered = await createOutfitOf(
     page,
     'Layered',
     [
@@ -96,5 +96,43 @@ test('the outfit page plans the outfit from its sheet and lands on that week; Pl
   await expectCollagePiecesInsidePlinths(page);
   await page.setViewportSize({ width: 1280, height: 900 });
   await expectCollagePiecesInsidePlinths(page);
+
+  // #822: an agent's entry wears its token's name as a badge, and a long
+  // name stays inside the row at phone width.
+  const tokenName = 'Laptop Claude on the long walk home';
+  const minted = await page.request.post('/auth/tokens', {
+    data: { name: tokenName, currentPassword: E2E_PASSWORD },
+    headers: SAME_ORIGIN,
+  });
+  expect(minted.ok()).toBe(true);
+  const agentToken = /closet_[A-Za-z0-9_-]{43}/.exec(await minted.text())?.[0];
+  expect(agentToken).toBeDefined();
+  const scheduled = await page.request.post('/mcp', {
+    headers: {
+      authorization: `Bearer ${agentToken}`,
+      accept: 'application/json, text/event-stream',
+    },
+    data: {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: {
+        name: 'schedule_outfit',
+        arguments: { outfitId: layered, date: '2030-10-12' },
+      },
+    },
+  });
+  expect(scheduled.ok()).toBe(true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/calendar?week=2030-10-10');
+  const badge = page.locator('[data-occasion] [data-agent]');
+  await expect(badge).toHaveCount(1);
+  await expect(badge).toBeVisible();
+  const row = page.locator('[data-occasion]:has([data-agent])');
+  const overflow = await row.evaluate((el) => ({
+    row: el.scrollWidth - el.clientWidth,
+    page: document.documentElement.scrollWidth - window.innerWidth,
+  }));
+  expect(overflow).toEqual({ row: 0, page: 0 });
   expect(errors).toEqual([]);
 });

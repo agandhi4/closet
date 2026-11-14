@@ -14,7 +14,7 @@ import {
 import {
   type OutfitActivity,
   outfitActivitySql,
-  type GarmentOutfit,
+  type SavedOutfit,
   savedOutfitsSql,
   type OutfitPageDetail,
   type OutfitEntries,
@@ -34,7 +34,7 @@ import type { OutfitList } from './outfit-list';
 /** What GET /outfits shows (list-page.tsx). */
 export interface SavedContext {
   /** The owner's own outfits of the list asked, newest first: the tiles (ownersOutfit, keptOutfit). */
-  outfits: GarmentOutfit[];
+  outfits: SavedOutfit[];
   /**
    * Muse's outfits not the owner's yet (awaiting them, or set aside), and
    * what each piece to buy unlocks; none while picking for a day.
