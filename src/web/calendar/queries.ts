@@ -7,9 +7,9 @@ import {
   outfit,
   outfitCalendar,
   outfitSlot,
-  weekPlanEntry,
 } from '../../db/schema';
 import { selectScalars } from '../../db/select-scalars';
+import { ONE_OFF_ORIGINS } from '../../wardrobe/outfit-origin';
 import type { Occasion } from '../../wardrobe/occasions';
 import type { PlannedBy } from '../../wardrobe/week';
 import {
@@ -636,28 +636,25 @@ export async function ownEntryDay(
  * re-plan must not swap in an outfit for the entry the person just took
  * off the day.
  *
- * Undo's rule applies (#659): an `auto` entry whose outfit "Plan my week"
- * created takes that outfit with it once nothing else holds it
- * (removeUnheldOutfits: another day's entry or a trip keeps it; one a
- * person's save adopted is no longer the planner's). An entry the person
- * took over, or one of an outfit they saved, leaves the outfit, as Change
- * does.
+ * Undo's rule applies to every one-off (#659, #748): an entry whose
+ * outfit is origin `idea` ("Wear this", a day's pick) or `planner` takes
+ * that outfit with it once nothing else holds it (removeUnheldOutfits:
+ * another day's entry or a trip keeps it). An outfit anyone saved or
+ * adopted is `person`, and an agent's is `agent`: those never go, as in
+ * Change.
  *
  * Two statements inside the lock, no look-up first (#165): the selfie's
  * delete is scoped to the owner, so for another's or a missing entry it
  * finds nothing, and the entry's own delete (which locks its row) answers
- * whether there was one, and whose outfit it held (its week_plan_entry row
- * is read in the RETURNING, before the cascade takes it). The selfie goes
- * first, while the entry still points at it. Two more only for a planner's
- * outfit.
+ * whether there was one, and whose outfit it held and whether that is a one-off (origin, read in
+ * the RETURNING). The selfie goes
+ * first, while the entry still points at it. Two more only for a one-off.
  */
 export function deleteEntry(
   db: Queryable,
   id: number,
   ownerId: number,
-): Promise<
-  { selfies: string[]; plannerOutfitRemoved: number | null } | EntryMiss
-> {
+): Promise<{ selfies: string[]; oneOffRemoved: number | null } | EntryMiss> {
   return ownerTransaction(db, ownerId, 'deleteEntry', async (tx) => {
     const selfies = await deleteEntrySelfie(tx, id, ownerId);
     // The target aliased and every column qualified: the RETURNING's
@@ -665,24 +662,24 @@ export function deleteEntry(
     // never be left to name resolution. An alias renders as its name
     // alone in sql``, so each table is named before it.
     const entry = alias(outfitCalendar, 'deleted_entry');
-    const plan = alias(weekPlanEntry, 'entry_plan');
+    const held = alias(outfit, 'entry_outfit');
     const {
       rows: [deleted],
-    } = await tx.execute<{ outfit_id: number; planner_created: boolean }>(sql`
+    } = await tx.execute<{ outfit_id: number; one_off: boolean }>(sql`
       delete from ${outfitCalendar} as ${entry}
       where ${entry.id} = ${id} and ${entry.ownerId} = ${ownerId}
       returning ${entry.outfitId} as outfit_id,
-        ${entry.plannedBy} = 'auto' and coalesce(
-          (select ${plan.outfitCreated} from ${weekPlanEntry} as ${plan} where ${plan.entryId} = ${entry.id}),
-          false
-        ) as planner_created`);
+        (select ${held.origin} in (${sql.join(
+          ONE_OFF_ORIGINS.map((o) => sql`${o}`),
+          sql`, `,
+        )}) from ${outfit} as ${held} where ${held.id} = ${entry.outfitId}) as one_off`);
     if (!deleted) return 'not-found';
     const removed =
-      deleted.planner_created &&
+      deleted.one_off &&
       (await removeUnheldOutfits(tx, ownerId, [deleted.outfit_id])) > 0;
     return {
       selfies,
-      plannerOutfitRemoved: removed ? deleted.outfit_id : null,
+      oneOffRemoved: removed ? deleted.outfit_id : null,
     };
   });
 }

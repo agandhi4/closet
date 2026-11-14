@@ -33,6 +33,7 @@ import type {
 import { type GarmentWeatherFields, matchGarment } from '../../weather/match';
 import type { IsoDate } from '../../calendar-date';
 import { type OutfitGarment, outfitGarmentsSql } from '../outfits/queries';
+import { ONE_OFF_ORIGINS } from '../../wardrobe/outfit-origin';
 import { outfitIsHeld } from '../outfits/references';
 import { wearsSinceWashSql } from '../wears/queries';
 
@@ -390,6 +391,9 @@ export async function removeUnheldOutfits(
           locked.map((row) => row.id),
         ),
         not(outfitIsHeld(outfit.id)),
+        // A one-off only: an adopted outfit is `person` by then, and an
+        // agent's or a person's is never pruned (#748).
+        inArray(outfit.origin, [...ONE_OFF_ORIGINS]),
       ),
     )
     .returning({ id: outfit.id });

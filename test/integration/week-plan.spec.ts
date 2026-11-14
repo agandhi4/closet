@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm';
 import {
   afterAll,
@@ -1020,11 +1021,74 @@ describe('the weekly auto-plan', () => {
       expect(left.get(packed.outfitId)).toBe('planner');
       expect(left.get(twice.outfitId)).toBe('planner');
       expect(t.logs.messages('info', 'Web')).toContainEqual(
-        `Calendar entry ${plain.id} deleted by user ${t.owner.id}, planner's outfit ${plain.outfitId} removed`,
+        `Calendar entry ${plain.id} deleted by user ${t.owner.id}, one-off outfit ${plain.outfitId} removed`,
       );
       expect(t.logs.messages('info', 'Web')).toContainEqual(
         `Calendar entry ${twice.id} deleted by user ${t.owner.id}`,
       );
+    });
+
+    it('the calendar’s x takes an unheld one-off (Wear this, a taken-over planner entry) and never a person’s or an agent’s outfit (#748)', async () => {
+      const made = async (origin: 'person' | 'agent' | 'idea' | 'planner') => {
+        const [row] = await asFixture(t.db, (tx) =>
+          tx
+            .insert(outfit)
+            .values({
+              shareableId: randomUUID(),
+              ownerId: t.owner.id,
+              name: origin,
+              origin,
+            })
+            .returning({ id: outfit.id }),
+        );
+        return row.id;
+      };
+      const plan = async (outfitId: number, day: IsoDate) => {
+        const planned = await insertEntry(t.db, {
+          ownerId: t.owner.id,
+          outfitId,
+          day,
+          occasion: 'all-day',
+          chooser: BY_PERSON,
+        });
+        expect(planned).toMatchObject({ outcome: 'scheduled' });
+        return (await weekEntries()).find((e) => e.day === day)!.id;
+      };
+
+      const ids = {
+        person: await made('person'),
+        agent: await made('agent'),
+        idea: await made('idea'),
+        planner: await made('planner'),
+      };
+      const entries = {
+        person: await plan(ids.person, WEEK[0]),
+        agent: await plan(ids.agent, WEEK[1]),
+        idea: await plan(ids.idea, WEEK[2]),
+        planner: await plan(ids.planner, WEEK[3]),
+      };
+      for (const entry of Object.values(entries)) {
+        expect((await post(`/calendar/${entry}/delete`)).statusCode).toBe(303);
+      }
+      const left = await originsOf(Object.values(ids));
+      expect(left.get(ids.person)).toBe('person');
+      expect(left.get(ids.agent)).toBe('agent');
+      expect(left.has(ids.idea)).toBe(false);
+      expect(left.has(ids.planner)).toBe(false);
+
+      // Held by another entry or a trip, an idea outfit stays.
+      const twice = await made('idea');
+      const first = await plan(twice, WEEK[0]);
+      await plan(twice, WEEK[1]);
+      const packed = await made('idea');
+      const only = await plan(packed, WEEK[2]);
+      await onTrip(packed);
+      for (const entry of [first, only]) {
+        expect((await post(`/calendar/${entry}/delete`)).statusCode).toBe(303);
+      }
+      const kept = await originsOf([twice, packed]);
+      expect(kept.get(twice)).toBe('idea');
+      expect(kept.get(packed)).toBe('idea');
     });
   });
 
