@@ -71,6 +71,7 @@ import {
   sharedUntilRejected,
   takesDay,
   takesInstant,
+  actionBusyAttributes,
   createTurns,
   type Exclusively,
   discardStuck,
@@ -548,12 +549,19 @@ function renderNotice(unsaved: OutboxRecord[]): void {
   notice.classList.toggle('hidden', unsaved.length === 0);
 }
 
+/** Notice buttons whose action waits for the drain's turn: shown busy across re-renders. */
+const busyActions = new Set<string>();
+
 function noticeButton(
   attribute: string,
   id: string,
   label: string,
 ): HTMLButtonElement {
   const button = document.createElement('button');
+  for (const [name, value] of Object.entries(
+    actionBusyAttributes(busyActions.has(id)),
+  ))
+    button.setAttribute(name, value);
   button.type = 'button';
   button.className = 'btn btn-ghost btn-xs';
   button.setAttribute(attribute, id);
@@ -1206,19 +1214,38 @@ document.addEventListener('click', (event) => {
     discard?.getAttribute('data-outbox-discard');
   const account = pageAccount();
   if (!id || !account) return;
+  if (busyActions.has(id)) return;
+  busyActions.add(id);
+  void refresh();
   void (async () => {
+    const announce = (name: string, record: OutboxRecord) =>
+      showToast({
+        text: text(name)
+          .replace('{label}', () => record.label)
+          .replace('{action}', () => text(ACTION_TEXT[record.kind])),
+        kind: 'info',
+        ttlMs: SAVED_TOAST_MS,
+      });
     const name = (record: OutboxRecord) =>
       `${record.key} (key ${id.slice(0, 8)})`;
-    if (retry) {
-      const record = await retryStuck(actionStore, exclusively, id);
-      if (!record) return;
-      console.info(`[outbox] ${name(record)} retried by the user`);
-      await schedule('try again');
-    } else {
-      const record = await discardStuck(actionStore, exclusively, id);
-      if (!record) return;
-      revertRegions(record.key);
-      console.info(`[outbox] ${name(record)} discarded by the user`);
+    try {
+      if (retry) {
+        const record = await retryStuck(actionStore, exclusively, id);
+        if (!record) return;
+        console.info(`[outbox] ${name(record)} retried by the user`);
+        announce('textOutboxTriedAgain', record);
+        busyActions.delete(id);
+        await schedule('try again');
+      } else {
+        const record = await discardStuck(actionStore, exclusively, id);
+        if (!record) return;
+        revertRegions(record.key);
+        console.info(`[outbox] ${name(record)} discarded by the user`);
+        announce('textOutboxDiscarded', record);
+      }
+    } finally {
+      busyActions.delete(id);
+      void refresh();
     }
   })().catch((error: unknown) => {
     console.warn('[outbox] could not act on a stuck write', error);

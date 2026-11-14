@@ -26,6 +26,7 @@ import {
   STUCK_RETRY_FIRST_MS,
   STUCK_RETRY_MS,
   stuckRetryMs,
+  actionBusyAttributes,
   createTurns,
   discardStuck,
   retryStuck,
@@ -688,6 +689,14 @@ describe('replayQueue: a 5xx never fails a record, it makes it stuck', () => {
       await Promise.all([first, retry]);
       expect(overlapped).toBe(false);
       expect(w.sent).toEqual(['bad', 'bad']);
+    });
+
+    it('a button whose action waits for the turn is disabled and aria-busy, an idle one is plain', () => {
+      expect(actionBusyAttributes(true)).toEqual({
+        'aria-busy': 'true',
+        disabled: '',
+      });
+      expect(actionBusyAttributes(false)).toEqual({});
     });
 
     it('acts on nothing once the record is gone or no longer stuck', async () => {

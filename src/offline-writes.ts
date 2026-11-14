@@ -763,6 +763,14 @@ export function createTurns(): Exclusively {
   };
 }
 
+/**
+ * The attributes of a notice button while its action waits for the drain's
+ * turn: disabled so a second tap is not taken, `aria-busy` for the status
+ * region it sits in.
+ */
+export const actionBusyAttributes = (busy: boolean): Record<string, string> =>
+  busy ? { 'aria-busy': 'true', disabled: '' } : {};
+
 /** The store the notice's buttons act through (the page's IndexedDB; a stub in the spec). */
 export interface StuckActionStore<R extends ReplayRecord> {
   find(id: string): Promise<R | undefined>;

@@ -108,6 +108,11 @@ function outboxText(): Record<`data-text-outbox-${string}`, string> {
     }),
     'try-again': t('outbox.TRY_AGAIN'),
     'discard-write': t('outbox.DISCARD_WRITE'),
+    'tried-again': t('outbox.TRIED_AGAIN', {
+      label: '{label}',
+      action: '{action}',
+    }),
+    discarded: t('outbox.DISCARDED', { label: '{label}', action: '{action}' }),
     'action-wear': t('outbox.action.WEAR'),
     'action-wash': t('outbox.action.WASH'),
     'action-entry': t('outbox.action.ENTRY'),
