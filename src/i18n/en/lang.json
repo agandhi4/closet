@@ -25,7 +25,7 @@
     "SIGN_OUT": "Sign out",
     "SIGN_OUT_HINT": "Signs out this device only. Changing your password signs out every device.",
     "EXPORT": "Export",
-    "EXPORT_HINT": "Download every garment in your wardrobe with all its details: a CSV for spreadsheets, or JSON with links to the photos, for a backup.",
+    "EXPORT_HINT": "Download your garment list with all its details: a CSV for spreadsheets, or JSON with links to the photos. It holds your garments and Muse needs only: no photo files (the links point to this server and stop working if it goes away), outfits, calendar, wears, washes, capsules, trips, sizes, style profile, selfies or saved looks. It is not a backup; backups are the operator's database dump plus the photo share.",
     "EXPORT_CSV": "Download CSV",
     "EXPORT_JSON": "Download JSON"
   },
@@ -52,6 +52,7 @@
   "CHANGE": "Change",
   "DELETE_ACCOUNT": "Delete Account",
   "DELETE_ACCOUNT_CONFIRMATION": "Are you sure you want to delete your account?",
+  "DELETE_ACCOUNT_WARNING": "Deleting your account removes your garments, photos, outfits, calendar, wears, washes, capsules, trips, sizes, style profile, selfies and saved looks. This cannot be undone. The garment list export (Profile, Export) keeps no photos, outfits or history; download it first if you want that list.",
   "DELETE_ACCOUNT_FAILED": "Incorrect email or password for this account",
   "LOGIN_FAILED": "Incorrect email or password",
   "EMAIL_IN_USE": "Another account already uses this email address",

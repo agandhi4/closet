@@ -645,6 +645,7 @@ export function DeleteAccountPage(props: {
       back={ACCOUNT_SECTION_PATH}
     >
       {props.failed && <ErrorAlert message={t('DELETE_ACCOUNT_FAILED')} />}
+      <p class="text-sm text-muted">{t('DELETE_ACCOUNT_WARNING')}</p>
       <PostForm
         action="/auth/delete-account"
         confirm={t('DELETE_ACCOUNT_CONFIRMATION')}

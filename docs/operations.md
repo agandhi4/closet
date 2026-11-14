@@ -100,6 +100,10 @@ docker run --rm --user 1000:1000 -v <data dir>:/d -v <models dir>:/m --entrypoin
 
 **The symptom** of a directory uid 1000 cannot write: a root-owned `/app/data` ends the boot (the container restarts in a loop) with the fatal line `DATA_PATH /app/data is not writable by this process (EACCES): chown -R 1000:1000 the host directory mounted at /app/data; docs/operations.md#permissions`, before anything else is logged. A root-owned `/app/models` boots and serves pages, but `/health/ready` answers 503 with `storage` down and that chown as its `fix`, the container goes unhealthy and autoheal restarts it, and the model download fails (`Downloading BiRefNet 512x512 failed`, `EACCES`). A directory that stops being writable later (the NFS share remounted read-only) shows the same `storage` check within 5 s. `docker exec closet ...` runs as uid 1000 too (`npm` caches under `/home/node`).
 
+## Backup
+
+Closet keeps no backup of its own. A backup is the operator's database dump plus the photo share (`DATA_PATH`, `.closet-storage` and `.trash` included), taken as a pair (see the README's upgrade notes). Profile's garment-list export (CSV/JSON) is a spreadsheet of garments only: no photo files, outfits, calendar, wears, washes, capsules, trips, sizes, style profile, selfies or saved looks, and it is no substitute.
+
 ## Photo storage marker
 
 `DATA_PATH` carries a `.closet-storage` file (JSON: a random `installId` and `createdAt`), so the app never reads a bare mountpoint (the NFS share not mounted, or the wrong host directory) as "every photo is gone" (#650). The boot writes it only when it can prove the directory is the household's: the `file` table is empty (a first boot), or the directory holds the photos of at least 90% of the table's rows (an existing share from before the marker, adopted at the first boot after the deploy, logged at warn as `adopted an unmarked directory holding the photos of N of M rows`). A few stray uploads left on a bare mountpoint never pass that. It is never served by `/file/**` and never counted by reconciliation. Copy it with the photos in any backup.
