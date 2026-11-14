@@ -65,6 +65,16 @@ describe('the bearer gate', () => {
     }
   };
 
+  /**
+   * The warn lines naming `client`'s address. Every refusal also writes the
+   * summaries of other addresses whose window has ended, so an assertion over
+   * all warn lines depends on how long the run took.
+   */
+  const warnsFrom = (client: Record<string, string>) =>
+    t.logs
+      .messages('warn')
+      .filter((line) => line.includes(client['x-forwarded-for']));
+
   const expectMcp401 = (res: LightMyRequestResponse) => {
     expect(res.statusCode).toBe(401);
     expect(res.headers['www-authenticate']).toBe('Bearer realm="closet"');
@@ -111,9 +121,7 @@ describe('the bearer gate', () => {
     expect(Number(onApi.headers['retry-after'])).toBeGreaterThan(0);
 
     // The refusals past the budget are counted into a summary, not logged one by one.
-    expect(t.logs.messages('warn').join('\n')).not.toContain(
-      'Rate limit reached',
-    );
+    expect(warnsFrom(client).join('\n')).not.toContain('Rate limit reached');
     // Another address has its own budget.
     expectMcp401(await mcp(uniqueClient()));
   });
@@ -165,9 +173,7 @@ describe('the bearer gate', () => {
     const address = client['x-forwarded-for'];
     const minted = await mintToken(t, t.owner.id, 'Phone', 'device');
     if (!minted.created) throw new Error('no device token');
-    // Other tests' addresses may have a summary due: only this one's lines count.
-    const lines = () =>
-      t.logs.messages('warn').filter((line) => line.includes(address));
+    const lines = () => warnsFrom(client);
     t.logs.clear();
     for (let n = 0; n < 50; n += 1) {
       expectMcp401(await mcp(client, minted.token));
@@ -200,7 +206,39 @@ describe('the bearer gate', () => {
     for (let n = 0; n < 5; n += 1) {
       expect((await mcp(client)).statusCode).toBe(429);
     }
-    expect(t.logs.messages('warn')).toEqual([]);
+    expect(warnsFrom(client)).toEqual([]);
+  });
+
+  it("does not count another address's summary, due once its window ends, as this address's line (#943)", async () => {
+    const window = BEARER_REFUSAL_LIMIT.timeWindow;
+    const earlier = uniqueClient();
+    const client = uniqueClient();
+    await exhaust(earlier);
+    for (let n = 0; n < 5; n += 1) {
+      expect((await mcp(earlier)).statusCode).toBe(429);
+    }
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // This address's window opens half a window later than the earlier one's.
+      vi.setSystemTime(Date.now() + window / 2);
+      await exhaust(client);
+      t.logs.clear();
+      // The earlier window has ended and this one has not: the first refusal
+      // below writes the earlier address's summary.
+      vi.setSystemTime(Date.now() + (window * 7) / 10);
+      for (let n = 0; n < 5; n += 1) {
+        expect((await mcp(client)).statusCode).toBe(429);
+      }
+      expect(
+        t.logs
+          .messages('warn')
+          .some((line) => line.includes(earlier['x-forwarded-for'])),
+      ).toBe(true);
+      expect(warnsFrom(client)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('never resets the count on a token that opens', async () => {
