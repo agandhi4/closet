@@ -1132,30 +1132,25 @@ Why: #691 failed a record after 5 counted 5xx, but only if a neighbour was answe
 Decision: no inference, nothing dropped. 3 consecutive 5xx (`STUCK_AFTER_SERVER_ERRORS`) make the record `stuck`: still pending, skipped by the drain with its key, listed in the notice with Try again and Discard. It is retried when a record saves in a drain or after 30 min (`STUCK_RETRY_MS`), and stays stuck while it fails. Other keys keep going; the network, 408, 429 and 503 still stop the drain and count nothing.
 Consequence: a server-wide outage marks records stuck and loses none; a poisoned wear waits for the user. A same-day wear and wash are different keys, so their order rests on the taps' `day`/`at` (absent on pre-#676 records).
 
-## 2026-11-14 — Deletes ask in the app's sheet or offer Undo, never confirm() (#686)
-
-Why: the 11 `hx-confirm`/`data-confirm` sites fell through to the browser's confirm(), titled with the server host, unstyled in the installed app; reversible removals asked anyway.
-Decision: one `htmx:confirm` + PostForm `submit` listener (`public/js/confirm-sheet.js`) over one `<dialog>` in every body; the outbox's discard uses `confirmAction()`. A calendar entry's Remove acts at once with an Undo toast (`POST /calendar/restore`) only when the restore is exact: unworn, a kept outfit, not an agent's. Worn entries and entries whose one-off outfit would be pruned (#748) keep the sheet: recreating a pruned outfit (new id, slots) was not worth the code, and deferring the prune would leave unheld one-offs in Saved until a sweep.
-Consequence: `@native-confirm` guard; `pageErrors` fails a scenario on a native dialog. Undo is a client post of the removed entry's fields (web-only; the API's `createCalendarEntry` is its twin).
-
 ## 2026-11-14 — Stuck retry ladder; Try again and Discard take the drain turn
 
 Why: a Postgres blip answers 500 behind a live heartbeat, so writes went stuck for a flat 30 min (#877); Try again/Discard raced a replay in flight (#878, #881).
 Decision: a stuck record retries after `stuckRetryMs` (1 min, doubling per further 5xx, capped at `STUCK_RETRY_MS`); a negative stuck age is due; the notice buttons run inside the drain lock (`exclusively`).
 Consequence: a poisoned record is retried a little more often early on; no second concurrent replay of a record.
+
 ## 2026-11-14 — `closeSwitchedContext` unroutes with 'ignoreErrors', never 'wait' (#886; replaces #867's 'wait')
 
 Why: `unrouteAll({ behavior: 'wait' })` awaits every in-flight handler invocation, and `networkSwitch`'s handler awaits `route.abort()`, a browser round trip Playwright races only against the request's page or worker closing (a request tied to neither races a scope that never closes). One unanswered abort hung trips' teardown until the 30 s test timeout. A handler that never settles reproduces it: 'wait' never returns, 'ignoreErrors' returns at once.
 Decision: setOffline(true), `unrouteAll({ behavior: 'ignoreErrors' })` (Playwright drops in-flight handlers' target-closed errors without waiting on them, the #867 failure), then close().
 Consequence: teardown waits on no handler. A route handler on a switched context must not catch its own `abort()` rejection: Playwright then never marks the route handled and the invocation stays pending.
 
-## 2026-11-14 — Remove's reversibility and Undo are the server's (#686 review)
-
-Why: the row's guess let a stale page delete a worn entry unasked, and an Undo that posted the entry's fields let any session mint planner-owned entries.
-Decision: `deleteEntry({ asksFirst })` rolls back and answers 409 + `closet:confirm` unless `confirmed=1`; Undo posts only a token for an in-process snapshot (`createUndoStore`, 30 s, owner-scoped, single use).
-Consequence: a restart or the TTL loses Undo, nothing else. Playwright's `test` comes from `test/support/fixtures.ts`, which fails a scenario on any native dialog.
-
 ## 2026-11-14 — The schema check has three states; an older image refuses a newer schema (#651)
 Why: redeploying a previous `sha-` image after a migration booted (drizzle's `migrate()` finds nothing newer than its last row) and old code wrote to the new schema; destructive migrations ran under the hourly autoupdater with no dump taken.
 Decision: `schemaState` (`src/db/migrate.ts`): behind / current / ahead, the one rule for the boot (`SchemaAheadError`, checked first, writes nothing), the CLIs (exit 1) and `/health/ready` (`migrations` down with `schema`). A migration is identified by `created_at` (the journal `when`), drizzle's own key; `hash` is never re-read by drizzle, so it decides nothing. A newest row the journal lacks is ahead, whether newer or not (a branch build's migration too).
 Consequence: a rollback either restores the pre-migration dump or undoes each newer migration and deletes its row (`docs/operations.md#migrations-and-rollback`; the 0057 steps now delete its row). The deploy takes `pg_dump -Fc` whenever the image has pending migrations, kept until the next: the deploy script is homelab's, tracked there.
+
+## 2026-11-14 — Deletes ask in the app's sheet or offer Undo, never confirm() (#686)
+
+Why: the 11 `hx-confirm`/`data-confirm` sites fell through to the browser's confirm(), titled with the server host, unstyled in the installed app; reversible removals asked anyway, and a page's guess of "reversible" and a client-posted Undo were both forgeable or stale.
+Decision: one `htmx:confirm` + PostForm `submit` listener (`public/js/confirm-sheet.js`) over one `<dialog>` in every body; the outbox's discard uses `confirmAction()`. A calendar entry's Remove acts at once with an Undo toast only when the restore is exact (unworn, not an agent's, no one-off pruned); the SERVER decides (`deleteEntry({ asksFirst })` rolls back and answers 409 + `closet:confirm` unless `confirmed=1`), and Undo posts only a token for an in-process snapshot (`createUndoStore`, 30 s, owner-scoped, single use; web-only, `createCalendarEntry` is the API twin). One-off outfits keep the sheet: recreating a pruned outfit was not worth the code, and deferring the prune would leave unheld one-offs in Saved.
+Consequence: `@native-confirm` guard; Playwright's `test` comes from `test/support/fixtures.ts`, which fails a scenario on any native dialog. A restart or the TTL loses Undo, nothing else.
