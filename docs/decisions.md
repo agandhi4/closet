@@ -1170,3 +1170,9 @@ Consequence: `@native-confirm` guard; Playwright's `test` comes from `test/suppo
 Why: `DATABASE_SSL=true` meant `rejectUnauthorized: false` (pgvault's self-signed certificate), so a managed Postgres over the internet ran TLS anyone on the path could impersonate, with no setting to fix it; `DATABASE_SCHEMA` named the database. 0.1 freezes the env names.
 Decision: `DATABASE_SSL` is `verify` | `no-verify` | `off` (default), `DATABASE_SSL_CA` a PEM path for `verify` only (`databaseSslMode`, `sslOption`); `false` reads as `off`, `true` as `no-verify` with a boot warning. `DATABASE_NAME` wins over `DATABASE_SCHEMA`, a deprecated alias that warns. Warnings go through `loadConfig`'s `onDeprecated` (main.ts logs them; config cannot log).
 Consequence: `true` flips to `verify` in the first release after homelab's compose stops using the old names (it sets `DATABASE_SSL: "false"` and `DATABASE_SCHEMA`, so production never relied on `true`); then `true` and the alias's warnings go with the next env cleanup. Transaction-mode poolers stay unsupported (docs/operations.md).
+
+## 2026-11-14 — Production runs no autoheal; an unhealthy container is only marked (#696)
+
+Why: the 2026-10-13 health entry said homelab "still has to add the `autoheal: "true"` label", and the runbook told an operator an unhealthy container restarts itself; production has no autoheal container, so an operator waited for a heal that never came.
+Decision: no restarter, on purpose: the optional checks (`cron_jobs`, `cutout_queue`, `storage`) report what a restart does not fix, and a restart loop would cost the household the app. The runbook (Health, Permissions) now says an unhealthy container is only marked and is restarted by hand.
+Consequence: supersedes that entry's autoheal consequence (homelab owes no label). Docker's `restart: unless-stopped` still restarts a crash or a refused boot.
