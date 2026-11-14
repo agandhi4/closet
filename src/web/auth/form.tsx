@@ -179,9 +179,6 @@ export function PostForm(props: {
       data-ends-session={props.endsSession ? '' : undefined}
       // One post per tap: public/js/submit-once.js (the layout loads it).
       data-submit-once=""
-      onsubmit={
-        props.confirm ? 'return confirm(this.dataset.confirm)' : undefined
-      }
     >
       {props.children}
     </form>

@@ -47,6 +47,7 @@
  * once per document; boosted navigations swap only the body).
  */
 import { singleFlight } from 'single-flight';
+import { confirmAction } from 'confirm-sheet';
 import { showToast } from 'toast';
 import { todayIn } from '../../src/calendar-date';
 import {
@@ -1134,7 +1135,10 @@ async function drainBeforeLeaving(
   }
   const left = await recordsOf(account);
   if (left.length === 0 || !discardLeftovers) return true;
-  if (!confirm(counted('Discard', left.length))) return false;
+  const discard = await confirmAction({
+    question: counted('Discard', left.length),
+  });
+  if (!discard) return false;
   await remove(left);
   console.info(
     `[outbox] ${left.length} unsynced change(s) discarded at sign-out`,

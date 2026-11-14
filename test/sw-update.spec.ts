@@ -1,4 +1,5 @@
-import { type BrowserContext, expect, type Page, test } from '@playwright/test';
+import { type BrowserContext, type Page } from '@playwright/test';
+import { expect, test } from './support/fixtures';
 import { signIn } from './support/e2e-session';
 import { type NextBuild, startNextBuild } from './support/next-build';
 import { pageErrors } from './support/page-errors';

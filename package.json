@@ -19,7 +19,7 @@
     "generate:precompress": "node -r ts-node/register/transpile-only scripts/generate-static-assets.ts precompress",
     "generate:fonts": "node -e \"require('fs').rmSync('public/vendor/fonts', { recursive: true, force: true })\" && esbuild --outfile=public/vendor/fonts/fonts.css --bundle --minify --log-level=warning --loader:.woff2=file --asset-names=[name]-[hash] --public-path=/vendor/fonts views/assets/fonts.css",
     "generate:sw": "esbuild --outfile=views/assets/src-sw.js --bundle --minify --define:process.env.NODE_ENV=\\\"production\\\" views/assets/src-sw.ts && node -r ts-node/register/transpile-only scripts/generate-sw.ts",
-    "generate:outbox": "esbuild --outfile=public/js/outbox.js --bundle --minify --format=esm --log-level=warning --external:toast --external:single-flight views/assets/outbox.ts",
+    "generate:outbox": "esbuild --outfile=public/js/outbox.js --bundle --minify --format=esm --log-level=warning --external:toast --external:confirm-sheet --external:single-flight views/assets/outbox.ts",
     "generate:tailwind": "npm run generate:vendor && npx @tailwindcss/cli -i ./views/assets/main.css -o ./public/bundle.css --minify",
     "generate:tailwind:watch": "npm run generate:vendor && npx @tailwindcss/cli -i ./views/assets/main.css -o ./public/bundle.css --minify --watch",
     "generate:icons": "ts-node scripts/generate-icons.ts",
