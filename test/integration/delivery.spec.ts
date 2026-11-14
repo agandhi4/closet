@@ -186,6 +186,7 @@ describe('delivery (PWA_ENABLED=true)', () => {
           required: false,
           fix: expect.any(String),
         },
+        trusted_proxies: { status: 'up', required: false },
       },
     };
 

@@ -12,6 +12,7 @@ import {
   checkCutoutQueue,
   checkDatabase,
   checkJobs,
+  checkTrustedProxies,
   createStorageCheck,
   readiness,
 } from './checks';
@@ -33,7 +34,7 @@ import {
  */
 export const healthRoutes: FastifyPluginCallback<WebOptions> = (
   app,
-  { config, db, logger, jobs, cutouts, photos },
+  { config, db, logger, jobs, cutouts, photos, proxyWatch },
   done,
 ) => {
   const log = logger.child({ logger: 'Health' });
@@ -68,6 +69,7 @@ export const healthRoutes: FastifyPluginCallback<WebOptions> = (
       storage: await storage(),
       cron_jobs: checkJobs(jobs.stuck()),
       cutout_queue: checkCutoutQueue(cutouts.state),
+      trusted_proxies: checkTrustedProxies(proxyWatch.peer),
     });
     return reply
       .status(body.status === 'up' ? 200 : 503)

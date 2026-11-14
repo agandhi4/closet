@@ -49,7 +49,10 @@ export async function registerRateLimit(
  * refusal and wording as a route-config limit's (errorResponseBuilder
  * above; the plugin's "after" is English, as the catalog is).
  */
-export function tooManyAttempts(ttlInSeconds: number): HttpError {
+export function tooManyAttempts(
+  ttlInSeconds: number,
+  { quiet }: { quiet?: true } = {},
+): HttpError {
   const [count, unit] =
     ttlInSeconds < 60
       ? [Math.max(1, Math.round(ttlInSeconds)), 'second']
@@ -59,7 +62,7 @@ export function tooManyAttempts(ttlInSeconds: number): HttpError {
     t('TOO_MANY_ATTEMPTS', {
       after: `${count} ${unit}${count === 1 ? '' : 's'}`,
     }),
-    { retryAfterSeconds: Math.ceil(ttlInSeconds) },
+    { retryAfterSeconds: Math.ceil(ttlInSeconds), quiet },
   );
 }
 
@@ -88,11 +91,11 @@ export async function enforceLimit(
 export async function countAgainst(
   checker: RateLimitChecker,
   request: FastifyRequest,
-): Promise<{ ttlInSeconds: number } | undefined> {
+): Promise<{ ttlInSeconds: number; ttlMs: number } | undefined> {
   const verdict = await checker(request);
   // `isAllowed` is the plugin's allow list; the count is isExceeded.
   if (verdict.isAllowed || !verdict.isExceeded) return undefined;
-  return { ttlInSeconds: verdict.ttlInSeconds };
+  return { ttlInSeconds: verdict.ttlInSeconds, ttlMs: verdict.ttl };
 }
 
 /** enforceLimit's refusal, logged naming `who`. */
@@ -274,8 +277,8 @@ export const CLIENT_ERROR_LIMIT = {
  * round-trip (an unlimited one is a free lever on the pool). Its callers
  * are a container healthcheck every 30 s from 127.0.0.1, a smoke boot,
  * and phones on a stale connectivity.js still probing /healthz every 5 s
- * while offline; TRUSTED_PROXIES covers Caddy, so each phone is its own
- * address. /health/live checks nothing and is never limited.
+ * while offline; with TRUSTED_PROXIES covering Caddy (the `trusted_proxies`
+ * check says when it does not) each phone is its own address. /health/live checks nothing and is never limited.
  */
 export const HEALTH_LIMIT = {
   max: 60,

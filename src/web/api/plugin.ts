@@ -87,7 +87,7 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
   app,
   options,
 ) => {
-  const { db, apiLogger, bearerRefusalLimit } = options;
+  const { db, apiLogger, bearerRefusalLimit, refusalSummaries } = options;
   // Every route's 4xx and 5xx refer to it (apiResponses).
   app.addSchema(Problem);
   app.setValidatorCompiler(jsonApiValidator(app));
@@ -102,6 +102,7 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
       label: 'API',
       kind: 'device',
       refusalLimit: bearerRefusalLimit,
+      refusalSummaries,
       refusal: signInAgain,
       readsShare: true,
     }),

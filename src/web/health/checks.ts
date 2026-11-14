@@ -154,6 +154,24 @@ export function checkCutoutQueue(state: CutoutQueueState): HealthCheck {
   }
 }
 
+const TRUSTED_PROXIES_FIX = 'see docs/operations.md#trusted-proxies';
+
+/**
+ * `trusted_proxies` (optional, #671): down once a peer outside
+ * TRUSTED_PROXIES has sent X-Forwarded-For this boot (UntrustedProxyWatch).
+ * Every page still serves, but the sign-in and credential rate limits count
+ * that proxy's whole clientele as one address, so one person's typos lock
+ * the household out: worth reporting, not worth a restart loop. The peer's
+ * address goes to the log, never the body.
+ */
+export function checkTrustedProxies(
+  untrustedPeer: string | undefined,
+): HealthCheck {
+  return untrustedPeer === undefined
+    ? { status: 'up', required: false }
+    : { status: 'down', required: false, fix: TRUSTED_PROXIES_FIX };
+}
+
 /** How long a storage verdict is reused: a probe writes to disk (and NFS). */
 const STORAGE_PROBE_TTL_MS = 5_000;
 

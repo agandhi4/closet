@@ -22,6 +22,7 @@ import {
   checkCutoutQueue,
   checkDatabase,
   checkJobs,
+  checkTrustedProxies,
   createStorageCheck,
   type HealthCheck,
   readiness,
@@ -97,6 +98,17 @@ describe('checkDatabase', () => {
     );
     expect(checks.database).toMatchObject(down(true));
     expect(checks.migrations).toMatchObject(down(true));
+  });
+});
+
+describe('checkTrustedProxies', () => {
+  it('is optional: down with its fix once an untrusted peer forwarded, never naming it', () => {
+    expect(checkTrustedProxies(undefined)).toEqual(up(false));
+    expect(checkTrustedProxies('172.23.0.5')).toEqual({
+      status: 'down',
+      required: false,
+      fix: 'see docs/operations.md#trusted-proxies',
+    });
   });
 });
 

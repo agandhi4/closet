@@ -3,8 +3,10 @@ import type { CutoutQueueState } from '../cutout/queue-state';
 import type { Db } from '../db/client';
 import { registerApi } from './api/plugin';
 import { createSessionHook } from './auth/require-session';
+import { RefusalSummaries } from './auth/refusal-summaries';
 import { authRoutes } from './auth/routes';
 import { tokenRoutes } from './auth/token-routes';
+import type { UntrustedProxyWatch } from './security/untrusted-proxy';
 import { sizesRoutes } from './sizes/routes';
 import { mcpRoutes } from './mcp/routes';
 import {
@@ -119,6 +121,11 @@ export interface WebOptions {
    */
   jobs: JobRoster;
   /**
+   * Whether a peer outside TRUSTED_PROXIES has sent X-Forwarded-For (a
+   * root hook in createApp): /health/ready's trusted_proxies check.
+   */
+  proxyWatch: UntrustedProxyWatch;
+  /**
    * The process's one outbound fetcher (src/web/security/outbound-fetch.ts),
    * built by createApp(): the only way a route fetches a URL a user
    * supplied (the link import).
@@ -190,6 +197,9 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
     ...options,
     signInLimit: app.createRateLimit(SIGN_IN_LIMIT),
     bearerRefusalLimit: app.createRateLimit(BEARER_REFUSAL_LIMIT),
+    refusalSummaries: new RefusalSummaries(
+      options.logger.child({ logger: 'Security' }),
+    ),
     linkImportLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
     inspirationLinkLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
     weatherLimits: createWeatherLimits(app),

@@ -60,6 +60,11 @@ export class HttpError extends Error {
   /** Sent as `Retry-After`: a rate limit's window, the owner lock's wait. */
   readonly retryAfterSeconds?: number;
   /**
+   * The error handler writes no warn line for it: the thrower accounts for
+   * the refusal itself (the bearer gate's own line or its summary, #940).
+   */
+  readonly quiet?: true;
+  /**
    * Which fields a 400 refuses, each with its message: a problem's `errors`
    * (a JSON body the form's rules refused, #192b); a page shows the message.
    */
@@ -72,12 +77,14 @@ export class HttpError extends Error {
       logDetail?: string;
       code?: ErrorCode;
       retryAfterSeconds?: number;
+      quiet?: true;
       validation?: readonly ValidationFailure[];
     } = {},
   ) {
     super(message);
     this.name = 'HttpError';
     this.logDetail = options.logDetail;
+    this.quiet = options.quiet;
     this.code = options.code ?? codeOfStatus(statusCode);
     this.retryAfterSeconds = options.retryAfterSeconds;
     this.validation = options.validation;
@@ -211,6 +218,8 @@ export interface ErrorAnswer {
   /** For the log line, never the answer (HttpError.logDetail). */
   logDetail?: string;
   retryAfterSeconds?: number;
+  /** HttpError.quiet: answered, not logged by the handler. */
+  quiet?: true;
   /** A validation's failures, each where and what (Fastify's, or an HttpError's). */
   validation?: readonly ValidationFailure[];
   /** A crash, not a chosen answer: logged with its stack. */
@@ -327,6 +336,7 @@ export function describeError(error: unknown): ErrorAnswer {
       code: chosen.code,
       logDetail: chosen.logDetail,
       retryAfterSeconds: chosen.retryAfterSeconds,
+      quiet: chosen.quiet,
       validation: chosen.validation,
       unexpected: false,
       ...(chosen instanceof DatabaseUnavailable && {
@@ -499,6 +509,7 @@ export function createErrorHandler(
       capture(error, request);
       return;
     }
+    if (answer.quiet) return;
     const line = `${request.method} ${url} -> ${status}: ${message}${logDetail ? ` (${logDetail})` : ''}`;
     if (answer.databaseUnavailable) {
       logger.warn({ err: error }, line);
