@@ -148,6 +148,7 @@
   "REQUEST_TIMED_OUT": "No answer from the server. It may still have saved: check before trying again.",
   "REQUEST_FAILED": "That did not go through. Try again in a moment.",
   "UPDATE_AVAILABLE": "Update available",
+  "UPDATE_NEEDS_NETWORK": "Update available: reload once you're back online",
   "RELOAD": "Reload",
   "UPDATED_AGO": "Updated {ago}",
   "outbox": {

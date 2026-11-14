@@ -35,6 +35,18 @@ its page under the new worker (clientsClaim) and its Reload still works.
 The first window there is the app's first visit (no controller when pwa.js
 registered), the single-window test a reopened app.
 
+Since #656 the same scenario, at 390 px, also covers Reload disabled while
+the heartbeat says offline, and the activation refresh
+(`src/web/shell/updates.md`): `recordRefetches` routes every request marked
+`X-Closet-Warm` (held, or one key cut, so the refresh stops where the spec
+says), the due keys come from `cache.keys()` against the `activated-at`
+record, and the offline open's age is read from `#freshness` with the page's
+clock fast-forwarded (`page.clock`), never a sleep. Both builds have the
+same static set (the proxy appends to `sw.js` only), so one precache serves
+both and the page cached under A opening offline proves its `?v=` meets an
+installed precache; which precache a `?v=` reads and which an activation
+keeps is proved by `src/static-build.spec.ts` (a stand-in CacheStorage).
+
 Two bugs it found in `public/js/pwa.js` (fixed with it): the other window's
 Reload posted `SKIP_WAITING` to no waiting worker and did nothing, forever,
 since the toast came back on every navigation; and a document opened before
