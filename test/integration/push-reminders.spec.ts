@@ -29,6 +29,7 @@ import {
   sendDueReminders,
   sendDueRemindersWhole,
 } from '../../src/web/push/reminders';
+import { scheduleJob } from '../../src/maintenance/scheduled';
 import { createPushSender } from '../../src/web/push/sender';
 import { createGarment } from './garments';
 import {
@@ -710,6 +711,62 @@ describe('push reminders', () => {
       expect(sentTo(fine)).toHaveLength(1);
       expect(await failures()).toBe(before + 1);
     });
+
+    it("a stop that gives up on a send still out gives back that reminder's claim, never the sent one's (#696)", async () => {
+      const day = addDays(DAY, 33);
+      const [held, fine] = await twoMorningPeople('shutdown');
+      const record = vi
+        .mocked(webpush.sendNotification)
+        .getMockImplementation()!;
+      let sendStarted!: () => void;
+      const started = new Promise<void>((resolve) => (sendStarted = resolve));
+      let letGo!: () => void;
+      const hold = new Promise<void>((resolve) => (letGo = resolve));
+      vi.mocked(webpush.sendNotification).mockImplementation(
+        async (target, payload, options) => {
+          if (target.endpoint !== held) return record(target, payload, options);
+          sendStarted();
+          await hold;
+          throw new Error('socket closed');
+        },
+      );
+      const claimed = async (endpoint: string) => {
+        const [device] = await t.db
+          .select({ id: userDevice.id })
+          .from(userDevice)
+          .where(eq(userDevice.pushEndpoint, endpoint));
+        return (
+          await t.db
+            .select()
+            .from(pushReminder)
+            .where(eq(pushReminder.deviceId, device.id))
+        ).filter((row) => row.day === day);
+      };
+
+      const job = scheduleJob({
+        name: 'Push reminders',
+        logger: deps.logger,
+        now: () => onTheMinute(day, 6, 15),
+        untilNext: () => 0,
+        run: (signal) =>
+          sendDueReminders(deps, onTheMinute(day, 6, 15), signal),
+      });
+      await started;
+      expect(await claimed(held)).toHaveLength(1);
+
+      // The send never settles: stop waits out its bound, aborts the run,
+      // and the run puts the unsent claim back inside the grace.
+      await job.stop();
+      expect(await claimed(held)).toEqual([]);
+      expect(await claimed(fine)).toHaveLength(1);
+      expect(sentTo(fine)).toHaveLength(1);
+
+      // The next minute's run finds the given-back reminder due and sends it.
+      vi.mocked(webpush.sendNotification).mockImplementation(record);
+      letGo();
+      await sendDueReminders(deps, onTheMinute(day, 6, 16));
+      expect(sentTo(held)).toHaveLength(1);
+    }, 15_000);
 
     it('a forecast fetch that fails with nothing cached is no forecast, not a failed reminder (#687)', async () => {
       const day = addDays(DAY, 31);

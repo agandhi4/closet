@@ -2,13 +2,15 @@ import type { FastifyInstance } from 'fastify';
 import { settlesWithin } from '../cutout/deadline';
 import type { Logger } from '../logger';
 import { runAsJob } from '../request-context';
-import { JOBS_STOP_MS } from '../shutdown-budget';
+import { JOBS_ABORT_GRACE_MS, JOBS_STOP_MS } from '../shutdown-budget';
 
 /**
  * What every timer server.ts starts has in common (scheduleNightly,
  * scheduleMinutely): stop() clears the pending timer, so no run starts
  * after it, and resolves once a run in flight has ended, or after
  * STOP_WAIT_MS with a warning (awaitRunInFlight). It never rejects.
+ * A run that outlasts STOP_WAIT_MS minus JOBS_ABORT_GRACE_MS is aborted
+ * through the signal it was given, and puts back what it cannot finish.
  */
 export interface ScheduledJob {
   /** The name it logs under; JobRoster reports a stuck job by it. */
@@ -63,10 +65,13 @@ export class JobRoster {
 /**
  * How long stop() waits for a run in flight: JOBS_STOP_MS, which keeps the
  * whole shutdown inside docker stop's 10 s. A push send's socket timeout is
- * 10 s a device, so a run can be cut off mid-send. A run cut off here keeps
- * going until its next query fails against the ended pool; every scheduled
- * job leaves the database consistent at each step (claims before work, rows
- * before bytes), so what it did not finish is found next time.
+ * 10 s a device, so a run can be cut off mid-send: the last
+ * JOBS_ABORT_GRACE_MS of the wait is after its signal aborted, for a run
+ * that holds claims to give them back (the reminders, src/web/push/reminders.ts).
+ * A run cut off past that keeps going until its next query fails against
+ * the ended pool; every scheduled job leaves the database consistent at
+ * each step (claims before work, rows before bytes), so what it did not
+ * finish is found next time.
  */
 const STOP_WAIT_MS = JOBS_STOP_MS;
 
@@ -76,7 +81,8 @@ export interface JobTimer {
   now: () => Date;
   /** Milliseconds until the next run, asked afresh once the last run ended. */
   untilNext: () => number;
-  run: () => Promise<unknown>;
+  /** `signal` aborts when stop() gives up waiting: stop what is in flight and put back what was claimed. */
+  run: (signal: AbortSignal) => Promise<unknown>;
 }
 
 /**
@@ -96,6 +102,7 @@ export function scheduleJob({
   let timer: NodeJS.Timeout | undefined;
   let running: Promise<void> | undefined;
   let runStartedAt: number | undefined;
+  let aborting: AbortController | undefined;
   let stopped = false;
 
   const scheduleNext = () => {
@@ -109,9 +116,11 @@ export function scheduleJob({
   // lands at any point after it sees the run.
   const tick = () => {
     runStartedAt = now().getTime();
+    const abort = new AbortController();
+    aborting = abort;
     running = runAsJob('cron', async () => {
       try {
-        await run();
+        await run(abort.signal);
       } catch (error) {
         // Logged, never thrown: a failed run must not stop the next one.
         logger.error({ err: error }, `${name} failed`);
@@ -131,18 +140,29 @@ export function scheduleJob({
     async stop() {
       stopped = true;
       clearTimeout(timer);
-      await awaitRunInFlight(name, running, logger);
+      await awaitRunInFlight(name, running, aborting, logger);
     },
   };
 }
 
-/** Waits for `running` (a run's promise, which never rejects), at most STOP_WAIT_MS. */
+/**
+ * Waits for `running` (a run's promise, which never rejects), at most
+ * STOP_WAIT_MS: first STOP_WAIT_MS - JOBS_ABORT_GRACE_MS, then the run's
+ * abort and the grace for it to put its work back.
+ */
 async function awaitRunInFlight(
   name: string,
   running: Promise<void> | undefined,
+  abort: AbortController | undefined,
   logger: Logger,
 ): Promise<void> {
-  if (running && !(await settlesWithin(running, STOP_WAIT_MS))) {
+  if (!running) return;
+  if (await settlesWithin(running, STOP_WAIT_MS - JOBS_ABORT_GRACE_MS)) return;
+  logger.info(
+    `${name} still running after ${STOP_WAIT_MS - JOBS_ABORT_GRACE_MS} ms; aborting it`,
+  );
+  abort?.abort();
+  if (!(await settlesWithin(running, JOBS_ABORT_GRACE_MS))) {
     logger.warn(`${name} still running after ${STOP_WAIT_MS} ms; stopped`);
   }
 }

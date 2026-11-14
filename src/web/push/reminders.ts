@@ -33,7 +33,7 @@ import {
   releaseReminderClaims,
   reminderDevices,
 } from './queries';
-import type { DeviceMessage, PushSender } from './sender';
+import type { DeviceMessage, PushSender, SendReport } from './sender';
 
 /**
  * The push reminders (#15; plan section 9, issue #5's answer): a morning
@@ -73,6 +73,11 @@ import type { DeviceMessage, PushSender } from './sender';
  * that re-plan swapped today is said in the reminder itself, first ("Swapped
  * in Wool coat: it turned cold"): one push, not a swap notice beside it;
  * other days' swaps still get the re-plan's notice.
+ *
+ * **A run is abortable** (`signal`, from the timer's stop(), ScheduledJob):
+ * past the shutdown wait the send is abandoned and the claims of the
+ * messages not yet reported sent are given back, so the next server sends
+ * them (sendAll); a send already reported is never given back.
  */
 
 /**
@@ -154,6 +159,7 @@ interface ReminderBatch {
 export async function sendDueReminders(
   deps: ReminderDeps,
   now: Date,
+  signal?: AbortSignal,
 ): Promise<ReminderRun> {
   const { db, logger } = deps;
   const due = dueReminders(await reminderDevices(db), now, deps.timeZone);
@@ -226,7 +232,7 @@ export async function sendDueReminders(
       );
     }
   }
-  await sendAll(deps, composed, run);
+  await sendAll(deps, composed, run, signal);
   logger.info(
     `Reminders at ${now.toISOString()}: ${run.claimed} claimed of ${run.due} due, ${run.sent} sent, ${run.skipped} skipped, ${run.failed} failed`,
   );
@@ -242,8 +248,9 @@ export async function sendDueReminders(
 export async function sendDueRemindersWhole(
   deps: ReminderDeps,
   now: Date,
+  signal?: AbortSignal,
 ): Promise<ReminderRun> {
-  const run = await sendDueReminders(deps, now);
+  const run = await sendDueReminders(deps, now, signal);
   return endWhole('reminders', { failed: run.failed }, run);
 }
 
@@ -289,15 +296,31 @@ async function readBatch(
  * LATE_LIMIT_MINUTES. Without the release one failed read (a dropped
  * connection) would lose the whole minute's reminders, where a failure
  * before #173 lost one person's. Counted as failed for this run either way.
+ *
+ * Shutdown (`signal` aborting, the timer's stop() past its wait) is the same
+ * give-back for what the sender has not reported finished (`onReport`):
+ * the process is about to exit, and a claimed but unsent reminder would be
+ * lost for good. A send that is out but unreported is released too, so the
+ * rare device may get a repeat, which the notification's tag replaces.
+ * Aborted before the send starts, nothing goes out.
  */
 async function sendAll(
   deps: ReminderDeps,
   composed: readonly ComposedReminder[],
   run: ReminderRun,
+  signal: AbortSignal | undefined,
 ): Promise<void> {
   if (composed.length === 0) return;
+  const reported = new Map<number, SendReport>();
   try {
-    const reports = await deps.sender.sendEach(composed.map((c) => c.message));
+    const sending = deps.sender.sendEach(
+      composed.map((c) => c.message),
+      { onReport: (index, report) => reported.set(index, report) },
+    );
+    // Abandoned sends are left to settle (or the process's end): a rejection
+    // after the abort has nobody to tell.
+    sending.catch(() => undefined);
+    const reports = await (signal ? abortable(sending, signal) : sending);
     reports.forEach((report, index) => {
       // A device the push service refused (not a gone one: those are
       // pruned) fails that person alone; the others' reminders went out
@@ -312,16 +335,30 @@ async function sendAll(
       );
     });
   } catch (error) {
-    for (const { message } of composed) markFailed(run, message.userId);
-    const users = composed.map((c) => c.message.userId).join(', ');
-    deps.logger.error(
-      { err: error },
-      `The reminders for user(s) ${users} could not be sent: their devices could not be read`,
-    );
+    const aborted = error instanceof ShutdownAbort;
+    const unsent = composed.filter((_, index) => !reported.has(index));
+    if (aborted) {
+      for (const [index, report] of reported) {
+        if (report.failed === 0) run.sent += 1;
+        else markFailed(run, composed[index].message.userId);
+      }
+    }
+    for (const { message } of unsent) markFailed(run, message.userId);
+    const users = unsent.map((c) => c.message.userId).join(', ');
+    if (aborted) {
+      deps.logger.warn(
+        `Shutdown stopped the reminders for user(s) ${users} before they were sent`,
+      );
+    } else {
+      deps.logger.error(
+        { err: error },
+        `The reminders for user(s) ${users} could not be sent: their devices could not be read`,
+      );
+    }
     try {
       run.released = await releaseReminderClaims(
         deps.db,
-        composed.flatMap((c) => c.claims),
+        unsent.flatMap((c) => c.claims),
       );
       deps.logger.warn(
         `Released ${run.released} reminder claim(s) for user(s) ${users}: the next run sends them while they are due`,
@@ -333,6 +370,25 @@ async function sendAll(
       );
     }
   }
+}
+
+/** The run's signal aborted while its sends were out (abortable). */
+class ShutdownAbort extends Error {
+  constructor() {
+    super('The reminder run was aborted by shutdown');
+  }
+}
+
+/** `work`, or a ShutdownAbort rejection the moment `signal` aborts (already aborted counts). */
+function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    if (signal.aborted) return reject(new ShutdownAbort());
+    const onAbort = () => reject(new ShutdownAbort());
+    signal.addEventListener('abort', onAbort, { once: true });
+    work.then(resolve, reject).finally(() => {
+      signal.removeEventListener('abort', onAbort);
+    });
+  });
 }
 
 /**

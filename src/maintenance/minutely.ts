@@ -20,8 +20,8 @@ const OFFSET_MS = 1_000;
 
 export interface MinutelyOptions {
   name: string;
-  /** Given the instant it runs for. */
-  run: (now: Date) => Promise<unknown>;
+  /** Given the instant it runs for, and the signal that aborts it at shutdown (ScheduledJob). */
+  run: (now: Date, signal: AbortSignal) => Promise<unknown>;
   /** Minutes between runs, on multiples of it since the epoch; 1 by default. */
   everyMinutes?: number;
   logger: Logger;
@@ -55,6 +55,6 @@ export function scheduleMinutely({
     logger,
     now,
     untilNext: () => untilNextMinute(now(), everyMinutes),
-    run: () => run(now()),
+    run: (signal) => run(now(), signal),
   });
 }

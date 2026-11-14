@@ -24,6 +24,14 @@ export const SHUTDOWN_BUDGET_MS = 8_000;
 /** preClose: waiting for each timer's run in flight (a push send's socket timeout is 10 s a device: cut off, not waited out). */
 export const JOBS_STOP_MS = 2_000;
 
+/**
+ * The last part of JOBS_STOP_MS: a run still going when the rest has passed
+ * is aborted (its AbortSignal), and has this long to put its work back
+ * (the reminders give back the claims they never sent on) before stop()
+ * gives up on it. The run itself is awaited for JOBS_STOP_MS minus this.
+ */
+export const JOBS_ABORT_GRACE_MS = 500;
+
 /** The cutout listener's orderly close, before its socket is destroyed. */
 export const CUTOUT_LISTENER_CLOSE_MS = 1_500;
 
