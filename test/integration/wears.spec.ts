@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garment, garmentWear, outfitCalendar } from '../../src/db/schema';
 import {
@@ -10,7 +10,12 @@ import {
 import type { Occasion } from '../../src/wardrobe/occasions';
 import type { GarmentStatus } from '../../src/wardrobe/status';
 import { addDays, type IsoDate } from '../../src/calendar-date';
-import { availableGarment, dirtyCopiesSql } from '../../src/web/wears/queries';
+import {
+  availableGarment,
+  dirtyCopiesSql,
+  wearsSinceWashSql,
+} from '../../src/web/wears/queries';
+import { WASH_CASES, washCaseRows } from '../support/wash-cases';
 import { createGarment } from './garments';
 import {
   createTestApp,
@@ -272,13 +277,14 @@ describe('wears and washes', () => {
       ]);
       expect(hasText((await garmentPage(shoes)).body, 'Worn once')).toBe(true);
       // Two copies at one wear each: one day dirties one copy, not both.
+      // Raw SQL, never a single-table Drizzle select: that writes the rule's
+      // columns unqualified, and its `id` reads garment_wear's (src/db/AGENTS.md).
       const dirty = async () =>
         (
-          await t.db
-            .select({ dirty: dirtyCopiesSql() })
-            .from(garment)
-            .where(eq(garment.id, tees))
-        )[0].dirty;
+          await t.db.execute<{ dirty: number }>(
+            sql`select ${dirtyCopiesSql()} as dirty from ${garment} where ${eq(garment.id, tees)}`,
+          )
+        ).rows[0].dirty;
       expect(await dirty()).toBe(1);
       expect(
         hasText((await garmentPage(tees)).body, '1 of 2 need a wash'),
@@ -688,15 +694,15 @@ describe('wears and washes', () => {
           );
         }
       }
-      const rows = await t.db
-        .select({
-          id: garment.id,
-          dirty: dirtyCopiesSql(),
-          available: sql<boolean>`${availableGarment()}`,
-        })
-        .from(garment)
-        .where(eq(garment.ownerId, ownerId))
-        .orderBy(desc(garment.id));
+      // Raw SQL, never a single-table Drizzle select: that writes the rule's
+      // columns unqualified, and its `id` reads garment_wear's (src/db/AGENTS.md).
+      const { rows } = await t.db.execute<{
+        id: number;
+        dirty: number;
+        available: boolean;
+      }>(
+        sql`select ${garment.id} as id, ${dirtyCopiesSql()} as dirty, ${availableGarment()} as available from ${garment} where ${eq(garment.ownerId, ownerId)}`,
+      );
       const bySql = new Map(rows.map((row) => [row.id, row]));
 
       const expected = CASES.map((c) => {
@@ -708,8 +714,10 @@ describe('wears and washes', () => {
             c.washAfterWears === '' ? null : Number(c.washAfterWears),
           ),
           wearsSinceWash: wearsSinceWash(
-            days,
-            c.washedDaysAgo === null ? null : daysAgo(c.washedDaysAgo),
+            days.map((day) => ({ day, wornAt: null })),
+            c.washedDaysAgo === null
+              ? null
+              : { day: daysAgo(c.washedDaysAgo), washedAt: null },
           ),
         };
         return {
@@ -749,6 +757,72 @@ describe('wears and washes', () => {
         archived: false,
         wishlist: false,
       });
+    });
+
+    // #676: the same-day order, one table for both twins
+    // (test/support/wash-cases.ts). The wash is two days back, so its day
+    // after is still in the past.
+    it('counts a same-day wear by its instant in SQL as in TypeScript, on every case', async () => {
+      const ownerId = t.owner.id;
+      const washDay = daysAgo(2);
+      const ids = new Map<string, number>();
+      for (const c of WASH_CASES) {
+        const id = await createGarment(t, { name: c.name, category: 'tops' });
+        ids.set(c.name, id);
+        const { wears, lastWash } = washCaseRows(c, washDay, t.timeZone);
+        const instant = (ms: number | null) =>
+          ms === null ? null : new Date(ms);
+        // A day's second wear is an entry's (one "Wore today" a day): the
+        // entry marked worn, its wear's instant then set.
+        const [single, ...more] = wears;
+        const entryWears: number[] = [];
+        for (const wear of more) {
+          const entry = await schedule(
+            await newOutfit(`${c.name} ${wear.day}`, [id]),
+            wear.day,
+          );
+          await markWorn(entry);
+          entryWears.push(entry);
+        }
+        await asFixture(t.db, async (tx) => {
+          await tx
+            .update(garment)
+            .set({
+              lastWashedOn: lastWash?.day ?? null,
+              washedAt: instant(lastWash?.washedAt ?? null),
+            })
+            .where(eq(garment.id, id));
+          await tx.insert(garmentWear).values({
+            garmentId: id,
+            ownerId,
+            day: single.day,
+            wornAt: instant(single.wornAt),
+          });
+          for (const [index, entry] of entryWears.entries()) {
+            await tx
+              .update(garmentWear)
+              .set({ wornAt: instant(more[index].wornAt) })
+              .where(eq(garmentWear.outfitCalendarId, entry));
+          }
+        });
+      }
+      // Raw SQL, never a single-table Drizzle select: that writes the rule's
+      // columns unqualified, and its `id` reads garment_wear's (src/db/AGENTS.md).
+      const { rows } = await t.db.execute<{ id: number; since: number }>(
+        sql`select ${garment.id} as id, ${wearsSinceWashSql()} as since from ${garment} where ${eq(garment.ownerId, ownerId)}`,
+      );
+      const bySql = new Map(rows.map((row) => [row.id, row.since]));
+      const pure = WASH_CASES.map((c) => {
+        const { wears, lastWash } = washCaseRows(c, washDay, t.timeZone);
+        return [c.name, wearsSinceWash(wears, lastWash)];
+      });
+      const sqlCounts = WASH_CASES.map((c) => [
+        c.name,
+        bySql.get(ids.get(c.name)!),
+      ]);
+      const expected = WASH_CASES.map((c) => [c.name, c.count]);
+      expect(sqlCounts).toEqual(expected);
+      expect(pure).toEqual(expected);
     });
   });
 

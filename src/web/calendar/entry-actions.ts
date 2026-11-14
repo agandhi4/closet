@@ -1,6 +1,7 @@
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
 import type { IsoDate } from '../../calendar-date';
+import type { TapInstant } from '../../offline-writes';
 import type { Occasion } from '../../wardrobe/occasions';
 import { unkeyedPhoto } from '../files/image-variant';
 import type { Photos } from '../files/photos';
@@ -64,6 +65,7 @@ export async function markEntryWorn(
     worn: boolean | undefined;
     at: Date;
     today: IsoDate;
+    tap?: TapInstant | null;
   },
 ): Promise<Exclude<EntryWornOutcome, 'not-found'>> {
   const outcome = await setEntryWorn(db, { ...input, ownerId: actor.userId });

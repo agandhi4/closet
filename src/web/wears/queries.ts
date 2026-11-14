@@ -23,6 +23,7 @@ import {
 } from '../../wardrobe/availability';
 import { ownerTransaction } from '../auth/queries';
 import type { IsoDate } from '../../calendar-date';
+import { instantOnDay, type TapInstant } from '../../offline-writes';
 import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson } from '../files/queries';
 import type { GarmentDetail } from '../wardrobe/queries';
@@ -60,9 +61,17 @@ const washLimit = sql<
   String(NEVER_WASH),
 )} then null else coalesce(${garment.washAfterWears}, ${defaultLimit}) end)`;
 
-/** wearsSinceWash() in SQL: distinct days after last_washed_on. */
+/**
+ * wearsSinceWash()'s condition on a `garment_wear` row: after the wash's
+ * day, or on it with both instants known and the wear later (#676). Plain
+ * comparisons: a null instant makes the last term null, which a filter
+ * reads as false (the day rule).
+ */
+const wornSinceWash = sql`(${garment.lastWashedOn} is null or ${garmentWear.day} > ${garment.lastWashedOn} or (${garmentWear.day} = ${garment.lastWashedOn} and ${garmentWear.wornAt} > ${garment.washedAt}))`;
+
+/** wearsSinceWash() in SQL: distinct days worn since the wash. */
 export function wearsSinceWashSql(): SQL<number> {
-  return sql<number>`(select count(distinct ${garmentWear.day})::int from ${garmentWear} where ${garmentWear.garmentId} = ${garment.id} and (${garment.lastWashedOn} is null or ${garmentWear.day} > ${garment.lastWashedOn}))`;
+  return sql<number>`(select count(distinct ${garmentWear.day})::int from ${garmentWear} where ${garmentWear.garmentId} = ${garment.id} and ${wornSinceWash})`;
 }
 
 /**
@@ -125,7 +134,7 @@ export function wearSummarySql(
   return sql<WearSummary>`(
     select json_build_object(
       'worn', count(distinct ${garmentWear.day})::int,
-      'sinceWash', (count(distinct ${garmentWear.day}) filter (where ${garment.lastWashedOn} is null or ${garmentWear.day} > ${garment.lastWashedOn}))::int,
+      'sinceWash', (count(distinct ${garmentWear.day}) filter (where ${wornSinceWash}))::int,
       'lastWorn', max(${garmentWear.day})::text,
       'today', case
         when ${worn(sql`is null`)} then 'single'
@@ -312,6 +321,7 @@ export function setEntryWorn(
     worn: boolean | undefined;
     at: Date;
     today: IsoDate;
+    tap?: TapInstant | null;
   },
 ): Promise<EntryWornOutcome> {
   return ownerTransaction(db, input.ownerId, 'setEntryWorn', async (tx) => {
@@ -356,8 +366,15 @@ export async function changeEntryWorn(
   input: {
     ownerId: number;
     worn: boolean | undefined;
+    /** When the mark is made: the entry's `worn_at` and the wears' `created_at`. */
     at: Date;
     today: IsoDate;
+    /**
+     * When the outfit was worn, for its wears' `worn_at` (#676): the tap's
+     * (requestTap: a replay's posted instant, null for a replay without
+     * one). Undefined is the mark itself, `at` on `today`.
+     */
+    tap?: TapInstant | null;
   },
 ): Promise<Exclude<EntryWornOutcome, 'not-found'>> {
   const { day } = entry;
@@ -369,17 +386,22 @@ export async function changeEntryWorn(
     return { worn, changed: true, wears, day };
   }
   if (day > input.today) return 'future';
+  // The tap's instant is the wear's only on the entry's own day (#676): a
+  // past day's "Worn?" is a backfill, and the day rule judges it.
+  const tap =
+    input.tap === undefined ? { at: input.at, day: input.today } : input.tap;
   const wears = await markWorn(
     tx,
     { ...entry, ownerId: input.ownerId },
     input.at,
+    instantOnDay(tap, day),
   );
   return { worn, changed: true, wears, day };
 }
 
 /**
  * The entry worn at `at` (and the person's), and one wear per garment of its
- * outfit on its day: the outfit's garments as they are now, so a later edit
+ * outfit on its day, `wornAt` its instant when known on that day: the outfit's garments as they are now, so a later edit
  * of the outfit never changes this history. One statement; data-modifying
  * CTEs run to completion whether or not the final select reads them.
  * Answers how many garments were recorded. A slot only ever names a garment
@@ -390,6 +412,7 @@ async function markWorn(
   tx: Queryable,
   entry: { id: number; day: IsoDate; outfitId: number; ownerId: number },
   at: Date,
+  wornAt: Date | null,
 ): Promise<number> {
   const { rows } = await tx.execute<{ wears: number }>(sql`
     with marked as (
@@ -400,8 +423,8 @@ async function markWorn(
       from ${outfitSlot} inner join ${garment} on ${garment.id} = ${outfitSlot.garmentId}
       where ${outfitSlot.outfitId} = ${entry.outfitId} and ${garment.ownerId} = ${entry.ownerId}
     ), logged as (
-      insert into ${garmentWear} (garment_id, owner_id, day, outfit_calendar_id, created_at)
-      select garment_id, ${entry.ownerId}::integer, ${entry.day}::date, ${entry.id}::integer, ${at}::timestamptz
+      insert into ${garmentWear} (garment_id, owner_id, day, outfit_calendar_id, worn_at, created_at)
+      select garment_id, ${entry.ownerId}::integer, ${entry.day}::date, ${entry.id}::integer, ${wornAt}::timestamptz, ${at}::timestamptz
       from worn
       on conflict do nothing
     )
@@ -427,11 +450,25 @@ async function unmarkWorn(tx: Queryable, entryId: number): Promise<number> {
 }
 
 /**
+ * An insert's conflict with the garment's day-level wear of that day
+ * (garment_wear_garment_id_day_single_unique): the wear stays, with the
+ * later known instant of the two (#676: a known one beats null, so a wear
+ * after the day's wash is never dropped to the day rule), and is updated
+ * only when that moves, so a repeat bumps no revision and answers no row.
+ * Used by setWoreToday and detachOutfitWears.
+ */
+const ON_DAY_WEAR_KEEP_LATER_INSTANT = sql`on conflict (garment_id, day) where outfit_calendar_id is null do update
+  set worn_at = excluded.worn_at
+  where excluded.worn_at is not null
+    and (${garmentWear.wornAt} is null or excluded.worn_at > ${garmentWear.wornAt})`;
+
+/**
  * Keeps the wears of an outfit's calendar entries when the outfit is about
  * to be deleted (its entries cascade with it, and their wears would with
  * them): each becomes a day-level wear, the shape "Wore today" writes
- * (outfit_calendar_id null, the garment, owner, day and created_at kept).
- * Where the garment already has a day-level wear that day, that one stays
+ * (outfit_calendar_id null, the garment, owner, day, worn_at and created_at
+ * kept). Where the garment already has a day-level wear that day, that one
+ * stays, taking the entry wear's instant when it is the later known one,
  * and the entry's row goes with the entry (distinct days count once
  * anyway). Run inside the deleting transaction, before the delete; the
  * entries are locked first, so a worn pill tapped meanwhile waits and then
@@ -465,23 +502,24 @@ export async function detachOutfitWears(
     )
     .for('update');
   const ofEntries = sql`${garmentWear.outfitCalendarId} in (select id from entries)`;
-  // ON CONFLICT DO NOTHING: the partial unique index on (garment_id, day)
-  // for day-level wears keeps an existing one. An outfit has one entry a
-  // day at most, so the select itself holds no two rows for one key. The
-  // final select counts the entries so they are locked even when no wear
-  // needs them read.
+  // An existing day-level wear stays, with the later known instant
+  // (ON_DAY_WEAR_KEEP_LATER_INSTANT), so the day's wears since its wash
+  // stay as they were. An outfit has one entry a day at most, so the select itself
+  // holds no two rows for one key. `kept` counts the inserted copies alone
+  // (xmax = 0). The final select counts the entries so they are locked even
+  // when no wear needs them read.
   const { rows } = await tx.execute<{ kept: number }>(sql`
     with entries as materialized (${entries}),
     kept as (
-      insert into ${garmentWear} (garment_id, owner_id, day, outfit_calendar_id, created_at)
-      select ${garmentWear.garmentId}, ${garmentWear.ownerId}, ${garmentWear.day}, null, ${garmentWear.createdAt}
+      insert into ${garmentWear} (garment_id, owner_id, day, outfit_calendar_id, worn_at, created_at)
+      select ${garmentWear.garmentId}, ${garmentWear.ownerId}, ${garmentWear.day}, null, ${garmentWear.wornAt}, ${garmentWear.createdAt}
       from ${garmentWear}
       where ${ofEntries}
-      on conflict do nothing
-      returning 1
+      ${ON_DAY_WEAR_KEEP_LATER_INSTANT}
+      returning xmax = 0 as inserted
     ),
     moved as (delete from ${garmentWear} where ${ofEntries})
-    select (select count(*)::int from kept) as kept, (select count(*) from entries) as entries`);
+    select (select count(*)::int from kept where inserted) as kept, (select count(*) from entries) as entries`);
   return rows[0].kept;
 }
 
@@ -510,6 +548,8 @@ export async function setWoreToday(
     ownerId: number;
     day: IsoDate;
     worn: boolean;
+    /** The wear's instant on its day, or null (instantOnDay, #676). */
+    wornAt: Date | null;
     clientId?: string;
   },
 ): Promise<
@@ -521,12 +561,14 @@ export async function setWoreToday(
   | 'client-id-taken'
 > {
   // The conflict target is the day's single wear alone: a client id taken
-  // by another wear is a unique violation, never a silent no-op.
+  // by another wear is a unique violation, never a silent no-op. A wear
+  // already there keeps its id and takes this one's instant when later
+  // (an older outbox's timeless replay, then the tap that knows it).
   const write = input.worn
-    ? sql`insert into ${garmentWear} (garment_id, owner_id, day, client_id)
-        select id, owner_id, ${input.day}::date, ${input.clientId ?? null}::uuid
+    ? sql`insert into ${garmentWear} (garment_id, owner_id, day, worn_at, client_id)
+        select id, owner_id, ${input.day}::date, ${input.wornAt}::timestamptz, ${input.clientId ?? null}::uuid
         from owned where not wishlist
-        on conflict (garment_id, day) where outfit_calendar_id is null do nothing
+        ${ON_DAY_WEAR_KEEP_LATER_INSTANT}
         returning 1`
     : sql`delete from ${garmentWear}
         where ${and(
@@ -564,38 +606,48 @@ export async function setWoreToday(
 
 /**
  * Washes the listed garments of the owner on `day` (every copy: laundry
- * day), the ids of others and of wishlist items ignored like unknown ones;
- * returns the garments washed, each with whether its wash moved. Wears on
- * `day` itself count as before the wash. Monotone: a wash never moves back
- * (`greatest`), so a queued wash replayed after a later one (#178) changes
- * nothing; washed has no undo. The garment page's Washed, the laundry
- * page's batch, MCP's mark_washed and the seed's Sundays.
+ * day) at `at`, its instant on that day or null (instantOnDay, #676); the
+ * ids of others and of wishlist items ignored like unknown ones. Returns
+ * the garments washed, each with whether its wash moved. Monotone: a wash
+ * never moves back, so a queued wash replayed after a later one (#178)
+ * changes nothing; washed has no undo. On the same day only a later known
+ * instant moves it: a timeless wash never erases a known one (an old
+ * client's replay must not uncount the evening's wear), and a known one
+ * replaces a timeless one. A later day takes its own instant, null or not.
+ * The garment page's Washed, the laundry page's batch, the API, MCP's
+ * mark_washed and the seed's Sundays.
+ *
+ * One statement: the owner lock, the garments named (owned), and the
+ * update of only those whose wash moves, so a repeat tap writes no row
+ * and sends no revision to the changes feed.
  */
 export async function markWashed(
   db: Queryable,
   ownerId: number,
   ids: number[],
   day: IsoDate,
+  at: Date | null,
 ): Promise<{ id: number; changed: boolean }[]> {
   if (ids.length === 0) return [];
-  const lock = ownerLockCte(db, ownerId);
-  return db
-    .with(lock)
-    .update(garment)
-    .set({ lastWashedOn: sql`greatest(${garment.lastWashedOn}, ${day}::date)` })
-    .where(
-      and(
-        eq(garment.ownerId, ownerId),
-        inArray(garment.id, ids),
-        ownedGarment(),
-        ownerLocked(db, lock),
-      ),
+  const laterDay = sql`(${garment.lastWashedOn} is null or ${day}::date > ${garment.lastWashedOn})`;
+  const laterInstant = sql`(${day}::date = ${garment.lastWashedOn} and ${at}::timestamptz is not null and (${garment.washedAt} is null or ${at}::timestamptz > ${garment.washedAt}))`;
+  const { rows } = await db.execute<{ id: number; changed: boolean }>(sql`
+    with ${ownerLockSql(db, ownerId)},
+    named as (
+      select ${garment.id} as id from ${garment}
+      where ${and(eq(garment.ownerId, ownerId), inArray(garment.id, ids), ownedGarment())}
+        and ${OWNER_LOCKED}
+    ),
+    moved as (
+      update ${garment}
+      set last_washed_on = ${day}::date, washed_at = ${at}::timestamptz
+      where ${garment.id} in (select id from named) and ${OWNER_LOCKED}
+        and (${laterDay} or ${laterInstant})
+      returning ${garment.id} as id
     )
-    .returning({
-      id: garment.id,
-      // Postgres 18's old/new in RETURNING: no read before the write.
-      changed: sql<boolean>`old.last_washed_on is distinct from new.last_washed_on`,
-    });
+    select named.id, moved.id is not null as changed
+    from named left join moved on moved.id = named.id`);
+  return rows;
 }
 
 /**
@@ -633,6 +685,8 @@ export interface WearRow {
   day: string;
   /** The calendar entry it was logged from; null for a single "Wore today". */
   outfitCalendarId: number | null;
+  /** Its instant on its day, when known (#676). */
+  wornAt: Date | null;
 }
 
 /**
@@ -650,6 +704,7 @@ export function wearsByIds(
       garmentId: garmentWear.garmentId,
       day: garmentWear.day,
       outfitCalendarId: garmentWear.outfitCalendarId,
+      wornAt: garmentWear.wornAt,
     })
     .from(garmentWear)
     .where(inArray(garmentWear.id, [...ids]));

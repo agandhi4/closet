@@ -1,4 +1,4 @@
-import { addDays, type IsoDate } from './calendar-date';
+import { addDays, type IsoDate, todayIn } from './calendar-date';
 
 /**
  * The writes the installed app queues while offline and replays on
@@ -111,9 +111,66 @@ export function isReplayRequest(
   return headers[REPLAY_HEADER.toLowerCase()] !== undefined;
 }
 
-/** The kinds whose record posts the tap's `day` (todayIn APP_TIMEZONE). */
+/**
+ * The kinds whose record posts the tap's `day` (todayIn APP_TIMEZONE): a
+ * Sunday-night wear replayed Monday is Sunday's. An entry's day is its own.
+ */
 export function takesDay(kind: QueueableKind): boolean {
   return kind === 'wear' || kind === 'wash';
+}
+
+/**
+ * The kinds whose record posts the tap's instant (`at`, ISO), so a replay
+ * orders a same-day wear (Wore today, an entry marked worn) and wash by when
+ * they were tapped, not replayed (#676; tapInstant judges it).
+ */
+export function takesInstant(kind: QueueableKind): boolean {
+  return takesDay(kind) || kind === 'entry';
+}
+
+/** When a tap happened as far as the server can tell, and its day in APP_TIMEZONE. */
+export interface TapInstant {
+  at: Date;
+  day: IsoDate;
+}
+
+/**
+ * The instant of a wear, a wash or an entry's mark (#676), the one rule
+ * every writer of garment_wear.worn_at and garment.washed_at goes through:
+ * the posted one (the tap's: the outbox's, an API client's), never after
+ * the server's now (a fast client clock); without one, a live tap is now,
+ * but a replay (`replayed`: REPLAY_HEADER) is unknown, null: a record queued
+ * before its kind carried `at` (an older outbox) was tapped some time
+ * before the replay, and stamping the replay's time could put a morning
+ * wash after an evening wear. A slow client clock is not caught: its
+ * instant is earlier than the tap, and can misorder.
+ */
+export function tapInstant(
+  posted: Date | undefined,
+  replayed: boolean,
+  now: Date,
+  timeZone: string,
+): TapInstant | null {
+  if (posted === undefined && replayed) return null;
+  const at = posted === undefined || posted > now ? now : posted;
+  return { at, day: todayIn(timeZone, at) };
+}
+
+/**
+ * The instant a wear or wash on `day` is stored with (garment_wear.worn_at,
+ * garment.washed_at): the tap's, only when it falls on `day`; else null,
+ * the day rule (a wear that day counts as before the wash). Outside the
+ * day it is dropped, never clamped to the day's edge: a wrong clock or a
+ * mark made after the day (a calendar "Worn?" for yesterday), and clamping
+ * to the day's start would invent a morning wash that counts every wear of
+ * the day. Membership is todayIn's, so a DST day needs no midnight
+ * arithmetic.
+ */
+export function instantOnDay(
+  tap: TapInstant | null,
+  day: IsoDate,
+): Date | null {
+  return tap?.day === day ? tap.at : null;
 }
 
 /** The packing ticks: a record per item, posting `shown` and `packed`. */
@@ -358,9 +415,25 @@ export function syncedWritePaths(paths: unknown): string[] {
 // laundry (a wear makes a garment dirty, a wash clean); Today, the calendar's
 // weeks and a trip's page (each draws WornControl, and the entry's wears
 // feed the laundry); a trip's page for its ticks.
-const LAUNDRY_PAGE = '/laundry';
-const ENTRY_PAGES = new Set(['/', '/calendar', LAUNDRY_PAGE]);
+const ENTRY_PAGES = new Set(['/', '/calendar']);
+
+/**
+ * The pages that render a `data-offline-queue` control and are no tab root
+ * or Today: the laundry and a trip's page. One list for both readers, so
+ * they cannot drift: `showsQueuedWrite` refetches them after a replay, and
+ * the warm list (src/web/shell/warm-list.ts) names them, so the installed
+ * app opens them offline without a prior visit (#657). A new page that
+ * renders a queueable control joins here; test/integration/offline-warm.spec.ts
+ * fails while one shown by `showsQueuedWrite` is neither here, warmed
+ * elsewhere (a garment's page) nor a page the warm leaves out on purpose.
+ */
+export const LAUNDRY_PAGE = '/laundry';
 const TRIP_PAGE = /^\/trips\/[1-9]\d{0,9}$/;
+
+/** Whether `pagePath` is one of the queueable pages the warm must name. */
+export function isQueueablePage(pagePath: string): boolean {
+  return pagePath === LAUNDRY_PAGE || TRIP_PAGE.test(pagePath);
+}
 
 /**
  * Whether a page (its pathname; any query, so every cached week or filter)
@@ -376,7 +449,7 @@ export function showsQueuedWrite(writePath: string, pagePath: string): boolean {
     case 'wash':
       return pagePath === `/wardrobe/${id}` || pagePath === LAUNDRY_PAGE;
     case 'entry':
-      return ENTRY_PAGES.has(pagePath) || TRIP_PAGE.test(pagePath);
+      return ENTRY_PAGES.has(pagePath) || isQueueablePage(pagePath);
     case 'packed':
     case 'item':
       return pagePath === `/trips/${id}`;

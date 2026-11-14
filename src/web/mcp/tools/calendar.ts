@@ -167,6 +167,8 @@ export const calendarTools = [
         ownerId: ctx.userId,
         day: today,
         worn: true,
+        // Now is on today: today is its date.
+        wornAt: now,
       });
       if (saved === 'not-found') throw garmentNotFound();
       if (saved === 'wishlist') {
@@ -192,8 +194,15 @@ export const calendarTools = [
     idempotent: true,
     async run({ garmentIds, ownerId }, ctx) {
       await wardrobeFor(ctx, ownerId, 'own');
-      const today = todayIn(ctx.timeZone, new Date());
-      const washed = await markWashed(ctx.db, ctx.userId, garmentIds, today);
+      const now = new Date();
+      const today = todayIn(ctx.timeZone, now);
+      const washed = await markWashed(
+        ctx.db,
+        ctx.userId,
+        garmentIds,
+        today,
+        now,
+      );
       ctx.webLogger.info(
         `Laundry by user ${ctx.userId} on ${today} (MCP): ${washed.length} washed of ${garmentIds.length} asked`,
       );

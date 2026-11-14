@@ -170,6 +170,7 @@ describe('the wardrobe export', () => {
           quantity: 3,
           washAfterWears: 2,
           lastWashedOn: '2026-09-01',
+          washedAt: new Date('2026-09-01T13:00:00.000Z'),
           away: AWAY_REASONS[0],
           awayNote: 'With Sam',
           condition: CONDITIONS[1],

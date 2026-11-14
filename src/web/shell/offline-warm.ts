@@ -37,12 +37,21 @@ export const WARM_OUTFIT_CAP = 80;
 export const WARM_WISHLIST_CAP = 60;
 
 /**
- * The most pages a warm list names (pages and fragments): next week, a page per capped garment and outfit, the inbox's
+ * The trips ahead or on that a warm names, nearest first (#657), beside the
+ * laundry: the pages whose queueable controls (packing ticks, Washed) must
+ * work offline without a prior visit.
+ */
+export const WARM_TRIP_CAP = 20;
+
+/**
+ * The most pages a warm list names (pages and fragments): next week, the laundry and the trips (WARM_TRIP_CAP), a page per capped garment and outfit, the inbox's
  * (WARM_WISHLIST_CAP), and the grid's later pages, one per GRID_PAGE_SIZE
  * warmed garments at most. The worker sizes its page cache from it.
  */
 export const WARM_PAGE_CAP =
   1 +
+  1 +
+  WARM_TRIP_CAP +
   WARM_GARMENT_CAP +
   WARM_OUTFIT_CAP +
   WARM_WISHLIST_CAP +

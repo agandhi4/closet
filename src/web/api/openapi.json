@@ -3847,6 +3847,11 @@
                           "format": "date",
                           "type": "string"
                         },
+                        "washedAt": {
+                          "format": "date-time",
+                          "description": "When on `lastWashedOn` it was washed, if known: a wear that day after it counts toward the next wash; absent, every wear that day counts before it",
+                          "type": "string"
+                        },
                         "away": {
                           "anyOf": [
                             {
@@ -7297,6 +7302,11 @@
                         "format": "uuid",
                         "description": "Your id for this wear, for retrying it offline: accepted, not yet stored (a wear is once a garment a day anyway)",
                         "type": "string"
+                      },
+                      "at": {
+                        "description": "When it happened, with its offset; default now. Orders a wear and a wash of the same day (worn after the morning wash counts toward the next); one after now is taken as now, one outside `day` is dropped (the day rule: a wear that day counts before its wash)",
+                        "format": "date-time",
+                        "type": "string"
                       }
                     }
                   },
@@ -7509,6 +7519,11 @@
                     "description": "The household day it happened (GET /me's `today`), at most 7 days back; another is a 409",
                     "format": "date",
                     "type": "string"
+                  },
+                  "at": {
+                    "description": "When it happened, with its offset; default now. Orders a wear and a wash of the same day (worn after the morning wash counts toward the next); one after now is taken as now, one outside `day` is dropped (the day rule: a wear that day counts before its wash)",
+                    "format": "date-time",
+                    "type": "string"
                   }
                 }
               }
@@ -7620,6 +7635,11 @@
                   "day": {
                     "description": "The household day it happened (GET /me's `today`), at most 7 days back; another is a 409",
                     "format": "date",
+                    "type": "string"
+                  },
+                  "at": {
+                    "description": "When it happened, with its offset; default now. Orders a wear and a wash of the same day (worn after the morning wash counts toward the next); one after now is taken as now, one outside `day` is dropped (the day rule: a wear that day counts before its wash)",
+                    "format": "date-time",
                     "type": "string"
                   }
                 }
@@ -29026,6 +29046,11 @@
                                         "format": "date",
                                         "type": "string"
                                       },
+                                      "washedAt": {
+                                        "format": "date-time",
+                                        "description": "When on `lastWashedOn` it was washed, if known: a wear that day after it counts toward the next wash; absent, every wear that day counts before it",
+                                        "type": "string"
+                                      },
                                       "away": {
                                         "anyOf": [
                                           {
@@ -29105,6 +29130,11 @@
                                   },
                                   "calendarEntryId": {
                                     "type": "integer"
+                                  },
+                                  "wornAt": {
+                                    "format": "date-time",
+                                    "description": "When on `day` it was worn, if known: after the garment's `care.washedAt` that day, it counts toward the next wash",
+                                    "type": "string"
                                   }
                                 }
                               }
