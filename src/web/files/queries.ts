@@ -213,6 +213,12 @@ export async function lockOwnersAndPhotoName(
   return locked.owners === accounts.length;
 }
 
+/** Whether the `file` table has any row: claimStorage's "is this a first boot". */
+export async function hasPhotoRows(q: Queryable): Promise<boolean> {
+  const [row] = await q.select({ id: file.id }).from(file).limit(1);
+  return row !== undefined;
+}
+
 export async function photoRowExists(
   q: Queryable,
   fileName: string,

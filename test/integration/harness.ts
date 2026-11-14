@@ -157,6 +157,11 @@ const liveLogs = new Set<LogCapture>();
 
 export interface TestApp {
   app: FastifyInstance;
+  /**
+   * What the app booted with: a spec booting a second app on the same
+   * database (createApp({ ...t.config, ... }), storage-marker.spec.ts).
+   */
+  config: Config;
   /** Uploads and thumbs land here; removed by cleanup(). */
   dataPath: string;
   /** The app's one Photos (what the routes store and serve through). */
@@ -394,6 +399,7 @@ export async function createTestApp(
 
   return {
     app,
+    config,
     dataPath,
     photos,
     cutouts,

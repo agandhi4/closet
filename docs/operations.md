@@ -82,10 +82,10 @@ Deploy now, data fixes and production's paths: homelab `stacks/closet/README.md`
 
 The image runs as `node`, **uid/gid 1000** (the Dockerfile's `USER`), never root. It writes exactly two directories, both host mounts in production, and a mount keeps the host's ownership, so both must be writable by uid 1000 on the host:
 
-| In the container              | What writes it                     |
-| ----------------------------- | ---------------------------------- |
-| `/app/data` (`DATA_PATH`)     | photos, `.incoming/`               |
-| `/app/models` (`MODELS_PATH`) | the model's download at first boot |
+| In the container              | What writes it                          |
+| ----------------------------- | --------------------------------------- |
+| `/app/data` (`DATA_PATH`)     | photos, `.incoming/`, `.closet-storage` |
+| `/app/models` (`MODELS_PATH`) | the model's download at first boot      |
 
 The opt-in `LOG_FILE` is not a third path the image owns: it must point into a mount you provide that uid 1000 can write (never under `DATA_PATH`). It never creates a directory; one that is missing or unwritable ends in a single `error` line on stdout and a file-less run, the console log unaffected.
 
@@ -100,13 +100,21 @@ docker run --rm --user 1000:1000 -v <data dir>:/d -v <models dir>:/m --entrypoin
 
 **The symptom** of a directory uid 1000 cannot write: a root-owned `/app/data` ends the boot (the container restarts in a loop) with the fatal line `DATA_PATH /app/data is not writable by this process (EACCES): chown -R 1000:1000 the host directory mounted at /app/data; docs/operations.md#permissions`, before anything else is logged. A root-owned `/app/models` boots and serves pages, but `/health/ready` answers 503 with `storage` down and that chown as its `fix`, the container goes unhealthy and autoheal restarts it, and the model download fails (`Downloading BiRefNet 512x512 failed`, `EACCES`). A directory that stops being writable later (the NFS share remounted read-only) shows the same `storage` check within 5 s. `docker exec closet ...` runs as uid 1000 too (`npm` caches under `/home/node`).
 
+## Photo storage marker
+
+`DATA_PATH` carries a `.closet-storage` file (JSON: a random `installId` and `createdAt`), so the app never reads a bare mountpoint (the NFS share not mounted, or the wrong host directory) as "every photo is gone" (#650). The boot writes it only when it can prove the directory is the household's: the `file` table is empty (a first boot), or the table has rows and the directory holds stored photos (an existing share from before the marker, adopted at the first boot after the deploy, logged at warn as `adopted an unmarked directory`). It is never served by `/file/**` and never counted by reconciliation. Copy it with the photos in any backup.
+
+**The symptom** of an unmounted share, or a `DATA_PATH` pointing at the wrong directory, with photo rows in the database: the boot ends (the container restarts in a loop) with the fatal line `DATA_PATH has no .closet-storage marker: the photo share is not mounted, or DATA_PATH is the wrong directory (docs/operations.md#photo-storage-marker)`, and the marker is not written there. The CLIs (`maintenance:reconcile`, `retrim-thumbs`, `seed`) exit 1 with the same line. A share unmounted, or another install's share mounted, under a running server turns `/health/ready`'s `storage` check down (pointing here) within 5 s, and the nightly reconciliation refuses and deletes nothing, pending photos included; so does a run that finds `file` rows and not one stored photo set, marker or not. `--force` overrides none of these.
+
+**Recovery.** Mount the share (check `mount` and the host directory behind `CLOSET_DATA_DIR`) and restart the container; nothing is to be fixed in the app. After restoring a share from a backup that lacks the marker, put the backup's `.closet-storage` back if you have it; otherwise the first boot adopts the restored directory as long as it holds photos. A restored directory with rows in the database and no photos at all is refused on purpose: restore the photos, or, if the household really has none left, remove the rows (`file` and what references them) before the boot. To re-adopt by hand (only once you have checked the directory is the right one), as uid 1000: `docker run --rm --user 1000:1000 -v <data dir>:/d --entrypoint sh ghcr.io/kashhq/closet:latest -c 'printf "{\"installId\":\"%s\",\"createdAt\":\"%s\"}\n" $(cat /proc/sys/kernel/random/uuid) $(date -u +%FT%TZ) > /d/.closet-storage'`, then restart. A running server compares the marker with the one it booted with, so restart after any change to it. The marker says the directory is a closet install's storage, not which database it belongs to: a share swapped with another install's before a boot is not detected.
+
 ## Health
 
 `GET /health/live` checks nothing (the phones' connectivity heartbeat). `GET /health/ready` (alias `/healthz`) is what the image's `HEALTHCHECK` (every 30 s, 60 s start period), the smoke boot and devkit's contract probe read: 200 `{"status": "up", "version": "<sha7>", "checks": {...}}`, or 503 `"down"` when a required check is down. It is limited to 60 a minute per address. Each down check names this section as its `fix`, and the log line (logger `Health`, `Readiness: ...`) says why:
 
 - **`database`** (required): the pool's one statement did not answer in 3 s or failed. Check the Postgres server and `CLOSET_DB_HOST`; the app recovers by itself once it answers.
 - **`migrations`** (required): the database's newest Drizzle migration is older than this build's, so it was restored or repointed after the boot. Restart the container: the boot migrates.
-- **`storage`** (required): a directory the process writes (`DATA_PATH`, `MODELS_PATH`) refused a create and unlink as uid 1000; its `fix` is the chown and the log line names the directory and the error code. Probed at most once every 5 s: see Permissions.
+- **`storage`** (required): a directory the process writes (`DATA_PATH`, `MODELS_PATH`) refused a create and unlink as uid 1000; its `fix` is the chown and the log line names the directory and the error code. Or `DATA_PATH` lost the marker the boot claimed, or holds another install's: its `fix` points to Photo storage marker. Probed at most once every 5 s: see Permissions.
 - **`cron_jobs`** (optional): a timer's run has been in flight over 30 minutes (`stuck` names it). Its last `cron-` lines in Loki say where it hangs; a restart starts it afresh.
 - **`cutout_queue`** (optional): the background-removal queue is not running. In production that means the process is shutting down.
 

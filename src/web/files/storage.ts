@@ -13,6 +13,26 @@ import type { Logger } from '../../logger';
 const INCOMING_DIR = '.incoming';
 const STALE_INCOMING_MS = 60 * 60 * 1000;
 
+/**
+ * The directory's identity (#650): written once, by claimStorage
+ * (storage-identity.ts), when this process can prove DATA_PATH is the
+ * household's photo storage. A bare mountpoint (the share not mounted)
+ * lacks it, so it is never read as "every photo is gone". A dotfile:
+ * parseStoredName refuses it, so /file/** never serves it, and list()
+ * skips it, so reconciliation never counts it.
+ */
+export const STORAGE_MARKER = '.closet-storage';
+
+export interface StorageMarker {
+  /** A random UUID, stable for the life of the storage. */
+  installId: string;
+  /** ISO timestamp of the write. */
+  createdAt: string;
+}
+
+/** Why the directory is not the one this process claimed (identityProblem). */
+export type IdentityProblem = 'absent' | 'foreign';
+
 /** One file in the photo directory; names are as stored, variants included. */
 export interface StoredObject {
   name: string;
@@ -26,6 +46,10 @@ export interface StoredObject {
  */
 export class PhotoStorage {
   private readonly incoming: string;
+  // The marker this process verified or wrote at boot (claim); compared
+  // with the one on disk later, so a share swapped under a running server
+  // is noticed too.
+  private claimed: StorageMarker | undefined;
 
   constructor(
     readonly directory: string,
@@ -53,6 +77,64 @@ export class PhotoStorage {
         this.logger.warn(`Removed abandoned partial write ${name}`);
       }
     }
+  }
+
+  /** The marker on disk; undefined when absent or not one we wrote (logged). */
+  async readMarker(): Promise<StorageMarker | undefined> {
+    let text: string;
+    try {
+      text = await fs.promises.readFile(this.pathOf(STORAGE_MARKER), 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    }
+    const marker = parseMarker(text);
+    if (!marker) {
+      this.logger.warn(`${STORAGE_MARKER} is not a storage marker; ignored`);
+    }
+    return marker;
+  }
+
+  /**
+   * Writes a fresh marker, atomically like store(): a reader sees no marker
+   * or a whole one. Only claimStorage decides that one may be written.
+   */
+  async writeMarker(now: Date = new Date()): Promise<StorageMarker> {
+    const marker: StorageMarker = {
+      installId: randomUUID(),
+      createdAt: now.toISOString(),
+    };
+    const tempPath = path.join(this.incoming, `${randomUUID()}-marker`);
+    try {
+      await fs.promises.writeFile(tempPath, `${JSON.stringify(marker)}\n`, {
+        flag: 'wx',
+      });
+      await fs.promises.rename(tempPath, this.pathOf(STORAGE_MARKER));
+    } catch (error) {
+      await fs.promises.rm(tempPath, { force: true });
+      throw error;
+    }
+    return marker;
+  }
+
+  /** Records the marker claimStorage verified; identityProblem compares with it. */
+  claim(marker: StorageMarker): void {
+    this.claimed = marker;
+  }
+
+  /**
+   * Whether the directory is still the one this process claimed: `absent`
+   * (no marker: unmounted, or never claimed), `foreign` (another install's
+   * marker), or undefined. Read on every call: readiness and each
+   * reconciliation run ask, and a share can be unmounted under a server.
+   */
+  async identityProblem(): Promise<IdentityProblem | undefined> {
+    const marker = await this.readMarker();
+    if (!marker) return 'absent';
+    if (this.claimed && marker.installId !== this.claimed.installId) {
+      return 'foreign';
+    }
+    return undefined;
   }
 
   /**
@@ -109,13 +191,13 @@ export class PhotoStorage {
     });
   }
 
-  /** Every file in the directory; the caller filters. */
+  /** Every file in the directory but the marker; the caller filters. */
   async *list(): AsyncIterable<StoredObject> {
     const entries = await fs.promises.readdir(this.directory, {
       withFileTypes: true,
     });
     for (const entry of entries) {
-      if (!entry.isFile()) continue;
+      if (!entry.isFile() || entry.name === STORAGE_MARKER) continue;
       const stat = await fs.promises
         .stat(this.pathOf(entry.name))
         .catch((error: unknown) => {
@@ -135,4 +217,20 @@ export class PhotoStorage {
   private pathOf(fileName: string): string {
     return path.join(this.directory, path.basename(fileName));
   }
+}
+
+function parseMarker(text: string): StorageMarker | undefined {
+  try {
+    const value = JSON.parse(text) as Partial<StorageMarker> | null;
+    if (
+      typeof value?.installId === 'string' &&
+      value.installId.length > 0 &&
+      typeof value.createdAt === 'string'
+    ) {
+      return { installId: value.installId, createdAt: value.createdAt };
+    }
+  } catch {
+    // Not JSON: not ours.
+  }
+  return undefined;
 }

@@ -1036,3 +1036,10 @@ Consequence: `plannedWeekUrl(planned, firstDay?)` is the one builder; the banner
 **Why:** the trip's offline note said packing needs a connection while ticks queue, the fallback page sat under a "showing saved data" banner, and a queued tick left the counter and the "Saved" line as they were.
 **Decision:** `offlineNotice(kinds)` (`src/offline-writes.ts`, pure) maps a page's `data-offline-queue` kinds to none / wears / washes / ticks / changes, and the page renders the matching `offlineNotice.*` string (the trip page derives its kinds from the controls it draws). The global banner says dimmed controls need a connection, once. `/offline.html` carries `data-offline-fallback`, which makes connectivity.js hide the banner, and links `OPENS_STALE`'s tab roots. The outbox sets `[data-packed-count]` from the checked ticks and empties the autosave status when it queues.
 **Consequence:** a page that gains a queueable control joins its kinds list; no string may say a queueable write needs a connection.
+
+## 2026-11-14 — DATA_PATH is identified by a marker, not by its contents (#650)
+
+**Why:** a container started on the bare NFS mountpoint read as "every photo gone": reconciliation deleted every pending row and reported success, and uploads landed where the remount hid them.
+**Decision:** `claimStorage` (`src/web/files/storage-identity.ts`, run by `createPhotos` in every process) writes `.closet-storage` (`installId`, `createdAt`; temp + rename) only on an empty `file` table or when rows and stored photos both exist (adopting the pre-marker share); rows and no photos refuses (`StorageIdentityError`). Readiness and each reconciliation run re-read it against the claimed id; reconciliation also refuses rows with zero stored sets. Neither refusal yields to `--force`.
+**Not done:** the install id is not copied into the database, so a share swapped with another install's before a boot passes. That needs a one-row table (a migration); proposed for a follow-up rather than built here.
+**Consequence:** a backup of the photos must include the marker; recovery and re-adoption are in `docs/operations.md#photo-storage-marker`.

@@ -120,11 +120,18 @@ describe('createStorageCheck', () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  const check = (directories: string[]) =>
+  const IDENTITY_FIX = 'see docs/operations.md#photo-storage-marker';
+  const check = (
+    directories: string[],
+    identity: () => Promise<string | undefined> = () =>
+      Promise.resolve(undefined),
+  ) =>
     createStorageCheck({
       directories,
       probe: probeWritable,
       fix: ownershipFix,
+      identity,
+      identityFix: IDENTITY_FIX,
       logger,
     })();
 
@@ -151,6 +158,15 @@ describe('createStorageCheck', () => {
     },
   );
 
+  // #650: an unmounted share is a writable, empty mountpoint.
+  it('is down with the marker pointer when DATA_PATH is not the claimed storage', async () => {
+    logs.clear();
+    expect(await check([writable], () => Promise.resolve('no marker'))).toEqual(
+      { status: 'down', required: true, fix: IDENTITY_FIX },
+    );
+    expect(logs.messages('warn')).toEqual(['Readiness: no marker']);
+  });
+
   it('probes once per TTL, concurrent callers sharing the probe', async () => {
     let probes = 0;
     let clock = 0;
@@ -161,6 +177,8 @@ describe('createStorageCheck', () => {
         return Promise.resolve({ writable: true });
       },
       fix: ownershipFix,
+      identity: () => Promise.resolve(undefined),
+      identityFix: IDENTITY_FIX,
       logger,
       ttlMs: 5_000,
       now: () => clock,

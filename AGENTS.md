@@ -10,7 +10,7 @@ Conventions: `backend.md`, `frontend.md`, `frontend-pwa.md`, `frontend-htmx.md` 
 Capabilities: pwa, push, scheduled-jobs
 
 - **Runtime**: Node 22 (`.nvmrc`), TypeScript, plain **Fastify 5** (no framework on top), built by `tsc` to `dist/`.
-- **Image**: runs as `node` (uid/gid 1000), never root; it writes only `DATA_PATH` and `MODELS_PATH`, host mounts that must be writable by uid 1000 (`docs/operations.md#permissions`; `/health/ready`'s `storage` check, the boot refuses an unwritable `DATA_PATH`). A new runtime write path gets a `chown` in the Dockerfile and a row there.
+- **Image**: runs as `node` (uid/gid 1000), never root; it writes only `DATA_PATH` and `MODELS_PATH`, host mounts that must be writable by uid 1000 (`docs/operations.md#permissions`; `/health/ready`'s `storage` check, the boot refuses an unwritable `DATA_PATH`, and one without its `.closet-storage` marker while photo rows exist: Images). A new runtime write path gets a `chown` in the Dockerfile and a row there.
 - **Views**: server-rendered typed JSX (`hono/jsx` to strings, no Hono server) in `src/web/`, htmx 2, a few modules in `public/js/`. Not a SPA; no JSON API for the UI.
 - **CSS**: Tailwind v4 + daisyUI (`views/assets/main.css` to `public/bundle.css`; `views/assets/AGENTS.md`).
 - **Data**: PostgreSQL 18 only (production, pgvault-dev, and the throwaway containers check_tree and CI test on). **Drizzle ORM owns the schema, the migrations and every query** (`src/db/schema.ts`, `drizzle/`, applied at boot).

@@ -1,0 +1,204 @@
+import { randomUUID } from 'node:crypto';
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { eq } from 'drizzle-orm';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { createApp } from '../../src/app';
+import { file, pendingPhoto } from '../../src/db/schema';
+import { reconcileStorage } from '../../src/maintenance/reconcile';
+import { STORAGE_MARKER } from '../../src/web/files/storage';
+import { StorageIdentityError } from '../../src/web/files/storage-identity';
+import {
+  createGarment,
+  jpegPhoto,
+  photoFileName,
+  uploadPhoto,
+} from './garments';
+import { createTestApp, type TestApp } from './harness';
+import { silentLogger } from './logger';
+
+const TWO_DAYS_AGO = () => new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+
+/**
+ * #650: DATA_PATH's identity is a marker, never its contents. An unmounted
+ * NFS share is a writable, empty mountpoint: without the marker the boot
+ * refuses, readiness is down, and reconciliation deletes nothing (pending
+ * rows included) instead of reading every photo as gone.
+ */
+describe('the photo storage marker', () => {
+  let t: TestApp;
+  let live: string;
+  let marker: string;
+  const markerPath = () => join(t.dataPath, STORAGE_MARKER);
+  const reconcile = (force = false) =>
+    reconcileStorage(
+      { db: t.db, photos: t.photos, logger: silentLogger },
+      { force },
+    );
+  const storedFiles = async () =>
+    (await readdir(t.dataPath)).filter((name) => name.endsWith('.webp'));
+  const pendingNames = async () =>
+    (await t.db.select({ name: pendingPhoto.fileName }).from(pendingPhoto))
+      .map((row) => row.name)
+      .sort();
+
+  beforeAll(async () => {
+    t = await createTestApp();
+    const id = await createGarment(t, { name: 'Marked' });
+    await uploadPhoto(t, id, await jpegPhoto(300, 300));
+    live = await photoFileName(t, id);
+    marker = await readFile(markerPath(), 'utf8');
+    // Two day-old pending photos, one with its bytes and one without: what
+    // an unguarded run deletes first.
+    const withBytes = `${randomUUID()}.webp`;
+    await writeFile(join(t.dataPath, withBytes), 'bytes');
+    await utimes(join(t.dataPath, withBytes), TWO_DAYS_AGO(), TWO_DAYS_AGO());
+    await t.db.insert(pendingPhoto).values(
+      [withBytes, `${randomUUID()}.webp`].map((fileName) => ({
+        fileName,
+        userId: t.owner.id,
+        createdAt: TWO_DAYS_AGO(),
+      })),
+    );
+  });
+
+  // Every test leaves the marker the app booted with.
+  afterEach(async () => {
+    await writeFile(markerPath(), marker);
+  });
+
+  afterAll(() => t?.cleanup());
+
+  it('is written by a first boot, never served and never listed', async () => {
+    expect(JSON.parse(marker)).toEqual({
+      installId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      createdAt: expect.any(String),
+    });
+    const res = await t.inject({
+      method: 'GET',
+      url: `/file/${STORAGE_MARKER}`,
+    });
+    expect(res.statusCode).toBe(404);
+    const listed: string[] = [];
+    for await (const object of t.photos.storage.list()) {
+      listed.push(object.name);
+    }
+    expect(listed).not.toContain(STORAGE_MARKER);
+  });
+
+  it('missing under a running server: readiness is down with the pointer', async () => {
+    await rm(markerPath());
+    const res = await t.inject({ method: 'GET', url: '/health/ready' });
+    expect(res.statusCode).toBe(503);
+    expect(
+      res.json<{ checks: Record<string, unknown> }>().checks.storage,
+    ).toEqual({
+      status: 'down',
+      required: true,
+      fix: 'see docs/operations.md#photo-storage-marker',
+    });
+    expect(t.logs.messages('warn')).toContainEqual(
+      expect.stringMatching(
+        /^Readiness: DATA_PATH has no \.closet-storage marker/,
+      ),
+    );
+  });
+
+  it.each([
+    ['absent', () => rm(markerPath()), /no \.closet-storage marker/],
+    [
+      "another install's",
+      () =>
+        writeFile(
+          markerPath(),
+          JSON.stringify({ installId: randomUUID(), createdAt: 'then' }),
+        ),
+      /another install's/,
+    ],
+  ])(
+    'refuses reconciliation with the marker %s, forced or not, deleting nothing',
+    async (_, change, reason) => {
+      const files = await storedFiles();
+      const pending = await pendingNames();
+      await change();
+      for (const force of [false, true]) {
+        const report = await reconcile(force);
+        expect(report.refused).toMatch(reason);
+        expect(report).toMatchObject({
+          pendingPhotosDeleted: 0,
+          pendingRowsWithoutFiles: 0,
+          orphanedObjectsDeleted: 0,
+          orphanedRowsDeleted: 0,
+        });
+      }
+      expect(await storedFiles()).toEqual(files);
+      expect(await pendingNames()).toEqual(pending);
+    },
+  );
+
+  it('refuses reconciliation over file rows with no stored photo at all, marker or not', async () => {
+    // Set aside in a subdirectory, which storage never lists.
+    const aside = join(t.dataPath, 'aside');
+    await mkdir(aside);
+    const files = await storedFiles();
+    for (const name of files) {
+      await rename(join(t.dataPath, name), join(aside, name));
+    }
+    const pending = await pendingNames();
+    try {
+      const report = await reconcile(true);
+      expect(report.refused).toMatch(
+        /file table has 1 rows while storage holds no photo sets/,
+      );
+      expect(report.pendingRowsWithoutFiles).toBe(0);
+      expect(await pendingNames()).toEqual(pending);
+      expect(
+        await t.db.select().from(file).where(eq(file.fileName, live)),
+      ).toHaveLength(1);
+    } finally {
+      for (const name of files) {
+        await rename(join(aside, name), join(t.dataPath, name));
+      }
+      await rm(aside, { recursive: true });
+    }
+  });
+
+  it('refuses a boot whose DATA_PATH lacks it while the database has photo rows', async () => {
+    const empty = await mkdtemp(join(tmpdir(), 'closet-unmounted-'));
+    try {
+      const boot = createApp({ ...t.config, DATA_PATH: empty }, silentLogger);
+      await expect(boot).rejects.toThrow(StorageIdentityError);
+      await expect(boot).rejects.toThrow(
+        /^DATA_PATH has no \.closet-storage marker: the photo share is not mounted/,
+      );
+      // Named by its key only, and nothing written beside the share.
+      await expect(boot).rejects.not.toThrow(empty);
+      expect(await readdir(empty)).not.toContain(STORAGE_MARKER);
+    } finally {
+      await rm(empty, { recursive: true, force: true });
+    }
+  });
+
+  it('is adopted by a boot over an unmarked share holding photos and their rows', async () => {
+    await rm(markerPath());
+    const second = await createApp(t.config, silentLogger);
+    await second.app.close();
+    const adopted = JSON.parse(await readFile(markerPath(), 'utf8')) as {
+      installId: string;
+    };
+    expect(adopted.installId).not.toBe(
+      (JSON.parse(marker) as { installId: string }).installId,
+    );
+    expect(await storedFiles()).toContain(live);
+  });
+});

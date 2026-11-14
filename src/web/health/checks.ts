@@ -112,6 +112,13 @@ export interface StorageCheckDeps {
   probe: (directory: string) => Promise<WriteProbe>;
   /** ownershipFix (src/storage-probe.ts): the chown, with the process's uid:gid. */
   fix: (unwritable: readonly string[]) => string;
+  /**
+   * Why DATA_PATH is not the storage this process claimed at boot, or
+   * undefined when it is (PhotoStorage.identityProblem, the marker: #650).
+   */
+  identity: () => Promise<string | undefined>;
+  /** Where the operator reads how to remount or re-adopt (STORAGE_MARKER_FIX). */
+  identityFix: string;
   logger: Logger;
   ttlMs?: number;
   now?: () => number;
@@ -119,7 +126,9 @@ export interface StorageCheckDeps {
 
 /**
  * `storage` (required): every directory the process writes at runtime is
- * writable by it. Required because the image runs non-root and its
+ * writable by it, and DATA_PATH still carries the marker the boot claimed
+ * (an NFS share unmounted under a running server leaves a writable, empty
+ * mountpoint: uploads would land where the remount hides them). Required because the image runs non-root and its
  * directories are host mounts (docs/operations.md#permissions): with a
  * root-owned one every page would serve and the first upload or the model
  * download would fail, so readiness would lie. The fix names the chown.
@@ -132,13 +141,18 @@ export function createStorageCheck({
   directories,
   probe,
   fix,
+  identity,
+  identityFix,
   logger,
   ttlMs = STORAGE_PROBE_TTL_MS,
   now = Date.now,
 }: StorageCheckDeps): () => Promise<HealthCheck> {
   let cached: { at: number; verdict: Promise<HealthCheck> } | undefined;
   const run = async (): Promise<HealthCheck> => {
-    const results = await Promise.all(directories.map(probe));
+    const [results, problem] = await Promise.all([
+      Promise.all(directories.map(probe)),
+      identity(),
+    ]);
     const unwritable = directories.filter((directory, i) => {
       const result = results[i];
       if (result.writable) return false;
@@ -147,9 +161,14 @@ export function createStorageCheck({
       );
       return true;
     });
-    return unwritable.length === 0
+    if (problem) logger.warn(`Readiness: ${problem}`);
+    const fixes = [
+      ...(unwritable.length > 0 ? [fix(unwritable)] : []),
+      ...(problem ? [identityFix] : []),
+    ];
+    return fixes.length === 0
       ? { status: 'up', required: true }
-      : { status: 'down', required: true, fix: fix(unwritable) };
+      : { status: 'down', required: true, fix: fixes.join('; ') };
   };
   return () => {
     const at = now();
