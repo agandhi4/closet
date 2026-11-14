@@ -19,6 +19,7 @@ import {
   refetchInTurn,
   type RefetchStep,
   refetchVerdict,
+  renderedAccount,
   revalidationOutcome,
   sentToLogin,
   servesStaleWhileRevalidate,
@@ -221,6 +222,37 @@ describe('isRenderedPage', () => {
   });
 });
 
+// The server's busy page (#643) is HTML rendered signed out: read as an
+// account, it would drop the session caches before their copy answers.
+describe('renderedAccount', () => {
+  const html = (account?: string) =>
+    new Headers({
+      'Content-Type': 'text/html; charset=utf-8',
+      ...(account && { [PAGE_ACCOUNT_HEADER]: account }),
+    });
+
+  it('reads the account of a rendered page, signed out included', () => {
+    expect(renderedAccount({ status: 200, headers: html('7') })).toBe('7');
+    expect(renderedAccount({ status: 200, headers: html() })).toBe('');
+  });
+
+  it.each([503, 502, 500, 404])(
+    'reads none from a %i, signed-out HTML though it is',
+    (status) => {
+      expect(renderedAccount({ status, headers: html() })).toBeUndefined();
+    },
+  );
+
+  it('reads none from an answer that is no page', () => {
+    expect(
+      renderedAccount({
+        status: 200,
+        headers: new Headers({ 'Content-Type': 'image/webp' }),
+      }),
+    ).toBeUndefined();
+  });
+});
+
 // The sign-in pages are no-store (their returnTo can carry an invite token,
 // #661): the worker's pageStore claims the cache from them but never stores
 // them under a page key.
@@ -332,21 +364,40 @@ describe('revalidationOutcome', () => {
 
   it('fails without an answer or on a server error, keeping the copy', () => {
     expect(revalidationOutcome(cached, undefined)).toBe('failed');
-    expect(revalidationOutcome(cached, fresh({ status: 502, body: '' }))).toBe(
-      'failed',
-    );
+    expect(
+      revalidationOutcome(
+        cached,
+        fresh({ status: 502, account: undefined, body: '' }),
+      ),
+    ).toBe('failed');
+  });
+
+  it("keeps the copy on the server's signed-out busy page, never a sign-out (#643)", () => {
+    const busy = renderedAccount({
+      status: 503,
+      headers: new Headers({ 'Content-Type': 'text/html' }),
+    });
+    expect(
+      revalidationOutcome(
+        cached,
+        fresh({ status: 503, account: busy, body: '' }),
+      ),
+    ).toBe('failed');
   });
 
   it('is signed out on a redirect, a 401 or a signed-out render', () => {
     expect(
       revalidationOutcome(
         cached,
-        fresh({ status: 0, redirected: true, body: '' }),
+        fresh({ status: 0, redirected: true, account: undefined, body: '' }),
       ),
     ).toBe('signed-out');
-    expect(revalidationOutcome(cached, fresh({ status: 401, body: '' }))).toBe(
-      'signed-out',
-    );
+    expect(
+      revalidationOutcome(
+        cached,
+        fresh({ status: 401, account: undefined, body: '' }),
+      ),
+    ).toBe('signed-out');
     expect(revalidationOutcome(cached, fresh({ account: '' }))).toBe(
       'signed-out',
     );

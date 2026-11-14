@@ -72,7 +72,8 @@ describe('the err serializer', () => {
     expect(text).not.toMatch(/s3cret|hunter2|abc/);
     expect(err).toEqual({
       type: 'Error',
-      message: 'GET <url> failed, <param> connect ECONNREFUSED <url>',
+      // The cause leads; its URL's redaction takes the separator with it.
+      message: 'connect ECONNREFUSED <url> GET <url> failed, <param>',
       stack: expect.stringContaining(
         'caused by: Error: connect ECONNREFUSED <url>',
       ),
@@ -92,7 +93,7 @@ describe('the err serializer', () => {
     const err = loggedErr(error);
     expect(JSON.stringify(err)).not.toMatch(/owner@example|private note/);
     expect(err?.message).toBe(
-      'db down: Failed query: select 1 where email = $1\nparams: [Filtered]',
+      'Failed query: select 1 where email = $1\nparams: [Filtered]: db down',
     );
     expect(err?.stack).toMatch(
       /caused by: Error: Failed query: select 1 where email = \$1\nparams: \[Filtered\]\n\s+at /,
@@ -111,6 +112,27 @@ describe('the err serializer', () => {
       'DrizzleQueryError: rewritten\nparams: [Filtered]',
     );
     expect(loggedErr(stackless)?.stack).toBe('');
+  });
+
+  // Drizzle's wrapper is the statement, the reason its cause (#643): cut
+  // outermost first, every outage line said `Failed query: select ...` alone.
+  it('leads with the Postgres reason and its innermost SQLSTATE, not the statement Drizzle wraps it in', () => {
+    const reason = Object.assign(
+      new Error('terminating connection due to administrator command'),
+      { code: '57P01' },
+    );
+    const socket = Object.assign(new Error('Connection terminated'), {
+      cause: reason,
+      code: 'ECONNRESET',
+    });
+    const statement = `Failed query: select ${'"garment"."id", '.repeat(40)}1`;
+    expect(statement.length).toBeGreaterThan(600);
+    const err = loggedErr(new Error(statement, { cause: socket }));
+    expect(err?.code).toBe('57P01');
+    expect(err?.message).toMatch(
+      /^terminating connection due to administrator command: Connection terminated: Failed query: select /,
+    );
+    expect(err?.message).toHaveLength(201);
   });
 
   it('cuts a long message and logs a thrown non-Error by its type alone', () => {

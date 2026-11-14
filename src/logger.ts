@@ -5,6 +5,7 @@ import pino, {
 } from 'pino';
 import { DEV_RELEASE, loadBuildInfo } from './build-info';
 import { bootAppVersion, type Config } from './config';
+import { causeChain, driverError } from './driver-error';
 import { operationFields } from './request-context';
 import { scrubSecrets } from './secret-text';
 
@@ -75,46 +76,47 @@ export interface ErrorFields {
 
 /**
  * The `err` serializer of every closet logger (Fastify's too: it takes the
- * instance as given). Like pino's own serializer it appends the causes to
- * the message (`: `) and the stack (`caused by: `), since a driver error's
- * reason is often only its cause; of the rest only the class, `code` and an
- * HTTP status are kept: pino's copy of every own field would log a client's
- * request options or a query's params whole. A thrown non-Error is logged
- * by its type alone.
+ * instance as given). Like pino's own serializer it joins the causes into
+ * the message (`: `) and the stack (`caused by: `, outermost first), since a
+ * driver error's reason is often only its cause; of the rest only the class,
+ * `code` and an HTTP status are kept: pino's copy of every own field would
+ * log a client's request options or a query's params whole. A thrown
+ * non-Error is logged by its type alone.
+ *
+ * The message reads innermost first, the reason before what it broke, and
+ * the `code` is the driver's (driverError: the innermost with one): Drizzle's
+ * wrapper is the failed statement, often longer than MESSAGE_MAX, and
+ * leading with it cut the Postgres reason and its SQLSTATE off every outage
+ * line (#643).
  */
 export function errorFields(err: unknown): ErrorFields {
   if (!(err instanceof Error)) return { type: typeof err };
   const chain = causeChain(err);
+  const driver = driverError(err);
   const fields: ErrorFields = {
     type: err.constructor.name,
+    // An empty message (net's AggregateError for a host of several
+    // addresses) adds nothing but a separator; its `code` still names it.
     message: truncate(
-      redact(chain.map((e) => scrubSecrets(e.message)).join(': ')),
+      redact(
+        [...chain]
+          .reverse()
+          .filter((e) => e.message !== '')
+          .map((e) => scrubSecrets(e.message))
+          .join(': '),
+      ),
     ),
     stack: redact(chain.map(scrubbedStack).join('\ncaused by: ')),
   };
+  if (driver) fields.code = driver.code;
   // `statusCode`: HttpError's and web-push's WebPushError's name for it.
-  const { code, status, statusCode } = err as {
-    code?: unknown;
+  const { status, statusCode } = err as {
     status?: unknown;
     statusCode?: unknown;
   };
-  if (typeof code === 'string') fields.code = code;
   const httpStatus = typeof status === 'number' ? status : statusCode;
   if (typeof httpStatus === 'number') fields.status = httpStatus;
   return fields;
-}
-
-// The error and its causes, outermost first; a cycle ends the walk.
-function causeChain(err: Error): Error[] {
-  const chain: Error[] = [];
-  for (
-    let e: unknown = err;
-    e instanceof Error && !chain.includes(e);
-    e = e.cause
-  ) {
-    chain.push(e);
-  }
-  return chain;
 }
 
 // Gotcha: a Drizzle params tail runs to the end of its message, but in a stack the frames

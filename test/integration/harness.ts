@@ -33,6 +33,7 @@ import {
 import type { PushSender } from '../../src/web/push/sender';
 import type { WeatherService } from '../../src/web/weather/service';
 import { UNMATCHED_ROUTE } from '../../src/metrics/http';
+import type { ErrorTracker } from '../../src/metrics/error-tracker';
 import type { Metrics } from '../../src/metrics/metrics';
 import type { OrderMailDeps } from '../../src/web/wardrobe/order-mail/poll';
 import { LogCapture } from '../support/log-capture';
@@ -186,6 +187,11 @@ export interface TestApp {
   /** The app's metrics (what GET /metrics exposes with METRICS_ENABLED). */
   metrics: Metrics;
   /**
+   * The app's error tracker (a no-op without SENTRY_DSN): `flush()` sends what
+   * it holds, so a spec counts the events at a stub without waiting.
+   */
+  errors: ErrorTracker;
+  /**
    * The order mail's poll (ORDER_MAIL_JMAP_TOKEN and the JMAP stub only):
    * a spec runs it with pollOrderMail; nothing schedules it here.
    */
@@ -305,10 +311,11 @@ export async function createTestApp(
   let push: PushSender | undefined;
   let weather: WeatherService | undefined;
   let metrics: Metrics;
+  let errors: ErrorTracker;
   let orderMail: OrderMailDeps | undefined;
   try {
     await options.beforeBoot?.(database.env);
-    ({ app, db, photos, cutouts, push, weather, metrics, orderMail } =
+    ({ app, db, photos, cutouts, push, weather, metrics, errors, orderMail } =
       await createApp(config, logger, {
         outboundFetch: options.outboundFetch,
         weather: options.weather,
@@ -406,6 +413,7 @@ export async function createTestApp(
     push,
     weather,
     metrics,
+    errors,
     orderMail,
     owner,
     inject,

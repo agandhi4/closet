@@ -36,6 +36,15 @@ function adminUrl(): string {
   return process.env.TEST_DATABASE_URL ?? LOCAL_ADMIN_URL;
 }
 
+/**
+ * Where the scratch databases' server listens: for a spec that puts its own
+ * socket between the app and Postgres (database-unavailable.spec.ts).
+ */
+export function scratchServer(): { host: string; port: number } {
+  const url = new URL(adminUrl());
+  return { host: url.hostname, port: Number(url.port || '5432') };
+}
+
 async function withAdmin<T>(work: (client: Client) => Promise<T>): Promise<T> {
   const client = new Client({ connectionString: adminUrl() });
   await client.connect();
