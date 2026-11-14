@@ -1,3 +1,4 @@
+import { loginUrl } from '../../src/web/auth/return-to';
 import { eq, type SQL } from 'drizzle-orm';
 import { readdir } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -104,6 +105,6 @@ describe('account deletion', () => {
       headers: { cookie },
     });
     expect(profile.statusCode).toBe(302);
-    expect(profile.headers.location).toBe('/auth/login');
+    expect(profile.headers.location).toBe(loginUrl('/auth/profile'));
   });
 });

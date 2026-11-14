@@ -1,6 +1,7 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { JSX } from 'hono/jsx/jsx-runtime';
 import { LOGIN_PATH } from './login-path';
 import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
@@ -23,6 +24,7 @@ import {
   signInGate,
 } from './sign-in';
 import { PROFILE_PATH, revokeNotice } from './urls';
+import { loginUrl, REGISTER_PATH, signInReturnTo } from './return-to';
 import {
   ChangePasswordPage,
   DeleteAccountPage,
@@ -72,6 +74,28 @@ const ProfileQuery = Type.Object({
   [SHARE_ERROR_PARAM]: Type.Optional(Type.String()),
 });
 
+// The login and registration pages' URL state: the page to return to after
+// signing in (return-to.ts). Unknown, so a repeated parameter is the `/`
+// fallback, never a 400.
+const SignInQuery = Type.Object({ returnTo: Type.Optional(Type.Unknown()) });
+
+/**
+ * The sign-in pages carry their returnTo, which may hold an invite token:
+ * `secretPath` keeps it out of the access line, and every render of them is
+ * `no-store`, so neither the HTTP cache nor the service worker's page cache
+ * keeps the token (#661).
+ */
+const SIGN_IN_PAGE = { public: true, secretPath: true } as const;
+
+function renderSignInPage(
+  reply: FastifyReply,
+  page: JSX.Element,
+  options?: { status: number },
+) {
+  reply.header('Cache-Control', 'no-store');
+  return renderPage(reply, page, options);
+}
+
 /** The sign-in log line's note when it replaced another account's session. */
 const replacedNote = (replaced: number | undefined) =>
   replaced === undefined
@@ -93,15 +117,28 @@ export const authRoutes: FastifyPluginCallbackTypebox<
 ) => {
   // DISABLE_REGISTRATION: every registration route sends the visitor to the
   // login page. onRequest, so a closed registration never reads a body.
+  // A returnTo in the query goes along (the invite's register link); a
+  // post's is in its body, unread at onRequest.
   const registrationOpen = async (
-    _request: FastifyRequest,
+    request: FastifyRequest,
     reply: FastifyReply,
   ) => {
-    if (config.registrationDisabled) return reply.redirect(LOGIN_PATH, 302);
+    if (!config.registrationDisabled) return;
+    const query = request.query as Record<string, unknown> | undefined;
+    return reply.redirect(loginUrl(query?.returnTo), 302);
   };
 
-  app.get('/auth/login', { config: { public: true } }, async (_req, reply) =>
-    renderPage(reply, <LoginPage ctx={viewContext(reply)} />),
+  app.get(
+    LOGIN_PATH,
+    { config: SIGN_IN_PAGE, schema: { querystring: SignInQuery } },
+    async (request, reply) =>
+      renderSignInPage(
+        reply,
+        <LoginPage
+          ctx={viewContext(reply)}
+          returnTo={signInReturnTo(request.query.returnTo)}
+        />,
+      ),
   );
 
   app.post(
@@ -114,13 +151,18 @@ export const authRoutes: FastifyPluginCallbackTypebox<
     },
     async (request, reply) => {
       const { email, password } = request.body;
+      const returnTo = signInReturnTo(request.body.returnTo);
       // One message for an unknown email and a wrong password, at one cost.
       const check = await checkSignIn(db, email, password);
       if (!check.ok) {
         logger.warn(`Failed login for ${failedSignInFor(check)}`);
-        return renderPage(
+        return renderSignInPage(
           reply,
-          <LoginPage ctx={viewContext(reply)} failed={{ email }} />,
+          <LoginPage
+            ctx={viewContext(reply)}
+            failed={{ email }}
+            returnTo={returnTo}
+          />,
           { status: 401 },
         );
       }
@@ -132,7 +174,8 @@ export const authRoutes: FastifyPluginCallbackTypebox<
         tokens.issue(account),
       );
       logger.info(`User ${account.id} signed in${replacedNote(replaced)}`);
-      return reply.redirect(PROFILE_PATH, 302);
+      // Never logged: the target can be an invite page, its token the path.
+      return reply.redirect(returnTo, 302);
     },
   );
 
@@ -156,14 +199,24 @@ export const authRoutes: FastifyPluginCallbackTypebox<
   );
 
   app.get(
-    '/auth/register',
-    { config: { public: true }, onRequest: registrationOpen },
-    async (_request, reply) =>
-      renderPage(reply, <RegisterPage ctx={viewContext(reply)} />),
+    REGISTER_PATH,
+    {
+      config: SIGN_IN_PAGE,
+      onRequest: registrationOpen,
+      schema: { querystring: SignInQuery },
+    },
+    async (request, reply) =>
+      renderSignInPage(
+        reply,
+        <RegisterPage
+          ctx={viewContext(reply)}
+          returnTo={signInReturnTo(request.query.returnTo)}
+        />,
+      ),
   );
 
   app.post(
-    '/auth/register',
+    REGISTER_PATH,
     {
       config: { public: true, rateLimit: SIGN_IN_LIMIT },
       onRequest: registrationOpen,
@@ -172,13 +225,15 @@ export const authRoutes: FastifyPluginCallbackTypebox<
     async (request, reply) => {
       const body = request.body;
       const email = normalizeEmail(body.email);
+      const returnTo = signInReturnTo(body.returnTo);
       const refuse = (errors: ReturnType<typeof validateRegistration>) =>
-        renderPage(
+        renderSignInPage(
           reply,
           <RegisterPage
             ctx={viewContext(reply)}
             input={{ email: body.email }}
             errors={errors}
+            returnTo={returnTo}
           />,
           { status: 400 },
         );
@@ -205,7 +260,7 @@ export const authRoutes: FastifyPluginCallbackTypebox<
         tokens.issue(account),
       );
       logger.info(`User ${account.id} registered${replacedNote(replaced)}`);
-      return reply.redirect(PROFILE_PATH, 302);
+      return reply.redirect(returnTo, 302);
     },
   );
 

@@ -15,6 +15,14 @@ export const SHARING_PATH = profileSection(SHARING_SECTION_ID);
  */
 export const LEGACY_MANAGE_PATH = '/wardrobe-share/manage';
 
+/**
+ * An invite's landing page (public, its token a bearer secret: the route is
+ * `secretPath`), and where signing in from it returns (#661).
+ */
+export function invitePath(token: string): string {
+  return `/wardrobe-share/invite/${encodeURIComponent(token)}`;
+}
+
 /** Profile's query parameter naming why an invite could not be accepted. */
 export const SHARE_ERROR_PARAM = 'shareError';
 

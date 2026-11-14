@@ -1,3 +1,4 @@
+import { loginUrl } from '../../src/web/auth/return-to';
 import { eq } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import jwt from 'jsonwebtoken';
@@ -98,7 +99,7 @@ describe('a revoked session clears the device', () => {
       expect(res.statusCode, next.label).toBe(next.status);
       expectSessionEnded(res);
       if (next.status === 302) {
-        expect(res.headers.location).toBe('/auth/login');
+        expect(res.headers.location).toBe(loginUrl(next.url));
       }
       if (next.status === 401) {
         expect(res.headers['hx-redirect']).toBe('/auth/login');
@@ -545,7 +546,7 @@ describe('Clear-Site-Data reaches the page a redirect lands on', () => {
     await expectLandingClears('/auth/login');
   });
 
-  it('signing in over another account marks its redirect, and the profile it lands on clears', async () => {
+  it('signing in over another account marks its redirect, and Today it lands on clears', async () => {
     const email = 'relay-switch@example.com';
     await t.register(email);
     const res = await t.inject({
@@ -555,11 +556,11 @@ describe('Clear-Site-Data reaches the page a redirect lands on', () => {
       headers: { ...uniqueClient(), cookie: t.owner.cookie },
     });
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe('/auth/profile');
+    expect(res.headers.location).toBe('/');
     expectMarked(res);
     const token = res.cookies.find((c) => c.name === 'access_token')!;
 
-    await expectLandingClears('/auth/profile', `access_token=${token.value}`);
+    await expectLandingClears('/', `access_token=${token.value}`);
   });
 
   it('the same account signing in again sets no marker', async () => {

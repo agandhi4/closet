@@ -244,7 +244,7 @@ describe('sharing: statements per request', () => {
       const guest = await signUp('accepts');
       const record = await recordQueries(async () => {
         const res = await post(`/wardrobe-share/invite/${token}/accept`, guest);
-        expect(res.headers.location).toBe('/auth/profile#sharing');
+        expect(res.headers.location).toBe(`/wardrobe?ownerId=${owner.id}`);
       });
       expect(record.statements).toBe(3);
       expect(record.sql).not.toContain('begin');
@@ -256,7 +256,7 @@ describe('sharing: statements per request', () => {
       const token = await newInvite('MANAGE');
       const record = await recordQueries(async () => {
         const res = await post(`/wardrobe-share/invite/${token}/accept`, guest);
-        expect(res.headers.location).toBe('/auth/profile#sharing');
+        expect(res.headers.location).toBe(`/wardrobe?ownerId=${owner.id}`);
       });
       expect(record.statements).toBe(3);
     });

@@ -33,8 +33,9 @@ describe('wardrobe sharing', () => {
       headers: { cookie },
     });
     expect(res.statusCode).toBe(302);
-    // A failed accept redirects to the same page with ?error=.
-    expect(res.headers.location).toBe('/auth/profile#sharing');
+    // Accepted lands on the grantor's wardrobe (#661); a refusal on
+    // Profile › Sharing with ?shareError=.
+    expect(res.headers.location).toBe(`/wardrobe?ownerId=${alice.id}`);
   };
 
   beforeAll(async () => {

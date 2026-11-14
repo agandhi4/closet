@@ -57,6 +57,12 @@ import { wishlistRoutes } from './wishlist/routes';
 interface WebConfig {
   appName: string;
   iconName: string;
+  /**
+   * SITE_URL: the origin the same-origin hook accepts beside the request's
+   * own, which the session gate reads the page a refused request came from
+   * against (src/web/auth/return-to.ts).
+   */
+  siteUrl: string;
   /** APP_TIMEZONE: the household's IANA zone, which decides "today". */
   timeZone: string;
   /** DISABLE_REGISTRATION: the registration routes redirect to the login page. */
@@ -163,7 +169,10 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   options,
 ) => {
   const { logger } = options;
-  app.addHook('preValidation', createSessionHook(logger));
+  app.addHook(
+    'preValidation',
+    createSessionHook(logger, options.config.siteUrl),
+  );
   // The budgets a page and its API twin share, one checker each: the two
   // sign-in doors' SIGN_IN_LIMIT (src/web/auth/sign-in.ts), the link
   // imports' LINK_IMPORT_LIMIT (the page's import and photo choice, the

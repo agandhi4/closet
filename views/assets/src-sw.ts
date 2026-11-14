@@ -23,6 +23,7 @@ import {
   CACHED_AT_TIMING_NAME,
   cachedAt,
   endedSession,
+  forbidsStorage,
   type FreshPage,
   isRenderedPage,
   navigationPostAnswer,
@@ -368,8 +369,9 @@ function claimPageCache(
 // tap after the session ended elsewhere: a password changed on another
 // device, the account deleted) still tells who is signed in here, nobody, so
 // the cache is claimed for nobody and another account's pages go. A document
-// load sees the same through the login page it lands on, which is stored
-// like any page.
+// load sees the same through the login page it lands on, which claims the
+// cache the same way but is never stored: it is no-store (forbidsStorage),
+// since its returnTo can carry an invite token (#661).
 //
 // The generation is taken in handlerWillStart, before the request (the
 // navigation preload included, which skips requestWillFetch), into the state
@@ -394,7 +396,7 @@ const pageStore: WorkboxPlugin = {
       path,
       event,
     );
-    if (!claimed) return null;
+    if (!claimed || forbidsStorage(response.headers)) return null;
     return copyResponse(response, (init) => {
       const headers = new Headers(init.headers);
       // A landing page's Clear-Site-Data (#244, createCacheClearRelay) was a

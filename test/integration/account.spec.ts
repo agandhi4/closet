@@ -1,3 +1,4 @@
+import { loginUrl } from '../../src/web/auth/return-to';
 import { eq, type SQL } from 'drizzle-orm';
 import type { LightMyRequestResponse } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -253,7 +254,7 @@ describe('account', () => {
         anonymous: true,
       });
       expect(next.statusCode).toBe(302);
-      expect(next.headers.location).toBe('/auth/login');
+      expect(next.headers.location).toBe(loginUrl('/wardrobe'));
     });
 
     it('a cross-site POST is refused and the session lives on', async () => {
