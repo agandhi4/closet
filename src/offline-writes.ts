@@ -298,7 +298,7 @@ export async function enqueue<R extends StoredRecord>(
 }
 
 /** Why a queued write was not saved: the notice's reason. */
-export type ReplayFailure = 'gone' | 'refused' | ReplayRefusal;
+export type ReplayFailure = 'gone' | 'refused' | 'server' | ReplayRefusal;
 
 /** What the outbox does with a record after its replay's answer. */
 export type ReplayVerdict =
@@ -306,23 +306,38 @@ export type ReplayVerdict =
   | { verdict: 'saved'; changed: boolean }
   /** Refused for good: the record stays, failed, until dismissed. */
   | { verdict: 'failed'; reason: ReplayFailure }
-  /** The server may take it later (5xx, 408, 429): stop, back off. */
-  | { verdict: 'retry' }
+  /**
+   * The server may take it later: stop, back off. `server` is a 5xx that
+   * may be this record's own fault (it spends the budget, spendServerError);
+   * `unreachable` is the network, a timeout, 408, 429 or a 503, which say
+   * nothing about the record and never do.
+   */
+  | { verdict: 'retry'; cause: RetryCause }
   /** No session (401, or a redirect): stop, keep everything for the next sign-in. */
   | { verdict: 'signed-out' };
+
+const UNREACHABLE = 'unreachable';
+export type RetryCause = 'server' | typeof UNREACHABLE;
 
 function isRefusal(outcome: string | null): outcome is ReplayRefusal {
   return outcome === 'too-old' || outcome === 'future' || outcome === 'account';
 }
 
+const SIGNED_OUT: ReplayVerdict = { verdict: 'signed-out' };
+const SERVER_ERROR: ReplayVerdict = { verdict: 'retry', cause: 'server' };
+const UNAVAILABLE: ReplayVerdict = { verdict: 'retry', cause: UNREACHABLE };
+
 /** replayVerdict's answers that the status alone decides. */
 const VERDICT_OF_STATUS: Readonly<Partial<Record<number, ReplayVerdict>>> = {
-  0: { verdict: 'signed-out' },
-  401: { verdict: 'signed-out' },
+  0: SIGNED_OUT,
+  401: SIGNED_OUT,
   404: { verdict: 'failed', reason: 'gone' },
-  408: { verdict: 'retry' },
+  // 503 is the busy page (#643), the server saying it is unavailable, not
+  // a record it choked on.
+  408: UNAVAILABLE,
+  503: UNAVAILABLE,
   410: { verdict: 'saved', changed: false },
-  429: { verdict: 'retry' },
+  429: UNAVAILABLE,
 };
 
 /**
@@ -331,7 +346,7 @@ const VERDICT_OF_STATUS: Readonly<Partial<Record<number, ReplayVerdict>>> = {
  * client id names a wear that landed and was deleted since, #196a: the tap
  * was saved once and a later write undid it), a 409 refused for the reason
  * in `X-Closet-Outcome` (a wishlist item has none), a server error or rate
- * limit retried. A redirect (status 0: the outbox fetches with `redirect:
+ * limit retried (a 5xx within spendServerError). A redirect (status 0: the outbox fetches with `redirect:
  * 'manual'`, so it is opaque) is kept like a 401: the only one a queueable
  * route gives is the session gate's to the login page, for a client that
  * did not say it was a replay. Anything else (a 400, a 403) is refused: the
@@ -346,8 +361,10 @@ export function replayVerdict(
   if (status === 409 && isRefusal(outcome)) {
     return { verdict: 'failed', reason: outcome };
   }
-  if (status >= 500) return { verdict: 'retry' };
-  return VERDICT_OF_STATUS[status] ?? { verdict: 'failed', reason: 'refused' };
+  return (
+    VERDICT_OF_STATUS[status] ??
+    (status >= 500 ? SERVER_ERROR : { verdict: 'failed', reason: 'refused' })
+  );
 }
 
 /** What a page tells the user about offline, from the writes it queues. */
@@ -508,4 +525,176 @@ export function retryDelayMs(attempts: number): number {
     RETRY_FIRST_MS * 2 ** Math.max(attempts - 1, 0),
     RETRY_MAX_MS,
   );
+}
+
+/** 5xx answers a record may take, within SERVER_ERROR_WINDOW_MS, before it settles as failed ("server"). */
+export const SERVER_ERROR_MAX_ATTEMPTS = 5;
+/** The span in which those answers must fall: an older first one starts the count over. */
+export const SERVER_ERROR_WINDOW_MS = 10 * 60_000;
+
+/**
+ * What a record remembers of the 5xx answers that counted against it
+ * (optional: a record queued by an older client has none).
+ */
+export interface ServerErrorBudget {
+  serverErrors?: number;
+  serverErrorSince?: number;
+}
+
+/** A record the replay may settle: its budget and its attempts, for the backoff. */
+export type ReplayRecord = StoredRecord &
+  ServerErrorBudget & { attempts: number };
+
+/**
+ * The budget after an answer for the record: a counted 5xx adds one (the
+ * count restarting once its first is SERVER_ERROR_WINDOW_MS old, so an old
+ * 500 never adds to a later one); `unreachable` (the network, a timeout,
+ * 408, 429, 503) neither spends nor clears it: no answer says nothing about
+ * the record, and a page's load-time drain while offline must not forget
+ * what the server said. `exhausted` at
+ * SERVER_ERROR_MAX_ATTEMPTS.
+ */
+export function spendServerError(
+  budget: ServerErrorBudget,
+  cause: RetryCause,
+  now: number,
+): { budget: ServerErrorBudget; exhausted: boolean } {
+  if (cause === UNREACHABLE) return { budget, exhausted: false };
+  const stale =
+    budget.serverErrorSince !== undefined &&
+    now - budget.serverErrorSince >= SERVER_ERROR_WINDOW_MS;
+  const serverErrors = stale ? 1 : (budget.serverErrors ?? 0) + 1;
+  return {
+    budget: {
+      serverErrors,
+      serverErrorSince: stale ? now : (budget.serverErrorSince ?? now),
+    },
+    exhausted: serverErrors >= SERVER_ERROR_MAX_ATTEMPTS,
+  };
+}
+
+/** What replayQueue tells its driver to do with a record. */
+export type ReplayStep<R> =
+  | { step: 'saved'; changed: boolean }
+  /** Refused for good, or out of 5xx budget: `record` is the failed one. */
+  | { step: 'failed'; record: R }
+  /** Stays queued: `record` has its attempt counted (and its budget as it now stands). */
+  | {
+      step: 'kept';
+      record: R;
+      why: 'server-error' | 'server-wide' | typeof UNREACHABLE;
+    };
+
+export interface ReplayDriver<R> {
+  /** True for a record not to be sent (not a queued write, or replaced since the read). */
+  skip(record: R): Promise<boolean>;
+  send(record: R): Promise<ReplayVerdict>;
+  /** Whether the record was still queued, so the step applied. */
+  settle(record: R, step: ReplayStep<R>): Promise<boolean>;
+  now(): number;
+}
+
+export type ReplayEnd =
+  | { end: 'done' }
+  | { end: 'no-session' }
+  | { end: 'backoff'; retryInMs: number };
+
+/**
+ * One drain over the pending records, oldest first (the outbox's replayAll).
+ *
+ * A 5xx for a record is either the record's fault or the server's. It is the
+ * record's only when the server answers another record properly: so the
+ * first record that answers 5xx waits (the `suspect`) while the next one is
+ * tried. If that one is saved or refused, the server is healthy and the
+ * suspect's 5xx counts against its budget, failing it when spent, so the
+ * records behind it are not held by one handler bug. If the next also
+ * answers 5xx, or none follows, it is the server (a restart, a deploy):
+ * nobody's budget is spent and the drain backs off, so an outage never fails
+ * a valid wear. A record with the suspect's key is never sent past it (the
+ * order of one key). The network, a timeout, 408, 429 and 503 stop the drain
+ * and spend nothing.
+ */
+export async function replayQueue<R extends ReplayRecord>(
+  queued: readonly R[],
+  driver: ReplayDriver<R>,
+): Promise<ReplayEnd> {
+  let suspect: R | undefined;
+  let retryInMs: number | undefined;
+  const wait = (attempts: number) => {
+    retryInMs = Math.max(retryInMs ?? 0, retryDelayMs(attempts));
+  };
+  const keepBackingOff = async (record: R) => {
+    const kept = { ...record, attempts: record.attempts + 1 };
+    await driver.settle(record, {
+      step: 'kept',
+      record: kept,
+      why: 'server-wide',
+    });
+    wait(kept.attempts);
+  };
+  // The server answered a record properly: the suspect's 5xx was its own.
+  const vindicate = async () => {
+    if (!suspect) return;
+    const { exhausted, budget } = spendServerError(
+      suspect,
+      'server',
+      driver.now(),
+    );
+    const counted = { ...suspect, ...budget, attempts: suspect.attempts + 1 };
+    if (exhausted) {
+      await driver.settle(suspect, {
+        step: 'failed',
+        record: { ...counted, state: 'failed', reason: 'server' },
+      });
+    } else {
+      await driver.settle(suspect, {
+        step: 'kept',
+        record: counted,
+        why: 'server-error',
+      });
+      wait(counted.attempts);
+    }
+    suspect = undefined;
+  };
+
+  for (const record of queued) {
+    if (suspect && record.key === suspect.key) continue;
+    if (await driver.skip(record)) continue;
+    const answer = await driver.send(record);
+    if (answer.verdict === 'saved') {
+      await driver.settle(record, { step: 'saved', changed: answer.changed });
+      await vindicate();
+    } else if (answer.verdict === 'failed') {
+      await driver.settle(record, {
+        step: 'failed',
+        record: { ...record, state: 'failed', reason: answer.reason },
+      });
+      await vindicate();
+    } else if (!('cause' in answer)) {
+      return { end: 'no-session' };
+    } else if (answer.cause === UNREACHABLE) {
+      const kept = {
+        ...record,
+        attempts: record.attempts + 1,
+      };
+      await driver.settle(record, {
+        step: 'kept',
+        record: kept,
+        why: UNREACHABLE,
+      });
+      wait(kept.attempts);
+      return { end: 'backoff', retryInMs: retryInMs ?? 0 };
+    } else if (suspect) {
+      await keepBackingOff(suspect);
+      await keepBackingOff(record);
+      return { end: 'backoff', retryInMs: retryInMs ?? 0 };
+    } else {
+      suspect = record;
+    }
+  }
+  // Nothing after it answered: no evidence it is the record, not the server.
+  if (suspect) await keepBackingOff(suspect);
+  return retryInMs === undefined
+    ? { end: 'done' }
+    : { end: 'backoff', retryInMs };
 }

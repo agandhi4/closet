@@ -17,7 +17,11 @@ import {
 } from './support/service-worker';
 import { WEBKIT_CANNOT_WATCH_WORKER } from './support/webkit-limits';
 import { addDays } from '../src/calendar-date';
-import { queueableKindOf, REPLAY_TIMEOUT_MS } from '../src/offline-writes';
+import {
+  queueableKindOf,
+  REPLAY_TIMEOUT_MS,
+  SERVER_ERROR_MAX_ATTEMPTS,
+} from '../src/offline-writes';
 import { CACHED_AT_HEADER } from '../src/web/page-cache';
 
 /**
@@ -473,6 +477,61 @@ test('offline: PostForms are guarded, and queued writes wait, save and stay orde
     await page.reload();
     await expect(undo).toBeVisible();
     expect(otherErrors).toEqual([]);
+  });
+
+  await test.step('a write the server keeps failing is given up on, and the ones behind it save', async () => {
+    await signIn(page, 'outbox-poison');
+    const poisoned = await createGarment(page, 'Poison chinos');
+    const neighbours: Awaited<ReturnType<typeof createGarment>>[] = [];
+    for (let n = 1; n <= SERVER_ERROR_MAX_ATTEMPTS; n += 1) {
+      neighbours.push(await createGarment(page, `Behind shirt ${n}`));
+    }
+    const wore = page.getByRole('button', { name: 'Wore today', exact: true });
+    const undo = page.getByRole('button', { name: 'Undo “Wore today”' });
+    const banner = page.locator('#outbox-banner');
+    const notice = page.locator('#outbox-notice');
+    // Every wear of the first garment is a handler bug: a 500, deterministically.
+    await page.route(`**/wardrobe/${poisoned}/wear`, (route) =>
+      route.fulfill({ status: 500 }),
+    );
+
+    await page.goto(`/wardrobe/${poisoned}`);
+    await setWritesReachable(page, false);
+    await wore.click();
+    await expect(undo).toBeVisible();
+    // A 5xx counts against the record only while the server answers another
+    // one: each round queues a healthy neighbour behind it and reconnects (a
+    // drain starts at once; no backoff is waited for).
+    for (const [index, garment] of neighbours.entries()) {
+      await page.goto(`/wardrobe/${garment}`);
+      await wore.click();
+      await expect(undo).toBeVisible();
+      const last = index === neighbours.length - 1;
+      const answered = page.waitForEvent('console', (message) =>
+        message
+          .text()
+          .includes(last ? 'not saved: server' : 'server-error, retry'),
+      );
+      await setWritesReachable(page, true);
+      await answered;
+      if (!last) {
+        // Online and backing off: the banner says the server is not answering.
+        await expect(banner).toContainText('not saved yet');
+        await setWritesReachable(page, false);
+      }
+    }
+
+    // Given up: named in the notice, and every record behind it was sent.
+    await expect(notice).toContainText('Poison chinos');
+    await expect(notice).toContainText(
+      'the server kept answering with an error',
+    );
+    await expect(banner).toBeHidden();
+    await page.reload();
+    await expect(undo).toBeVisible();
+    await expect(page.locator('[data-outbox="pending"]')).toHaveCount(0);
+    await notice.getByRole('button').click();
+    await expect(notice).toBeHidden();
   });
 
   await test.step('the worker refetches what a sync saved, and the queue ends with the session', async (step) => {

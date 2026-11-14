@@ -86,6 +86,8 @@ function outboxText(): Record<`data-text-outbox-${string}`, string> {
     'waiting-many': t('outbox.WAITING_MANY', count),
     'syncing-one': t('outbox.SYNCING_ONE'),
     'syncing-many': t('outbox.SYNCING_MANY', count),
+    'retrying-one': t('outbox.RETRYING_ONE'),
+    'retrying-many': t('outbox.RETRYING_MANY', count),
     'saved-one': t('outbox.SAVED_ONE'),
     'saved-many': t('outbox.SAVED_MANY', count),
     'sign-in-one': t('outbox.SIGN_IN_ONE'),
@@ -109,6 +111,7 @@ function outboxText(): Record<`data-text-outbox-${string}`, string> {
     'reason-future': t('outbox.reason.FUTURE'),
     'reason-account': t('outbox.reason.ACCOUNT'),
     'reason-refused': t('outbox.reason.REFUSED'),
+    'reason-server': t('outbox.reason.SERVER'),
   };
   return Object.fromEntries(
     Object.entries(text).map(([name, value]) => [
