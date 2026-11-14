@@ -1,15 +1,17 @@
 import { and, eq, gte, lte, or, type SQL, sql } from 'drizzle-orm';
 import type { Db } from '../../db/client';
-import { file, garment, outfitCalendar } from '../../db/schema';
+import { file, garment, outfitCalendar, trip } from '../../db/schema';
 import { selectScalars } from '../../db/select-scalars';
 import type { GarmentStatus } from '../../wardrobe/status';
 import { addDays, type IsoDate } from '../../calendar-date';
+import { LAUNDRY_PAGE } from '../../offline-writes';
 import { weekOf } from '../calendar/calendar-view';
 import { weekUrl } from '../calendar/urls';
 import { imageUrl, type SignablePhotoRef } from '../files/image-url';
 import { photoRefJson } from '../files/queries';
 import { savedOutfitsSql } from '../outfits/queries';
 import { outfitUrl } from '../outfits/urls';
+import { tripUrl } from '../trips/urls';
 import { GRID_PAGE_SIZE } from '../wardrobe/grid-page-size';
 import { inCloset, onWishlist, wanted } from '../wardrobe/status';
 import { garmentUrl, needUrl, WISHLIST_PATH } from '../wardrobe/urls';
@@ -19,6 +21,7 @@ import {
   WARM_GARMENT_CAP,
   WARM_IMAGE_CAP,
   WARM_OUTFIT_CAP,
+  WARM_TRIP_CAP,
   WARM_WISHLIST_CAP,
   type WarmList,
 } from './offline-warm';
@@ -27,7 +30,10 @@ import {
  * The warm list of `ownerId`'s own wardrobe (#286): next week, every closet
  * garment's page and every outfit's (capped: the one-offs this week and
  * next hold first, since Today and the calendar open them, then the kept
- * ones newest first, #659; the other one-offs are only kept), the Muse inbox
+ * ones newest first, #659; the other one-offs are only kept), the pages with
+ * queueable controls (#657: the laundry and the trips ahead or on, nearest
+ * first, right after next week, since they are few and what a phone offline
+ * needs most), the Muse inbox
  * (#333: the Wishlist tab, its needs' decision screens and the pages of
  * what is still wanted, capped), the closet grid's later pages, and the
  * thumbs they show. Never a tab root
@@ -45,13 +51,15 @@ export async function warmList(
   today: IsoDate,
 ): Promise<WarmList> {
   const nextWeekEnd = weekOf(addDays(weekOf(today).start, 7)).end;
-  const { garments, kept, oneOffs, nearTerm, needs } = await selectScalars(db, {
-    garments: ownGarmentsSql(ownerId),
-    kept: savedOutfitsSql(ownerId, 'kept'),
-    oneOffs: savedOutfitsSql(ownerId, 'one-offs'),
-    nearTerm: plannedOutfitIdsSql(ownerId, today, nextWeekEnd),
-    needs: inboxNeedIdsSql(ownerId),
-  });
+  const { garments, kept, oneOffs, nearTerm, needs, trips } =
+    await selectScalars(db, {
+      garments: ownGarmentsSql(ownerId),
+      kept: savedOutfitsSql(ownerId, 'kept'),
+      oneOffs: savedOutfitsSql(ownerId, 'one-offs'),
+      nearTerm: plannedOutfitIdsSql(ownerId, today, nextWeekEnd),
+      needs: inboxNeedIdsSql(ownerId),
+      trips: tripIdsAheadSql(ownerId, today),
+    });
   const planned = new Set(nearTerm);
   const warmable = [...oneOffs.filter((row) => planned.has(row.id)), ...kept];
   const unplanned = oneOffs.filter((row) => !planned.has(row.id));
@@ -84,6 +92,8 @@ export async function warmList(
   return {
     pages: [
       weekUrl(addDays(weekOf(today).start, 7)),
+      LAUNDRY_PAGE,
+      ...trips.map((id) => tripUrl(id)),
       ...warmed.map((row) => garmentUrl(row.id, undefined)),
       ...warmedOutfits.map((row) => outfitUrl(row.id)),
       ...inboxPages,
@@ -107,6 +117,23 @@ export async function warmList(
       ),
     ],
   };
+}
+
+/**
+ * The ids of the owner's trips ahead or on (the last day not past `today`),
+ * nearest first, at most WARM_TRIP_CAP: a past trip has nothing left to pack.
+ */
+function tripIdsAheadSql(ownerId: number, today: IsoDate): SQL<number[]> {
+  return sql<number[]>`(
+    select coalesce(json_agg(ahead.id order by ahead.starts_on, ahead.id), '[]')
+    from (
+      select ${trip.id} as id, ${trip.startsOn} as starts_on
+      from ${trip}
+      where ${and(eq(trip.ownerId, ownerId), gte(trip.endsOn, today))}
+      order by ${trip.startsOn}, ${trip.id}
+      limit ${WARM_TRIP_CAP}
+    ) as ahead
+  )`;
 }
 
 /**

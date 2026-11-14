@@ -358,9 +358,25 @@ export function syncedWritePaths(paths: unknown): string[] {
 // laundry (a wear makes a garment dirty, a wash clean); Today, the calendar's
 // weeks and a trip's page (each draws WornControl, and the entry's wears
 // feed the laundry); a trip's page for its ticks.
-const LAUNDRY_PAGE = '/laundry';
-const ENTRY_PAGES = new Set(['/', '/calendar', LAUNDRY_PAGE]);
+const ENTRY_PAGES = new Set(['/', '/calendar']);
+
+/**
+ * The pages that render a `data-offline-queue` control and are no tab root
+ * or Today: the laundry and a trip's page. One list for both readers, so
+ * they cannot drift: `showsQueuedWrite` refetches them after a replay, and
+ * the warm list (src/web/shell/warm-list.ts) names them, so the installed
+ * app opens them offline without a prior visit (#657). A new page that
+ * renders a queueable control joins here; test/integration/offline-warm.spec.ts
+ * fails while one shown by `showsQueuedWrite` is neither here, warmed
+ * elsewhere (a garment's page) nor a page the warm leaves out on purpose.
+ */
+export const LAUNDRY_PAGE = '/laundry';
 const TRIP_PAGE = /^\/trips\/[1-9]\d{0,9}$/;
+
+/** Whether `pagePath` is one of the queueable pages the warm must name. */
+export function isQueueablePage(pagePath: string): boolean {
+  return pagePath === LAUNDRY_PAGE || TRIP_PAGE.test(pagePath);
+}
 
 /**
  * Whether a page (its pathname; any query, so every cached week or filter)
@@ -376,7 +392,7 @@ export function showsQueuedWrite(writePath: string, pagePath: string): boolean {
     case 'wash':
       return pagePath === `/wardrobe/${id}` || pagePath === LAUNDRY_PAGE;
     case 'entry':
-      return ENTRY_PAGES.has(pagePath) || TRIP_PAGE.test(pagePath);
+      return ENTRY_PAGES.has(pagePath) || isQueueablePage(pagePath);
     case 'packed':
     case 'item':
       return pagePath === `/trips/${id}`;
