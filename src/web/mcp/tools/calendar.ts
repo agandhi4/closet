@@ -52,7 +52,7 @@ export const calendarTools = [
         entries: entriesSql(ctx.userId, first, last),
         weather:
           weather && reachesForecast(today, first, last)
-            ? weatherWithForecastSql(ctx.userId, now)
+            ? weatherWithForecastSql(ctx.userId, now, weather.timeZone)
             : undefined,
       });
       const { entries } = read;

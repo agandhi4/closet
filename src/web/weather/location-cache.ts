@@ -1,14 +1,14 @@
 import type { Logger } from '../../logger';
-import { type Location, locationLabel } from '../../weather/location';
+import { type ZonedLocation, zonedLabel } from '../../weather/location';
 import { OutboundFetchError } from '../security/outbound-fetch';
 import type { CacheRow } from './queries';
 
 /**
- * One cache of Open-Meteo answers keyed by rounded location, in a table
+ * One cache of Open-Meteo answers keyed by rounded location and zone, in a table
  * (service.ts: the forecast, weather_forecast; the climate normals,
  * weather_normals). The discipline both share, so it lives once:
  * - a kept answer to another question than today's (`mismatch`: the
- *   forecast grouped in a zone other than APP_TIMEZONE, the normals of
+ *   forecast grouped in a zone other than its key's, the normals of
  *   another run of years) is no answer at all: never served, however young,
  *   and never the fallback while the provider is down;
  * - an answer younger than `freshForMs` is served from the row;
@@ -36,8 +36,9 @@ import type { CacheRow } from './queries';
  * A page is the same whether the refresh succeeds, fails or is still
  * running: it shows what it was served, and the next ask the new answer.
  *
- * Logs name the rounded location (`Forecast for 40.69,-73.97: ...`), never
- * the user: a refresh's start, then its outcome with its duration.
+ * Logs name the rounded location and zone (`Forecast for 40.69,-73.97
+ * America/New_York: ...`), never the user: a refresh's start, then its
+ * outcome with its duration.
  */
 
 interface Cached<T> {
@@ -53,17 +54,17 @@ export interface LocationCacheOptions<T> {
   retryAfterMs: number;
   now: () => Date;
   logger: Logger;
-  read(location: Location): Promise<CacheRow<T> | undefined>;
-  save(location: Location, value: T, at: Date): Promise<void>;
-  recordFailure(location: Location, at: Date): Promise<void>;
-  fetch(location: Location): Promise<T>;
+  read(location: ZonedLocation): Promise<CacheRow<T> | undefined>;
+  save(location: ZonedLocation, value: T, at: Date): Promise<void>;
+  recordFailure(location: ZonedLocation, at: Date): Promise<void>;
+  fetch(location: ZonedLocation): Promise<T>;
   /** The answer's size for the log line: "16 days". */
   describe(value: T): string;
   /**
    * Why a kept answer no longer answers what is asked now ("for
    * America/Chicago, not America/New_York"), or null when it does.
    */
-  mismatch(value: T): string | null;
+  mismatch(value: T, location: ZonedLocation): string | null;
 }
 
 export interface ReadOptions {
@@ -96,7 +97,7 @@ export interface LocationCache<T> {
    * never starts a second one.
    */
   get(
-    location: Location,
+    location: ZonedLocation,
     read?: ReadOptions,
     known?: KnownRow<T>,
   ): Promise<Cached<T> | null>;
@@ -129,7 +130,7 @@ export function createLocationCache<T>(
   options: LocationCacheOptions<T>,
 ): LocationCache<T> {
   const { name, now, logger } = options;
-  // Both keyed by locationLabel. `reading` holds the row's read and the
+  // Both keyed by zonedLabel. `reading` holds the row's read and the
   // decision, `refreshing` the fetch and save the decision started. An ask
   // looks in `refreshing` first, and a lookup enters its refresh there before
   // its own promise settles, so no ask reads the row while a refresh runs.
@@ -140,7 +141,7 @@ export function createLocationCache<T>(
   // that was read before the write and is not decided from.
   const written = new Map<string, number>();
 
-  async function lookup(location: Location): Promise<Decision<T>> {
+  async function lookup(location: ZonedLocation): Promise<Decision<T>> {
     return decide(location, await options.read(location));
   }
 
@@ -153,7 +154,7 @@ export function createLocationCache<T>(
   // Synchronous from the row to startRefresh, which enters `refreshing`
   // before any other ask can look.
   function decide(
-    location: Location,
+    location: ZonedLocation,
     row: CacheRow<T> | undefined,
   ): Decision<T> {
     const at = now().getTime();
@@ -183,23 +184,23 @@ export function createLocationCache<T>(
 
   /** The kept answer, unless it answers another question than today's. */
   function answering(
-    location: Location,
+    location: ZonedLocation,
     kept: Cached<T> | null,
   ): Cached<T> | null {
     if (!kept) return null;
-    const reason = options.mismatch(kept.value);
+    const reason = options.mismatch(kept.value, location);
     if (reason === null) return kept;
     logger.info(
-      `${name} for ${locationLabel(location)}: the one from ${kept.fetchedAt.toISOString()} is ${reason}; not served`,
+      `${name} for ${zonedLabel(location)}: the one from ${kept.fetchedAt.toISOString()} is ${reason}; not served`,
     );
     return null;
   }
 
   function startRefresh(
-    location: Location,
+    location: ZonedLocation,
     kept: Cached<T> | null,
   ): Refresh<T> {
-    const key = locationLabel(location);
+    const key = zonedLabel(location);
     logger.info(
       `${name} for ${key}: refreshing; ${
         kept
@@ -216,10 +217,10 @@ export function createLocationCache<T>(
   }
 
   async function refresh(
-    location: Location,
+    location: ZonedLocation,
     kept: Cached<T> | null,
   ): Promise<Cached<T> | null> {
-    const label = locationLabel(location);
+    const label = zonedLabel(location);
     const started = performance.now();
     try {
       const value = await options.fetch(location);
@@ -257,7 +258,7 @@ export function createLocationCache<T>(
   return {
     async get(location, read = {}, known) {
       const fresh = read.fresh ?? false;
-      const key = locationLabel(location);
+      const key = zonedLabel(location);
       const running = refreshing.get(key);
       if (running) {
         return served({ kept: running.kept, refresh: running.done }, fresh);

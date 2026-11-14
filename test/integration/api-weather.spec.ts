@@ -294,6 +294,7 @@ describe('the weather', () => {
           label: 'Brooklyn, New York, United States',
           latitude: 40.65,
           longitude: -73.95,
+          timeZone: 'America/New_York',
         },
       ],
     });
@@ -521,6 +522,76 @@ describe("a trip's weather", () => {
       addDays(REFERENCE_ANCHOR, 2),
     ]);
     expect(weather.days[0].outfit?.occasion).toBe('all-day');
+  });
+
+  it("asks a Tokyo trip's days in Tokyo's zone, a row apart from home's at the same cell (#678)", async () => {
+    const made = await api('POST', '/trips', {
+      name: 'Tokyo',
+      startsOn: addDays(REFERENCE_ANCHOR, 2),
+      endsOn: addDays(REFERENCE_ANCHOR, 3),
+    });
+    const id = made.json<{ id: number }>().id;
+    const [place] = (await api('GET', '/weather/places?q=Tokyo')).json<{
+      data: { label: string; timeZone: string | null }[];
+    }>().data;
+    expect(place.timeZone).toBe('Asia/Tokyo');
+    // The home set at Tokyo's cell too: asked in the household's zone.
+    const home = {
+      name: place.label,
+      latitude: 35.6895,
+      longitude: 139.69171,
+      timeZone: 'Asia/Tokyo',
+    };
+    expect((await api('PUT', '/weather/home', home)).statusCode).toBe(200);
+    expect((await api('GET', '/weather')).statusCode).toBe(200);
+    expect(
+      (await api('PUT', `/trips/${id}/destination`, home)).statusCode,
+    ).toBe(200);
+    const [row] = await t.db
+      .select({ timeZone: trip.timeZone })
+      .from(trip)
+      .where(eq(trip.id, id));
+    expect(row.timeZone).toBe('Asia/Tokyo');
+    const weather = (await api('GET', `/trips/${id}/weather`)).json<{
+      days: { day: IsoDate }[];
+    }>();
+    expect(weather.days.map((d) => d.day)).toEqual([
+      addDays(REFERENCE_ANCHOR, 2),
+      addDays(REFERENCE_ANCHOR, 3),
+    ]);
+    expect(
+      stub.hits.some(
+        (hit) =>
+          hit.startsWith('/v1/forecast?latitude=35.69') &&
+          hit.includes('timezone=Asia%2FTokyo'),
+      ),
+    ).toBe(true);
+    const zones = await t.db
+      .select({ timeZone: weatherForecast.timeZone })
+      .from(weatherForecast)
+      .where(
+        and(
+          eq(weatherForecast.latitude, 35.69),
+          eq(weatherForecast.longitude, 139.69),
+        ),
+      );
+    expect(zones.map((z) => z.timeZone).sort()).toEqual([
+      'America/New_York',
+      'Asia/Tokyo',
+    ]);
+    // A zone Intl does not know is none: the household's days, never a 400.
+    const unknown = await api('PUT', `/trips/${id}/destination`, {
+      ...home,
+      timeZone: 'Mars/Olympus_Mons',
+    });
+    expect(unknown.statusCode).toBe(200);
+    const [kept] = await t.db
+      .select({ timeZone: trip.timeZone })
+      .from(trip)
+      .where(eq(trip.id, id));
+    expect(kept.timeZone).toBeNull();
+    // Home again for the sections below.
+    await api('PUT', '/weather/home', { name: 'Fort Greene', ...PRECISE });
   });
 });
 

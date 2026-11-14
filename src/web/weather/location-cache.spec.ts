@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { captureLogs } from '../../../test/support/log-capture';
-import type { Location } from '../../weather/location';
+import type { ZonedLocation } from '../../weather/location';
 import { OutboundFetchError } from '../security/outbound-fetch';
 import { createLocationCache } from './location-cache';
 import type { CacheRow } from './queries';
@@ -11,7 +11,11 @@ import type { CacheRow } from './queries';
  * in the background, a failed refresh keeps it, and only a cold miss waits.
  */
 
-const HERE: Location = { latitude: 40.69, longitude: -73.98 };
+const HERE: ZonedLocation = {
+  latitude: 40.69,
+  longitude: -73.98,
+  timeZone: 'America/New_York',
+};
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const NOW = new Date('2026-09-27T12:00:00Z');
@@ -137,8 +141,10 @@ describe('createLocationCache', () => {
     expect(s.calls.fetch).toBe(1);
 
     expect(s.logs.messages('info')).toEqual([
-      'Forecast for 40.69,-73.98: refreshing; the one from 2026-09-27T10:00:00.000Z kept meanwhile',
-      expect.stringMatching(/^Forecast for 40\.69,-73\.98: "new" in \d+ ms$/),
+      'Forecast for 40.69,-73.98 America/New_York: refreshing; the one from 2026-09-27T10:00:00.000Z kept meanwhile',
+      expect.stringMatching(
+        /^Forecast for 40\.69,-73\.98 America\/New_York: "new" in \d+ ms$/,
+      ),
     ]);
   });
 
@@ -198,7 +204,7 @@ describe('createLocationCache', () => {
     expect(s.row()).toMatchObject({ value: 'old', attemptedAt: NOW });
     expect(s.logs.messages('warn')).toEqual([
       expect.stringMatching(
-        /^Forecast for 40\.69,-73\.98 failed \(http-status\) after \d+ ms; serving the one from 2026-09-27T10:00:00\.000Z$/,
+        /^Forecast for 40\.69,-73\.98 America\/New_York failed \(http-status\) after \d+ ms; serving the one from 2026-09-27T10:00:00\.000Z$/,
       ),
     ]);
 
@@ -222,7 +228,7 @@ describe('createLocationCache', () => {
     await s.cache.settled();
     expect(s.row()?.value).toBe('old');
     expect(s.logs.messages('error')).toEqual([
-      'Forecast for 40.69,-73.98: recording the failed attempt failed',
+      'Forecast for 40.69,-73.98 America/New_York: recording the failed attempt failed',
     ]);
   });
 
@@ -250,7 +256,7 @@ describe('createLocationCache', () => {
     await expect(third).resolves.toEqual(answer);
     expect(s.row()?.value).toBe('first');
     expect(s.logs.messages('info')[0]).toBe(
-      'Forecast for 40.69,-73.98: refreshing; none kept, the ask waits',
+      'Forecast for 40.69,-73.98 America/New_York: refreshing; none kept, the ask waits',
     );
   });
 
@@ -263,8 +269,8 @@ describe('createLocationCache', () => {
     s.pending[0].resolve('days');
     await expect(ask).resolves.toEqual({ value: 'days', fetchedAt: NOW });
     expect(s.logs.messages('info').slice(0, 2)).toEqual([
-      'Forecast for 40.69,-73.98: the one from 2026-09-27T11:59:00.000Z is for Chicago, not New York; not served',
-      'Forecast for 40.69,-73.98: refreshing; none kept, the ask waits',
+      'Forecast for 40.69,-73.98 America/New_York: the one from 2026-09-27T11:59:00.000Z is for Chicago, not New York; not served',
+      'Forecast for 40.69,-73.98 America/New_York: refreshing; none kept, the ask waits',
     ]);
   });
 

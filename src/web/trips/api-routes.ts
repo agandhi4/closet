@@ -16,7 +16,7 @@ import { RowId } from '../schemas';
 import { enforceLimit } from '../security/rate-limit';
 import { type Actor, actorOf } from '../sharing/access';
 import { API_PREFIX } from '../surface';
-import { pickedPlace } from '../weather/place-picker';
+import { keptPlace, pickedPlace } from '../weather/place-picker';
 import { KeptPlace, PlaceInput } from '../weather/weather-resource';
 import { tripForecast } from './forecast';
 import { createTrip, listTrips } from './queries';
@@ -570,7 +570,7 @@ export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         logger.info(
           `Trip ${id} destination located by user ${actor.userId} (API)`,
         );
-        return { name: place.name, ...place.location };
+        return keptPlace(place);
       },
     );
   }

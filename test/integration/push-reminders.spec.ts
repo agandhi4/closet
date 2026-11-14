@@ -586,6 +586,7 @@ describe('push reminders', () => {
       }
       const asked: { latitude: number; fresh: boolean }[] = [];
       const weather: WeatherService = {
+        timeZone: 'America/New_York',
         forecastFor: (location, read) => {
           asked.push({
             latitude: location.latitude,

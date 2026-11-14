@@ -9,6 +9,7 @@ import {
   formatYearMonth,
   hourIn,
   instantAt,
+  canonicalTimeZone,
   isValidTimeZone,
   parseIsoDate,
   parseYearMonth,
@@ -118,6 +119,13 @@ describe('calendar dates', () => {
       expect(isValidTimeZone('UTC')).toBe(true);
       expect(isValidTimeZone('Mars/Olympus_Mons')).toBe(false);
       expect(isValidTimeZone('')).toBe(false);
+    });
+
+    it('spells a zone one way, and refuses an offset (#678)', () => {
+      expect(canonicalTimeZone('asia/tokyo')).toBe('Asia/Tokyo');
+      expect(canonicalTimeZone('GMT')).toBe(canonicalTimeZone('UTC'));
+      expect(canonicalTimeZone('+09:00')).toBeNull();
+      expect(canonicalTimeZone('Mars/Olympus_Mons')).toBeNull();
     });
   });
 

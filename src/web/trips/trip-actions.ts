@@ -3,7 +3,7 @@ import { selectScalars } from '../../db/select-scalars';
 import type { IsoDate } from '../../calendar-date';
 import { DEFAULT_OCCASION, type Occasion } from '../../wardrobe/occasions';
 import { tripPhase, wearableToday } from '../../wardrobe/packing';
-import type { Location } from '../../weather/location';
+import type { PickedLocation } from '../../weather/location';
 import { type WornOutfit, wearOutfitOn } from '../calendar/queries';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
@@ -164,7 +164,7 @@ export async function locateTrip(
   db: Db,
   actor: Actor,
   id: number,
-  place: { name: string; location: Location },
+  place: { name: string; location: PickedLocation },
 ): Promise<void> {
   if (!(await setTripDestination(db, id, actor.userId, place))) {
     throw tripNotFound();

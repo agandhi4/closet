@@ -13,7 +13,7 @@ import {
   type Occasion,
 } from '../../wardrobe/occasions';
 import { FORECAST_DAYS, forecastDay } from '../../weather/forecast';
-import type { Location } from '../../weather/location';
+import { type PickedLocation, zonedIn } from '../../weather/location';
 import {
   type WeatherNeeds,
   weatherNeeds,
@@ -126,7 +126,7 @@ export interface IdeasInput {
    * for a trip whose destination is not located, which has no weather
    * rather than home's.
    */
-  place?: Location | null;
+  place?: PickedLocation | null;
   /** The trip these ideas are for: its packing list's rain gear, not the closet's (rainGearFor). */
   tripId?: number;
   /**
@@ -389,11 +389,14 @@ export function weatherColumn(
   ask: WeatherAsk,
   now: Date,
 ): SQL<WeatherWithForecastJson | null> | undefined {
+  const { weather } = deps;
   const reads =
-    deps.weather !== undefined &&
+    weather !== undefined &&
     ask.day >= ask.today &&
     ask.ownWeather === undefined;
-  return reads ? weatherWithForecastSql(ownerId, now) : undefined;
+  return reads
+    ? weatherWithForecastSql(ownerId, now, weather.timeZone)
+    : undefined;
 }
 
 /**
@@ -456,9 +459,17 @@ async function forecastWeather(
       ? (input.ownWeather ?? (await userWeatherFrom(weather, own, now)))
       : {
           settings: own.settings,
-          cached: place && (await weather.forecastFor(place)),
+          cached:
+            place &&
+            (await weather.forecastFor(zonedIn(place, weather.timeZone))),
         };
   const forecast = cached && forecastDay(cached.forecast, input.day);
+  // Across the date line the destination's forecast can lack a day home's
+  // today counts as covered (#678): it reads the typical day, as the trip's
+  // own forecast does, never no weather.
+  if (cached && !forecast && place) {
+    return typicalWeather(weather, input, settings, place);
+  }
   const needs =
     forecast && weatherNeeds(forecast, input.occasion, settings.offset);
   return needs ? { needs, unit: settings.unit, typical: false } : null;
@@ -469,9 +480,9 @@ async function typicalWeather(
   weather: WeatherService,
   input: WeatherAsk,
   settings: WeatherSettings,
-  place: Location,
+  place: PickedLocation,
 ): Promise<IdeasWeather | null> {
-  const cached = await weather.normalsFor(place);
+  const cached = await weather.normalsFor(zonedIn(place, weather.timeZone));
   const normals = cached && normalsOn(cached.normals, input.day);
   const needs =
     normals &&

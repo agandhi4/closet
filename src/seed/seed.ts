@@ -455,7 +455,9 @@ async function writeTrips(
     if (ids.weatherEnabled && trip.location && trip.fields.destination) {
       await setTripDestination(tx, tripId, userId, {
         name: trip.fields.destination,
-        location: trip.location,
+        // The bible names no zone: the household's, as for a trip located
+        // before #678 (APP_TIMEZONE).
+        location: { ...trip.location, timeZone: null },
       });
     }
     for (const planned of trip.outfits) {
