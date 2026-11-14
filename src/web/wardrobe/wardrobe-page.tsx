@@ -1205,7 +1205,12 @@ function PropertyFilterGroups(props: {
             <Chips
               name="type"
               options={types}
-              selected={types.includes(search.type) ? search.type : ''}
+              selected={
+                search.category === String(category) &&
+                types.includes(search.type)
+                  ? search.type
+                  : ''
+              }
               label={(type) => valueLabel('type', type)}
             />
           </FilterGroup>
