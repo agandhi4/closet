@@ -107,6 +107,9 @@ export interface ReplanDeps {
   retries?: ReplanRetries;
 }
 
+/** The scheduled jobs that run a re-plan, each reporting its own failures (ReplanRetries). */
+export type ReplanJob = 'replan' | 'reminders';
+
 /** Minutes after a failed re-plan before the next try; the failure after the last claims the day. */
 export const REPLAN_RETRY_MINUTES = [5, 15, 60] as const;
 
@@ -116,14 +119,17 @@ export const REPLAN_RETRY_MINUTES = [5, 15, 60] as const;
  * sooner, which the claim makes harmless). A failed person-day is retried
  * after REPLAN_RETRY_MINUTES, then claimed, so a persistent failure is four
  * attempts a day, not one a minute; and only the first failure of a
- * person-day is `reported` (counted into the run's `failed`, so one failure
- * metric and one error-tracker capture per person-day, #687). server.ts
- * holds one for the minutely run and the morning reminder alike.
+ * person-day is `reported` per job (counted into that job's run `failed`, so
+ * one failure metric and one error-tracker capture per job and person-day,
+ * #687). server.ts holds one for the minutely run and the morning reminder
+ * alike: they share the schedule, but each reports its own first failure,
+ * or a reminder's would use up the slot the minutely run's PartialFailure
+ * needs (#858).
  */
 export class ReplanRetries {
   private readonly tries = new Map<
     string,
-    { failures: number; nextAt: number }
+    { failures: number; nextAt: number; reportedBy: Set<ReplanJob> }
   >();
 
   private static key(userId: number, day: IsoDate): string {
@@ -136,25 +142,31 @@ export class ReplanRetries {
     return !tried || now.getTime() >= tried.nextAt;
   }
 
-  /** Records a failure: whether it is the day's first and whether it was the last try. */
+  /** Records `job`'s failure: whether it is that job's first of the day and whether it was the last try. */
   failed(
     userId: number,
     day: IsoDate,
     now: Date,
+    job: ReplanJob,
   ): { first: boolean; exhausted: boolean } {
     this.forgetBefore(day);
     const key = ReplanRetries.key(userId, day);
-    const failures = (this.tries.get(key)?.failures ?? 0) + 1;
+    const tried = this.tries.get(key);
+    const failures = (tried?.failures ?? 0) + 1;
+    const reportedBy = tried?.reportedBy ?? new Set<ReplanJob>();
+    const first = !reportedBy.has(job);
+    reportedBy.add(job);
     const wait = REPLAN_RETRY_MINUTES[failures - 1];
     if (wait === undefined) {
       this.tries.delete(key);
-      return { first: failures === 1, exhausted: true };
+      return { first, exhausted: true };
     }
     this.tries.set(key, {
       failures,
       nextAt: now.getTime() + wait * 60_000,
+      reportedBy,
     });
-    return { first: failures === 1, exhausted: false };
+    return { first, exhausted: false };
   }
 
   succeeded(userId: number, day: IsoDate): void {
@@ -239,6 +251,7 @@ export async function replanWeeks(
   for (const userId of candidates) {
     const outcome = await replanOnce(deps, userId, now, {
       announcesToday: false,
+      job: 'replan',
       listed: true,
       weather: weather.get(userId),
     });
@@ -316,12 +329,14 @@ export async function replanToday(
   now: Date,
   {
     announcesToday = false,
+    job,
     listed = false,
     weather,
-  }: Partial<ReplanOptions> = {},
+  }: Pick<ReplanOptions, 'job'> & Partial<ReplanOptions>,
 ): Promise<ReplanOutcome> {
   const result = await replanOnce(deps, userId, now, {
     announcesToday,
+    job,
     listed,
     weather,
   });
@@ -333,6 +348,8 @@ export async function replanToday(
 
 interface ReplanOptions {
   announcesToday: boolean;
+  /** The job whose run counts this re-plan's failure. */
+  job: ReplanJob;
   /**
    * The caller listed the user as due a moment ago (replanCandidates: the
    * minutely run, a minute's morning reminders): not asked again. The
@@ -347,7 +364,7 @@ async function replanOnce(
   deps: ReplanDeps,
   userId: number,
   now: Date,
-  { announcesToday, listed, weather }: ReplanOptions,
+  { announcesToday, job, listed, weather }: ReplanOptions,
 ): Promise<ReplanResult> {
   const today = todayIn(deps.timeZone, now);
   const started = performance.now();
@@ -389,7 +406,12 @@ async function replanOnce(
       );
       return { kind: 'deferred' };
     }
-    const { first, exhausted } = deps.retries?.failed(userId, today, now) ?? {
+    const { first, exhausted } = deps.retries?.failed(
+      userId,
+      today,
+      now,
+      job,
+    ) ?? {
       first: true,
       exhausted: true,
     };
