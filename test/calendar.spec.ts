@@ -69,7 +69,8 @@ test('the outfit page plans the outfit from its sheet and lands on that week; Pl
   // plinth: the month's 48 px cells and the week's rows at 390 px, the
   // week's columns at 1280 px.
   const coat = await addPhotographedGarment(page, 'Fit coat', 'outerwear');
-  const tee = await addPhotographedGarment(page, 'Fit tee', 'tops');
+  // The top has no photo: its hanger placeholder must fit the cell too.
+  const tee = await createGarment(page, 'Fit tee', 'tops');
   await createOutfitOf(
     page,
     'Layered',
@@ -81,10 +82,10 @@ test('the outfit page plans the outfit from its sheet and lands on that week; Pl
   );
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/calendar/month?month=2030-10');
-  await expect(page.locator('[data-collage="cell"] img')).toHaveCount(2);
+  await expect(page.locator('[data-collage="cell"] img')).toHaveCount(1);
   await expectCollagePiecesInsidePlinths(page);
   await page.goto('/calendar?week=2030-10-10');
-  await expect(page.locator('[data-collage="cell"] img')).toHaveCount(2);
+  await expect(page.locator('[data-collage="cell"] img')).toHaveCount(1);
   await expectCollagePiecesInsidePlinths(page);
   await page.setViewportSize({ width: 1280, height: 900 });
   await expectCollagePiecesInsidePlinths(page);

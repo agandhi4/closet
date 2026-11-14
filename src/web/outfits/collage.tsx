@@ -338,7 +338,7 @@ function CollageFace(props: {
       class={`${props.class} aspect-square min-w-0 max-w-full rounded-box bg-base-100 flex flex-col items-center justify-center gap-1 text-muted p-1`}
     >
       <HangerIcon
-        class={props.labelled ? 'size-6' : 'size-4'}
+        class={`${props.labelled ? 'size-6' : 'size-4'} max-w-full max-h-full`}
         strokeWidth="1.5"
       />
       {props.labelled && (
