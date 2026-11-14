@@ -6,6 +6,7 @@ import { dayLabel, occasionLabel } from '../date-labels';
 import { AlreadySavedToast } from '../gallery/already-saved';
 import type { AlreadySaved } from '../gallery/urls';
 import { t } from '../i18n';
+import { museName } from '../write-origin';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -200,7 +201,7 @@ function ProposalBlock(props: {
   return (
     <section class="flex flex-col gap-2 px-1" data-outfit-proposal="">
       <p class="text-sm font-medium">
-        {t('outfits.muse.FROM', { agent: proposal.agent ?? t('muse.AGENT') })}
+        {t('outfits.muse.FROM', { agent: museName(proposal.agent) })}
       </p>
       {proposal.note && <p class="text-sm text-muted">{proposal.note}</p>}
       {proposal.reaction === 'revise' && proposal.ownerNote && (

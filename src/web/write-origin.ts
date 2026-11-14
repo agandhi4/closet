@@ -55,11 +55,13 @@ export const OWNER_READS = 'owner-reads';
  * One scalar subquery inside the reader's own statement, never a statement
  * of its own. `madeByAgent` says the row is an agent's even with no token
  * left (outfit_calendar's `planned_by = 'agent'` after a set null); without
- * it a non-null id is the mark (the garment's soft reference). Rows only
- * their owner reads, written only by the owner's tokens, take `OWNER_READS`.
+ * it a non-null id is the mark (the garment's soft reference, and Muse's
+ * rows, which can have none: museName). Rows only their owner
+ * reads, written only by the owner's tokens, take `OWNER_READS`. The only
+ * reader of a token's name outside the token list (personal-tokens.ts).
  */
 export function agentLabelSql(
-  tokenColumn: AnyColumn,
+  tokenColumn: AnyColumn | SQL,
   viewer: AgentViewer | typeof OWNER_READS,
   madeByAgent: SQL = sql`${tokenColumn} is not null`,
 ): SQL<AgentLabel | null> {
@@ -97,6 +99,15 @@ export function agentName(label: AgentLabel): string {
     case 'anonymous':
       return t('agent.ANONYMOUS');
   }
+}
+
+/**
+ * Muse's rows (needs, suggestions, proposals, rounds) as their pages word
+ * them: the label, or "Muse" for one no token made (drizzle/0040's
+ * migrated plan candidates).
+ */
+export function museName(label: AgentLabel | null): string {
+  return label ? agentName(label) : t('muse.AGENT');
 }
 
 /** agentName for an answer's optional field (MCP): absent on the person's rows. */

@@ -1,11 +1,5 @@
 import { and, eq, type SQL, sql } from 'drizzle-orm';
-import {
-  file,
-  garment,
-  outfit,
-  outfitSlot,
-  personalAccessToken,
-} from '../../db/schema';
+import { file, garment, outfit, outfitSlot } from '../../db/schema';
 import type { GarmentStatus } from '../../wardrobe/status';
 import { photoRefJson } from '../files/queries';
 import type { SignablePhotoRef } from '../files/image-url';
@@ -20,6 +14,7 @@ import {
 } from '../gallery/queries';
 import { onWishlist } from '../wardrobe/status';
 import { museOutfit } from './references';
+import { type AgentLabel, agentLabelSql, OWNER_READS } from '../write-origin';
 
 /**
  * Muse's outfits (#335, docs/plans/2026-10-05-muse-suggestions.md section
@@ -56,8 +51,8 @@ export interface MuseOutfit {
   reaction: LookReaction;
   ownerNote: string | null;
   dismissedReason: OutfitDismissReason | null;
-  /** The token's name ("Muse"); null once the token is gone. */
-  agent: string | null;
+  /** Muse: outfits are their owner's alone, so its token's name, or "Agent". */
+  agent: AgentLabel | null;
   pieces: MusePiece[];
 }
 
@@ -94,7 +89,7 @@ export function museOutfitsSql(ownerId: number): SQL<MuseOutfit[]> {
       'reaction', ${outfit.reaction},
       'ownerNote', ${outfit.ownerNote},
       'dismissedReason', ${outfit.dismissedReason},
-      'agent', (select ${personalAccessToken.name} from ${personalAccessToken} where ${eq(personalAccessToken.id, outfit.addedByTokenId)}),
+      'agent', ${agentLabelSql(outfit.addedByTokenId, OWNER_READS)},
       'pieces', ${musePiecesSql()}
     ) order by ${outfit.proposedAt} desc, ${outfit.id} desc), '[]')
     from ${outfit}

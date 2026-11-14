@@ -11,6 +11,7 @@ import { Reasons } from '../gallery/ideas-page';
 import type { PoolGarment } from '../gallery/queries';
 import { ideasUrl } from '../gallery/urls';
 import { t } from '../i18n';
+import { museName } from '../write-origin';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { PAIR_GRID } from '../layout/columns';
@@ -198,7 +199,7 @@ function RoundCard({ round }: { round: MuseRound }) {
         <div class="flex-1 min-w-0">
           <p class="text-sm font-semibold break-words">
             {t('muse.round.CARD', {
-              agent: round.agent ?? t('muse.AGENT'),
+              agent: museName(round.agent),
               what: roundWhat(round),
             })}
           </p>
@@ -223,7 +224,7 @@ function RoundCard({ round }: { round: MuseRound }) {
  * choose: nothing to dismiss.
  */
 function NeedsCard({ needs }: { needs: NeedsToDecide }) {
-  const params = { agent: needs.agent ?? t('muse.AGENT'), count: needs.count };
+  const params = { agent: museName(needs.agent), count: needs.count };
   return (
     <article
       class="card bg-base-100 shadow-sm"

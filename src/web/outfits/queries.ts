@@ -20,7 +20,6 @@ import {
   outfit,
   outfitCalendar,
   outfitSlot,
-  personalAccessToken,
   selfie,
   tripOutfit,
 } from '../../db/schema';
@@ -400,8 +399,8 @@ export interface OutfitProposal {
   reaction: LookReaction;
   ownerNote: string | null;
   dismissedReason: OutfitDismissReason | null;
-  /** The token's name ("Muse"); null once the token is gone. */
-  agent: string | null;
+  /** Muse: outfits are their owner's alone, so its token's name, or "Agent". */
+  agent: AgentLabel | null;
 }
 
 /** The outfit page's outfit: with its proposal when Muse proposed it. */
@@ -435,12 +434,12 @@ export function outfitDetailSql(
 
 /**
  * The outfit row's proposal as JSON, null for the owner's own: the outfit
- * page's (with the agent's name, while its token exists), the MCP tools'
+ * page's (with the agent, agentLabelSql), the MCP tools'
  * and the changes feed's (outfitsByIds) without it.
  */
 function proposalSql({ agent }: { agent: boolean }): SQL {
   const agentName = agent
-    ? sql`, 'agent', (select ${personalAccessToken.name} from ${personalAccessToken} where ${eq(personalAccessToken.id, outfit.addedByTokenId)})`
+    ? sql`, 'agent', ${agentLabelSql(outfit.addedByTokenId, OWNER_READS)}`
     : sql``;
   return sql`case when ${outfit.proposedAt} is null then null else json_build_object(
     'note', ${outfit.proposalNote},

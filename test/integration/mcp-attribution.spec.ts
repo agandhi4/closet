@@ -19,7 +19,13 @@ import { createCapsule } from '../../src/web/capsules/queries';
 import { createTrip } from '../../src/web/trips/queries';
 import { deviceToken } from './api';
 import { createGarment } from './garments';
-import { asFixture, createTestApp, type TestApp, userIdOf } from './harness';
+import {
+  asFixture,
+  createTestApp,
+  type TestApp,
+  unescapeHtml,
+  userIdOf,
+} from './harness';
 import {
   html,
   jpeg,
@@ -506,6 +512,7 @@ describe('agent writes carry their token (#682)', () => {
     let managerDevice: string;
     let viewerDevice: string;
     let viewerToken: string;
+    let viewerCookie: string;
     let garmentId: number;
 
     async function share(email: string, permission: 'MANAGE' | 'VIEW') {
@@ -576,6 +583,7 @@ describe('agent writes carry their token (#682)', () => {
       managerDevice = (await deviceToken(t, { email: 'dana@example.com' }))
         .token;
       const viewer = await share('sam@example.com', 'VIEW');
+      viewerCookie = viewer.cookie;
       viewerToken = await createAccessToken(t, {
         cookie: viewer.cookie,
         name: 'Sam’s agent token',
@@ -608,6 +616,52 @@ describe('agent writes carry their token (#682)', () => {
         id: garmentId,
       });
       expect(own.agent).toBe('Dana’s agent');
+    });
+
+    it('names Muse to the owner and "Agent" to a grantee, on its needs and suggestions', async () => {
+      // Outfits (Muse's proposals included) are the owner's alone: no
+      // grantee reads one, so needs and picks are where the rule shows.
+      sites.serve(
+        '/products/knit',
+        html(`<!doctype html><html><head><title>Knit</title>
+        <script type="application/ld+json">${JSON.stringify({
+          '@type': 'Product',
+          name: 'Grey Knit',
+          image: [sites.url('/img/tee.jpg')],
+          offers: { price: '90.00', priceCurrency: 'USD' },
+        })}</script></head><body></body></html>`),
+      );
+      const need = await tool<{ id: number }>(t, token, 'create_option_group', {
+        name: 'A grey knit',
+      });
+      const pick = await tool<{ id: number }>(t, token, 'suggest_garment', {
+        url: sites.url('/products/knit'),
+        groupId: need.id,
+        category: 'tops',
+      });
+      const needAgent = async (bearer: string) => {
+        const res = await t.api(bearer, {
+          method: 'GET',
+          url: `/api/v1/wishlist?ownerId=${t.owner.id}`,
+        });
+        expect(res.statusCode, res.body).toBe(200);
+        return res
+          .json<{ needs: { need: { id: number; agent?: string } }[] }>()
+          .needs.find((entry) => entry.need.id === need.id)?.need.agent;
+      };
+      expect(await needAgent(device)).toBe('Laptop Claude');
+      expect(await needAgent(viewerDevice)).toBe('Agent');
+      const fromAgent = async (cookie: string | undefined) => {
+        const res = await t.inject({
+          method: 'GET',
+          url: `/wardrobe/${pick.id}?ownerId=${t.owner.id}`,
+          headers: cookie ? { cookie } : {},
+        });
+        expect(res.statusCode).toBe(200);
+        return /data-from-agent="">([^<]*)</.exec(unescapeHtml(res.body))?.[1];
+      };
+      expect(await fromAgent(undefined)).toBe('From Laptop Claude');
+      expect(await fromAgent(viewerCookie)).toBe('From Agent');
     });
 
     it('still says "Agent" to the owner once the grantee\'s account is gone', async () => {

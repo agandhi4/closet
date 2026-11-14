@@ -9,6 +9,7 @@ import { PostForm } from '../auth/form';
 import { imageUrl, type SignablePhotoRef } from '../files/image-url';
 import { unlocksText } from '../gallery/goes-with';
 import { t } from '../i18n';
+import { type AgentLabel, museName } from '../write-origin';
 import { HangerIcon, SavedToast, StripFlags } from '../layout/parts';
 import { priceLabel } from '../wardrobe/garment';
 
@@ -240,11 +241,14 @@ export function ProductPhoto(props: {
   );
 }
 
-/** "From Muse": a suggestion's provenance, by the token's name. */
-export function FromAgent({ agent }: { agent: string | null }) {
+/**
+ * "From Muse": a suggestion's provenance, by its agent as the reader may
+ * see it; null where none is (an own item's lone suggestion, 0040's rows).
+ */
+export function FromAgent({ agent }: { agent: AgentLabel | null }) {
   return (
     <span class="badge badge-soft badge-secondary" data-from-agent="">
-      {t('muse.FROM', { agent: agent ?? t('muse.AGENT') })}
+      {t('muse.FROM', { agent: museName(agent) })}
     </span>
   );
 }

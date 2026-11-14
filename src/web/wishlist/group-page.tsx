@@ -3,6 +3,7 @@ import { PhotoSet, viewerTrigger, enlargeLabel } from '../files/photo-viewer';
 import type { ClosetGarment } from '../gallery/queries';
 import { ideaName } from '../gallery/ideas';
 import { t } from '../i18n';
+import { museName } from '../write-origin';
 import { AppBar } from '../layout/app-bar';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
@@ -120,7 +121,7 @@ export function NeedPage(props: { ctx: ViewContext; model: NeedPageModel }) {
           {need.note && (
             <details class="text-sm">
               <summary class="link link-hover text-muted">
-                {t('muse.WHY', { agent: need.agent ?? t('muse.AGENT') })}
+                {t('muse.WHY', { agent: museName(need.agent) })}
               </summary>
               <p class="pt-1 whitespace-pre-line" data-need-note="">
                 {need.note}

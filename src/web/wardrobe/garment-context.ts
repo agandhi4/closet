@@ -141,7 +141,10 @@ function contextColumns(
     brandSize:
       !owned && isOwner && brand ? brandSizeSql(ownerId, brand) : undefined,
     suggestion: when(suggestedAt !== null, () =>
-      suggestionContextSql(ownerId, id, suggestionGroupId),
+      suggestionContextSql(ownerId, id, suggestionGroupId, {
+        viewerId,
+        ownsWardrobe: isOwner,
+      }),
     ),
     agent: when(madeByAgent, () =>
       garmentAgentSql(id, { viewerId, ownsWardrobe: isOwner }),

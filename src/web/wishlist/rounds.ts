@@ -1,12 +1,8 @@
 import { and, eq, isNotNull, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
-import {
-  garment,
-  museRound,
-  outfit,
-  personalAccessToken,
-} from '../../db/schema';
+import { garment, museRound, outfit } from '../../db/schema';
 import { ownerTransaction } from '../auth/queries';
+import { type AgentLabel, agentLabelSql, OWNER_READS } from '../write-origin';
 import { museOutfitWaiting } from '../outfits/references';
 import { moveFeedbackCursor } from './feedback';
 import { OPEN_PICKS } from './inbox';
@@ -37,8 +33,8 @@ export interface RoundCounts {
 /** The latest round as Today's card shows it. */
 export interface MuseRound extends RoundCounts {
   id: number;
-  /** The token's name ("Muse"); null once the token is gone. */
-  agent: string | null;
+  /** Muse: Today is the owner's alone, so its token's name, or "Agent". */
+  agent: AgentLabel | null;
   summary: string | null;
 }
 
@@ -86,8 +82,7 @@ export function museRoundSql(ownerId: number): SQL<MuseRound | null> {
     ) end
     from (
       select ${latest}.id, ${latest}.summary,
-        (select ${personalAccessToken.name} from ${personalAccessToken}
-          where ${personalAccessToken.id} = ${latest}.token_id) as agent,
+        ${agentLabelSql(sql`${latest}.token_id`, OWNER_READS)} as agent,
         ${counts.outfits} as outfits,
         ${counts.pieces} as pieces
       from ${museRound} as ${latest}
@@ -100,7 +95,7 @@ export function museRoundSql(ownerId: number): SQL<MuseRound | null> {
 
 export type FinishOutcome =
   /** The round stored: what it brought. */
-  | ({ ok: true; id: number; agent: string | null } & RoundCounts)
+  | ({ ok: true; id: number; agent: AgentLabel | null } & RoundCounts)
   /** Nothing new since the last round: no round, so no card and no notification. */
   | { ok: false; reason: 'empty' };
 
@@ -136,7 +131,7 @@ export function finishRound(
     const counts = countsSql(ownerId, since, sql`now()`);
     const { rows } = await tx.execute<{
       id: number | null;
-      agent: string | null;
+      agent: AgentLabel | null;
       outfits: number;
       pieces: number;
     }>(sql`
@@ -156,8 +151,7 @@ export function finishRound(
         returning id
       )
       select (select id from created) as id,
-        (select ${personalAccessToken.name} from ${personalAccessToken}
-          where ${personalAccessToken.id} = ${round.tokenId}::int) as agent,
+        ${agentLabelSql(sql`${round.tokenId}::int`, OWNER_READS)} as agent,
         counted.outfits, counted.pieces
       from counted`);
     const [row] = rows;

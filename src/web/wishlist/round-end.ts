@@ -2,6 +2,7 @@ import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
 import { OwnerLockTimeout } from '../errors';
 import { t } from '../i18n';
+import { type AgentLabel, museName } from '../write-origin';
 import type { DeviceMessage, PushSender } from '../push/sender';
 import { roundReviewPath, roundWhat } from './round-text';
 import { finishRound, quietRounds, type RoundCounts } from './rounds';
@@ -34,11 +35,11 @@ const ROUND_TTL_SECONDS = 24 * 60 * 60;
 export interface EndedRound extends RoundCounts {
   ownerId: number;
   id: number;
-  agent: string | null;
+  agent: AgentLabel | null;
 }
 
 function roundMessage(round: EndedRound): DeviceMessage {
-  const agent = round.agent ?? t('muse.AGENT');
+  const agent = museName(round.agent);
   return {
     userId: round.ownerId,
     devices: 'muse-rounds',
