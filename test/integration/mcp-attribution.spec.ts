@@ -57,6 +57,18 @@ describe('agent writes carry their token (#682)', () => {
 
   const day = (n: number) => addDays(t.today(), n);
 
+  /**
+   * A top and a bottom no other scenario has: the week planner's picks are
+   * seeded from the date, so under a shifted clock it may already have saved
+   * the pair of any shared garments, and create_outfit and suggest_outfit
+   * reuse an outfit of the same garments (the planner's, unstamped) instead
+   * of making the agent's.
+   */
+  const freshPair = async (label: string) => [
+    await createGarment(t, { name: `Tee ${label}`, category: 'tops' }),
+    await createGarment(t, { name: `Jeans ${label}`, category: 'bottoms' }),
+  ];
+
   /** The token every row of `written` names, per kind (null: unstamped). */
   async function stampsOf(written: Written) {
     const out: Partial<Record<Stamped, (number | null)[]>> = {};
@@ -416,7 +428,7 @@ describe('agent writes carry their token (#682)', () => {
     // An agent-made outfit and an agent's link import carry the token, not
     // the proposal's or the suggestion's mark (proposed_at, suggested_at).
     const made = await tool<{ id: number }>(t, token, 'create_outfit', {
-      garmentIds: [g.top6, g.bottom7],
+      garmentIds: await freshPair('made'),
     });
     const imported = await tool<{ garment: { id: number } }>(
       t,
@@ -425,7 +437,7 @@ describe('agent writes carry their token (#682)', () => {
       { url: sites.url('/products/tee') },
     );
     const proposed = await tool<{ id: number }>(t, token, 'suggest_outfit', {
-      garmentIds: [g.top7, g.bottom6],
+      garmentIds: await freshPair('proposed'),
       note: 'Weekend',
     });
     expect(await stampColumn('outfit', [made.id, proposed.id])).toEqual([
@@ -472,7 +484,7 @@ describe('agent writes carry their token (#682)', () => {
 
   it('names the agent in the outfit resources and get_trip', async () => {
     const made = await tool<{ id: number }>(t, token, 'create_outfit', {
-      garmentIds: [g.top5, g.bottom6],
+      garmentIds: await freshPair('trip'),
     });
     await tool(t, token, 'plan_trip_outfit', { tripId, outfitId: made.id });
     const mine = await ownOutfit([g.top6, g.bottom5]);
