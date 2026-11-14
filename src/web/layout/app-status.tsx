@@ -102,6 +102,12 @@ function outboxText(): Record<`data-text-outbox-${string}`, string> {
       action: '{action}',
       reason: '{reason}',
     }),
+    stuck: t('outbox.STUCK', {
+      label: '{label}',
+      action: '{action}',
+    }),
+    'try-again': t('outbox.TRY_AGAIN'),
+    'discard-write': t('outbox.DISCARD_WRITE'),
     'action-wear': t('outbox.action.WEAR'),
     'action-wash': t('outbox.action.WASH'),
     'action-entry': t('outbox.action.ENTRY'),

@@ -18,11 +18,7 @@ import {
 } from './support/service-worker';
 import { WEBKIT_CANNOT_WATCH_WORKER } from './support/webkit-limits';
 import { addDays } from '../src/calendar-date';
-import {
-  queueableKindOf,
-  REPLAY_TIMEOUT_MS,
-  SERVER_ERROR_MAX_ATTEMPTS,
-} from '../src/offline-writes';
+import { queueableKindOf, REPLAY_TIMEOUT_MS } from '../src/offline-writes';
 import { CACHED_AT_HEADER } from '../src/web/page-cache';
 
 /**
@@ -480,13 +476,10 @@ test('offline: PostForms are guarded, and queued writes wait, save and stay orde
     expect(otherErrors).toEqual([]);
   });
 
-  await test.step('a write the server keeps failing is given up on, and the ones behind it save', async () => {
+  await test.step('a write the server keeps failing ends stuck, never dropped, and the one behind it saves', async () => {
     await signIn(page, 'outbox-poison');
     const poisoned = await createGarment(page, 'Poison chinos');
-    const neighbours: Awaited<ReturnType<typeof createGarment>>[] = [];
-    for (let n = 1; n <= SERVER_ERROR_MAX_ATTEMPTS; n += 1) {
-      neighbours.push(await createGarment(page, `Behind shirt ${n}`));
-    }
+    const neighbour = await createGarment(page, 'Behind shirt');
     const wore = page.getByRole('button', { name: 'Wore today', exact: true });
     const undo = page.getByRole('button', { name: 'Undo “Wore today”' });
     const banner = page.locator('#outbox-banner');
@@ -500,39 +493,46 @@ test('offline: PostForms are guarded, and queued writes wait, save and stay orde
     await setWritesReachable(page, false);
     await wore.click();
     await expect(undo).toBeVisible();
-    // A 5xx counts against the record only while the server answers another
-    // one: each round queues a healthy neighbour behind it and reconnects (a
-    // drain starts at once; no backoff is waited for).
-    for (const [index, garment] of neighbours.entries()) {
-      await page.goto(`/wardrobe/${garment}`);
-      await wore.click();
-      await expect(undo).toBeVisible();
-      const last = index === neighbours.length - 1;
+    await page.goto(`/wardrobe/${neighbour}`);
+    await wore.click();
+    await expect(undo).toBeVisible();
+    // Each reconnect drains at once (no backoff is waited for); the third 5xx
+    // makes the record stuck.
+    for (const round of [1, 2, 3]) {
       const answered = page.waitForEvent('console', (message) =>
         message
           .text()
-          .includes(last ? 'not saved: server' : 'server-error, retry'),
+          .includes(round === 3 ? 'stuck, retry' : 'server-error, retry'),
       );
       await setWritesReachable(page, true);
       await answered;
-      if (!last) {
+      if (round < 3) {
         // Online and backing off: the banner says the server is not answering.
         await expect(banner).toContainText('not saved yet');
         await setWritesReachable(page, false);
       }
     }
 
-    // Given up: named in the notice, and every record behind it was sent.
+    // Named in the notice with its two actions; the neighbour was sent.
     await expect(notice).toContainText('Poison chinos');
     await expect(notice).toContainText(
-      'the server kept answering with an error',
+      'the server keeps answering with an error',
     );
     await expect(banner).toBeHidden();
-    await page.reload();
+    await page.goto(`/wardrobe/${neighbour}`);
     await expect(undo).toBeVisible();
     await expect(page.locator('[data-outbox="pending"]')).toHaveCount(0);
-    await notice.getByRole('button').click();
+    await page.goto(`/wardrobe/${poisoned}`);
+    await expect(page.locator('[data-outbox="pending"]')).toHaveCount(1);
+    await expect(
+      notice.getByRole('button', { name: 'Try again' }),
+    ).toBeVisible();
+
+    // Discard deletes it and the control shows the server's state again.
+    await notice.getByRole('button', { name: 'Discard' }).click();
     await expect(notice).toBeHidden();
+    await expect(wore).toBeVisible();
+    await expect(page.locator('[data-outbox="pending"]')).toHaveCount(0);
   });
 
   await test.step('the worker refetches what a sync saved, and the queue ends with the session', async (step) => {

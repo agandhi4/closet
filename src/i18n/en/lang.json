@@ -184,6 +184,9 @@
     "NOTICE": "Changes not saved",
     "NOT_SAVED": "{label}, {action}: not saved, {reason}.",
     "DISMISS": "Dismiss",
+    "STUCK": "{label}, {action}: not saved yet, the server keeps answering with an error.",
+    "TRY_AGAIN": "Try again",
+    "DISCARD_WRITE": "Discard",
     "action": {
       "WEAR": "Wore today",
       "WASH": "Washed",
