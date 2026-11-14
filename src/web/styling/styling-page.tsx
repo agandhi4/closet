@@ -145,7 +145,9 @@ export function StylingPage(props: { ctx: ViewContext; model: StylingModel }) {
           />
         }
       />
-      <PageMain width="wide" class="pt-20 pb-40 lg:pb-8 flex flex-col gap-3">
+      {/* pb-dock: the composer's bar is sticky in the flow (StylingAside),
+          so the page leaves only the dock's height below it. */}
+      <PageMain width="wide" class="pt-20 pb-dock lg:pb-8 flex flex-col gap-3">
         <Header model={model} />
         {model.rows.length > 0 ? (
           // Two columns from lg (#468): the rows, and the aside beside them.
@@ -230,42 +232,66 @@ const COMPOSER_COLUMNS =
   'contents lg:grid lg:grid-cols-[1fr_20rem] lg:gap-6 lg:pr-4';
 
 /**
- * Beside the rows from lg: the preview above Shuffle and Save, sticky under
- * the app bar while the rows scroll. Below lg it is `contents` (no box): the
- * preview is hidden and the ActionBar is the fixed bar above the dock, as a
- * fixed box ignores a parent that has no transform. In DOM order after the
- * rows and "Add row", so Tab reaches Shuffle and Save last on both.
+ * The outfit as it stands and the way to keep it: the preview and the fit
+ * line, then Shuffle and Save. On a phone (#664) it is the bar above the
+ * dock, `sticky`, not fixed: in the flow after the rows and "Add row", it
+ * rides on the dock while they scroll and lands below the last one at their
+ * end, so it never covers a row whatever its height (the fit's chips wrap,
+ * the preview opens). z-10: over the rows (a strip's step buttons are z-10
+ * and come first), under "Add row"'s z-20 menu. From lg (#468) it is the
+ * column beside the rows, sticky under the app bar. In DOM order after the
+ * rows, so Tab reaches Shuffle and Save last on both.
  */
 function StylingAside(props: { ctx: ViewContext; model: StylingModel }) {
   const { model } = props;
   return (
-    <div class="contents lg:flex lg:flex-col lg:gap-4 lg:sticky lg:top-20 lg:self-start">
-      <StylingPreview rows={model.rows} />
-      {props.ctx.weatherEnabled && !model.shared && <StylingFit />}
+    <div
+      data-styling-bar=""
+      class="sticky bottom-dock z-10 flex flex-col border-t border-base-300 bg-base-100 lg:top-20 lg:bottom-auto lg:z-auto lg:gap-4 lg:self-start lg:border-0 lg:bg-transparent"
+    >
+      <details class="group">
+        {/* A tap opens the strip into the whole outfit (CSS off `open`,
+            the PREVIEW_* classes); from lg it is always whole, so the
+            toggle changes nothing there. Named, as the preview inside is
+            aria-hidden (each strip says its choice). */}
+        <summary
+          class="relative flex cursor-pointer list-none flex-col gap-1 px-4 pt-2 lg:cursor-auto lg:gap-4 lg:p-0 [&::-webkit-details-marker]:hidden"
+          aria-label={t('styling.PREVIEW')}
+        >
+          <StylingPreview rows={model.rows} />
+          {props.ctx.weatherEnabled && !model.shared && <StylingFit />}
+          <span
+            class="absolute right-4 top-4 text-muted group-open:rotate-180 lg:hidden"
+            aria-hidden="true"
+          >
+            ▴
+          </span>
+        </summary>
+      </details>
       <ActionBar model={model} />
     </div>
   );
 }
 
 /**
- * The fit line's slot (#468b), under the preview from lg (hidden on a
- * phone for now: the plan's desktop first). Empty in the page, so
- * /styling stays byte-stable (a tab root, OPENS_STALE): GET
- * /styling/fit answers into it with the rows (`hx-include`). It loads on
- * `intersect`, not `load`, so a phone, where it is display:none, never asks;
- * again on `styling:outfit-changed`, which styling.js sends it when a choice
- * changes the preview while it is shown (debounced, the last ask wins);
- * and a rows answer (Shuffle, "Add row", the picks switch) sends this slot
- * again out of band, which loads afresh. Only with WEATHER_ENABLED (no
- * route without it) and never over a shared wardrobe (the owner's weather
- * is theirs). Offline the line dims and the note says why.
+ * The fit line's slot (#468b), under the preview: on a phone (#664) the
+ * chips under the bar's strip. Empty in the page, so /styling stays
+ * byte-stable (a tab root, OPENS_STALE): GET /styling/fit answers into it
+ * with the rows (`hx-include`). It loads on `intersect` (the bar is on
+ * screen on load at every width), again on `styling:outfit-changed`, which
+ * styling.js sends it when a choice changes the preview (debounced, the
+ * last ask wins); and a rows answer (Shuffle, "Add row", the picks switch)
+ * sends this slot again out of band, which loads afresh. Only with
+ * WEATHER_ENABLED (no route without it) and never over a shared wardrobe
+ * (the owner's weather is theirs). Offline the line dims and the note says
+ * why.
  */
 export function StylingFit(props: { oob?: boolean }) {
   return (
     <div
       id="styling-fit"
       hx-swap-oob={props.oob ? 'true' : undefined}
-      class="hidden lg:flex flex-col gap-1"
+      class="flex flex-col gap-1"
     >
       <div
         id="styling-fit-line"
@@ -307,14 +333,35 @@ export function FitLine(props: {
   );
 }
 
+/*
+ * The preview's two shapes, from one markup (#664): the phone's closed bar
+ * draws it as a strip, every piece in one line top to toe (a long outfit
+ * scrolls inside it); open, and always from lg, it is the whole outfit
+ * stacked (#468). Each class pair below is that shape, spelled twice
+ * because `group-open:` (the bar's <details>) and `lg:` are separate
+ * variants; they agree, so neither wins over the other.
+ */
+const PREVIEW_FRAME =
+  'flex min-w-0 items-center gap-1 overflow-x-auto pr-8 group-open:flex-col group-open:items-stretch group-open:gap-2 group-open:overflow-visible group-open:rounded-box group-open:bg-base-200 group-open:p-4 lg:flex-col lg:items-stretch lg:gap-2 lg:overflow-visible lg:rounded-box lg:bg-base-200 lg:p-4';
+const PREVIEW_HEADING =
+  'hidden text-xs font-semibold uppercase tracking-wide text-muted group-open:block lg:block';
+const PREVIEW_WORN =
+  'flex items-center gap-1 group-open:flex-col group-open:gap-2 lg:flex-col lg:gap-2';
+const PREVIEW_WORN_SLOT =
+  'size-12 group-open:h-24 group-open:w-full lg:h-24 lg:w-full';
+const PREVIEW_ALONG =
+  'flex gap-1 group-open:flex-wrap group-open:justify-center group-open:gap-2 lg:flex-wrap lg:justify-center lg:gap-2';
+const PREVIEW_ALONG_SLOT = 'size-10 group-open:size-16 lg:size-16';
+
 /**
- * The outfit as it stands (#468), top to toe, shown from lg: a slot per
- * row in row order (`data-preview-slot`, its index among the rows), the
- * worn roles stacked and the ones riding along (accessory, bag, none) in a
- * line at the foot, each the chosen garment's look or nothing for "No
- * garment" (an empty slot collapses). Not `OutfitCollage`: that lays out by
- * the roles present, which only the server knows, and the choice moves in
- * the browser. The server draws it from the rows' states (so `?with=`,
+ * The outfit as it stands (#468), top to toe: a slot per row in row order
+ * (`data-preview-slot`, its index among the rows), the worn roles first
+ * and the ones riding along (accessory, bag, none) after them, each the
+ * chosen garment's look or nothing for "No garment" (an empty slot
+ * collapses). On a phone it is the bar's strip (#664, PREVIEW_FRAME), from
+ * lg the aside's stack. Not `OutfitCollage`: that lays out by the roles
+ * present, which only the server knows, and the choice moves in the
+ * browser. The server draws it from the rows' states (so `?with=`,
  * `?outfit=` and a refused Save open right) and every rows answer sends it
  * again out of band (`oob`); between them styling.js copies each choice in
  * (`snap-strip:chosen`), so it follows a swipe offline too. `aria-hidden`:
@@ -329,24 +376,22 @@ export function StylingPreview(props: {
     <div
       id="styling-preview"
       hx-swap-oob={props.oob ? 'true' : undefined}
-      class="hidden lg:flex flex-col gap-2 rounded-box bg-base-200 p-4"
+      class={PREVIEW_FRAME}
       aria-hidden="true"
     >
-      <p class="text-xs font-semibold uppercase tracking-wide text-muted">
-        {t('styling.PREVIEW')}
-      </p>
-      <div class="flex flex-col items-center gap-2">
+      <p class={PREVIEW_HEADING}>{t('styling.PREVIEW')}</p>
+      <div class={PREVIEW_WORN}>
         {slots
           .filter(({ row }) => !ridesAlong(row.role))
           .map((slot) => (
-            <PreviewSlot {...slot} class="h-24 w-full" />
+            <PreviewSlot {...slot} class={PREVIEW_WORN_SLOT} />
           ))}
       </div>
-      <div class="flex flex-wrap justify-center gap-2">
+      <div class={PREVIEW_ALONG}>
         {slots
           .filter(({ row }) => ridesAlong(row.role))
           .map((slot) => (
-            <PreviewSlot {...slot} class="size-16" />
+            <PreviewSlot {...slot} class={PREVIEW_ALONG_SLOT} />
           ))}
       </div>
     </div>
@@ -359,7 +404,7 @@ function PreviewSlot(props: { row: StylingRow; index: number; class: string }) {
   const garment = row.garments.find((one) => one.id === row.garmentId);
   return (
     <div
-      class={`flex items-center justify-center empty:hidden ${props.class}`}
+      class={`flex shrink-0 items-center justify-center empty:hidden ${props.class}`}
       data-preview-slot={String(props.index)}
       data-preview-garment={garment ? String(garment.id) : ''}
     >
@@ -611,39 +656,36 @@ function AddRow({ model }: { model: StylingModel }) {
 }
 
 /**
- * The bar above the dock (`bottom-dock`, z-20: under the dock and the
- * navbar, AGENTS.md Gotchas): Shuffle, and Save (the sheet), or over a
- * shared wardrobe the reason there is no Save. From lg it sits in the
- * aside under the preview (`lg:static`), its buttons stacked full width.
+ * Shuffle, and Save (the sheet), or over a shared wardrobe the reason there
+ * is no Save: in a line at the foot of the phone's bar (StylingAside), and
+ * from lg under the preview, its buttons stacked full width.
  */
 function ActionBar({ model }: { model: StylingModel }) {
   return (
-    <div class="fixed left-rail right-0 bottom-dock z-20 bg-base-100 border-t border-base-300 lg:static lg:z-auto lg:bg-transparent lg:border-0">
-      <div class="flex items-center gap-2 px-4 py-2 max-w-page-narrow mx-auto lg:flex-col lg:items-stretch lg:p-0 lg:max-w-none">
+    <div class="flex w-full items-center gap-2 px-4 py-2 max-w-page-narrow mx-auto lg:flex-col lg:items-stretch lg:p-0 lg:max-w-none">
+      <button
+        type="button"
+        class="btn btn-outline"
+        hx-get={STYLING_SHUFFLE_PATH}
+        hx-include="#styling-form"
+        hx-target="#styling-rows"
+        hx-swap="outerHTML"
+        data-needs-network=""
+        data-styling-shuffle=""
+      >
+        ⤮ {t('gallery.SHUFFLE')}
+      </button>
+      {model.shared ? (
+        <p class="text-xs text-muted flex-1">{t('styling.SHARED_NO_SAVE')}</p>
+      ) : (
         <button
           type="button"
-          class="btn btn-outline"
-          hx-get={STYLING_SHUFFLE_PATH}
-          hx-include="#styling-form"
-          hx-target="#styling-rows"
-          hx-swap="outerHTML"
-          data-needs-network=""
-          data-styling-shuffle=""
+          class="btn btn-primary flex-1 lg:flex-none"
+          onclick="document.getElementById('styling-save').showModal()"
         >
-          ⤮ {t('gallery.SHUFFLE')}
+          {t(model.outfit ? SAVE_CHANGES_KEY : 'SAVE')}
         </button>
-        {model.shared ? (
-          <p class="text-xs text-muted flex-1">{t('styling.SHARED_NO_SAVE')}</p>
-        ) : (
-          <button
-            type="button"
-            class="btn btn-primary flex-1 lg:flex-none"
-            onclick="document.getElementById('styling-save').showModal()"
-          >
-            {t(model.outfit ? SAVE_CHANGES_KEY : 'SAVE')}
-          </button>
-        )}
-      </div>
+      )}
     </div>
   );
 }

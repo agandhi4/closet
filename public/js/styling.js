@@ -16,12 +16,12 @@
  *   (the lock's field, its attribute and the neighbours), and a strip's
  *   next page is made inert as it lands in a locked row (`snap-strip:watch`).
  *
- * - The preview (#468, shown from lg) has a slot per row; the server draws
- *   it and sends it again with every rows answer, and between them a choice
+ * - The preview (#468; the phone's bar since #664) has a slot per row; the
+ *   server draws it and sends it again with every rows answer, and between them a choice
  *   moves without a request, so each `snap-strip:chosen` copies the chosen
  *   item's look (its plinth's children) into its row's slot. It follows a
  *   swipe offline as choosing does. A changed slot asks the fit line
- *   (#468b, GET /styling/fit) again while that line is shown.
+ *   (#468b, GET /styling/fit) again.
  *
  * Evaluated once per document: the listeners below sit on the document and
  * serve every page's rows.
@@ -83,14 +83,13 @@ function mirror(row, item) {
 
 /**
  * The fit line (#468b) asks again for the changed outfit (its hx-trigger
- * debounces), only while it is shown: on a phone it is display:none
- * (offsetParent null) and asks nothing.
+ * debounces). Shown at every width since #664; absent without the weather
+ * or over a shared wardrobe.
  */
 function askFit() {
-  const fit = document.getElementById('styling-fit-line');
-  if (fit?.offsetParent) {
-    fit.dispatchEvent(new CustomEvent('styling:outfit-changed'));
-  }
+  document
+    .getElementById('styling-fit-line')
+    ?.dispatchEvent(new CustomEvent('styling:outfit-changed'));
 }
 
 function rowOf(element) {

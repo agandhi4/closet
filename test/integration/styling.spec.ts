@@ -313,13 +313,15 @@ describe('Styling', () => {
         );
       });
 
-      // The desktop composer (#468): one markup, the aside a phone no-op.
+      // One markup (#468, #664): the phone's bar above the dock, the aside
+      // beside the rows from lg.
       it('sets the preview and the actions beside the rows: a slot per row, its chosen garment', async () => {
         const res = await get('/styling');
         const rows = rowsOf(res.body);
         const preview = previewOf(res.body);
         expect(preview.tag).toContain('aria-hidden="true"');
-        expect(preview.tag).toContain('hidden lg:flex');
+        // Shown on a phone too (#664): display:none at no width.
+        expect(preview.tag).not.toMatch(/class="(?:[^"]* )?hidden[ "]/);
         expect(preview.tag).not.toContain('hx-swap-oob');
         expect(preview.slots).toEqual(rows.map(([, id]) => id));
         // The aside follows the form and "Add row" (Tab reaches Shuffle and
