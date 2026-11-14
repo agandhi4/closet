@@ -40,7 +40,7 @@ export async function applyLegacyMigrations(
     port: Number(env.DATABASE_PORT),
     user: env.DATABASE_USER,
     password: env.DATABASE_PASS,
-    dbName: env.DATABASE_SCHEMA,
+    dbName: env.DATABASE_NAME,
     entities: [],
     discovery: { warnWhenNoEntities: false },
     allowGlobalContext: true,

@@ -12,7 +12,8 @@ import {
   type PoolClient,
   type PoolConfig,
 } from 'pg';
-import type { Config } from '../config';
+import { readFileSync } from 'node:fs';
+import type { Config, DatabaseSslMode } from '../config';
 import type { Logger } from '../logger';
 import {
   currentRequestTiming,
@@ -36,7 +37,8 @@ export interface DbConfig {
   database: string;
   user: string;
   password: string;
-  ssl: boolean;
+  /** node-postgres's `ssl` (sslOption): false is plaintext, never PGSSLMODE. */
+  ssl: false | { rejectUnauthorized: boolean; ca?: string };
 }
 
 export type Db = NodePgDatabase<typeof schema> & { $client: Pool };
@@ -53,11 +55,33 @@ export function dbConfig(config: Config): DbConfig {
   return {
     host: config.DATABASE_HOST,
     port: config.DATABASE_PORT,
-    database: config.DATABASE_SCHEMA,
+    database: config.DATABASE_NAME,
     user: config.DATABASE_USER,
     password: config.DATABASE_PASS,
-    ssl: config.DATABASE_SSL,
+    // loadConfig checked the file is readable, and only under `verify`.
+    ssl: sslOption(
+      config.DATABASE_SSL,
+      config.DATABASE_SSL_CA && readFileSync(config.DATABASE_SSL_CA, 'utf8'),
+    ),
   };
+}
+
+/**
+ * DATABASE_SSL's mode as node-postgres's `ssl` (#694). `verify` checks the
+ * chain (against `ca` when given, else Node's CAs) and the host name;
+ * `no-verify` encrypts but accepts any certificate. Also drizzle.config.ts.
+ */
+export function sslOption(mode: DatabaseSslMode, ca?: string): DbConfig['ssl'] {
+  switch (mode) {
+    case 'verify':
+      return ca === undefined
+        ? { rejectUnauthorized: true }
+        : { rejectUnauthorized: true, ca };
+    case 'no-verify':
+      return { rejectUnauthorized: false };
+    case 'off':
+      return false;
+  }
 }
 
 /**
@@ -141,8 +165,7 @@ export function connectionOptions(
     database: config.database,
     user: config.user,
     password: config.password,
-    // pgvault's certificate is self-signed.
-    ssl: config.ssl ? { rejectUnauthorized: false } : undefined,
+    ssl: config.ssl,
     ...(timeouts && {
       statement_timeout: timeouts.statementMs,
       idle_in_transaction_session_timeout: timeouts.idleInTransactionMs,
