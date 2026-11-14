@@ -56,7 +56,13 @@ export const weekPlanRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         ? `Week plan for user ${ownerId} from ${today}: nothing to plan, ${unfilled} in ${ms} ms`
         : `Week planned for user ${ownerId} from ${today} (plan ${result.weekPlanId}): ${result.planned.length} outfit(s) (entries ${entries}), ${unfilled}, forecast for ${forecast.days.size} day(s) in ${ms} ms`,
     );
-    return reply.redirect(plannedWeekUrl(result.weekPlanId ?? 'none'), 303);
+    if (result.weekPlanId === null) {
+      return reply.redirect(plannedWeekUrl('none'), 303);
+    }
+    // The calendar shows Sunday to Saturday, not "today and six": land on
+    // the week and the day the plan starts (#683). ISO dates sort as text.
+    const firstDay = result.planned.map((p) => p.day).sort()[0];
+    return reply.redirect(plannedWeekUrl(result.weekPlanId, firstDay), 303);
   });
 
   app.post(

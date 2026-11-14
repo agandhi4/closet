@@ -33,6 +33,7 @@ import type {
 } from '../../wardrobe/week-planner';
 import { type GarmentWeatherFields, matchGarment } from '../../weather/match';
 import type { IsoDate } from '../../calendar-date';
+import { type OutfitGarment, outfitGarmentsSql } from '../outfits/queries';
 import { outfitIsHeld } from '../outfits/references';
 import { wearsSinceWashSql } from '../wears/queries';
 
@@ -515,6 +516,8 @@ export interface BatchEntry {
   occasion: Occasion;
   plannedBy: PlannedBy;
   outfitName: string | null;
+  /** The outfit's garments, for the banner row's collage thumb. */
+  garments: OutfitGarment[];
 }
 
 /**
@@ -532,7 +535,8 @@ export function batchEntriesSql(
       'day', ${outfitCalendar.day},
       'occasion', ${outfitCalendar.occasion},
       'plannedBy', ${outfitCalendar.plannedBy},
-      'outfitName', ${outfit.name}
+      'outfitName', ${outfit.name},
+      'garments', ${outfitGarmentsSql()}
     ) order by ${outfitCalendar.day}, ${outfitCalendar.id}), '[]')
     from ${weekPlanEntry}
     inner join ${outfitCalendar} on ${outfitCalendar.id} = ${weekPlanEntry.entryId}

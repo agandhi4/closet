@@ -1006,3 +1006,8 @@ Consequence: a server-only deploy keeps every `?v=` and the precache. The releas
 **Why:** `/trips/:id` and `/laundry` render `data-offline-queue` controls that replay fine, but a warm that never named them left a phone that had not visited them showing the offline page: packing at the airport worked by luck.
 **Decision:** `src/offline-writes.ts` holds the one list (`LAUNDRY_PAGE`, the trip page pattern, `isQueueablePage`); `showsQueuedWrite` and `warmList` both read it. The warm names `/laundry` always and the owner's trips whose last day is not before `todayIn(APP_TIMEZONE)` (nearest first, `WARM_TRIP_CAP` 20), right after next week and before the garments, outside the garment and outfit caps (`WARM_PAGE_CAP` grows by 21). One more scalar in the list's one statement.
 **Consequence:** `test/integration/offline-warm.spec.ts` fails when a page `showsQueuedWrite` names is neither a tab root, Today, a garment page nor a warmed queueable page, and checks each listed page renders a control. A new queueable page joins the list in `offline-writes.ts`.
+
+## 2026-11-13 — Plan my week answers the week and day it starts on
+Why: the calendar shows Sunday to Saturday, the plan covers today and six days, so on a Friday the first planned day was off-screen under a text banner (#683).
+Decision: the POST redirects to `?week=<startOfWeek(first planned day)>&planned=<batch>#day-<first>`; banner rows are links (`#day-D` in the shown week, `dayUrl` otherwise) with a `thumb` collage. Nothing planned keeps `/calendar?planned=none`.
+Consequence: `plannedWeekUrl(planned, firstDay?)` is the one builder; the banner's garments ride `batchEntriesSql`, still the week's one statement.
