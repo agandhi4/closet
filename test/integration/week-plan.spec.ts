@@ -1136,6 +1136,32 @@ describe('the weekly auto-plan', () => {
         .orderBy(asc(outfitCalendar.day));
       expect(flags.map((f) => f.created)).toEqual([false, true]);
     });
+
+    it('an auto entry Changed to an existing idea outfit no longer counts as having created one: x keeps it (#748)', async () => {
+      await post('/calendar/plan-week');
+      const [auto] = (await weekEntries()).filter(
+        (e) => e.occasion === 'all-day',
+      );
+      const [existing] = await asFixture(t.db, (tx) =>
+        tx
+          .insert(outfit)
+          .values({
+            shareableId: randomUUID(),
+            ownerId: t.owner.id,
+            name: 'known idea',
+            origin: 'idea',
+          })
+          .returning({ id: outfit.id }),
+      );
+      const changed = await post('/calendar', {
+        date: auto.day,
+        outfitId: String(existing.id),
+        replace: String(auto.id),
+      });
+      expect(changed.statusCode).toBe(302);
+      expect((await post(`/calendar/${auto.id}/delete`)).statusCode).toBe(303);
+      expect((await originsOf([existing.id])).get(existing.id)).toBe('idea');
+    });
   });
 
   describe('the daily re-plan', () => {

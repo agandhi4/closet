@@ -5,7 +5,6 @@ import {
   file,
   garment,
   outfit,
-  weekPlanEntry,
   outfitCalendar,
   outfitSlot,
 } from '../../db/schema';
@@ -653,9 +652,9 @@ export async function ownEntryDay(
  * entry whose outfit is origin `idea` ("Wear this", a day's pick) or
  * `planner` takes that outfit with it once nothing else holds it
  * (removeUnheldOutfits: another day's entry or a trip keeps it), but only
- * when the entry's own pick created it: `outfit_calendar.outfit_created`
- * (a pick) or the planner's `week_plan_entry.outfit_created` (cleared when
- * a person's save adopts the outfit). An outfit that existed before the
+ * when the entry's own pick created it: `outfit_calendar.outfit_created`,
+ * the one marker (the planner's picks write it too; every change of the
+ * entry's outfit rewrites it). An outfit that existed before the
  * entry, one the planner reused, and any `person` or `agent` outfit stay,
  * as in Change.
  *
@@ -663,8 +662,7 @@ export async function ownEntryDay(
  * delete is scoped to the owner, so for another's or a missing entry it
  * finds nothing, and the entry's own delete (which locks its row) answers
  * whether there was one, whose outfit it held and whether the entry
- * created that one-off (read in the RETURNING, before the cascade takes the
- * planner's row). The selfie goes first, while the entry still points at
+ * created that one-off (read in the RETURNING). The selfie goes first, while the entry still points at
  * it. Two more only for a one-off.
  */
 export function deleteEntry(
@@ -675,12 +673,11 @@ export function deleteEntry(
   return ownerTransaction(db, ownerId, 'deleteEntry', async (tx) => {
     const selfies = await deleteEntrySelfie(tx, id, ownerId);
     // The target aliased and every column qualified: the RETURNING's
-    // subqueries read week_plan_entry and outfit, so a bare `id` or `origin` must
+    // subquery reads outfit, so a bare `id` or `origin` must
     // never be left to name resolution. An alias renders as its name
     // alone in sql``, so each table is named before it.
     const entry = alias(outfitCalendar, 'deleted_entry');
     const held = alias(outfit, 'entry_outfit');
-    const plan = alias(weekPlanEntry, 'entry_plan');
     const {
       rows: [deleted],
     } = await tx.execute<{
@@ -691,10 +688,7 @@ export function deleteEntry(
       delete from ${outfitCalendar} as ${entry}
       where ${entry.id} = ${id} and ${entry.ownerId} = ${ownerId}
       returning ${entry.outfitId} as outfit_id,
-        coalesce(${entry.outfitCreated}, false) or coalesce(
-          (select ${plan.outfitCreated} from ${weekPlanEntry} as ${plan} where ${plan.entryId} = ${entry.id}),
-          false
-        ) as created,
+        coalesce(${entry.outfitCreated}, false) as created,
         coalesce((select ${held.origin} in (${sql.join(
           ONE_OFF_ORIGINS.map((o) => sql`${o}`),
           sql`, `,
