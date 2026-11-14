@@ -258,6 +258,7 @@ describe('weather', () => {
         `${displayTemperature(day.low, 'fahrenheit')}–${displayTemperature(day.high, 'fahrenheit')} °F`,
       );
       expect(body).toContain('Fort Greene · as of 8:30 PM');
+      expect(body).toContain('Weather data by Open-Meteo.com');
 
       // The log names the rounded location, never the user; the fetcher's
       // line names the host, never the query.

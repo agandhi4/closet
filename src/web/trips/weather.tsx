@@ -13,6 +13,7 @@ import {
   ConditionIcon,
   fetchedLabel,
   hourLabel,
+  OpenMeteoCredit,
   UNIT_SYMBOLS,
 } from '../weather/views';
 import type { TripForecast, TripTypicalDay, TripWeatherDay } from './forecast';
@@ -68,7 +69,8 @@ export function TripWeather(props: {
                   props.timeZone,
                   props.now,
                 ),
-              })}
+              })}{' '}
+              · <OpenMeteoCredit />
             </p>
           )}
           {forecast.later && (

@@ -26,7 +26,7 @@ import { brokenRuleLabels } from '../style/labels';
 import { tripUrl } from '../trips/urls';
 import type { ViewContext } from '../view-context';
 import { categoryLabel } from '../wardrobe/garment';
-import { UNIT_SYMBOLS } from '../weather/views';
+import { OpenMeteoCredit, UNIT_SYMBOLS } from '../weather/views';
 import {
   adviceChips,
   type Chip,
@@ -232,6 +232,7 @@ function WeatherNote({ weather }: { weather: IdeasWeather }) {
       {notes.map((note) => (
         <span> · {note}</span>
       ))}
+      {!weather.typical && <OpenMeteoCredit class="block" />}
     </p>
   );
 }

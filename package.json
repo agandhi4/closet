@@ -11,10 +11,11 @@
   "scripts": {
     "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "npm run clean && tsc -p tsconfig.build.json && npm run generate",
-    "generate": "npm run generate:build-info && npm run generate:tailwind && npm run generate:outbox && npm run generate:sw && npm run generate:precompress",
+    "generate": "npm run generate:build-info && npm run generate:tailwind && npm run generate:outbox && npm run generate:notices && npm run generate:sw && npm run generate:precompress",
     "generate:build-info": "ts-node scripts/write-build-info.ts",
     "generate:vendor": "npm run generate:fonts && npm run generate:modules",
     "generate:modules": "node -r ts-node/register/transpile-only scripts/generate-static-assets.ts modules",
+    "generate:notices": "node -r ts-node/register/transpile-only scripts/generate-static-assets.ts notices",
     "generate:precompress": "node -r ts-node/register/transpile-only scripts/generate-static-assets.ts precompress",
     "generate:fonts": "node -e \"require('fs').rmSync('public/vendor/fonts', { recursive: true, force: true })\" && esbuild --outfile=public/vendor/fonts/fonts.css --bundle --minify --log-level=warning --loader:.woff2=file --asset-names=[name]-[hash] --public-path=/vendor/fonts views/assets/fonts.css",
     "generate:sw": "esbuild --outfile=views/assets/src-sw.js --bundle --minify --define:process.env.NODE_ENV=\\\"production\\\" views/assets/src-sw.ts && node -r ts-node/register/transpile-only scripts/generate-sw.ts",

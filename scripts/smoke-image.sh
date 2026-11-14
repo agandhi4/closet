@@ -164,6 +164,15 @@ for asset in "$css" /modules/htmx.min.js; do
 done
 log "ok: /auth/login 200 in the app shell; $css and /modules/htmx.min.js served"
 
+# The licence notices the build generates (scripts/third-party-notices.ts) must ship in the image
+# and name both webfonts' OFL (#640).
+notices="$WORK/notices.txt"
+status=$(curl -s -o "$notices" -w '%{http_code}' "$BASE/THIRD-PARTY-NOTICES.txt")
+[ "$status" = 200 ] || fail "GET /THIRD-PARTY-NOTICES.txt answered $status"
+grep -q 'SIL OPEN FONT LICENSE' "$notices" || fail "THIRD-PARTY-NOTICES.txt carries no OFL text"
+grep -q '^htmx.org@' "$notices" || fail "THIRD-PARTY-NOTICES.txt has no entry for htmx.org"
+log "ok: /THIRD-PARTY-NOTICES.txt served with the OFL text"
+
 # The observability contract (observability.md; src/logger.ts, src/request-context.ts,
 # src/metrics/, src/web/health/), asserted by devkit's probe the way every app's smoke asserts
 # it: /health/live answers 200; /health/ready is the contract's up|down body with every check

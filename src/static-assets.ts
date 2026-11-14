@@ -85,6 +85,9 @@ const SERVICE_WORKER_CACHE_CONTROL = 'no-cache';
 export function staticCacheControl(path: string, dev: boolean): string {
   const served = variantSource(path) ?? path;
   if (served.endsWith('/sw.js')) return SERVICE_WORKER_CACHE_CONTROL;
+  // Linked by a fixed URL (/about), so no ?v= rolls it: a deploy's notices
+  // must reach a browser that has the last build's.
+  if (served.endsWith('/THIRD-PARTY-NOTICES.txt')) return REVALIDATE;
   return dev ? REVALIDATE : IMMUTABLE_YEAR;
 }
 

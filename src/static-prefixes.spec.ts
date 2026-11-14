@@ -17,6 +17,7 @@ describe('isStaticPath', () => {
     '/manifest.json',
     '/favicon.ico',
     '/robots.txt',
+    '/THIRD-PARTY-NOTICES.txt',
   ])('treats %s as static', (url) => {
     expect(isStaticPath(url)).toBe(true);
   });

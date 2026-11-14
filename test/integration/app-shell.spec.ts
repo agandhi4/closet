@@ -71,6 +71,18 @@ describe('app shell', () => {
       });
       expect(about.body).toMatch(/<a href="\/auth\/login" class="btn[^"]*"/);
       expect(about.body).not.toContain('id="avatar"');
+      expect(about.body).toContain('href="/THIRD-PARTY-NOTICES.txt"');
+
+      // Public, no session, and carrying both fonts' OFL text.
+      const notices = await t.inject({
+        method: 'GET',
+        url: '/THIRD-PARTY-NOTICES.txt',
+        anonymous: true,
+      });
+      expect(notices.statusCode).toBe(200);
+      expect(notices.headers['content-type']).toContain('text/plain');
+      expect(notices.body).toContain('SIL OPEN FONT LICENSE Version 1.1');
+      expect(notices.body).toContain('Open-Meteo.com');
 
       const login = await t.inject({
         method: 'GET',

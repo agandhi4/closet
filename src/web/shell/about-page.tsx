@@ -28,6 +28,14 @@ export function AboutPage({ ctx }: { ctx: ViewContext }) {
             {t('ABOUT_OPEN_SOURCE')}
           </h2>
           <p class="mb-6">{t('ABOUT_OPEN_SOURCE_DESC', { appName })}</p>
+          <h2 class="text-xl font-semibold mt-8 mb-3">{t('ABOUT_NOTICES')}</h2>
+          <p class="mb-6">
+            {t('ABOUT_NOTICES_DESC', { appName })}{' '}
+            {/* A text file, not a page: boosting it would swap plain text into the shell. */}
+            <a class="link" href="/THIRD-PARTY-NOTICES.txt" hx-boost="false">
+              {t('ABOUT_NOTICES')}
+            </a>
+          </p>
           <h2 class="text-xl font-semibold mt-8 mb-3">{t('ABOUT_TECH')}</h2>
           <p class="mb-6">{t('ABOUT_TECH_DESC')}</p>
           <p class="text-sm text-muted">
