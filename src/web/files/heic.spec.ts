@@ -109,8 +109,22 @@ describe('decodeHeic', () => {
     expect(counter.read).toBe(1);
   });
 
+  it('answers a decode past its deadline with the same 503 as a full decoder', async () => {
+    await expect(
+      decodeHeic(
+        Readable.from([Buffer.from('heic')]),
+        1000,
+        1_000_000,
+        decoder(async (read) => {
+          await read();
+          throw new HeicDecodeError('timeout', '30000 ms');
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 503, retryAfterSeconds: 5 });
+  });
+
   it('passes any other decode failure through for the caller to map', async () => {
-    const failure = new HeicDecodeError('timeout', '30000 ms');
+    const failure = new HeicDecodeError('crashed', 'exit 1');
     await expect(
       decodeHeic(
         Readable.from([Buffer.from('heic')]),
