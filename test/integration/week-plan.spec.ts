@@ -541,6 +541,26 @@ describe('the weekly auto-plan', () => {
       expect(row.torso).toBeGreaterThanOrEqual(7);
       expect(row.layer).toBe(false);
     });
+
+    it('leaves a workout empty without activewear, and the banner says why (#647)', async () => {
+      // A Wednesday run beside the week: this closet has no running shoes.
+      await post('/auth/profile/week', { ...TEMPLATE, 'around-3': 'workout' });
+      try {
+        const res = await post('/calendar/plan-week');
+        const slots = (await weekEntries()).map((e) => e.slot);
+        expect(slots.sort()).toEqual(TEMPLATE_SLOTS);
+        const html = unescapeHtml(
+          (await get(String(res.headers.location))).body,
+        );
+        expect(html).toMatch(/data-still-empty[^>]*>[^<]*Workout/);
+        expect(html).toContain('data-needs-activewear');
+        expect(html).toContain(
+          'Your closet has no running shoes and athletic bottoms',
+        );
+      } finally {
+        await post('/auth/profile/week', TEMPLATE);
+      }
+    });
   });
 
   describe('an auto entry becomes the person’s', () => {

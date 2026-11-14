@@ -151,6 +151,30 @@ export function ideaPoolSql(
   );
 }
 
+/**
+ * The kinds (category, type) of the owner's whole closet (inCloset: dirty
+ * and away garments too), each once, as a scalar subquery: what
+ * activewearGap and lacksActivewear (src/wardrobe/occasions.ts) read to tell
+ * a closet without activewear from one whose activewear is out today.
+ * Read only for an active occasion (a workout), in the statement of the
+ * ideas or the week page that needs it.
+ */
+export function closetKindsSql(ownerId: number): SQL<ClosetKind[]> {
+  return sql<ClosetKind[]>`(
+    select coalesce(json_agg(kinds), '[]')
+    from (
+      select distinct ${garment.category} as category, ${garment.type} as type
+      from ${garment}
+      where ${and(eq(garment.ownerId, ownerId), inCloset())}
+    ) kinds
+  )`;
+}
+
+export interface ClosetKind {
+  category: string;
+  type: string | null;
+}
+
 /** ideaPoolSql's value as the generator's garments. */
 export function readPool(rows: readonly PoolRow[]): PoolGarment[] {
   return rows.map(poolGarment);

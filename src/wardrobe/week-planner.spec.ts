@@ -436,6 +436,49 @@ describe('planWeek', () => {
       unfilled: [],
     });
   });
+
+  describe('a workout (#647)', () => {
+    const typed = (
+      role: GarmentRole,
+      category: string,
+      type: string,
+    ): PlannerGarment => ({
+      ...garment(role, { washLimit: null }),
+      category,
+      type,
+      formality: 1,
+    });
+    const workouts = (pool: PlannerGarment[]) =>
+      planWeek(
+        input({
+          pool,
+          template: [
+            { weekday: 1, occasion: 'workout' },
+            { weekday: 1, occasion: 'all-day' },
+          ],
+          days: WEEK.slice(1, 2),
+          forecast: new Map([[WEEK[1], steadyDay(WEEK[1], 0)]]),
+        }),
+      );
+
+    it('leaves the slot empty when the closet has no activewear, never a near miss', () => {
+      const plan = workouts(roomyCloset());
+      expect(plan.planned.map((p) => p.occasion)).toEqual(['all-day']);
+      expect(plan.unfilled).toEqual([{ day: WEEK[1], occasion: 'workout' }]);
+    });
+
+    it('dresses it in running shoes and athletic bottoms, the top whatever fits', () => {
+      const shoes = typed('footwear', 'footwear', 'running-shoes');
+      const shorts = typed('bottom', 'bottoms', 'running-shorts');
+      const plan = workouts([...roomyCloset(), shoes, shorts]);
+      const workout = plan.planned.find((p) => p.occasion === 'workout')!;
+      expect(workout.idea.garments).toEqual(
+        expect.arrayContaining([shoes, shorts]),
+      );
+      expect(workout.idea.garments.some((g) => g.role === 'top')).toBe(true);
+      expect(plan.unfilled).toEqual([]);
+    });
+  });
 });
 
 describe('the re-plan', () => {

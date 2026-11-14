@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  activewearGap,
   compareOccasions,
   DEFAULT_OCCASION,
   isOccasion,
@@ -67,5 +68,31 @@ describe('occasions', () => {
     expect(isOccasion('night out')).toBe(false);
     expect(isOccasion('office')).toBe(false);
     expect(isOccasion('')).toBe(false);
+  });
+});
+
+describe('activewearGap (#647)', () => {
+  const active = OCCASION_HINTS.workout.active!;
+  const shoes = { category: 'footwear', type: 'running-shoes' };
+  const shorts = { category: 'bottoms', type: 'running-shorts' };
+  const jeans = { category: 'bottoms', type: 'jeans' };
+
+  it('says the closet has none when a required kind is missing from it', () => {
+    expect(activewearGap(active, [jeans, shoes], [jeans, shoes])).toBe(
+      'no-activewear',
+    );
+  });
+
+  it('says none is available when the closet has them but the pool has not', () => {
+    expect(activewearGap(active, [shorts, shoes], [shoes])).toBe(
+      'none-available',
+    );
+  });
+
+  it('says nothing for everyday wear or when activewear is there', () => {
+    expect(activewearGap(null, [], [])).toBeUndefined();
+    expect(activewearGap(active, [shorts, shoes], [shorts, shoes])).toBe(
+      undefined,
+    );
   });
 });
