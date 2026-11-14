@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { t as text } from '../../src/web/i18n';
+import { deviceToken, expectProblem } from './api';
 import { createGarment, garmentRow } from './garments';
 import {
   createTestApp,
@@ -87,28 +88,57 @@ describe('HEIC decoding off the event loop', () => {
     expect((await garmentRow(t, garmentId))?.photo).not.toBeNull();
   });
 
-  it.each([
-    ['passes its deadline', 'hang'],
-    ['crashes its thread', 'crash'],
-  ])(
-    'a decode that %s is the bad-photo 400, and the next HEIC decodes',
-    async (_label, command) => {
-      const garmentId = await createGarment(t, { name: command });
-      t.logs.clear();
+  it('a decode that crashes its thread is the bad-photo 400, and the next HEIC decodes', async () => {
+    const garmentId = await createGarment(t, { name: 'crash' });
+    t.logs.clear();
 
-      const refused = await uploadHeic(garmentId, command);
-      expect(refused.statusCode).toBe(400);
-      expect(unescapeHtml(refused.body)).toContain('Unreadable image');
-      expect(t.logs.messages('warn', 'Photos')).toEqual(
-        expect.arrayContaining([
-          expect.stringContaining('Rejected undecodable HEIC upload'),
-        ]),
-      );
+    const refused = await uploadHeic(garmentId, 'crash');
+    expect(refused.statusCode).toBe(400);
+    expect(unescapeHtml(refused.body)).toContain('Unreadable image');
+    expect(t.logs.messages('warn', 'Photos')).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Rejected undecodable HEIC upload'),
+      ]),
+    );
+    expect((await garmentRow(t, garmentId))?.photo).toBeNull();
+
+    expect((await uploadHeic(garmentId, 'ok')).statusCode).toBe(303);
+  });
+
+  it(
+    'a decode past its deadline is the busy 503 with Retry-After, never the bad-photo 400, on the page and the API, and the next HEIC decodes',
+    async () => {
+      const garmentId = await createGarment(t, { name: 'hang' });
+
+      const page = await uploadHeic(garmentId, 'hang');
+      expect(page.statusCode).toBe(503);
+      expect(Number(page.headers['retry-after'])).toBeGreaterThan(0);
+      expect(unescapeHtml(page.body)).toContain(text('SERVER_BUSY'));
       expect((await garmentRow(t, garmentId))?.photo).toBeNull();
+
+      const { token } = await deviceToken(t);
+      const body = await multipart(
+        {},
+        {
+          photo: {
+            data: Buffer.from('hang'),
+            filename: 'IMG_0042.HEIC',
+            contentType: 'image/heic',
+          },
+        },
+      );
+      const api = await t.api(token, {
+        method: 'PUT',
+        url: `/api/v1/garments/${garmentId}/photo`,
+        payload: body.payload,
+        headers: body.headers,
+      });
+      expectProblem(api, 503, 'busy');
+      expect(Number(api.headers['retry-after'])).toBeGreaterThan(0);
 
       expect((await uploadHeic(garmentId, 'ok')).statusCode).toBe(303);
     },
-    DEADLINE_MS + 5_000,
+    2 * DEADLINE_MS + 5_000,
   );
 
   it('never decodes a HEIC from a link, whatever its type or name', async () => {

@@ -47,7 +47,11 @@ export function isHeicUpload({
   );
 }
 
-/** The decoder is full or stopping: try again shortly (HeicDecoder, 'busy' and 'closed'). */
+/**
+ * The decoder is full, stopping or ran out its deadline: try again shortly
+ * (HeicDecoder, 'busy', 'closed' and 'timeout'). A deadline is load (the
+ * pixel cap already bounds a hostile file), never a verdict on the photo.
+ */
 function heicBusy(error: HeicDecodeError): HttpError {
   return new HttpError(503, t('SERVER_BUSY'), {
     logDetail: error.message,
@@ -60,11 +64,11 @@ function heicBusy(error: HeicDecodeError): HttpError {
  * decoder's thread. Rejects with a 413 HttpError past the byte cap, with
  * imageTooLarge() past `maxPixels` before any pixel is allocated (a small
  * file can declare a 20000x20000 grid), and with a 503 when the decoder
- * has no room, before the bytes are buffered; any other HeicDecodeError
- * (undecodable, past its deadline, a crashed thread) is passed through for
- * the caller to map to a client error. The stream is fully drained on
- * every path: an unconsumed multipart part hangs the request (see
- * Photos.storeImage).
+ * has no room (before the bytes are buffered) or the deadline passes
+ * (after); any other HeicDecodeError (undecodable, a crashed thread) is
+ * passed through for the caller to map to a client error. The stream is
+ * fully drained on every path: an unconsumed multipart part hangs the
+ * request (see Photos.storeImage).
  */
 export async function decodeHeic(
   stream: Readable,
@@ -84,7 +88,11 @@ export async function decodeHeic(
   } catch (error) {
     if (!(error instanceof HeicDecodeError)) throw error;
     if (error.reason === 'too-large') throw imageTooLarge();
-    if (error.reason === 'busy' || error.reason === 'closed') {
+    if (
+      error.reason === 'busy' ||
+      error.reason === 'closed' ||
+      error.reason === 'timeout'
+    ) {
       // Refused before `read` ran, or after it buffered: drained either way.
       stream.resume();
       await finished(stream);

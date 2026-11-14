@@ -740,7 +740,7 @@ describe('Photos.storeUpload', () => {
     expect(heicAnswer).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['undecodable', 'timeout', 'crashed'] as const)(
+  it.each(['undecodable', 'crashed'] as const)(
     'answers a decode %s with the bad-photo 400 and stores nothing',
     async (reason) => {
       const photos = build();
