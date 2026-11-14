@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { settlesWithin } from '../cutout/deadline';
 import type { Logger } from '../logger';
+import { JobInterrupted } from '../metrics/partial-failure';
 import { runAsJob } from '../request-context';
 import { JOBS_ABORT_GRACE_MS, JOBS_STOP_MS } from '../shutdown-budget';
 
@@ -123,7 +124,9 @@ export function scheduleJob({
         await run(abort.signal);
       } catch (error) {
         // Logged, never thrown: a failed run must not stop the next one.
-        logger.error({ err: error }, `${name} failed`);
+        if (error instanceof JobInterrupted)
+          logger.info(`${name} was interrupted by shutdown`);
+        else logger.error({ err: error }, `${name} failed`);
       }
     });
     void running.then(() => {

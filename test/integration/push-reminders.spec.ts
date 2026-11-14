@@ -20,7 +20,10 @@ import {
   revokeDevices,
   saveReminderSettings,
 } from '../../src/web/push/queries';
-import { PartialFailure } from '../../src/metrics/partial-failure';
+import {
+  JobInterrupted,
+  PartialFailure,
+} from '../../src/metrics/partial-failure';
 import { setHome } from '../../src/web/weather/queries';
 import type { WeatherService } from '../../src/web/weather/service';
 import {
@@ -768,6 +771,100 @@ describe('push reminders', () => {
       expect(sentTo(held)).toHaveLength(1);
     }, 15_000);
 
+    const claimsOn = async (endpoint: string, day: IsoDate) => {
+      const [device] = await t.db
+        .select({ id: userDevice.id })
+        .from(userDevice)
+        .where(eq(userDevice.pushEndpoint, endpoint));
+      return (
+        await t.db
+          .select()
+          .from(pushReminder)
+          .where(eq(pushReminder.deviceId, device.id))
+      ).filter((row) => row.day === day);
+    };
+
+    it('a stop while the run is still composing gives every claim back, sends nothing and ends interrupted (#914)', async () => {
+      const day = addDays(DAY, 40);
+      const email = 'composing@example.com';
+      const cookie = await t.register(email);
+      const userId = await userIdOf(t, email);
+      const phone = await subscribe(cookie);
+      await remind(userId, phone, { morning: minute(6, 15) });
+      await setHome(t.db, userId, {
+        name: 'Held',
+        location: { latitude: 42, longitude: -74 },
+      });
+      let fetchStarted!: () => void;
+      const started = new Promise<void>((resolve) => (fetchStarted = resolve));
+      let letGo!: () => void;
+      const hold = new Promise<void>((resolve) => (letGo = resolve));
+      const weather: WeatherService = {
+        timeZone: 'America/New_York',
+        forecastFor: async () => {
+          fetchStarted();
+          await hold;
+          return null;
+        },
+        normalsFor: () => Promise.reject(new Error('never asked')),
+        searchPlaces: () => Promise.resolve([]),
+        settled: () => Promise.resolve(),
+      };
+      const at = onTheMinute(day, 6, 15);
+      const held = { ...deps, weather, replan: { ...deps.replan, weather } };
+      const job = scheduleJob({
+        name: 'Push reminders',
+        logger: deps.logger,
+        now: () => at,
+        untilNext: () => 0,
+        run: t.metrics.timeJob('reminders', (signal: AbortSignal) =>
+          sendDueRemindersWhole(held, at, signal),
+        ),
+      });
+      await started;
+      expect(await claimsOn(phone, day)).toHaveLength(1);
+
+      await job.stop();
+      expect(await claimsOn(phone, day)).toEqual([]);
+      expect(sentTo(phone)).toEqual([]);
+      const { body } = await t.metrics.exposition();
+      expect(body).toMatch(
+        /^job_duration_seconds_count\{name="reminders",outcome="interrupted"\} 1$/m,
+      );
+
+      letGo();
+      await sendDueReminders(deps, onTheMinute(day, 6, 16));
+      expect(sentTo(phone)).toHaveLength(1);
+    }, 15_000);
+
+    it('a run aborted before its send starts sends nothing and gives every claim back (#914)', async () => {
+      const day = addDays(DAY, 41);
+      const email = 'before-send@example.com';
+      const cookie = await t.register(email);
+      const userId = await userIdOf(t, email);
+      const phone = await subscribe(cookie);
+      await remind(userId, phone, { evening: minute(22) });
+      const sendEach = vi.fn<ReminderDeps['sender']['sendEach']>(
+        (messages, options) => t.push!.sendEach(messages, options),
+      );
+      const watched = { ...deps, sender: { ...t.push!, sendEach } };
+      const stop = new AbortController();
+      stop.abort();
+
+      const failure = await sendDueRemindersWhole(
+        watched,
+        onTheMinute(day, 22),
+        stop.signal,
+      ).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(JobInterrupted);
+      expect(sendEach).not.toHaveBeenCalled();
+      expect(sentTo(phone)).toEqual([]);
+      expect(await claimsOn(phone, day)).toEqual([]);
+
+      await sendDueReminders(deps, onTheMinute(day, 22, 1));
+      expect(sentTo(phone)).toHaveLength(1);
+    });
+
     it('a forecast fetch that fails with nothing cached is no forecast, not a failed reminder (#687)', async () => {
       const day = addDays(DAY, 31);
       const [phone] = await twoMorningPeople('blip');
@@ -820,9 +917,7 @@ describe('push reminders', () => {
         await t.db.$count(pushReminder, eq(pushReminder.deviceId, device.id)),
       ).toBe(0);
       expect(t.logs.messages('warn', 'Push')).toContainEqual(
-        expect.stringMatching(
-          /^Released \d+ reminder claim\(s\) for user\(s\) /,
-        ),
+        expect.stringMatching(/^Released \d+ reminder claim\(s\)/),
       );
 
       // The next minute finds it due and unclaimed, and it goes out, once.
