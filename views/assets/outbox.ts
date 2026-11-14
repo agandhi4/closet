@@ -71,7 +71,12 @@ import {
   sharedUntilRejected,
   takesDay,
   takesInstant,
-  unstuck,
+  actionBusyAttributes,
+  createTurns,
+  type Exclusively,
+  discardStuck,
+  retryStuck,
+  type StuckActionStore,
 } from '../../src/offline-writes';
 import {
   inTransaction,
@@ -544,12 +549,19 @@ function renderNotice(unsaved: OutboxRecord[]): void {
   notice.classList.toggle('hidden', unsaved.length === 0);
 }
 
+/** Notice buttons whose action waits for the drain's turn: shown busy across re-renders. */
+const busyActions = new Set<string>();
+
 function noticeButton(
   attribute: string,
   id: string,
   label: string,
 ): HTMLButtonElement {
   const button = document.createElement('button');
+  for (const [name, value] of Object.entries(
+    actionBusyAttributes(busyActions.has(id)),
+  ))
+    button.setAttribute(name, value);
   button.type = 'button';
   button.className = 'btn btn-ghost btn-xs';
   button.setAttribute(attribute, id);
@@ -1017,6 +1029,19 @@ async function replayAll(
   }
 }
 
+const tabTurns = createTurns();
+
+/**
+ * The drain's turn: across tabs `navigator.locks`, in this tab a queue of
+ * turns (also the only guard where locks are missing: they need a secure
+ * context). The notice's Try again and Discard take it too, so neither
+ * races a replay of the record (retryStuck, discardStuck).
+ */
+const exclusively: Exclusively = (task) =>
+  tabTurns(async () =>
+    navigator.locks ? await navigator.locks.request(DRAIN_LOCK, task) : task(),
+  );
+
 /** The backoff's next drain; only `drain` sets it, one at a time per tab. */
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -1032,13 +1057,9 @@ const drain = singleFlight(async (reason: string) => {
   if (!account) return;
   clearTimeout(retryTimer);
   retryTimer = undefined;
-  const replay = () => replayAll(account, reason);
   let result: DrainResult;
   try {
-    // navigator.locks needs a secure context; without it, this tab alone.
-    result = navigator.locks
-      ? await navigator.locks.request(DRAIN_LOCK, replay)
-      : await replay();
+    result = await exclusively(() => replayAll(account, reason));
   } catch (error) {
     console.warn(`[outbox] sync (${reason}) failed`, error);
     result = { saved: 0, savedPaths: [] };
@@ -1172,6 +1193,16 @@ document.addEventListener('click', (event) => {
   });
 });
 
+const actionStore: StuckActionStore<OutboxRecord> = {
+  async find(id) {
+    const account = pageAccount();
+    return account
+      ? (await recordsOf(account)).find((r) => r.id === id)
+      : undefined;
+  },
+  settle,
+};
+
 // A stuck write's notice: Try again clears its count and drains; Discard
 // deletes it and puts its region back to the server's state.
 document.addEventListener('click', (event) => {
@@ -1183,18 +1214,38 @@ document.addEventListener('click', (event) => {
     discard?.getAttribute('data-outbox-discard');
   const account = pageAccount();
   if (!id || !account) return;
+  if (busyActions.has(id)) return;
+  busyActions.add(id);
+  void refresh();
   void (async () => {
-    const record = (await recordsOf(account)).find((r) => r.id === id);
-    if (!record) return;
-    const name = `${record.key} (key ${id.slice(0, 8)})`;
-    if (retry) {
-      if (await settle(record, unstuck(record))) {
-        console.info(`[outbox] ${name} retried by the user`);
+    const announce = (name: string, record: OutboxRecord) =>
+      showToast({
+        text: text(name)
+          .replace('{label}', () => record.label)
+          .replace('{action}', () => text(ACTION_TEXT[record.kind])),
+        kind: 'info',
+        ttlMs: SAVED_TOAST_MS,
+      });
+    const name = (record: OutboxRecord) =>
+      `${record.key} (key ${id.slice(0, 8)})`;
+    try {
+      if (retry) {
+        const record = await retryStuck(actionStore, exclusively, id);
+        if (!record) return;
+        console.info(`[outbox] ${name(record)} retried by the user`);
+        announce('textOutboxTriedAgain', record);
+        busyActions.delete(id);
         await schedule('try again');
+      } else {
+        const record = await discardStuck(actionStore, exclusively, id);
+        if (!record) return;
+        revertRegions(record.key);
+        console.info(`[outbox] ${name(record)} discarded by the user`);
+        announce('textOutboxDiscarded', record);
       }
-    } else if (await settle(record)) {
-      revertRegions(record.key);
-      console.info(`[outbox] ${name} discarded by the user`);
+    } finally {
+      busyActions.delete(id);
+      void refresh();
     }
   })().catch((error: unknown) => {
     console.warn('[outbox] could not act on a stuck write', error);

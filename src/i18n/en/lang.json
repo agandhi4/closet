@@ -187,6 +187,8 @@
     "STUCK": "{label}, {action}: not saved yet, the server keeps answering with an error.",
     "TRY_AGAIN": "Try again",
     "DISCARD_WRITE": "Discard",
+    "TRIED_AGAIN": "{label}, {action}: trying again.",
+    "DISCARDED": "{label}, {action}: discarded.",
     "action": {
       "WEAR": "Wore today",
       "WASH": "Washed",

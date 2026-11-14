@@ -1136,3 +1136,15 @@ Consequence: a server-wide outage marks records stuck and loses none; a poisoned
 Why: redeploying a previous `sha-` image after a migration booted (drizzle's `migrate()` finds nothing newer than its last row) and old code wrote to the new schema; destructive migrations ran under the hourly autoupdater with no dump taken.
 Decision: `schemaState` (`src/db/migrate.ts`): behind / current / ahead, the one rule for the boot (`SchemaAheadError`, checked first, writes nothing), the CLIs (exit 1) and `/health/ready` (`migrations` down with `schema`). A migration is identified by `created_at` (the journal `when`), drizzle's own key; `hash` is never re-read by drizzle, so it decides nothing. A newest row the journal lacks is ahead, whether newer or not (a branch build's migration too).
 Consequence: a rollback either restores the pre-migration dump or undoes each newer migration and deletes its row (`docs/operations.md#migrations-and-rollback`; the 0057 steps now delete its row). The deploy takes `pg_dump -Fc` whenever the image has pending migrations, kept until the next: the deploy script is homelab's, tracked there.
+
+## 2026-11-14 — Stuck retry ladder; Try again and Discard take the drain turn
+
+Why: a Postgres blip answers 500 behind a live heartbeat, so writes went stuck for a flat 30 min (#877); Try again/Discard raced a replay in flight (#878, #881).
+Decision: a stuck record retries after `stuckRetryMs` (1 min, doubling per further 5xx, capped at `STUCK_RETRY_MS`); a negative stuck age is due; the notice buttons run inside the drain lock (`exclusively`).
+Consequence: a poisoned record is retried a little more often early on; no second concurrent replay of a record.
+
+## 2026-11-14 — `closeSwitchedContext` unroutes with 'ignoreErrors', never 'wait' (#886; replaces #867's 'wait')
+
+Why: `unrouteAll({ behavior: 'wait' })` awaits every in-flight handler invocation, and `networkSwitch`'s handler awaits `route.abort()`, a browser round trip Playwright races only against the request's page or worker closing (a request tied to neither races a scope that never closes). One unanswered abort hung trips' teardown until the 30 s test timeout. A handler that never settles reproduces it: 'wait' never returns, 'ignoreErrors' returns at once.
+Decision: setOffline(true), `unrouteAll({ behavior: 'ignoreErrors' })` (Playwright drops in-flight handlers' target-closed errors without waiting on them, the #867 failure), then close().
+Consequence: teardown waits on no handler. A route handler on a switched context must not catch its own `abort()` rejection: Playwright then never marks the route handled and the invocation stays pending.

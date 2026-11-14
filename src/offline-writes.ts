@@ -561,8 +561,24 @@ export function retryDelayMs(attempts: number): number {
  * failed or dropped for one.
  */
 export const STUCK_AFTER_SERVER_ERRORS = 3;
-/** How long a stuck record waits before the drain tries it again by itself. */
+/** The longest a stuck record waits before the drain tries it again by itself. */
 export const STUCK_RETRY_MS = 30 * 60_000;
+/**
+ * The first wait of a record that just became stuck. It doubles with every
+ * further 5xx up to STUCK_RETRY_MS, so a short database blip (about three
+ * drains of 500s, while the heartbeat's probe keeps answering) costs minutes,
+ * not the half hour of a poisoned record.
+ */
+export const STUCK_RETRY_FIRST_MS = 60_000;
+
+/** How long a record stuck after `serverErrors` 5xx waits for its next try. */
+export function stuckRetryMs(serverErrors = STUCK_AFTER_SERVER_ERRORS): number {
+  const doublings = Math.min(
+    Math.max(0, serverErrors - STUCK_AFTER_SERVER_ERRORS),
+    16,
+  );
+  return Math.min(STUCK_RETRY_MS, STUCK_RETRY_FIRST_MS * 2 ** doublings);
+}
 
 /** A record the replay may settle: its attempts, for the backoff, and its 5xx state. */
 export type ReplayRecord = StoredRecord & {
@@ -686,20 +702,24 @@ export async function replayQueue<R extends ReplayRecord>(
         why: stuck ? 'stuck' : 'server-error',
       });
       held.add(record.key);
-      wait(stuck ? STUCK_RETRY_MS : retryDelayMs(kept.attempts));
+      wait(stuck ? stuckRetryMs(serverErrors) : retryDelayMs(kept.attempts));
     }
     return undefined;
   };
 
+  // Stuck records not yet due: skipped, and tried at the end if a record saves.
   const parked: R[] = [];
+  const waiting = new Set<R>();
   for (const record of queued) {
     if (held.has(record.key)) continue;
-    if (isStuck(record)) {
+    if (isStuck(record) && !serverAnswering) {
       const stuckFor = driver.now() - (record.stuckAt ?? 0);
-      if (!serverAnswering && stuckFor < STUCK_RETRY_MS) {
+      // A negative age is a clock that moved back (or another tab's ahead):
+      // due, not parked until the clock catches up.
+      if (stuckFor >= 0 && stuckFor < stuckRetryMs(record.serverErrors)) {
         held.add(record.key);
         parked.push(record);
-        wait(STUCK_RETRY_MS - stuckFor);
+        waiting.add(record);
         continue;
       }
     }
@@ -713,10 +733,82 @@ export async function replayQueue<R extends ReplayRecord>(
     held = new Set();
     for (const record of parked) {
       if (held.has(record.key)) continue;
+      waiting.delete(record);
       if (await driver.skip(record)) continue;
       const end = await attempt(record);
       if (end) return end;
     }
   }
+  // Only a parked record still waiting sets the timer: one the retry saved
+  // (or found replaced) leaves nothing to come back for.
+  for (const record of waiting) {
+    wait(
+      stuckRetryMs(record.serverErrors) -
+        (driver.now() - (record.stuckAt ?? 0)),
+    );
+  }
   return retryInMs === undefined ? { end: 'done' } : backoff();
+}
+
+/** Runs `task` once nothing else holds the turn: the drain's lock, in the page. */
+export type Exclusively = <T>(task: () => Promise<T>) => Promise<T>;
+
+/** An in-tab queue of turns: the drain lock where `navigator.locks` is missing (an insecure context). */
+export function createTurns(): Exclusively {
+  let tail: Promise<unknown> = Promise.resolve();
+  return (task) => {
+    const run = tail.then(task);
+    tail = run.catch(() => undefined);
+    return run;
+  };
+}
+
+/**
+ * The attributes of a notice button while its action waits for the drain's
+ * turn: disabled so a second tap is not taken, `aria-busy` for the status
+ * region it sits in.
+ */
+export const actionBusyAttributes = (busy: boolean): Record<string, string> =>
+  busy ? { 'aria-busy': 'true', disabled: '' } : {};
+
+/** The store the notice's buttons act through (the page's IndexedDB; a stub in the spec). */
+export interface StuckActionStore<R extends ReplayRecord> {
+  find(id: string): Promise<R | undefined>;
+  /** replayQueue's `settle`: `next` in the record's place, or deleted; whether it was still queued. */
+  settle(record: R, next?: R): Promise<boolean>;
+}
+
+/**
+ * The notice's Try again and Discard. Both take the drain's turn
+ * (`exclusively`) and read the record inside it, so neither races a replay:
+ * Discard never lets a resend land after it (a record the drain saved while
+ * it waited is gone, and nothing is reverted), and Try again never clears a
+ * record a drain still holds (its settle would write the counted copy back
+ * over the cleared one) nor starts a second replay beside it. The caller
+ * drains after Try again, outside the turn.
+ *
+ * Each returns the record it acted on, or undefined when it was gone.
+ */
+export async function retryStuck<R extends ReplayRecord>(
+  store: StuckActionStore<R>,
+  exclusively: Exclusively,
+  id: string,
+): Promise<R | undefined> {
+  return exclusively(async () => {
+    const record = await store.find(id);
+    if (!record || !isStuck(record)) return undefined;
+    return (await store.settle(record, unstuck(record))) ? record : undefined;
+  });
+}
+
+export async function discardStuck<R extends ReplayRecord>(
+  store: StuckActionStore<R>,
+  exclusively: Exclusively,
+  id: string,
+): Promise<R | undefined> {
+  return exclusively(async () => {
+    const record = await store.find(id);
+    if (!record) return undefined;
+    return (await store.settle(record)) ? record : undefined;
+  });
 }
