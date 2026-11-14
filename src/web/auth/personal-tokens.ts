@@ -295,25 +295,39 @@ export interface TokenAuth {
 }
 
 /**
- * The user a presented token of `kind` acts as, or undefined for an
- * unknown, revoked or other-kind one (the caller answers each with the same
- * 401, and an other-kind token's use is never recorded). One indexed read;
- * a second statement records the use when the last one is a minute old.
- * `shareOf` (shareToReadAhead) reads the token user's share of that
- * wardrobe in the same read, as the session statement does (#170): `share`
- * then answers it, unless the wardrobe is the user's own.
+ * Why a presented token opens nothing. `revoked` and `wrong kind` match a
+ * real row (a device signed out, an agent token on /api): the bearer gate
+ * always answers those with the 401 that says sign in again, never its 429
+ * (src/web/auth/bearer-gate.ts). `unknown` is everything else, a deleted
+ * user's token included.
+ */
+export interface TokenRefusal {
+  refused: 'unknown' | 'revoked' | 'wrong kind';
+}
+
+/**
+ * The user a presented token of `kind` acts as, or why it opens nothing
+ * (the caller answers each with the same 401, and a refused token's use is
+ * never recorded). One indexed read, by the hash alone, so a revoked or
+ * other-kind row is told from an unknown one; a second statement records
+ * the use when the last one is a minute old. `shareOf` (shareToReadAhead)
+ * reads the token user's share of that wardrobe in the same read, as the
+ * session statement does (#170): `share` then answers it, unless the
+ * wardrobe is the user's own.
  */
 export async function authenticateToken(
   db: Db,
   token: string,
   kind: TokenKind,
   { shareOf, now = new Date() }: { shareOf?: number; now?: Date } = {},
-): Promise<(TokenAuth & { share?: ShareReadAhead }) | undefined> {
+): Promise<(TokenAuth & { share?: ShareReadAhead }) | TokenRefusal> {
   markSecretChecked();
-  if (!token.startsWith(TOKEN_PREFIX)) return undefined;
+  if (!token.startsWith(TOKEN_PREFIX)) return { refused: 'unknown' };
   const [row] = await db
     .select({
       tokenId: personalAccessToken.id,
+      kind: personalAccessToken.kind,
+      revokedAt: personalAccessToken.revokedAt,
       lastUsedAt: personalAccessToken.lastUsedAt,
       userId: user.id,
       email: user.email,
@@ -323,14 +337,10 @@ export async function authenticateToken(
     })
     .from(personalAccessToken)
     .innerJoin(user, eq(user.id, personalAccessToken.userId))
-    .where(
-      and(
-        eq(personalAccessToken.tokenHash, hashToken(token)),
-        eq(personalAccessToken.kind, kind),
-        isNull(personalAccessToken.revokedAt),
-      ),
-    );
-  if (!row) return undefined;
+    .where(eq(personalAccessToken.tokenHash, hashToken(token)));
+  if (!row) return { refused: 'unknown' };
+  if (row.revokedAt !== null) return { refused: 'revoked' };
+  if (row.kind !== kind) return { refused: 'wrong kind' };
   if (usedLongAgo(row.lastUsedAt, now)) {
     await db
       .update(personalAccessToken)

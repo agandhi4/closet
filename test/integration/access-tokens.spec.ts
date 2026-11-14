@@ -308,14 +308,16 @@ describe('agent access tokens', () => {
         user: { id, email: 'kinds@example.com' },
         tokenId: phone.id,
       });
-      expect(
-        await authenticateToken(t.db, agent.token, 'device'),
-      ).toBeUndefined();
-      expect(await authenticateToken(t.db, phone.token, 'mcp')).toBeUndefined();
+      expect(await authenticateToken(t.db, agent.token, 'device')).toEqual({
+        refused: 'wrong kind',
+      });
+      expect(await authenticateToken(t.db, phone.token, 'mcp')).toEqual({
+        refused: 'wrong kind',
+      });
       await t.db.delete(user).where(eq(user.id, id));
-      expect(
-        await authenticateToken(t.db, phone.token, 'device'),
-      ).toBeUndefined();
+      expect(await authenticateToken(t.db, phone.token, 'device')).toEqual({
+        refused: 'unknown',
+      });
     });
 
     it(`counts the cap (${MAX_ACTIVE_TOKENS}) per kind`, async () => {

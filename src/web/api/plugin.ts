@@ -8,6 +8,7 @@ import { galleryApiRoutes } from '../gallery/api-routes';
 import { lookApiRoutes } from '../inspiration/api-routes';
 import type { InspirationLinkLimit } from '../inspiration/writes';
 import type { SignInLimit } from '../auth/sign-in';
+import { type BearerRefusalLimit, createBearerGate } from '../auth/bearer-gate';
 import { insightsApiRoutes } from '../insights/api-routes';
 import { outfitApiRoutes } from '../outfits/api-routes';
 import type { WebOptions } from '../plugin';
@@ -34,11 +35,12 @@ import { wishlistApiRoutes } from '../wishlist/api-routes';
 import type { LinkImportLimit } from '../wardrobe/link-import/import';
 import { apiResponses, requireContract } from './contract';
 import spec from './openapi.json';
-import { createDeviceTokenHook, refuseQueryToken } from './token-auth';
+import { refuseQueryToken, signInAgain } from './token-auth';
 import { declareQuerystring, jsonApiValidator } from './validator';
 
 export type ApiOptions = WebOptions &
   SignInLimit &
+  BearerRefusalLimit &
   LinkImportLimit &
   InspirationLinkLimit &
   WeatherLimits;
@@ -73,8 +75,9 @@ const SPEC_BODY = JSON.stringify(spec);
  * In this scope, for every route:
  *  - a JSON body is validated as sent, never coerced (jsonApiValidator);
  *  - registration refuses a route without its contract (requireContract);
- *  - onRequest: a token in the query string is a 400, then a device token,
- *    unless `config.public` (before the body is read);
+ *  - onRequest: a token in the query string is a 400, then the bearer gate
+ *    (a device token, refusals on BEARER_REFUSAL_LIMIT) unless
+ *    `config.public` (before the body is read);
  *  - preHandler: API_LIMIT per token, one budget for the whole API, but a
  *    route with `config.apiPhotoBytes` counts on API_PHOTO_LIMIT instead.
  * A feature's API routes live beside its pages (`src/web/<feature>/
@@ -84,14 +87,25 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
   app,
   options,
 ) => {
-  const { db, apiLogger } = options;
+  const { db, apiLogger, bearerRefusalLimit } = options;
   // Every route's 4xx and 5xx refer to it (apiResponses).
   app.addSchema(Problem);
   app.setValidatorCompiler(jsonApiValidator(app));
   app.addHook('onRoute', requireContract);
   app.addHook('onRoute', declareQuerystring);
   app.addHook('onRequest', refuseQueryToken);
-  app.addHook('onRequest', createDeviceTokenHook({ db, logger: apiLogger }));
+  app.addHook(
+    'onRequest',
+    createBearerGate({
+      db,
+      logger: apiLogger,
+      label: 'API',
+      kind: 'device',
+      refusalLimit: bearerRefusalLimit,
+      refusal: signInAgain,
+      readsShare: true,
+    }),
+  );
   const apiLimit = app.createRateLimit(API_LIMIT);
   const photoLimit = app.createRateLimit(API_PHOTO_LIMIT);
   app.addHook('preHandler', async (request: FastifyRequest) => {
