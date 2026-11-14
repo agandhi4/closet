@@ -33,17 +33,17 @@ export function initStyling(root) {
   syncPreviewToggle();
 }
 
-// From lg the preview is always the whole outfit, so its toggle is a dead
-// stop: keep the details open and the summary inert (out of the tab order
-// and the tree). Below lg the visitor's own state stays. Evaluated once per
-// document, so the one listener serves every visit.
+// From lg the preview is always the whole outfit (each `group-open:` class
+// has its `lg:` twin), so the summary's toggle is a dead stop: make it inert
+// (out of the tab order and the tree). `open` is never touched, so the
+// visitor's own state survives a resize. Evaluated once per document, so the
+// one listener serves every visit.
 const WIDE = matchMedia('(min-width: 64rem)');
 WIDE.addEventListener('change', syncPreviewToggle);
 
 function syncPreviewToggle() {
   const details = document.querySelector('[data-preview-toggle]');
   if (!details) return;
-  if (WIDE.matches) details.open = true;
   details.querySelector(':scope > summary').inert = WIDE.matches;
 }
 

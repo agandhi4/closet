@@ -247,13 +247,14 @@ function StylingAside(props: { ctx: ViewContext; model: StylingModel }) {
   return (
     <div
       data-styling-bar=""
-      class="sticky bottom-dock z-10 flex max-h-[calc(100dvh-4rem-var(--spacing-dock))] flex-col border-t border-base-300 bg-base-100 lg:top-20 lg:max-h-none lg:bottom-auto lg:z-auto lg:gap-4 lg:self-start lg:border-0 lg:bg-transparent"
+      class="sticky bottom-dock z-10 flex max-h-[calc(100dvh-var(--app-bar-h)-var(--spacing-dock))] flex-col border-t border-base-300 bg-base-100 lg:top-20 lg:max-h-none lg:bottom-auto lg:z-auto lg:gap-4 lg:self-start lg:border-0 lg:bg-transparent"
     >
       {/* A tap opens the strip into the whole outfit (CSS off `open`, the
           PREVIEW_* classes). The open panel scrolls inside the space between
-          the app bar (4rem, `.app-bar`) and the dock, so a tall outfit never
-          slides under either. From lg the outfit is always whole: styling.js
-          keeps the details open and its summary out of the tab order there
+          the app bar (`--app-bar-h`) and the dock, so a tall outfit never
+          slides under either. From lg the outfit is always whole (every
+          `group-open:` class has its `lg:` twin, so `open` is never touched
+          there); styling.js takes the summary out of the tab order
           (`syncPreviewToggle`). The summary is named by its sr-only text, as
           the preview inside is aria-hidden (each strip says its choice). The
           fit line stays outside it, so it is read on its own. */}
