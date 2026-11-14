@@ -168,7 +168,7 @@ async function readDay(
     worn: read.worn,
     needs: read.needs,
     round: read.round,
-    firstRun: read.closet && firstRunOf(read.closet),
+    closet: read.closet,
   };
 }
 
@@ -179,13 +179,14 @@ export async function todayFor(
   options: TodayOptions = {},
 ): Promise<TodayModel> {
   const today = todayIn(deps.timeZone, now);
-  const { entries, weather, worn, needs, round, firstRun } = await readDay(
+  const { entries, weather, worn, needs, round, closet } = await readDay(
     deps,
     ownerId,
     today,
     now,
     options,
   );
+  const firstRun = closet && firstRunOf(closet);
   // Occasion order, the calendar's; a stable sort keeps the planned first.
   entries.sort((a, b) => compareOccasions(a.occasion, b.occasion));
   const rows: TodayRow[] = [];
