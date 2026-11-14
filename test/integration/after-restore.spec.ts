@@ -35,7 +35,13 @@ import {
   pngCutout,
   uploadPhoto,
 } from './garments';
-import { asFixture, createTestApp, subscribeAs, type TestApp } from './harness';
+import {
+  asFixture,
+  createTestApp,
+  subscribeAs,
+  TEST_PASSWORD,
+  type TestApp,
+} from './harness';
 import { silentLogger } from './logger';
 import { createAccessToken, mcpRequest } from './mcp';
 
@@ -233,11 +239,28 @@ describe('after a database restore', () => {
     expect((await mcpRequest(t, agent, 'tools/list')).statusCode).toBe(401);
     expect((await me(device)).statusCode).toBe(401);
 
-    // A sign-in after the restore carries the new epoch and stays open.
+    // Every cookie issued after the restore carries the new epoch and stays
+    // open: a sign-in, a registration, a new password's reissue.
+    const opens = async (cookie: string) =>
+      (await t.inject({ method: 'GET', url: '/wardrobe', headers: { cookie } }))
+        .statusCode === 200;
     await signOwnerInAgain();
-    expect(
-      (await t.inject({ method: 'GET', url: '/wardrobe' })).statusCode,
-    ).toBe(200);
+    expect(await opens(t.owner.cookie)).toBe(true);
+    const registered = await t.register('joined-after@example.com');
+    expect(await opens(registered)).toBe(true);
+    const changed = await t.inject({
+      method: 'POST',
+      url: '/auth/change-password',
+      payload: {
+        currentPassword: TEST_PASSWORD,
+        newPassword: 'Another-pass-2',
+        confirmPassword: 'Another-pass-2',
+      },
+      headers: { cookie: registered },
+    });
+    const reissued = changed.cookies.find((c) => c.name === 'access_token');
+    expect(reissued?.value).toEqual(expect.any(String));
+    expect(await opens(`access_token=${reissued?.value}`)).toBe(true);
   });
 
   it('reconciliation marks a photo with nothing left, every surface shows the placeholder, and the mark clears when its bytes are back', async () => {
