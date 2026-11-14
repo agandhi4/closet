@@ -113,11 +113,9 @@ async function run(
   await requireCurrentSchema(dbConfig(config));
   // Operator-scale work (a seeded persona is one transaction): the long
   // timeouts, not the server's.
-  const db = createDb(
-    dbConfig(config),
-    logger.child({ logger: 'Db' }),
-    MAINTENANCE_TIMEOUTS,
-  );
+  const db = createDb(dbConfig(config), logger.child({ logger: 'Db' }), {
+    timeouts: MAINTENANCE_TIMEOUTS,
+  });
   const commandLogger = logger.child({ logger: name });
   try {
     return await command({

@@ -1,6 +1,10 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { STATUS_CODES } from 'node:http';
-import { isDatabaseUnavailable, isLockTimeout } from '../db/errors';
+import {
+  isDatabaseUnavailable,
+  isLockTimeout,
+  isPoolExhausted,
+} from '../db/errors';
 import { driverError } from '../driver-error';
 import { FRAGMENT_VARY, isFragmentRequest } from '../htmx/fragment-request';
 import { hxTrigger } from '../htmx/trigger';
@@ -129,12 +133,29 @@ export class DatabaseUnavailable extends HttpError {
 }
 
 /**
+ * Every pooled connection stayed busy past the connect timeout
+ * (PoolExhausted, src/db/errors.ts): the database is answering, the pool is
+ * full. A 503 `busy` like a held lock, a warn line only: no error-tracker
+ * event and no outage (DatabaseOutage), so a burst of load never reads as
+ * the database down.
+ */
+export class DatabasePoolBusy extends HttpError {
+  constructor() {
+    super(503, t('SERVER_BUSY'), {
+      logDetail: 'every database connection busy',
+      retryAfterSeconds: 1,
+    });
+    this.name = 'DatabasePoolBusy';
+  }
+}
+
+/**
  * The error handler's memory of an outage (createErrorHandler): the first
  * request an outage fails goes to the error tracker, the rest only to the
- * log, until the pool opens a connection again. createApp wires `recovered`
- * to the pool's `connect` event: the first connection after an outage is the
- * database answering again, and one opened while it is up finds no outage
- * to end. One per app.
+ * log, until the database answers again. createApp wires `recovered` to the
+ * pool's `onAnswer` (createDb): a connection opened, or a query answered, so
+ * the first success ends it even when the pool opens no connection for it;
+ * one while the database is up finds no outage to end. One per app.
  */
 export class DatabaseOutage {
   private since: number | undefined;
@@ -264,6 +285,7 @@ function errorKind(error: Error): string {
 function chosenAnswer(error: unknown): HttpError | undefined {
   if (error instanceof HttpError) return error;
   if (isLockTimeout(error)) return new OwnerLockTimeout('a write');
+  if (isPoolExhausted(error)) return new DatabasePoolBusy();
   if (isDatabaseUnavailable(error)) return new DatabaseUnavailable(error);
   return undefined;
 }
@@ -274,8 +296,9 @@ function chosenAnswer(error: unknown): HttpError | undefined {
  * its 400 and ajv's message, which names the rule and the field, never the
  * value; any other 4xx (a failed body parse, an oversized upload) its status
  * and a fixed message (requestRefusal), its code in the log line; a lock
- * wait past the owner lock's timeout (55P03) OwnerLockTimeout's 503; the
- * database out of reach DatabaseUnavailable's 503; everything else is an
+ * wait past the owner lock's timeout (55P03) OwnerLockTimeout's 503; a
+ * full pool DatabasePoolBusy's 503; the database out of reach
+ * DatabaseUnavailable's 503; everything else is an
  * unexpected 500 without detail.
  */
 export function describeError(error: unknown): ErrorAnswer {

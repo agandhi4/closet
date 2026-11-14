@@ -198,11 +198,12 @@ export async function createApp(
   // Before anything queries: the schema is current or the boot fails.
   await runMigrations(database, logger.child({ logger: 'Migrations' }));
   const dbLogger = logger.child({ logger: 'Db' });
-  const db = createDb(database, dbLogger);
-  // An outage is one error-tracker event (createErrorHandler); it ends with
-  // the first connection the pool opens again.
+  // An outage is one error-tracker event (createErrorHandler); it ends the
+  // first time the database answers again.
   const outage = new DatabaseOutage(dbLogger);
-  db.$client.on('connect', () => outage.recovered());
+  const db = createDb(database, dbLogger, {
+    onAnswer: () => outage.recovered(),
+  });
   // Refuses an unmounted photo share (StorageIdentityError, main.ts); the
   // pool is ended here, since no onClose hook exists yet to end it.
   const photos = await createPhotos(

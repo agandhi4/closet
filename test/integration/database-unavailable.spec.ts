@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import { createServer, type Server, type Socket, connect } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, SERVER_TIMEOUTS } from '../../src/db/client';
-import { isDatabaseUnavailable } from '../../src/db/errors';
+import { isDatabaseUnavailable, isPoolExhausted } from '../../src/db/errors';
 import { describeError } from '../../src/web/errors';
 import { t as translate } from '../../src/web/i18n';
 import { scratchServer } from '../support/scratch-database';
@@ -163,7 +163,7 @@ describe('with the database out of reach', () => {
     const db = createDb(
       { ...t.database, host: '127.0.0.1', port: address.port },
       t.logger,
-      { ...SERVER_TIMEOUTS, connectMs },
+      { timeouts: { ...SERVER_TIMEOUTS, connectMs } },
     );
     try {
       const started = performance.now();
@@ -186,6 +186,54 @@ describe('with the database out of reach', () => {
       await db.$client.end();
       for (const socket of held) socket.destroy();
       await new Promise<void>((resolve) => silent.close(() => resolve()));
+    }
+  });
+
+  // pg-pool's connectionTimeoutMillis also bounds the wait for a free
+  // connection: a full pool is load, never the database down. Taken as an
+  // outage it was captured and latched until a new connection opened, which
+  // a full pool never does.
+  it('answers a wait for a full pool as busy, not as the database out of reach', async () => {
+    let answers = 0;
+    const db = createDb(t.database, t.logger, {
+      timeouts: { ...SERVER_TIMEOUTS, connectMs: 200 },
+      max: 1,
+      onAnswer: () => (answers += 1),
+    });
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    let held!: () => void;
+    const holding = new Promise<void>((resolve) => (held = resolve));
+    try {
+      const holder = db.transaction(async (tx) => {
+        await tx.execute(sql`select 1`);
+        held();
+        await released;
+      });
+      await Promise.race([holding, holder]);
+      const failure = await db.execute(sql`select 1`).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      expect(isPoolExhausted(failure)).toBe(true);
+      expect(isDatabaseUnavailable(failure)).toBe(false);
+      expect(describeError(failure)).toMatchObject({
+        status: 503,
+        code: 'busy',
+        message: translate('SERVER_BUSY'),
+      });
+      expect(describeError(failure).databaseUnavailable).toBeUndefined();
+      release();
+      await holder;
+      // The answers that end an outage: the holder's connection opened, and
+      // given back after queries it answered.
+      const before = answers;
+      expect(before).toBeGreaterThanOrEqual(2);
+      await db.execute(sql`select 1`);
+      expect(answers).toBe(before + 1);
+    } finally {
+      release();
+      await db.$client.end();
     }
   });
 });

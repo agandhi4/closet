@@ -58,6 +58,7 @@
   "TOO_MANY_ATTEMPTS": "Too many attempts. Try again in {after}.",
   "WARDROBE_BUSY": "Another change to this wardrobe is still saving. Try again in a moment.",
   "DATABASE_UNAVAILABLE": "Closet can't reach its data right now. Try again in a moment.",
+  "SERVER_BUSY": "Closet is busy right now. Try again in a moment.",
   "WEAR_DELETED": "This wear was removed since, so it was not saved again.",
   "WEAR_CLIENT_ID_TAKEN": "This saved wear was already used for another garment.",
   "GARMENT_DELETED": "This garment was removed since, so it was not saved again.",

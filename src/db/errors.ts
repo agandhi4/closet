@@ -59,6 +59,47 @@ export class DatabaseUnreachable extends Error {
 }
 
 /**
+ * pg-pool's own error when a caller's wait for a pooled connection to come
+ * free ran past connectionTimeoutMillis: raised before any socket is opened,
+ * so it says the pool is full, not that the database is gone. Its exact
+ * message is the only mark (no code); re-check it when bumping pg-pool.
+ */
+const POOL_QUEUE_TIMEOUT_MESSAGE = 'timeout exceeded when trying to connect';
+
+/** Whether `error` is pg-pool's queue timeout (TimedPool.connect classifies). */
+export function isPoolQueueTimeout(error: unknown): boolean {
+  return error instanceof Error && error.message === POOL_QUEUE_TIMEOUT_MESSAGE;
+}
+
+/**
+ * Every pooled connection stayed busy past connectMs (TimedPool.connect):
+ * load, with the database answering. The web layer answers it 503 `busy`
+ * like a held lock (describeError), never as an outage: no error-tracker
+ * event, and DatabaseOutage is left alone.
+ */
+export class PoolExhausted extends Error {
+  constructor(cause: unknown) {
+    super('Every database connection is busy', { cause });
+    this.name = 'PoolExhausted';
+  }
+}
+
+export function isPoolExhausted(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    causeChain(error).some((e) => e instanceof PoolExhausted)
+  );
+}
+
+/** node-postgres's client-side query_timeout (pinned, src/db/AGENTS.md). */
+const QUERY_READ_TIMEOUT_MESSAGE = 'Query read timeout';
+
+/** Whether `error` is node-postgres failing a query on query_timeout (TimedClient). */
+export function isQueryReadTimeout(error: unknown): boolean {
+  return error instanceof Error && error.message === QUERY_READ_TIMEOUT_MESSAGE;
+}
+
+/**
  * Node's errno names for a socket to the database that failed under a
  * query: reset or timed out with the host gone. Only counted inside a
  * Drizzle query error or DatabaseUnreachable: the same names come from an
@@ -86,13 +127,16 @@ const SERVER_GONE_SQLSTATES = new Set(['57P01', '57P02', '57P03']);
  * node-postgres (pinned, src/db/AGENTS.md) fails a query on a lost
  * connection without a code, so only its exact messages say it: the
  * client-side query timeout (query_timeout: the host stopped answering), a
- * socket that closed under a query, a client already broken.
+ * socket that closed under a query, a client already broken, and a client
+ * ended under its transaction (TimedClient ends one on a read timeout, so
+ * the transaction's ROLLBACK fails with this, not with the timeout).
  * Re-check them when bumping pg.
  */
 const CONNECTION_LOST_MESSAGES = new Set([
-  'Query read timeout',
+  QUERY_READ_TIMEOUT_MESSAGE,
   'Connection terminated unexpectedly',
   'Client has encountered a connection error and is not queryable',
+  'Client was closed and is not queryable',
 ]);
 
 /**

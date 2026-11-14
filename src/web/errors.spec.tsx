@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { captureLogs, type LogCapture } from '../../test/support/log-capture';
+import { DatabaseUnreachable, PoolExhausted } from '../db/errors';
 import {
   recordErrors,
   type RecordedErrors,
@@ -11,6 +12,7 @@ import {
   HttpError,
   REQUEST_FAILED_EVENT,
 } from './errors';
+import { t } from './i18n';
 import { renderPage } from './render';
 import type { ViewContext } from './view-context';
 
@@ -75,6 +77,18 @@ describe('createErrorHandler', () => {
       throw new HttpError(503, 'Try again in a moment.', {
         logDetail: 'owner 7',
       });
+    });
+    app.get('/pool-full', () => {
+      throw new PoolExhausted(
+        new Error('timeout exceeded when trying to connect'),
+      );
+    });
+    app.get('/db-down', () => {
+      throw new DatabaseUnreachable(
+        Object.assign(new Error('connect ECONNREFUSED'), {
+          code: 'ECONNREFUSED',
+        }),
+      );
     });
     app.post('/busy-write', () => {
       throw new HttpError(503);
@@ -222,6 +236,30 @@ describe('createErrorHandler', () => {
       tags: { route: '/boom', method: 'GET' },
       userId: undefined,
     });
+  });
+
+  // #643: a pool full of busy connections is load, not an outage. Taken as
+  // one it was captured and latched the outage, which only a new connection
+  // ended, never opened while the pool stays full.
+  it('answers a full pool busy without capturing it or beginning an outage', async () => {
+    for (let i = 0; i < 3; i += 1) {
+      const res = await app.inject({ method: 'GET', url: '/pool-full' });
+      expect(res.statusCode).toBe(503);
+      expect(res.headers['retry-after']).toBe('1');
+      expect(res.body).toContain(t('SERVER_BUSY'));
+    }
+    expect(errors.exceptions).toEqual([]);
+    expect(logs.messages('warn')).toEqual(
+      Array(3).fill(
+        `GET /pool-full -> 503: ${t('SERVER_BUSY')} (every database connection busy)`,
+      ),
+    );
+
+    // The outage latch is untouched: the database's first failure after it
+    // still begins one, captured.
+    await app.inject({ method: 'GET', url: '/db-down' });
+    await app.inject({ method: 'GET', url: '/db-down' });
+    expect(errors.exceptions).toHaveLength(1);
   });
 
   it('hides the detail of anything else behind a 500, logged with its stack', async () => {
