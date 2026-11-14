@@ -136,6 +136,20 @@ export async function isInstalled(
   return marker !== undefined;
 }
 
+/**
+ * Whether a stored page may be served (servedCopies in the worker): its `?v=` URLs must meet the
+ * bytes they name. A page of this worker's own build always does; any other (an older build's,
+ * or a newer one the server rendered before its worker installed) only while that build's
+ * precache is installed. One naming no build never is.
+ */
+export async function meetsItsBuild(
+  caches: Pick<PrecacheStorage, 'match'>,
+  copyBuild: string | null,
+  own: string,
+): Promise<boolean> {
+  return copyBuild === own || isInstalled(caches, copyBuild);
+}
+
 /** One build's precache as the activate cleanup sees it. */
 export interface PrecacheState {
   name: string;

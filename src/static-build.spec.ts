@@ -7,6 +7,7 @@ import {
   INSTALLED_KEY,
   isInstalled,
   keptPrecaches,
+  meetsItsBuild,
   type ManifestEntry,
   precacheName,
   type PrecacheStorage,
@@ -161,6 +162,28 @@ describe('isInstalled', () => {
     expect(await isInstalled(caches, 'A')).toBe(true);
     expect(await isInstalled(caches, 'B')).toBe(false);
     expect(await isInstalled(caches, null)).toBe(false);
+  });
+});
+
+describe('meetsItsBuild', () => {
+  const caches = new FakeCaches();
+  caches.put(precacheName('A'), INSTALLED_KEY, '1');
+  caches.put(precacheName('C'), `${ORIGIN}/js/pwa.js`, 'C');
+
+  it("serves this worker's own build's copies", async () => {
+    expect(await meetsItsBuild(caches, 'B', 'B')).toBe(true);
+  });
+
+  it("serves another build's copy only while its precache is installed", async () => {
+    expect(await meetsItsBuild(caches, 'A', 'B')).toBe(true);
+    // Stored by this worker after the server deployed C, whose worker is
+    // still installing: its ?v=C URLs would find no precache offline.
+    expect(await meetsItsBuild(caches, 'C', 'B')).toBe(false);
+    expect(await meetsItsBuild(caches, 'D', 'B')).toBe(false);
+  });
+
+  it('never serves a copy naming no build', async () => {
+    expect(await meetsItsBuild(caches, null, 'B')).toBe(false);
   });
 });
 

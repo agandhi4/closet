@@ -53,7 +53,7 @@ import {
   assetBuildOf,
   dropOtherPrecaches,
   INSTALLED_KEY,
-  isInstalled,
+  meetsItsBuild,
   precacheName,
   staticBuildId,
 } from '../../src/static-build';
@@ -507,32 +507,31 @@ const pageStore: WorkboxPlugin = {
 // writes an answer after cacheWillUpdate has claimed for it, so a drop can
 // still fall between the two: the copy then lands in the emptied cache,
 // rendered for an account that no longer (or not yet) owns it, and this is
-// what keeps it from ever being served. A copy an older build stored is
-// served (#656: until 2026-11-13 every one was deleted here, and a deploy
-// left the phone the offline page) while the precache of the static build
-// its X-Asset-Version names is installed here (isInstalled): offline it is
-// NetworkFirst's answer, with its age, and its <head> meets its own build's
-// scripts. It is never opened stale-first (StaleTabRoot), and the activation
-// refresh replaces it (refreshOlderBuildPages). One whose precache is gone
-// (dropped by a later activation, or a copy from before pages named their
-// build: the first deploy carrying this) would meet no scripts offline: it
-// is deleted, as before #656, and the offline page answers (the catch
-// handler, not through here). `request` is the cache key here (cacheKeyWillBeUsed has run).
+// what keeps it from ever being served. Nor is a copy whose `?v=` URLs
+// would meet no bytes of their build (meetsItsBuild): one of this worker's
+// static build always passes; any other (an older build's, or a newer one
+// the server rendered before its worker installed) only while that build's
+// precache is installed (the build its X-Asset-Version names). So an older
+// build's copy is served (#656: until 2026-11-13 every one was deleted here,
+// and a deploy left the phone the offline page): offline it is NetworkFirst's
+// answer, with its age, and its <head> meets its own build's scripts. It is
+// never opened stale-first (StaleTabRoot), and the activation refresh
+// replaces it (refreshOlderBuildPages). One whose build has no installed
+// precache (dropped by a later activation, not installed yet, or a copy from
+// before pages named their build: the first deploy carrying this) would meet
+// no scripts offline: it is deleted, and the offline page answers (the catch
+// handler, not through here). `request` is the cache key here
+// (cacheKeyWillBeUsed has run).
 const servedCopies: WorkboxPlugin = {
   cachedResponseWillBeUsed: async ({ cacheName, request, cachedResponse }) => {
     if (!cachedResponse) return null;
     const path = new URL(request.url).pathname;
     if (!(await isOwned(cachedResponse, path))) return null;
-    if (
-      isFromAnOlderBuild(cachedResponse, await activatedAt()) &&
-      !(await isInstalled(
-        self.caches,
-        cachedResponse.headers.get(ASSET_VERSION_HEADER),
-      ))
-    ) {
+    const build = cachedResponse.headers.get(ASSET_VERSION_HEADER);
+    if (!(await meetsItsBuild(self.caches, build, STATIC_BUILD))) {
       await (await self.caches.open(cacheName)).delete(request);
       console.info(
-        `[sw] ${path}: older-build copy deleted, its build's precache is gone`,
+        `[sw] ${path}: copy of build ${build ?? '(none)'} deleted, no precache of it is installed`,
       );
       return null;
     }
