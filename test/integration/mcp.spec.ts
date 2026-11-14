@@ -892,25 +892,36 @@ describe('the MCP endpoint', () => {
       expect(row.quantity).toBe(4);
     });
 
-    it('add_garment_from_link asks for a category the page does not give, keeping nothing', async () => {
+    it('add_garment_from_link answers a title-only read with its reason and keeps nothing, until a name is sent', async () => {
       const before = await t.db.$count(garment);
       const answer = await callTool(t, token, 'add_garment_from_link', {
         url: sites.url('/products/mystery'),
       });
-      expect(answer.isError).toBe(true);
-      expect(answer.value.error).toMatch(/category/i);
-      expect(await t.db.$count(garment)).toBe(before);
-      const named = await tool<{ garment: { category: string } }>(
-        t,
-        token,
-        'add_garment_from_link',
-        {
-          url: sites.url('/products/mystery'),
-          category: 'Accessories',
-          name: 'Scarf',
+      expect(answer).toEqual({
+        isError: true,
+        value: {
+          error: `title-only: ${text('linkImport.TITLE_ONLY_SEND_NAME')}`,
         },
-      );
+      });
+      expect(await t.db.$count(garment)).toBe(before);
+      // With a name the form's own rules speak: the category is still needed.
+      const unnamed = await callTool(t, token, 'add_garment_from_link', {
+        url: sites.url('/products/mystery'),
+        name: 'Scarf',
+      });
+      expect(unnamed.isError).toBe(true);
+      expect(unnamed.value.error).toMatch(/category/i);
+      expect(await t.db.$count(garment)).toBe(before);
+      const named = await tool<{
+        garment: { category: string };
+        confidence: string;
+      }>(t, token, 'add_garment_from_link', {
+        url: sites.url('/products/mystery'),
+        category: 'Accessories',
+        name: 'Scarf',
+      });
       expect(named.garment.category).toBe('accessories');
+      expect(named.confidence).toBe('title-only');
     });
 
     it('add_garment_from_link refuses an address inside the network', async () => {

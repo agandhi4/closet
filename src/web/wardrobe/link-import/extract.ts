@@ -81,24 +81,30 @@ export function extractProduct(
 ): ExtractedProduct {
   const document = scanDocument(html);
   // Most reliable first; a source that found nothing is null.
+  const ogSiteName = metaText(document.metas, 'og:site_name');
+  const domainName = registrableName(pageUrl);
+  const siteNames = [ogSiteName, domainName].filter((name) => name !== null);
   const sources = [
     findProduct(document.jsonLd),
-    openGraph(document),
-    titleFields(document.title),
+    openGraph(document, siteNames),
+    titleFields(document.title, siteNames),
   ].filter((source) => source !== null);
   const fields = mergeFields(sources);
   const guessed = guessProperties(fields);
   const source = sources[0]?.source ?? null;
+  const confidence = confidenceOf(source, document, requestedUrl, pageUrl);
   return {
     source,
-    confidence: confidenceOf(source, document, requestedUrl, pageUrl),
+    confidence,
     name: clip(fields.name, NAME_MAX),
+    // The shop stands in for a brand only where the page gave less than a
+    // product: a retailer of many brands (Nordstrom) is never the
+    // garment's brand, and a product read that names none keeps null.
     brand: clip(
       fields.brand ??
-        (source === null
-          ? null
-          : (metaText(document.metas, 'og:site_name') ??
-            registrableName(pageUrl))),
+        (source !== null && confidence !== 'product'
+          ? (ogSiteName ?? domainName)
+          : null),
       BRAND_MAX,
     ),
     price: fields.price,
@@ -139,22 +145,26 @@ function hasProductTags({ metas }: DocumentMetadata): boolean {
   );
 }
 
+/** A locale landing root's segment: `us`, `en`, `en-us`, `fr_CA`. */
+const LOCALE_SEGMENT = /^[a-z]{2}(?:[-_][a-z]{2,4})?$/i;
+
 /**
  * A redirect that left the product path: the link named a page below the
- * site's root (or a section), and the final address is the root or one of
- * those ancestors (`/p/sweater-123` to `/` or `/p`), or on another host's
- * root. Shops send unknown, expired and bot-blocked products to their
- * home page, whose title and logo are not the garment. A different
- * address of the same depth (a locale or a canonical URL) is not leaving.
+ * site's root and the final address is a home page: the site's root, a
+ * single-segment locale root (`/en-us/`, `/us`), or another host's root.
+ * Shops send unknown, expired and bot-blocked products there, and its
+ * title and logo are not the garment. Any other change is a shop tidying
+ * its address, not losing the product: a canonical redirect to an ancestor
+ * (`/product/123/slug` to `/product/123`), a locale prefix, a same-depth
+ * address.
  */
 function leftProductPath(requested: URL, final: URL): boolean {
   const asked = pathSegments(requested);
   const ended = pathSegments(final);
-  if (asked.length === 0) return false;
+  if (asked.length <= ended.length) return false;
   if (requested.hostname !== final.hostname) return ended.length === 0;
   return (
-    ended.length < asked.length &&
-    ended.every((segment, index) => segment === asked[index])
+    ended.length === 0 || (ended.length === 1 && LOCALE_SEGMENT.test(ended[0]))
   );
 }
 
@@ -518,7 +528,10 @@ function parseCurrency(value: Json | undefined): string | null {
  * when the page has none of the product ones (a plain description meta tag
  * alone is not a product).
  */
-function openGraph(document: DocumentMetadata): SourceFields | null {
+function openGraph(
+  document: DocumentMetadata,
+  siteNames: readonly string[],
+): SourceFields | null {
   const all = (...keys: string[]) =>
     keys.flatMap((key) => document.metas.get(key) ?? []);
   const first = (...keys: string[]) => {
@@ -528,7 +541,9 @@ function openGraph(document: DocumentMetadata): SourceFields | null {
   const amount = parsePrice(all('product:price:amount', 'og:price:amount')[0]);
   const fields: SourceFields = {
     source: 'open-graph',
-    name: withoutSiteName(first('og:title', 'twitter:title') ?? '') || null,
+    name:
+      withoutSiteName(first('og:title', 'twitter:title') ?? '', siteNames) ||
+      null,
     brand: first('product:brand', 'og:brand'),
     color: first('product:color'),
     material: null,
@@ -560,26 +575,45 @@ function openGraph(document: DocumentMetadata): SourceFields | null {
 }
 
 /** The last resort: `<title>` without the site's name after its separator. */
-function titleFields(title: string | null): SourceFields | null {
+function titleFields(
+  title: string | null,
+  siteNames: readonly string[],
+): SourceFields | null {
   if (!title) return null;
   return {
     ...EMPTY_FIELDS,
     source: 'title',
-    name: withoutSiteName(title),
+    name: withoutSiteName(title, siteNames),
     images: [],
   };
 }
 
 /**
  * "Mens Merino Sweater | UNIQLO US" is "Mens Merino Sweater": the text after
- * the last " | ", " – " or " — " is the site. A hyphen is not one: it is
- * as often part of the name.
+ * the last " | ", " – " or " — " goes only when it is the site's name (the
+ * page's og:site_name or its domain's name, folded), alone or followed by
+ * words ("UNIQLO US"). Never by position: "Pocket Tee – Navy" keeps its
+ * variant, and a hyphen is as often part of a name as a separator.
  */
-function withoutSiteName(title: string): string {
+function withoutSiteName(title: string, siteNames: readonly string[]): string {
   const cut = Math.max(
     ...[' | ', ' – ', ' — '].map((separator) => title.lastIndexOf(separator)),
   );
-  return cut > 0 ? title.slice(0, cut).trim() : title;
+  if (cut <= 0) return title;
+  const suffix = folded(title.slice(cut + 3));
+  const isSite = siteNames.some((name) => {
+    const site = folded(name);
+    return site !== '' && (suffix === site || suffix.startsWith(`${site} `));
+  });
+  return isSite ? title.slice(0, cut).trim() : title;
+}
+
+/** Lower case, anything but letters and digits a single space. */
+function folded(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
 }
 
 function clip(value: string | null | undefined, max: number): string | null {

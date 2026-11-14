@@ -148,10 +148,52 @@ describe('extractProduct', () => {
       expect(extractProduct(page(jsonLd), home, product).confidence).toBe(
         'title-only',
       );
+      for (const landing of [
+        'https://acme.test/en-us/',
+        'https://acme.test/us',
+      ]) {
+        expect(
+          extractProduct(page(jsonLd), new URL(landing), product).confidence,
+        ).toBe('title-only');
+      }
+      // Another host's root: a consent or tracking redirect that ended at a home page.
       expect(
-        extractProduct(page(jsonLd), new URL('https://acme.test/p'), product)
+        extractProduct(page(jsonLd), new URL('https://www.acme.test/'), product)
           .confidence,
       ).toBe('title-only');
+    });
+
+    it('stays product when a shop tidies the address: a canonical redirect to an ancestor', () => {
+      const asked = new URL('https://acme.test/product/123/wool-coat');
+      for (const final of [
+        'https://acme.test/product/123',
+        'https://acme.test/product',
+        'https://acme.test/en-us/product/123',
+      ]) {
+        expect(
+          extractProduct(page(jsonLd), new URL(final), asked).confidence,
+        ).toBe('product');
+      }
+    });
+
+    it('keeps a null brand on a product read, the shop standing in only below it', () => {
+      const store = new URL('https://www.nordstrom.test/p/1');
+      expect(
+        extractProduct(
+          page(
+            '<script type="application/ld+json">{"@type":"Product","name":"Wool Coat"}</script><meta property="og:site_name" content="Nordstrom">',
+          ),
+          store,
+        ),
+      ).toMatchObject({ confidence: 'product', brand: null });
+      expect(
+        extractProduct(
+          page(
+            '<meta property="og:title" content="Wool Coat"><meta property="og:site_name" content="Nordstrom">',
+          ),
+          store,
+        ),
+      ).toMatchObject({ confidence: 'page', brand: 'Nordstrom' });
     });
 
     it('is not lowered by a redirect that stayed as deep as the link was', () => {
@@ -174,6 +216,34 @@ describe('extractProduct', () => {
     expect(
       extractProduct(html, new URL('https://www.uniqlo.com/us/p/1')),
     ).toMatchObject({ name: 'Mens Merino Sweater', brand: 'UNIQLO' });
+  });
+
+  it('strips a title suffix only when it is the site, so a variant stays', () => {
+    // The Shopify fixture's own <title>: "Heavyweight Pocket Tee – Navy –
+    // Acme Supply Co." loses only the site, and its og:site_name names it.
+    const shopify = fixture('shopify-product.html')
+      .replace(/<script type="application\/ld\+json"[\s\S]*?<\/script>/g, '')
+      .replace(/<meta property="og:title"[^>]*>/g, '');
+    expect(
+      extractProduct(
+        shopify,
+        new URL('https://acme-supply.test/products/heavyweight-pocket-tee'),
+      ).name,
+    ).toBe('Heavyweight Pocket Tee – Navy');
+    const variant = page(
+      '<title>Pocket Tee – Navy</title><meta property="og:title" content="Pocket Tee – Navy"><meta property="og:site_name" content="Acme Supply Co.">',
+    );
+    const url = new URL('https://acme-supply.test/products/pocket-tee');
+    expect(extractProduct(variant, url).name).toBe('Pocket Tee – Navy');
+    const branded = page(
+      '<meta property="og:title" content="Pocket Tee – Navy | Acme Supply Co.">' +
+        '<meta property="og:site_name" content="Acme Supply Co.">',
+    );
+    expect(extractProduct(branded, url).name).toBe('Pocket Tee – Navy');
+    // The domain's own name counts when the page gives no og:site_name.
+    expect(
+      extractProduct(page('<title>Pocket Tee | Acme-supply</title>'), url).name,
+    ).toBe('Pocket Tee');
   });
 
   it.each([

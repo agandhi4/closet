@@ -110,6 +110,18 @@ export async function saveGarmentFromLink(
       `${error.reason}: ${t(refusal.message)}`,
     );
   }
+  if (unreadWithoutName(imported, overrides)) {
+    // A title-only read prefills nothing but the link, so saving would be a
+    // bare field refusal: say what happened and what to send, and save nothing
+    // (no photo was fetched for it).
+    logger.warn(
+      `Link import by user ${userId} (${surface}) read only a title: nothing saved without a name`,
+    );
+    const message = t('linkImport.TITLE_ONLY_SEND_NAME');
+    throw new HttpError(422, `title-only: ${message}`, {
+      validation: [{ path: 'body/name', message }],
+    });
+  }
   const form = importedForm(imported, overrides.url);
   const photo = form.link.photo;
   const posted = formPost(withOverrides(form.values, overrides));
@@ -157,6 +169,18 @@ export async function saveGarmentFromLink(
     notices: [...form.link.warnings, ...form.link.notices],
     confidence: imported.kind === 'page' ? imported.product.confidence : null,
   };
+}
+
+/** A page read as `title-only` and the caller named no garment. */
+function unreadWithoutName(
+  imported: LinkImport,
+  overrides: LinkOverrides,
+): boolean {
+  return (
+    imported.kind === 'page' &&
+    imported.product.confidence === 'title-only' &&
+    !overrides.name?.trim()
+  );
 }
 
 /**
