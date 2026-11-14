@@ -5,7 +5,11 @@ import {
   FORECAST_DAYS,
   forecastDay,
 } from '../../weather/forecast';
-import { type WeatherNeeds, weatherNeeds } from '../../weather/match';
+import {
+  type WeatherNeeds,
+  weatherNeeds,
+  withRainGear,
+} from '../../weather/match';
 import { type DayNormals, normalsOn, typicalDay } from '../../weather/normals';
 import type { Location } from '../../weather/location';
 import type { TemperatureUnit } from '../../weather/temperature';
@@ -17,6 +21,7 @@ import {
   readTemperaturePrefs,
   type TemperaturePrefs,
   temperaturePrefsSql,
+  rainGearFor,
 } from '../weather/queries';
 import type {
   CachedForecast,
@@ -133,11 +138,24 @@ export async function tripForecast(
     { forecast: within !== null, normals: later !== null },
   );
   const { offset, unit } = prefs;
+  const days = forecastDays(cached, within, offset);
+  const typical = typicalDays(normals, later, trip.endsOn, offset);
+  // The rain gear on the trip's packing list (planned to come, packed or
+  // not, whatever its state at home), read once and only when a day asks for
+  // water resistance; none on the list means the days need it (rainGearFor).
+  const rainGear = await rainGearFor(
+    deps.db,
+    ownerId,
+    [...days.map((d) => d.needs), ...typical.map((d) => d.needs)],
+    trip.id,
+  );
+  const withGear = (needs: WeatherNeeds | null) =>
+    needs && withRainGear(needs, rainGear);
   return {
     kind: 'forecast',
-    days: forecastDays(cached, within, offset),
+    days: days.map((d) => ({ ...d, needs: withGear(d.needs) })),
     unavailable: within !== null && !cached,
-    typical: typicalDays(normals, later, trip.endsOn, offset),
+    typical: typical.map((d) => ({ ...d, needs: withGear(d.needs) })),
     later,
     unit,
     offset,

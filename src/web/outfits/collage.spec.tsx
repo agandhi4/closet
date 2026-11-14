@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { collagePieces, outfitLabel, type PieceMarking } from './collage';
+import { renderToString } from '../render';
+import {
+  collagePieces,
+  OutfitCollage,
+  outfitLabel,
+  type CollageSize,
+  type PieceMarking,
+} from './collage';
 
 /**
  * How a collage marks an outfit's pieces (#358): to-buy everywhere; the
@@ -65,4 +72,30 @@ describe('outfitLabel', () => {
       outfitLabel('Look', [{ ...piece, name: null, marks: ['away:lent'] }]),
     ).toBe('Look: Outerwear (Lent)');
   });
+});
+
+/**
+ * A layer and a top share the upper row (#663): at every size each piece
+ * may shrink below its natural width, or the pair spills out of a narrow
+ * frame (a 48 px month cell). The browser's bounding-box check is
+ * test/calendar.spec.ts; this holds the markup at each size.
+ */
+describe('OutfitCollage with two upper pieces', () => {
+  const layered = [
+    { name: 'Coat', category: 'outerwear', photo: null },
+    { name: 'Tee', category: 'tops', photo: null },
+  ];
+
+  it.each<CollageSize>(['thumb', 'cell', 'card', 'tile'])(
+    'lets both pieces shrink in a %s',
+    async (size) => {
+      const html = await renderToString(
+        <OutfitCollage garments={layered} size={size} />,
+      );
+      const pieces = html.match(/<span[^>]*data-collage-piece[^>]*>/g) ?? [];
+      expect(pieces).toHaveLength(2);
+      for (const piece of pieces) expect(piece).toContain('min-w-0');
+      expect(html).toContain(`data-collage="${size}"`);
+    },
+  );
 });

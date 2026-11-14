@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { createGarment } from './support/e2e-data';
+import {
+  addPhotographedGarment,
+  createGarment,
+  createOutfitOf,
+} from './support/e2e-data';
+import { expectCollagePiecesInsidePlinths } from './support/collage-fit';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { pageErrors } from './support/page-errors';
 
@@ -7,7 +12,8 @@ import { pageErrors } from './support/page-errors';
  * Planning an outfit on the calendar from its page: the plan sheet (htmx,
  * an inline handler for the occasion) posts and the app lands on that week;
  * then "Plan my week", after which Saved still opens on the person's outfit
- * (#659) and the planner's are one tab away.
+ * (#659) and the planner's are one tab away; a layered outfit's collage
+ * stays inside its cell (#663).
  * The calendar's own behaviour is test/integration/calendar.spec.ts.
  */
 
@@ -58,5 +64,30 @@ test('the outfit page plans the outfit from its sheet and lands on that week; Pl
   await expect(page).toHaveURL(/show=one-offs/);
   await expect(tiles.first()).toBeVisible();
   await expect(tiles.first()).not.toContainText('Sheet outfit');
+
+  // #663: a layer over a top in the plan's cells never spills out of the
+  // plinth: the month's 48 px cells and the week's rows at 390 px, the
+  // week's columns at 1280 px.
+  const coat = await addPhotographedGarment(page, 'Fit coat', 'outerwear');
+  // The top has no photo: its hanger placeholder must fit the cell too.
+  const tee = await createGarment(page, 'Fit tee', 'tops');
+  await createOutfitOf(
+    page,
+    'Layered',
+    [
+      { id: coat, category: 'outerwear' },
+      { id: tee, category: 'tops' },
+    ],
+    '2030-10-11',
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/calendar/month?month=2030-10');
+  await expect(page.locator('[data-collage="cell"] img')).toHaveCount(1);
+  await expectCollagePiecesInsidePlinths(page);
+  await page.goto('/calendar?week=2030-10-10');
+  await expect(page.locator('[data-collage="cell"] img')).toHaveCount(1);
+  await expectCollagePiecesInsidePlinths(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expectCollagePiecesInsidePlinths(page);
   expect(errors).toEqual([]);
 });

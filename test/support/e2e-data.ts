@@ -68,3 +68,25 @@ export async function createOutfit(
   expect(res.ok()).toBe(true);
   return idOf(res.url());
 }
+
+/** An outfit of several garments (`category` is each one's slot), planned on `scheduleDate` when given. */
+export async function createOutfitOf(
+  page: Page,
+  name: string,
+  garments: readonly { id: number; category: string }[],
+  scheduleDate = '',
+): Promise<number> {
+  const form = new FormData();
+  form.append('name', name);
+  form.append('scheduleDate', scheduleDate);
+  for (const { id, category } of garments) {
+    form.append('category', category);
+    form.append('garmentId', String(id));
+  }
+  const res = await page.request.post('/outfits', {
+    form,
+    headers: SAME_ORIGIN,
+  });
+  expect(res.ok()).toBe(true);
+  return idOf(res.url());
+}

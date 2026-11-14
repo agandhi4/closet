@@ -5,6 +5,7 @@ import { addDays, daysBetween, todayIn } from '../../../calendar-date';
 import { entriesSql, MAX_CALENDAR_DAYS } from '../../calendar/queries';
 import { HttpError } from '../../errors';
 import {
+  rainGearForDays,
   readWeatherWithForecast,
   weatherWithForecastSql,
 } from '../../weather/queries';
@@ -13,7 +14,7 @@ import { markEntryWorn } from '../../calendar/entry-actions';
 import { laundryList, markWashed, setWoreToday } from '../../wears/queries';
 import { actorOf, defineTool, wardrobeFor } from '../tool';
 import { isoDate, ownerIdInput, rowId } from './common';
-import { reachesForecast, weatherOfDays } from './weather';
+import { type DayWeatherOf, reachesForecast, weatherOfDays } from './weather';
 import { garmentNotFound } from '../../wardrobe/garment-access';
 
 /**
@@ -56,16 +57,22 @@ export const calendarTools = [
       });
       const { entries } = read;
       // Only entries carry weather: an empty range never fetches a forecast.
-      const weatherOf =
-        weather && read.weather !== undefined && entries.length > 0
-          ? weatherOfDays(
-              await userWeatherFrom(
-                weather,
-                readWeatherWithForecast(read.weather, now),
-                now,
-              ),
-            )
-          : null;
+      let weatherOf: DayWeatherOf | null = null;
+      if (weather && read.weather !== undefined && entries.length > 0) {
+        const own = await userWeatherFrom(
+          weather,
+          readWeatherWithForecast(read.weather, now),
+          now,
+        );
+        // The closet's rain gear, read only when an entry's day asks for it.
+        const rainGear = await rainGearForDays(
+          ctx.db,
+          ctx.userId,
+          own,
+          entries,
+        );
+        weatherOf = weatherOfDays(own, rainGear);
+      }
       return {
         today,
         from: first,

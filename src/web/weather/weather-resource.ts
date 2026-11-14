@@ -35,13 +35,22 @@ import type { UserWeather } from './service';
 const round1 = (value: number) => Math.round(value * 10) / 10;
 
 /**
- * What a day asks of an outfit for its occasion, in the machines' words.
- * `rainGear` is the owner's (closetRainGear), judged by withRainGear as
- * the ideas are, so this and the ideas' `takeUmbrella` agree; a caller
- * without the closet's read passes none and judges by the heat alone.
+ * What `day` asks of an outfit for `occasion` with the owner's rain gear
+ * (rainGearFor, read for these needs) applied: the needs every surface
+ * reports, so `takeUmbrella` is one answer (the ideas apply it the same way).
  */
-function outfitNeeds(asked: WeatherNeeds, rainGear: readonly MatchGarment[]) {
-  const needs = withRainGear(asked, rainGear);
+export function needsWithGear(
+  day: DayForecast,
+  occasion: Occasion,
+  offset: number,
+  rainGear: readonly MatchGarment[],
+): WeatherNeeds | null {
+  const needs = weatherNeeds(day, occasion, offset);
+  return needs && withRainGear(needs, rainGear);
+}
+
+/** A day's needs in the machines' words; `needs` carry the rain gear already. */
+function outfitNeeds(needs: WeatherNeeds) {
   return {
     occasion: needs.occasion,
     hours: needs.window,
@@ -65,13 +74,7 @@ function outfitNeeds(asked: WeatherNeeds, rainGear: readonly MatchGarment[]) {
  * (src/weather/match.ts). `rainFromHour` and `outfit` are null when the day
  * has no such hour (MCP sends the null, the API leaves the field out).
  */
-export function dayWeather(
-  day: DayForecast,
-  occasion: Occasion,
-  offset: number,
-  rainGear: readonly MatchGarment[] = [],
-) {
-  const needs = weatherNeeds(day, occasion, offset);
+export function dayWeather(day: DayForecast, needs: WeatherNeeds | null) {
   return {
     day: day.day,
     condition: conditionOf(day.code),
@@ -79,7 +82,7 @@ export function dayWeather(
     lowC: round1(day.low),
     precipitationChance: day.precipitationChance,
     rainFromHour: rainFrom(day, 0),
-    outfit: needs && outfitNeeds(needs, rainGear),
+    outfit: needs && outfitNeeds(needs),
   };
 }
 
@@ -99,7 +102,7 @@ export function typicalDayWeather({ day, normals, needs }: TripTypicalDay) {
       max: round1(normals.feelsHigh),
     },
     rainChance: normals.rainChance,
-    outfit: needs && outfitNeeds(needs, []),
+    outfit: needs && outfitNeeds(needs),
   };
 }
 
@@ -212,11 +215,9 @@ export const TypicalDayWeather = Type.Object(
 
 export function toDayWeather(
   day: DayForecast,
-  occasion: Occasion,
-  offset: number,
-  rainGear: readonly MatchGarment[] = [],
+  needs: WeatherNeeds | null,
 ): Static<typeof DayWeather> {
-  return withoutNulls(dayWeather(day, occasion, offset, rainGear));
+  return withoutNulls(dayWeather(day, needs));
 }
 
 export function toTypicalDayWeather(
@@ -310,7 +311,12 @@ export function toWeatherResource(
     ? days.flatMap((day) => {
         const found = forecastDay(cached.forecast, day);
         return found
-          ? [toDayWeather(found, occasion, settings.offset, rainGear)]
+          ? [
+              toDayWeather(
+                found,
+                needsWithGear(found, occasion, settings.offset, rainGear),
+              ),
+            ]
           : [];
       })
     : [];

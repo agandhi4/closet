@@ -44,9 +44,7 @@ function weatherOut(forecast: TripForecast | null) {
   return {
     forecastUnavailable: forecast.unavailable,
     fetchedAt: forecast.fetchedAt?.toISOString() ?? null,
-    days: forecast.days.map((day) =>
-      dayWeather(day.forecast, 'all-day', forecast.offset),
-    ),
+    days: forecast.days.map((day) => dayWeather(day.forecast, day.needs)),
     laterDays: forecast.later && {
       from: forecast.later.day,
       forecastArrives: forecast.later.from,
