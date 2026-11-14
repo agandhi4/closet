@@ -240,7 +240,9 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         },
       );
       return {
-        data: garments.map(toGarmentListItem),
+        data: garments.map((garment) =>
+          toGarmentListItem(garment, options.cutouts.enabled),
+        ),
         pagination: {
           ...(next !== null && { nextCursor: rankedIdCursor(next) }),
           limit,
@@ -272,7 +274,7 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         { ...access, viewerId: actorOf(request).userId },
         todayIn(config.timeZone, new Date()),
       );
-      return toGarmentResource(garment, context);
+      return toGarmentResource(garment, context, options.cutouts.enabled);
     },
   );
 

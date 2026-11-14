@@ -110,6 +110,10 @@ describe('checkJobs and checkCutoutQueue', () => {
     });
     expect(checkCutoutQueue({ name: 'running' })).toEqual(up(false));
     expect(checkCutoutQueue({ name: 'stopped' })).toMatchObject(down(false));
+    expect(checkCutoutQueue({ name: 'disabled' })).toEqual({
+      ...up(false),
+      disabled: true,
+    });
     // Waiting for the model: the kind and its own fix, never the error.
     expect(
       checkCutoutQueue({

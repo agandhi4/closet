@@ -69,7 +69,7 @@ const deps = {
   db: noStatements,
   photos: { saveEditedCutout: vi.fn() },
   logger: { info: vi.fn() },
-  cutouts: { wake: vi.fn() },
+  cutouts: { wake: vi.fn(), enabled: true },
 } as unknown as WardrobeDeps;
 const sharedAs = (permission: 'VIEW' | 'MANAGE' | null): Actor => ({
   userId: 2,

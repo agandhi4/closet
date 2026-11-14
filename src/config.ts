@@ -1,6 +1,12 @@
 import { KindGuard, type Static, type TSchema, Type } from '@sinclair/typebox';
 import { Value, ValueErrorType } from '@sinclair/typebox/value';
-import { existsSync, readFileSync } from 'node:fs';
+import {
+  accessSync,
+  constants,
+  existsSync,
+  readFileSync,
+  statSync,
+} from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parseEnv } from 'node:util';
 import { isValidTimeZone } from './calendar-date';
@@ -24,6 +30,29 @@ const DEFAULT_TRUSTED_PROXIES = '127.0.0.1,::1';
 const ACCESS_TOKEN_SECRET_MIN = 32;
 /** The bcrypt cost production must keep (the default, and the floor there). */
 export const PASSWORD_HASH_ROUNDS_PRODUCTION = 12;
+
+export const DATABASE_SSL_MODES = ['verify', 'no-verify', 'off'] as const;
+export type DatabaseSslMode = (typeof DATABASE_SSL_MODES)[number];
+
+/**
+ * DATABASE_SSL as a mode, or undefined for a value that is none. Before #694
+ * it was a boolean: `false` is `off`; `true` is `no-verify`, what it always
+ * meant, with a deprecation warning at boot, until homelab's env says
+ * `no-verify`; the release after, `true` means `verify` (docs/decisions.md
+ * 2026-11-14). Also read by drizzle.config.ts.
+ */
+export function databaseSslMode(raw: string): DatabaseSslMode | undefined {
+  const value = raw.trim().toLowerCase();
+  if (value === 'true') return 'no-verify';
+  if (value === 'false') return 'off';
+  return DATABASE_SSL_MODES.find((mode) => mode === value);
+}
+
+// Variables renamed before 0.1 froze the names: the old one is still read
+// when the new one is unset, with a deprecation warning.
+const DEPRECATED_NAMES: Record<string, string> = {
+  DATABASE_SCHEMA: 'DATABASE_NAME',
+};
 
 const ConfigSchema = Type.Object({
   NODE_ENV: Type.Union(
@@ -117,11 +146,26 @@ const ConfigSchema = Type.Object({
   // must fail the boot, not reach localhost.
   DATABASE_HOST: NonEmpty(),
   DATABASE_PORT: Type.Integer({ minimum: 1, maximum: 65535, default: 5432 }),
-  DATABASE_SCHEMA: NonEmpty(),
+  // DATABASE_SCHEMA, its name before 0.1, is still read as a deprecated alias
+  // (DEPRECATED_NAMES).
+  DATABASE_NAME: NonEmpty(),
   DATABASE_USER: NonEmpty(),
   // Empty is valid: pgvault-dev and the test databases use trust auth.
   DATABASE_PASS: Type.String(),
-  DATABASE_SSL: Type.Boolean({ default: false }),
+  // TLS to Postgres (#694): `verify` checks the server's certificate against
+  // the system's CAs or DATABASE_SSL_CA, `no-verify` encrypts without
+  // checking it (pgvault's self-signed certificate on the tailnet: anyone on
+  // the path can impersonate the server), `off` is plaintext. The boolean it
+  // replaced is still read (databaseSslMode).
+  DATABASE_SSL: Type.Union(
+    DATABASE_SSL_MODES.map((mode) => Type.Literal(mode)),
+    {
+      default: 'off',
+    },
+  ),
+  // A PEM file of the CA that signed the server's certificate, for `verify`
+  // against a private CA; read once by dbConfig (src/db/client.ts).
+  DATABASE_SSL_CA: Type.Optional(NonEmpty()),
   // Nightly storage reconciliation at 03:00 APP_TIMEZONE, scheduled by the
   // server (server.ts); `npm run maintenance:reconcile` runs it once
   // regardless.
@@ -129,6 +173,11 @@ const ConfigSchema = Type.Object({
   // HEIC uploads are decoded in memory before sharp sees them; a part larger
   // than this is a 413.
   MAX_HEIC_BYTES: Type.Integer({ minimum: 1, default: 40 * 1024 * 1024 }),
+  // Background removal (src/cutout/). Off: no model runner, no 940 MB
+  // download and no model process (about 3 GB peak, more than a 1-2 GB host
+  // has); uploads start as cutout `none`, the original with the mask
+  // editor's pencil, and /health/ready reports cutout_queue disabled.
+  CUTOUT_ENABLED: Type.Boolean({ default: true }),
   // Where the background-removal model (BiRefNet, 940 MB; src/cutout/) is
   // kept. Downloaded there at boot when missing and checksum-verified; a
   // local disk, not NFS (read whole on every model load). `npm run
@@ -213,17 +262,23 @@ export interface LoadConfigOptions {
   env?: Env;
   /** Files, relative to the working directory; defaults to .env.local, .env. */
   envFiles?: string[];
+  /**
+   * Told of each deprecated name or value the environment still uses, once
+   * per load: the server logs it at boot (main.ts). Messages name keys,
+   * never values.
+   */
+  onDeprecated?: (message: string) => void;
 }
 
 export function loadConfig({
   env = process.env,
   envFiles = ENV_FILES,
+  onDeprecated = () => {},
 }: LoadConfigOptions = {}): Config {
-  const merged: Env = {};
-  for (const file of [...envFiles].reverse()) {
-    Object.assign(merged, readEnvFile(file));
-  }
-  Object.assign(merged, env);
+  // A set: a deprecated name in two sources is still one warning.
+  const deprecations = new Set<string>();
+  const merged = mergedEnv(envFiles, env, deprecations);
+  for (const message of deprecations) onDeprecated(message);
 
   const values: Record<string, unknown> = {};
   for (const [key, schema] of Object.entries(ConfigSchema.properties)) {
@@ -238,6 +293,52 @@ export function loadConfig({
   }
   if (problems.length) throw new ConfigError(problems);
   return config as Config;
+}
+
+// The files under the environment, old names and values read as current.
+function mergedEnv(
+  envFiles: string[],
+  env: Env,
+  deprecations: Set<string>,
+): Env {
+  const merged: Env = {};
+  for (const source of [...[...envFiles].reverse().map(readEnvFile), env]) {
+    Object.assign(merged, withCurrentNames(source, deprecations));
+  }
+  readDeprecatedSsl(merged, deprecations);
+  return merged;
+}
+
+// A source's old names as their current ones, per source before the merge,
+// so the environment's DATABASE_SCHEMA still wins over a file's DATABASE_NAME.
+function withCurrentNames(source: Env, deprecations: Set<string>): Env {
+  const renamed: Env = { ...source };
+  for (const [old, current] of Object.entries(DEPRECATED_NAMES)) {
+    if (source[old] === undefined) continue;
+    if (source[current] === undefined) {
+      renamed[current] = source[old];
+      deprecations.add(`${old} is deprecated: rename it ${current}`);
+    } else {
+      deprecations.add(`${old} is ignored: ${current} is set; remove ${old}`);
+    }
+  }
+  return renamed;
+}
+
+// DATABASE_SSL's boolean spellings as their modes, in place, before the
+// schema reads it.
+function readDeprecatedSsl(merged: Env, deprecations: Set<string>): void {
+  const ssl = merged.DATABASE_SSL;
+  if (ssl === undefined) return;
+  const mode = databaseSslMode(ssl);
+  // An unknown value stays as it is, for the schema to refuse by name.
+  if (mode === undefined) return;
+  merged.DATABASE_SSL = mode;
+  if (ssl.trim().toLowerCase() === 'true') {
+    deprecations.add(
+      'DATABASE_SSL=true is deprecated: it means no-verify (the server certificate is not checked) and will mean verify; set no-verify or verify',
+    );
+  }
 }
 
 function readEnvFile(file: string): Env {
@@ -311,25 +412,12 @@ function crossFieldProblems(config: Config): string[] {
       `PASSWORD_HASH_ROUNDS: at least ${PASSWORD_HASH_ROUNDS_PRODUCTION} when APP_ENV is production`,
     );
   }
+  const sslCa = sslCaProblem(config);
+  if (sslCa) problems.push(sslCa);
   if (config.LOG_FILE && isInside(config.DATA_PATH, config.LOG_FILE)) {
     problems.push('LOG_FILE: must not be under DATA_PATH');
   }
-  if (config.PWA_ENABLED) {
-    for (const key of ['PUBLIC_VAPID_KEY', 'PRIVATE_VAPID_KEY'] as const) {
-      if (!config[key]) {
-        problems.push(`${key}: is required when PWA_ENABLED is true`);
-      }
-    }
-    // The value stays out of the message (it can carry credentials in a URL).
-    if (
-      !URL.canParse(config.SITE_URL) ||
-      new URL(config.SITE_URL).protocol !== 'https:'
-    ) {
-      problems.push(
-        'SITE_URL: must be an https: URL when PWA_ENABLED is true (it is the Web Push VAPID subject)',
-      );
-    }
-  }
+  problems.push(...pwaProblems(config));
   problems.push(...orderMailProblems(config));
   return problems;
 }
@@ -338,6 +426,48 @@ function crossFieldProblems(config: Config): string[] {
 function isInside(directory: string, path: string): boolean {
   const from = relative(resolve(directory), resolve(path));
   return from !== '..' && !from.startsWith(`..${sep}`) && !isAbsolute(from);
+}
+
+// The PWA needs its push keys and a secure origin.
+function pwaProblems(config: Config): string[] {
+  if (!config.PWA_ENABLED) return [];
+  const problems: string[] = [];
+  for (const key of ['PUBLIC_VAPID_KEY', 'PRIVATE_VAPID_KEY'] as const) {
+    if (!config[key]) {
+      problems.push(`${key}: is required when PWA_ENABLED is true`);
+    }
+  }
+  // The value stays out of the message (it can carry credentials in a URL).
+  if (
+    !URL.canParse(config.SITE_URL) ||
+    new URL(config.SITE_URL).protocol !== 'https:'
+  ) {
+    problems.push(
+      'SITE_URL: must be an https: URL when PWA_ENABLED is true (it is the Web Push VAPID subject)',
+    );
+  }
+  return problems;
+}
+
+// A CA outside `verify` would be silently unused; an unreadable one would
+// fail every connection instead of the boot.
+function sslCaProblem(config: Config): string | undefined {
+  if (config.DATABASE_SSL_CA === undefined) return undefined;
+  if (config.DATABASE_SSL !== 'verify') {
+    return 'DATABASE_SSL_CA: applies only when DATABASE_SSL is verify';
+  }
+  return isReadableFile(config.DATABASE_SSL_CA)
+    ? undefined
+    : 'DATABASE_SSL_CA: must be a readable file';
+}
+
+function isReadableFile(path: string): boolean {
+  try {
+    accessSync(path, constants.R_OK);
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
 }
 
 // Order mail is optional: its token switches it on, and then needs who may send and who owns.

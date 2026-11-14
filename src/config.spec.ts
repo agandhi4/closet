@@ -14,7 +14,7 @@ import {
 const REQUIRED: Env = {
   ACCESS_TOKEN_SECRET: 'x'.repeat(32),
   DATABASE_HOST: 'localhost',
-  DATABASE_SCHEMA: 'closet_db',
+  DATABASE_NAME: 'closet_db',
   DATABASE_USER: 'closet',
   DATABASE_PASS: '',
 };
@@ -50,9 +50,10 @@ describe('loadConfig', () => {
       ICON_NAME: 'icon.png',
       WATERMARK_ENABLED: false,
       DATABASE_PORT: 5432,
-      DATABASE_SSL: false,
+      DATABASE_SSL: 'off',
       MAINTENANCE_ENABLED: true,
       MAX_HEIC_BYTES: 40 * 1024 * 1024,
+      CUTOUT_ENABLED: true,
       CUTOUT_THREADS: 4,
       CUTOUT_POLL_SECONDS: 60,
     });
@@ -65,12 +66,12 @@ describe('loadConfig', () => {
     const config = load({
       PORT: '8080',
       DISABLE_REGISTRATION: 'TRUE',
-      DATABASE_SSL: 'false',
+      CUTOUT_ENABLED: 'false',
       MAX_HEIC_BYTES: '1024',
     });
     expect(config.PORT).toBe(8080);
     expect(config.DISABLE_REGISTRATION).toBe(true);
-    expect(config.DATABASE_SSL).toBe(false);
+    expect(config.CUTOUT_ENABLED).toBe(false);
     expect(config.MAX_HEIC_BYTES).toBe(1024);
   });
 
@@ -86,7 +87,7 @@ describe('loadConfig', () => {
     expect(problemsOf({ DATABASE_PASS: '' })).toEqual([
       'ACCESS_TOKEN_SECRET: is required (at least 32 characters; generate one with: openssl rand -hex 32)',
       'DATABASE_HOST: is required',
-      'DATABASE_SCHEMA: is required',
+      'DATABASE_NAME: is required',
       'DATABASE_USER: is required',
     ]);
   });
@@ -112,6 +113,11 @@ describe('loadConfig', () => {
     ],
     ['APP_ENV', 'test', 'APP_ENV: must be one of production, dev, gate'],
     ['LOG_FORMAT', 'pretty', 'LOG_FORMAT: must be one of json, text'],
+    [
+      'DATABASE_SSL',
+      'require',
+      'DATABASE_SSL: must be one of verify, no-verify, off',
+    ],
     ['APP_NAME', '', 'APP_NAME: expected string length greater or equal to 1'],
     [
       'CUTOUT_THREADS',
@@ -120,6 +126,111 @@ describe('loadConfig', () => {
     ],
   ])('refuses %s=%j, naming it', (key, value, problem) => {
     expect(problemsOf({ ...REQUIRED, [key]: value })).toEqual([problem]);
+  });
+
+  describe('the database settings renamed before 0.1 (#694)', () => {
+    const loadWarned = (env: Env) => {
+      const warnings: string[] = [];
+      const config = loadConfig({
+        env: { ...REQUIRED, ...env },
+        envFiles: [],
+        onDeprecated: (message) => warnings.push(message),
+      });
+      return { config, warnings };
+    };
+
+    it.each([
+      ['verify', 'verify'],
+      ['no-verify', 'no-verify'],
+      ['off', 'off'],
+      [' Off ', 'off'],
+      ['false', 'off'],
+    ])('reads DATABASE_SSL=%j as %s, silently', (raw, mode) => {
+      expect(loadWarned({ DATABASE_SSL: raw })).toEqual({
+        config: expect.objectContaining({ DATABASE_SSL: mode }),
+        warnings: [],
+      });
+    });
+
+    // What it always meant, until homelab moves (docs/decisions.md 2026-11-14).
+    it('boots DATABASE_SSL=true as no-verify, with one deprecation warning', () => {
+      const { config, warnings } = loadWarned({ DATABASE_SSL: 'TRUE' });
+      expect(config.DATABASE_SSL).toBe('no-verify');
+      expect(warnings).toEqual([
+        'DATABASE_SSL=true is deprecated: it means no-verify (the server certificate is not checked) and will mean verify; set no-verify or verify',
+      ]);
+    });
+
+    it('reads DATABASE_SCHEMA as DATABASE_NAME, which wins when both are set', () => {
+      expect(
+        loadWarned({ DATABASE_NAME: undefined, DATABASE_SCHEMA: 'old' }),
+      ).toEqual({
+        config: expect.objectContaining({ DATABASE_NAME: 'old' }),
+        warnings: ['DATABASE_SCHEMA is deprecated: rename it DATABASE_NAME'],
+      });
+      expect(loadWarned({ DATABASE_SCHEMA: 'old' })).toEqual({
+        config: expect.objectContaining({ DATABASE_NAME: 'closet_db' }),
+        warnings: [
+          'DATABASE_SCHEMA is ignored: DATABASE_NAME is set; remove DATABASE_SCHEMA',
+        ],
+      });
+      // The environment over the files, whichever name each uses.
+      const dir = mkdtempSync(join(tmpdir(), 'closet-name-'));
+      try {
+        const file = join(dir, '.env.local');
+        writeFileSync(file, 'DATABASE_NAME=from_file\n');
+        const warnings: string[] = [];
+        const config = loadConfig({
+          env: {
+            ...REQUIRED,
+            DATABASE_NAME: undefined,
+            DATABASE_SCHEMA: 'from_env',
+          },
+          envFiles: [file],
+          onDeprecated: (message) => warnings.push(message),
+        });
+        expect(config.DATABASE_NAME).toBe('from_env');
+        expect(warnings).toEqual([
+          'DATABASE_SCHEMA is deprecated: rename it DATABASE_NAME',
+        ]);
+      } finally {
+        rmSync(dir, { recursive: true });
+      }
+      expect(load({ DATABASE_SCHEMA: 'old' })).not.toHaveProperty(
+        'DATABASE_SCHEMA',
+      );
+    });
+
+    it('takes DATABASE_SSL_CA only under verify, and only a readable file', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'closet-ca-'));
+      try {
+        const ca = join(dir, 'ca.pem');
+        writeFileSync(ca, 'pem');
+        expect(
+          load({ DATABASE_SSL: 'verify', DATABASE_SSL_CA: ca }).DATABASE_SSL_CA,
+        ).toBe(ca);
+        expect(
+          problemsOf({
+            ...REQUIRED,
+            DATABASE_SSL: 'no-verify',
+            DATABASE_SSL_CA: ca,
+          }),
+        ).toEqual([
+          'DATABASE_SSL_CA: applies only when DATABASE_SSL is verify',
+        ]);
+        for (const path of [join(dir, 'missing.pem'), dir]) {
+          expect(
+            problemsOf({
+              ...REQUIRED,
+              DATABASE_SSL: 'verify',
+              DATABASE_SSL_CA: path,
+            }),
+          ).toEqual(['DATABASE_SSL_CA: must be a readable file']);
+        }
+      } finally {
+        rmSync(dir, { recursive: true });
+      }
+    });
   });
 
   // The test tiers hash at 4; production may never (a weak cost is a

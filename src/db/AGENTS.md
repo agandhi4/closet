@@ -26,7 +26,8 @@ How to change the schema is in the root `AGENTS.md` (Changing the schema). This 
     schema.ts          Every table, index, constraint and relation (the source of drizzle/ migrations)
     client.ts          dbConfig(config), createDb(): one pg Pool (max 10, min 2) + drizzle(), with its
                        DbTimeouts (see Timeouts). Db, and Queryable (Db or a transaction) for writes
-                       that must commit with others
+                       that must commit with others; sslOption(): DATABASE_SSL's mode as pg's `ssl`
+                       (`false` when off: undefined would let PGSSLMODE in)
     errors.ts          isUniqueViolation, isLockTimeout, isDatabaseUnavailable: a driver error through
                        drizzle's cause chain (driverError, src/driver-error.ts); DatabaseUnreachable, PoolExhausted
     owner-lock.ts      ownerLockCte / ownersLockCte (a subquery or ids) / ownerLockSql / ownersLockSql: the owner lock's one statement shape,

@@ -113,7 +113,7 @@ const ChangesPage = Type.Object(
  */
 export const syncApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
   app,
-  { db, logger },
+  { db, logger, cutouts },
   done,
 ) => {
   app.get(
@@ -136,6 +136,7 @@ export const syncApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         actor,
         request.query.cursor,
         request.query.limit ?? CHANGES_PAGE_SIZE,
+        cutouts.enabled,
       );
       if (page.revokedWardrobes.length > 0) {
         logger.info(

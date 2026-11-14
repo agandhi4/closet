@@ -45,6 +45,8 @@ export interface CutoutQueueDeps {
   database: DbConfig;
   photos: Photos;
   logger: Logger;
+  /** CUTOUT_ENABLED: false makes the queue `disabled` for good (queue-state.ts). */
+  enabled: boolean;
   /** How long an idle queue waits before looking again unasked (CUTOUT_POLL_SECONDS). */
   pollMs: number;
   /**
@@ -87,11 +89,28 @@ export class CutoutQueue {
   private wakeUp: (() => void) | undefined;
   private idleWaiters: (() => void)[] = [];
 
-  constructor(private readonly deps: CutoutQueueDeps) {}
+  constructor(private readonly deps: CutoutQueueDeps) {
+    if (!deps.enabled) {
+      this.transition({ type: 'disable' });
+      deps.logger.info(
+        'Background removal disabled (CUTOUT_ENABLED=false): uploads keep their original, no model is fetched or run',
+      );
+    }
+  }
+
+  /**
+   * Whether uploads are queued for a cutout at all. Read by the writers of
+   * new photo rows (`requestedCutout`, writes.ts): a disabled queue would
+   * leave a pending row pending forever.
+   */
+  get enabled(): boolean {
+    return this.deps.enabled;
+  }
 
   /**
    * /health/ready's cutout_queue check: `running` between start() and
-   * stop() while the model can be had, `waiting-for-model` while it cannot.
+   * stop() while the model can be had, `waiting-for-model` while it cannot,
+   * `disabled` throughout when CUTOUT_ENABLED is false.
    * The job loop catches what a claim throws, and anything else it throws
    * is an unhandled rejection that ends the process, so a running queue is
    * a working one.

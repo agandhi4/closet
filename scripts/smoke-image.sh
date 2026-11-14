@@ -9,7 +9,7 @@
 #
 # Usage: scripts/smoke-image.sh <image>
 # Environment:
-#   DATABASE_HOST, DATABASE_PORT (5432), DATABASE_USER, DATABASE_PASS, DATABASE_SCHEMA
+#   DATABASE_HOST, DATABASE_PORT (5432), DATABASE_USER, DATABASE_PASS, DATABASE_NAME
 #       An empty database: the boot must apply the migrations. The container runs on the host's
 #       network, so localhost is the host's (make ci-smoke's throwaway Postgres, pgvault-dev on
 #       the production host).
@@ -44,7 +44,7 @@ set -euo pipefail
 log_has() { docker logs "$NAME" >"$WORK/container.log" 2>&1; grep -q "$@" "$WORK/container.log"; }
 
 IMAGE=${1:?usage: scripts/smoke-image.sh <image>}
-: "${DATABASE_HOST:?} ${DATABASE_USER:?} ${DATABASE_SCHEMA:?}"
+: "${DATABASE_HOST:?} ${DATABASE_USER:?} ${DATABASE_NAME:?}"
 PORT=${SMOKE_PORT:-3000}
 BASE="http://127.0.0.1:$PORT"
 SMOKE="closet-smoke-$$"
@@ -105,7 +105,7 @@ start() {
     -e DATABASE_PORT="${DATABASE_PORT:-5432}" \
     -e DATABASE_USER="$DATABASE_USER" \
     -e DATABASE_PASS="${DATABASE_PASS:-}" \
-    -e DATABASE_SCHEMA="$DATABASE_SCHEMA" \
+    -e DATABASE_NAME="$DATABASE_NAME" \
     -e ACCESS_TOKEN_SECRET=smoke-test-access-token-secret-not-for-deployment \
     -e PWA_ENABLED=true \
     -e METRICS_ENABLED=true \
@@ -125,7 +125,7 @@ else
   volume "$MODELS" "$APP_UID:$APP_GID" placeholder
 fi
 
-log "starting $IMAGE on :$PORT (database $DATABASE_SCHEMA on $DATABASE_HOST, model: ${MODELS_DIR:-placeholder})"
+log "starting $IMAGE on :$PORT (database $DATABASE_NAME on $DATABASE_HOST, model: ${MODELS_DIR:-placeholder})"
 started=$SECONDS
 start "$NAME" "$DATA" "$MODELS"
 

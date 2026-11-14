@@ -25,6 +25,7 @@ import {
 } from '../../wardrobe/properties';
 import { GARMENT_STATUSES } from '../../wardrobe/status';
 import { literals, withoutNulls } from '../api/resource';
+import { shownPhoto } from './cutout-shown';
 import { imageUrl } from '../files/image-url';
 import { IsoDateSchema } from '../schemas';
 import type { GarmentContext } from './garment-context';
@@ -127,7 +128,10 @@ export const GarmentListItem = Type.Object(
 );
 type GarmentListItem = Static<typeof GarmentListItem>;
 
-export function toGarmentListItem(summary: GarmentSummary): GarmentListItem {
+export function toGarmentListItem(
+  summary: GarmentSummary,
+  cutoutsEnabled: boolean,
+): GarmentListItem {
   return withoutNulls({
     id: summary.id,
     name: summary.name,
@@ -140,7 +144,9 @@ export function toGarmentListItem(summary: GarmentSummary): GarmentListItem {
     price: summary.price,
     quantity: summary.quantity,
     condition: summary.condition,
-    photo: summary.photo && toGarmentPhoto(summary.photo),
+    photo:
+      summary.photo &&
+      toGarmentPhoto(shownPhoto(summary.photo, cutoutsEnabled)),
     photoMissingSince: summary.photoMissingSince?.toISOString(),
     type: summary.type,
     warmth: summary.warmth,
@@ -285,6 +291,7 @@ function recordOf(
   garment: GarmentDetail,
   repairs: RepairEntry[] | null,
   agent: AgentLabel | null,
+  cutoutsEnabled: boolean,
 ) {
   return {
     id: garment.id,
@@ -298,7 +305,9 @@ function recordOf(
     price: garment.price,
     quantity: garment.quantity,
     condition: garment.condition,
-    photo: garment.photo && toGarmentPhoto(garment.photo),
+    photo:
+      garment.photo &&
+      toGarmentPhoto(shownPhoto(garment.photo, cutoutsEnabled)),
     photoMissingSince: garment.photoMissingSince?.toISOString(),
     notes: garment.notes,
     acquiredOn: garment.acquiredOn,
@@ -338,10 +347,16 @@ function recordOf(
 export function toGarmentResource(
   garment: GarmentDetail,
   context: GarmentContext,
+  cutoutsEnabled: boolean,
 ): Garment {
   const { own } = context;
   return withoutNulls({
-    ...recordOf(garment, own ? own.repairs.entries : null, context.agent),
+    ...recordOf(
+      garment,
+      own ? own.repairs.entries : null,
+      context.agent,
+      cutoutsEnabled,
+    ),
     capsules: context.capsules
       .filter((capsule) => capsule.member)
       .map(({ id, name }) => ({ id, name })),
@@ -356,9 +371,10 @@ export function toGarmentResource(
  */
 export function toSyncedGarment(
   garment: SyncedGarmentRow,
+  cutoutsEnabled: boolean,
 ): Static<typeof SyncedGarment> {
   return withoutNulls({
-    ...recordOf(garment, garment.repairs, garment.agent),
+    ...recordOf(garment, garment.repairs, garment.agent, cutoutsEnabled),
     care:
       garment.repairs === null
         ? null
@@ -471,7 +487,7 @@ export const GarmentPhotoSaved = Type.Object(
      * `pending`: queued for its cutout (poll GET /garments/{id}); `edited`:
      * a mask turned with the photo, nothing to wait for.
      */
-    cutoutStatus: literals<SwappedCutout>(['pending', 'edited']),
+    cutoutStatus: literals<SwappedCutout>(['pending', 'edited', 'none']),
   },
   {
     title: 'GarmentPhotoSaved',

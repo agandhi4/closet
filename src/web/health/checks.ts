@@ -23,6 +23,8 @@ export interface HealthCheck {
   fix?: string;
   /** cron_jobs: the jobs whose run has been in flight past STUCK_AFTER_MS. */
   stuck?: string[];
+  /** cutout_queue with CUTOUT_ENABLED=false: up (the operator's choice, not a fault) and flagged. */
+  disabled?: true;
   /** cutout_queue while it waits for the model: why, a closed word (queue-state.ts). */
   reason?: ModelUnavailableKind;
   /** migrations when down with a database that answered: which way it is off (schemaState). */
@@ -131,7 +133,8 @@ export function checkJobs(stuck: string[] | undefined): HealthCheck {
  * The background-removal queue (CutoutQueue.state); optional like the
  * timers. Down when it was never started or is stopping, and while it waits
  * for a model it cannot have (#689), naming the kind and its fix: photos
- * stay pending until then.
+ * stay pending until then. `disabled` (CUTOUT_ENABLED=false) is up
+ * and flagged: the operator's choice, not a fault.
  */
 export function checkCutoutQueue(state: CutoutQueueState): HealthCheck {
   switch (state.name) {
@@ -139,6 +142,8 @@ export function checkCutoutQueue(state: CutoutQueueState): HealthCheck {
       return { status: 'up', required: false };
     case 'stopped':
       return down(false);
+    case 'disabled':
+      return { status: 'up', required: false, disabled: true };
     case 'waiting-for-model':
       return {
         status: 'down',
