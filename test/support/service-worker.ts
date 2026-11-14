@@ -26,6 +26,23 @@ export async function networkSwitch(context: BrowserContext) {
 }
 
 /**
+ * Closes a context that went through networkSwitch. The switch's handler
+ * answers every request the context makes, and a device left offline with
+ * queued writes keeps making them (the outbox's replays, the heartbeat). A
+ * request whose handler is still awaiting its `abort()`/`fallback()` when the
+ * context goes away gets "Target page, context or browser has been closed"
+ * from it, and that rejection lands on `close()` (#867). Unrouting with
+ * 'wait' first lets every pending handler finish while the context is alive,
+ * and nothing intercepts after it, so close() has no handler left to fail.
+ */
+export async function closeSwitchedContext(
+  context: BrowserContext,
+): Promise<void> {
+  await context.unrouteAll({ behavior: 'wait' });
+  await context.close();
+}
+
+/**
  * Loads /wardrobe and waits until the service worker controls the page, so
  * the next navigation goes through it. A freshly registered worker precaches
  * in the background first.

@@ -1105,3 +1105,9 @@ Consequence: a new per-person job throws at its end the same way; callers wantin
 Why: `replayVerdict` retried every 5xx forever and the drain stops at the first retry, so one deterministic 500 left every later queued write unsent with no sign online. A per-record count alone would let a server-wide outage (restart, deploy) fail the whole queue.
 Decision: a 5xx counts against a record only when the server answers another record properly in the same drain (`replayQueue`: the head waits as a suspect, the next is tried); 5 counted answers within 10 min fail it ("server") and the drain goes on. Two 5xx in a row, or a lone record, back off and spend nothing. Network errors, timeouts, 408, 429 and 503 (the busy page) never spend it; they neither spend nor clear the count. The counters are optional fields on the IndexedDB record, so no schema bump.
 Consequence: an outage never fails a wear; a lone poisoned record retries until a neighbour proves the server healthy. A tap on a failed record's key is sent as a newer intent.
+
+## 2026-11-14 — A switched context closes through `closeSwitchedContext` (#867)
+
+Why: `networkSwitch`'s `context.route` handler awaits `abort()`/`fallback()` per request. A device left offline with queued writes (trips, offline-writes) still makes requests (outbox replays, heartbeat), so `context.close()` could run while a handler was pending; its call then failed with "Target page, context or browser has been closed" and that surfaced at `close()`, passing on retry.
+Decision: such a context ends with `closeSwitchedContext` (`test/support/service-worker.ts`): `unrouteAll({ behavior: 'wait' })`, then `close()`. Each scenario's `finally` is still the one owner of its context.
+Consequence: a new spec using `networkSwitch` on a context it closes uses the helper, never a bare `close()`.
