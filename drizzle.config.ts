@@ -13,7 +13,9 @@ const sslMode = databaseSslMode(process.env.DATABASE_SSL ?? 'off');
 if (sslMode === undefined) {
   throw new Error('DATABASE_SSL: must be one of verify, no-verify, off');
 }
-const sslCa = process.env.DATABASE_SSL_CA;
+// Read only under verify, as the app (src/config.ts refuses it elsewhere).
+const sslCa =
+  sslMode === 'verify' ? process.env.DATABASE_SSL_CA || undefined : undefined;
 
 export default defineConfig({
   dialect: 'postgresql',
@@ -26,7 +28,7 @@ export default defineConfig({
     password: process.env.DATABASE_PASS,
     database:
       process.env.DATABASE_NAME ?? process.env.DATABASE_SCHEMA ?? 'closet_db',
-    ssl: sslOption(sslMode, sslCa && readFileSync(sslCa, 'utf8')),
+    ssl: sslOption(sslMode, sslCa ? readFileSync(sslCa, 'utf8') : undefined),
   },
   // The legacy MikroORM bookkeeping table stays in databases built before
   // Drizzle (production); it is not part of the schema. Keep in step with

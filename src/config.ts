@@ -275,12 +275,10 @@ export function loadConfig({
   envFiles = ENV_FILES,
   onDeprecated = () => {},
 }: LoadConfigOptions = {}): Config {
-  const merged: Env = {};
-  for (const file of [...envFiles].reverse()) {
-    Object.assign(merged, readEnvFile(file));
-  }
-  Object.assign(merged, env);
-  readDeprecated(merged, onDeprecated);
+  // A set: a deprecated name in two sources is still one warning.
+  const deprecations = new Set<string>();
+  const merged = mergedEnv(envFiles, env, deprecations);
+  for (const message of deprecations) onDeprecated(message);
 
   const values: Record<string, unknown> = {};
   for (const [key, schema] of Object.entries(ConfigSchema.properties)) {
@@ -297,20 +295,39 @@ export function loadConfig({
   return config as Config;
 }
 
-// Rewrites the merged environment in place, before the schema reads it.
-function readDeprecated(
-  merged: Env,
-  onDeprecated: (message: string) => void,
-): void {
+// The files under the environment, old names and values read as current.
+function mergedEnv(
+  envFiles: string[],
+  env: Env,
+  deprecations: Set<string>,
+): Env {
+  const merged: Env = {};
+  for (const source of [...[...envFiles].reverse().map(readEnvFile), env]) {
+    Object.assign(merged, withCurrentNames(source, deprecations));
+  }
+  readDeprecatedSsl(merged, deprecations);
+  return merged;
+}
+
+// A source's old names as their current ones, per source before the merge,
+// so the environment's DATABASE_SCHEMA still wins over a file's DATABASE_NAME.
+function withCurrentNames(source: Env, deprecations: Set<string>): Env {
+  const renamed: Env = { ...source };
   for (const [old, current] of Object.entries(DEPRECATED_NAMES)) {
-    if (merged[old] === undefined) continue;
-    if (merged[current] === undefined) {
-      merged[current] = merged[old];
-      onDeprecated(`${old} is deprecated: rename it ${current}`);
+    if (source[old] === undefined) continue;
+    if (source[current] === undefined) {
+      renamed[current] = source[old];
+      deprecations.add(`${old} is deprecated: rename it ${current}`);
     } else {
-      onDeprecated(`${old} is ignored: ${current} is set; remove ${old}`);
+      deprecations.add(`${old} is ignored: ${current} is set; remove ${old}`);
     }
   }
+  return renamed;
+}
+
+// DATABASE_SSL's boolean spellings as their modes, in place, before the
+// schema reads it.
+function readDeprecatedSsl(merged: Env, deprecations: Set<string>): void {
   const ssl = merged.DATABASE_SSL;
   if (ssl === undefined) return;
   const mode = databaseSslMode(ssl);
@@ -318,7 +335,7 @@ function readDeprecated(
   if (mode === undefined) return;
   merged.DATABASE_SSL = mode;
   if (ssl.trim().toLowerCase() === 'true') {
-    onDeprecated(
+    deprecations.add(
       'DATABASE_SSL=true is deprecated: it means no-verify (the server certificate is not checked) and will mean verify; set no-verify or verify',
     );
   }

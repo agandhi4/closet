@@ -174,6 +174,28 @@ describe('loadConfig', () => {
           'DATABASE_SCHEMA is ignored: DATABASE_NAME is set; remove DATABASE_SCHEMA',
         ],
       });
+      // The environment over the files, whichever name each uses.
+      const dir = mkdtempSync(join(tmpdir(), 'closet-name-'));
+      try {
+        const file = join(dir, '.env.local');
+        writeFileSync(file, 'DATABASE_NAME=from_file\n');
+        const warnings: string[] = [];
+        const config = loadConfig({
+          env: {
+            ...REQUIRED,
+            DATABASE_NAME: undefined,
+            DATABASE_SCHEMA: 'from_env',
+          },
+          envFiles: [file],
+          onDeprecated: (message) => warnings.push(message),
+        });
+        expect(config.DATABASE_NAME).toBe('from_env');
+        expect(warnings).toEqual([
+          'DATABASE_SCHEMA is deprecated: rename it DATABASE_NAME',
+        ]);
+      } finally {
+        rmSync(dir, { recursive: true });
+      }
       expect(load({ DATABASE_SCHEMA: 'old' })).not.toHaveProperty(
         'DATABASE_SCHEMA',
       );
