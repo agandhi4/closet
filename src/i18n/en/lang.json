@@ -754,6 +754,8 @@
     "NETWORK": "The site couldn't be reached.",
     "UNREADABLE_IMAGE": "That photo couldn't be read.",
     "FOUND_DETAILS": "Filled in from the page. Check everything before saving.",
+    "TITLE_ONLY": "Could not read the product from that page; the link is kept. Fill in the rest yourself.",
+    "TITLE_ONLY_SEND_NAME": "Could not read the product from that page; send a name for the garment and it is saved with the link.",
     "NOTHING_FOUND": "Nothing could be read from that page. The link is kept below; fill in the rest, or add from a link to the photo instead.",
     "NO_PHOTO": "No photo could be fetched from the page. Add one after saving.",
     "PHOTO_ONLY": "Photo added from the link. Fill in the details.",

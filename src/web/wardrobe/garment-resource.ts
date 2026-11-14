@@ -481,6 +481,18 @@ export const GarmentImported = Type.Object(
     id: Type.Integer(),
     /** What the import says about itself ("Found the details", "No photo"), as the page shows it. */
     notices: Type.Array(Type.String()),
+    confidence: Type.Union(
+      [
+        Type.Literal('product'),
+        Type.Literal('page'),
+        Type.Literal('title-only'),
+        Type.Null(),
+      ],
+      {
+        description:
+          "How much of a product the page gave: `product` (structured product data), `page` (a title and a photo only), `title-only` (nothing readable: only the link was kept, so the name is the caller's to give); null when the link was an image",
+      },
+    ),
   },
   {
     title: 'GarmentImported',

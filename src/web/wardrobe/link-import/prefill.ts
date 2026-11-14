@@ -29,23 +29,40 @@ export function importedForm(
         photo: result.photo,
         choices: [],
         notices: [t('linkImport.PHOTO_ONLY')],
+        warnings: [],
       },
     };
   }
   const { product, photo, choices } = result;
+  if (product.confidence === 'title-only') {
+    // The page's title is a marketing headline or the shop's name, not the
+    // garment's: keep the link, claim nothing.
+    return {
+      values: { ...BLANK_GARMENT_VALUES, sourceUrl: link },
+      link: {
+        photo,
+        choices,
+        notices: [],
+        warnings: [
+          t(
+            product.source === null
+              ? 'linkImport.NOTHING_FOUND'
+              : 'linkImport.TITLE_ONLY',
+          ),
+        ],
+      },
+    };
+  }
   const price = householdPrice(product);
   return {
     values: productValues(product, link, price),
     link: {
       photo,
       choices,
+      warnings: [],
       notices: [
-        product.source === null && !photo
-          ? t('linkImport.NOTHING_FOUND')
-          : t('linkImport.FOUND_DETAILS'),
-        ...(product.source !== null && !photo
-          ? [t('linkImport.NO_PHOTO')]
-          : []),
+        t('linkImport.FOUND_DETAILS'),
+        ...(photo ? [] : [t('linkImport.NO_PHOTO')]),
         ...(product.price && price === ''
           ? [
               t('linkImport.PRICE_CURRENCY', {

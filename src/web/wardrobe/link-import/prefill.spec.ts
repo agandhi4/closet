@@ -3,12 +3,14 @@ import { GarmentCategory } from '../../../wardrobe/properties';
 import { t } from '../../i18n';
 import type { ExtractedProduct } from './extract';
 import { linkIn } from './link-text';
+import { BLANK_GARMENT_VALUES } from '../garment-input';
 import { importedForm } from './prefill';
 
 const LINK = 'https://shop.test/p/tee';
 
 const product = (fields: Partial<ExtractedProduct>): ExtractedProduct => ({
   source: 'json-ld',
+  confidence: 'product',
   name: null,
   brand: null,
   price: null,
@@ -85,6 +87,7 @@ describe('importedForm', () => {
       photo: 'photo.webp',
       choices: [],
       notices: [t('linkImport.FOUND_DETAILS')],
+      warnings: [],
     });
   });
 
@@ -131,7 +134,7 @@ describe('importedForm', () => {
     const { values, link } = importedForm(
       {
         kind: 'page',
-        product: product({ source: null }),
+        product: product({ source: null, confidence: 'title-only' }),
         photo: undefined,
         choices: [],
       },
@@ -139,7 +142,30 @@ describe('importedForm', () => {
     );
     expect(values.name).toBe('');
     expect(values.sourceUrl).toBe(LINK);
-    expect(link.notices).toEqual([t('linkImport.NOTHING_FOUND')]);
+    expect(link.warnings).toEqual([t('linkImport.NOTHING_FOUND')]);
+    expect(link.notices).toEqual([]);
+  });
+
+  it('keeps only the link of a title-only read, with a warning, not the success notice', () => {
+    const { values, link } = importedForm(
+      {
+        kind: 'page',
+        product: product({
+          source: 'title',
+          confidence: 'title-only',
+          name: 'The Worlds Most Comfortable Shoes',
+          brand: 'Shop',
+          category: GarmentCategory.FOOTWEAR,
+          colors: ['blue'],
+        }),
+        photo: undefined,
+        choices: [],
+      },
+      LINK,
+    );
+    expect(values).toEqual({ ...BLANK_GARMENT_VALUES, sourceUrl: LINK });
+    expect(link.warnings).toEqual([t('linkImport.TITLE_ONLY')]);
+    expect(link.notices).toEqual([]);
   });
 
   it('opens an image link with its photo and blank fields', () => {
@@ -153,6 +179,7 @@ describe('importedForm', () => {
       photo: 'photo.webp',
       choices: [],
       notices: [t('linkImport.PHOTO_ONLY')],
+      warnings: [],
     });
   });
 });

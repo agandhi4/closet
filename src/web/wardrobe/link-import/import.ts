@@ -164,14 +164,22 @@ export async function importLink(
   if (resource.kind === 'image') {
     return { kind: 'image', photo: await storePhoto(deps, resource, userId) };
   }
-  const product = extractProduct(pageText(resource), resource.url);
+  const product = extractProduct(
+    pageText(resource),
+    resource.url,
+    URL.parse(url) ?? resource.url,
+  );
+  // A title-only read (an app shell, or a redirect to the shop's home page)
+  // has no photo of the garment: its og:image is the shop's logo.
   const { choices, first } = await previewChoices(
     deps,
-    product.images.slice(0, MAX_PHOTO_CHOICES),
+    product.confidence === 'title-only'
+      ? []
+      : product.images.slice(0, MAX_PHOTO_CHOICES),
   );
   const photo = first ? await storePhoto(deps, first, userId) : undefined;
   deps.logger.info(
-    `Link import from ${resource.url.hostname}: ${product.source ?? 'nothing'} extracted${resource.truncated ? ' from the page cut at the cap' : ''}, ${choices.length} of ${product.images.length} photos read${photo ? `, ${photo} pending` : ''}`,
+    `Link import from ${resource.url.hostname}: ${product.source ?? 'nothing'} extracted (${product.confidence})${resource.truncated ? ' from the page cut at the cap' : ''}, ${choices.length} of ${product.images.length} photos read${photo ? `, ${photo} pending` : ''}`,
   );
   return {
     kind: 'page',
