@@ -14,9 +14,11 @@ import { eq, inArray } from 'drizzle-orm';
 import { file, selfie } from '../../src/db/schema';
 import {
   reconcileStorage,
+  reconcileStorageWhole,
   type ReconcileOptions,
   type ReconciliationReport,
 } from '../../src/maintenance/reconcile';
+import { PartialFailure } from '../../src/metrics/partial-failure';
 import { restoreFromTrash } from '../../src/maintenance/trash';
 import { addDays, todayIn } from '../../src/calendar-date';
 import { variantFileName } from '../../src/web/files/image-variant';
@@ -594,5 +596,33 @@ describe('storage reconciliation and outfit selfies', () => {
     ).toBe(2);
     expect(await photoRow(t, orphan)).toBeUndefined();
     expect(files).not.toContain(orphan);
+  });
+
+  it('ends the nightly run as a PartialFailure while a row lacks its original (#687)', async () => {
+    const lostGarment = await createGarment(t, {
+      name: 'Lost for the nightly',
+    });
+    await uploadPhoto(t, lostGarment, await jpegPhoto(310, 310));
+    const lost = await photoFileName(t, lostGarment);
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(file)
+        .set({ createdOn: new Date(Date.now() - 3 * DAY_MS).toISOString() })
+        .where(eq(file.fileName, lost)),
+    );
+    await rm(join(t.dataPath, lost));
+
+    const failure = await reconcileStorageWhole({
+      db: t.db,
+      photos: t.photos,
+      logger: silentLogger,
+      timeZone: t.timeZone,
+    }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(PartialFailure);
+    expect(failure).toMatchObject({
+      job: 'reconciliation',
+      counts: { 'rows missing their original': expect.any(Number) },
+    });
+    expect(failure).not.toHaveProperty('counts.refused');
   });
 });

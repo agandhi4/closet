@@ -1,5 +1,6 @@
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
+import { endWhole } from '../../metrics/partial-failure';
 import { dueReminders, type ReminderKind } from '../../push/reminders';
 import { hourIn, todayIn } from '../../calendar-date';
 import { occasionLabel } from '../date-labels';
@@ -140,7 +141,7 @@ interface ReminderBatch {
   evenings: ReadonlyMap<number, EveningDay>;
 }
 
-/** One minute's reminders. Never throws for a person: each failure is logged. */
+/** One minute's reminders. Never throws for a person: each failure is logged and counted (sendDueRemindersWhole throws for them). */
 export async function sendDueReminders(
   deps: ReminderDeps,
   now: Date,
@@ -220,6 +221,20 @@ export async function sendDueReminders(
     `Reminders at ${now.toISOString()}: ${run.claimed} claimed of ${run.due} due, ${run.sent} sent, ${run.skipped} skipped, ${run.failed} failed`,
   );
   return run;
+}
+
+/**
+ * The scheduled run: sendDueReminders, then a PartialFailure when a person
+ * or the batch failed (the others were sent first), for `timeJob` to record
+ * as `failure` (#687). server.ts only; a spec asserting who was sent calls
+ * sendDueReminders.
+ */
+export async function sendDueRemindersWhole(
+  deps: ReminderDeps,
+  now: Date,
+): Promise<ReminderRun> {
+  const run = await sendDueReminders(deps, now);
+  return endWhole('reminders', { failed: run.failed }, run);
 }
 
 /**

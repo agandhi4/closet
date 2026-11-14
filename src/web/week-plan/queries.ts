@@ -171,7 +171,7 @@ function autoEntryOf(row: EntryRow): AutoEntryRow {
  * claimed already (another run, the morning reminder, a second server),
  * which the caller treats alike: nothing to do. Called inside the
  * re-plan's transaction under lockOwner, so the claim commits with the
- * work (claimReplan's rule). Entries the person has since edited or worn
+ * work (claimAutoEntries' rule). Entries the person has since edited or worn
  * are 'user' and never come back here.
  */
 export async function claimAutoEntries(
@@ -611,31 +611,6 @@ export async function replanCandidates(
     )
     .orderBy(outfitCalendar.ownerId);
   return rows.map((row) => row.userId);
-}
-
-/**
- * Claims `userId`'s re-plan for `day`: true when this call inserted the
- * (user, day) row, false when it was there. The re-plan itself claims
- * inside its own transaction, under lockOwner, with its read
- * (claimAutoEntries), so the claim commits with the work: whoever finds it
- * claimed finds the re-plan done, never half done (a second server, the
- * morning reminder's re-plan first). This claims on its own, in a
- * transaction of its own (under the owner lock too), after a failed
- * re-plan, so a user whose re-plan throws is tried once a day, not every
- * minute.
- */
-export async function claimReplan(
-  db: Queryable,
-  userId: number,
-  day: IsoDate,
-  now: Date,
-): Promise<boolean> {
-  const rows = await db
-    .insert(weekReplan)
-    .values({ userId, day, claimedAt: now })
-    .onConflictDoNothing({ target: [weekReplan.userId, weekReplan.day] })
-    .returning({ userId: weekReplan.userId });
-  return rows.length > 0;
 }
 
 /** A "Plan my week" batch as the changes feed carries it (weekPlansByIds, week-plan-resource.ts). */

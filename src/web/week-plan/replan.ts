@@ -1,6 +1,7 @@
 import type { Db, Queryable } from '../../db/client';
 import { selectScalars } from '../../db/select-scalars';
 import type { Logger } from '../../logger';
+import { endWhole } from '../../metrics/partial-failure';
 import { REMINDER_WINDOWS } from '../../push/reminders';
 import { DAY_OCCASIONS } from '../../wardrobe/occasions';
 import {
@@ -14,7 +15,7 @@ import {
 } from '../../wardrobe/week-planner';
 import { ownerTransaction } from '../auth/queries';
 import { OwnerLockTimeout } from '../errors';
-import { dayOfWeek, hourIn, type IsoDate, todayIn } from '../../calendar-date';
+import { dayOfWeek, hourIn, todayIn } from '../../calendar-date';
 import { DAY_NAMES, occasionLabel } from '../date-labels';
 import { ideaName } from '../gallery/ideas';
 import type { WeekPoolGarment } from '../gallery/queries';
@@ -37,7 +38,6 @@ import {
 import {
   type AutoEntryRow,
   claimAutoEntries,
-  claimReplan,
   outfitGarmentStatesSql,
   pruneReplanClaims,
   readOutfitGarmentStates,
@@ -138,7 +138,7 @@ type ReplanResult =
 type NotReplanned =
   /** Nothing to do: re-planned today already (here or elsewhere), or no auto entry. */
   | { kind: 'skipped' }
-  /** Logged, and the day claimed: not tried again until tomorrow. */
+  /** Logged; the transaction rolled back with its claim, so the next run tries again (#687). */
   | { kind: 'failed' }
   /**
    * Another of the owner's writes held the owner lock past its timeout:
@@ -146,7 +146,7 @@ type NotReplanned =
    */
   | { kind: 'deferred' };
 
-/** One minute's re-plan. Never throws for a user: each failure is logged. */
+/** One minute's re-plan. Never throws for a user: each failure is logged and counted (replanWeeksWhole throws for them). */
 export async function replanWeeks(
   deps: ReplanDeps,
   now: Date,
@@ -193,6 +193,19 @@ export async function replanWeeks(
 }
 
 /**
+ * The scheduled run: replanWeeks, then a PartialFailure when a person's
+ * re-plan failed (the others were re-planned first), for `timeJob` to
+ * record as `failure` (#687). server.ts only.
+ */
+export async function replanWeeksWhole(
+  deps: ReplanDeps,
+  now: Date,
+): Promise<ReplanRun> {
+  const run = await replanWeeks(deps, now);
+  return endWhole('replan', { failed: run.failed }, run);
+}
+
+/**
  * The candidates' weather, refreshed together (refreshForecastsFor) and
  * handed on, so no re-plan reads its own again (#165). Empty without
  * WEATHER_ENABLED: the re-plan then judges availability alone.
@@ -217,9 +230,10 @@ async function candidatesWeather(
  * reminder, which names today's swaps in its own text) the notice leaves
  * today's swaps out and goes only for other days': one push per swap,
  * never two. The returned swaps are all of them, today's included. Never
- * throws: a failure is logged and the day claimed all the same, so it is
- * not retried every minute; only an owner lock timeout leaves the day
- * unclaimed, for the next minute. The morning reminders pass what their
+ * throws: a failure or an owner lock timeout is logged and leaves the day
+ * unclaimed (the claim rolled back with the work), so the next minute tries
+ * again; a failing person ends the minutely run as a PartialFailure
+ * (#687). The morning reminders pass what their
  * batch already knows (`listed`, `weather`), so a person's re-plan reads
  * neither again (#173).
  */
@@ -301,27 +315,7 @@ async function replanOnce(
       { err: error },
       `Week re-plan for user ${userId} on ${today} failed`,
     );
-    await claimAfterFailure(deps, userId, today, now);
     return { kind: 'failed' };
-  }
-}
-
-// The failed transaction took its claim with it: claim the day on its own.
-async function claimAfterFailure(
-  deps: ReplanDeps,
-  userId: number,
-  today: IsoDate,
-  now: Date,
-): Promise<void> {
-  try {
-    await ownerTransaction(deps.db, userId, 'claimAfterFailure', (tx) =>
-      claimReplan(tx, userId, today, now),
-    );
-  } catch (error) {
-    deps.logger.error(
-      { err: error },
-      `Week re-plan for user ${userId} on ${today} could not be claimed after its failure: tried again next minute`,
-    );
   }
 }
 

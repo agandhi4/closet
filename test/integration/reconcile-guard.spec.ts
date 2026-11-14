@@ -7,8 +7,10 @@ import { file, garment } from '../../src/db/schema';
 import {
   GUARD_MAX_SETS,
   reconcileStorage,
+  reconcileStorageWhole,
   type ReconcileOptions,
 } from '../../src/maintenance/reconcile';
+import { PartialFailure } from '../../src/metrics/partial-failure';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { photoRowCount } from './garments';
 import { createTestApp, TestApp, asFixture } from './harness';
@@ -117,6 +119,24 @@ describe('storage reconciliation guard', () => {
     });
     expect(report.refused).toMatch(/file table is empty/);
     expect(await storedPhotos()).toEqual(before);
+  });
+
+  it('ends the nightly run as a PartialFailure when the guard refused (#687)', async () => {
+    await orphans(2);
+    const failure = await reconcileStorageWhole({
+      db: t.db,
+      photos: t.photos,
+      logger: silentLogger,
+      timeZone: t.timeZone,
+    }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(PartialFailure);
+    expect(failure).toMatchObject({
+      job: 'reconciliation',
+      counts: { refused: 1 },
+    });
+    expect((failure as Error).message).toBe(
+      'reconciliation ended partially: 1 refused',
+    );
   });
 
   it(`refuses more than ${GUARD_MAX_SETS} sets in one run, even as a small fraction`, async () => {

@@ -7,18 +7,18 @@ import type { Logger } from './logger';
 import type { Metrics } from './metrics/metrics';
 import { scheduleMinutely } from './maintenance/minutely';
 import { scheduleNightly } from './maintenance/nightly';
-import { reconcileStorage } from './maintenance/reconcile';
+import { reconcileStorageWhole } from './maintenance/reconcile';
 import { type ScheduledJob, stopBeforeClose } from './maintenance/scheduled';
 import { pruneSyncTombstones } from './maintenance/sync-prune';
 import { addDays, todayIn } from './calendar-date';
-import { pruneReminders, sendDueReminders } from './web/push/reminders';
+import { pruneReminders, sendDueRemindersWhole } from './web/push/reminders';
 import { pollOrderMail } from './web/wardrobe/order-mail/poll';
 import { closeQuietRounds } from './web/wishlist/round-end';
 import type { PushSender } from './web/push/sender';
 import {
   pruneReplans,
   type ReplanDeps,
-  replanWeeks,
+  replanWeeksWhole,
 } from './web/week-plan/replan';
 
 // The hour, in APP_TIMEZONE, of the nightly jobs: the storage
@@ -74,7 +74,7 @@ export async function serve(
         hour: RECONCILE_HOUR,
         timeZone: config.APP_TIMEZONE,
         run: metrics.timeJob('reconciliation', () =>
-          reconcileStorage({
+          reconcileStorageWhole({
             db,
             photos,
             logger: reconciliation,
@@ -204,7 +204,7 @@ function startReminders(
   const reminders = scheduleMinutely({
     name: 'Push reminders',
     run: metrics.timeJob('reminders', (now: Date) =>
-      sendDueReminders(deps, now),
+      sendDueRemindersWhole(deps, now),
     ),
     logger: log,
   });
@@ -236,7 +236,7 @@ function startReplans(
 ): ScheduledJob[] {
   const replans = scheduleMinutely({
     name: 'Week re-plan',
-    run: metrics.timeJob('replan', (now: Date) => replanWeeks(deps, now)),
+    run: metrics.timeJob('replan', (now: Date) => replanWeeksWhole(deps, now)),
     logger: deps.logger,
   });
   const prune = scheduleNightly({

@@ -23,6 +23,7 @@ import {
   storageIdentityProblem,
 } from '../web/files/storage-identity';
 import type { Logger } from '../logger';
+import { endWhole } from '../metrics/partial-failure';
 import { type IsoDate, todayIn } from '../calendar-date';
 import { purgeTrash } from './trash';
 
@@ -178,6 +179,28 @@ export async function reconcileStorage(
     deps,
     { pendingRows, rows, ...scan },
     { cutoff, now, startedAt, dryRun, force },
+  );
+}
+
+/**
+ * The nightly run: reconcileStorage, then a PartialFailure when the guard
+ * or the directory check refused (nothing was cleaned, whoever is looking
+ * must look) or photo rows lack their original bytes, for `timeJob` to
+ * record as `failure` (#687). server.ts only: the CLI reports the same
+ * facts in its JSON and exit code.
+ */
+export async function reconcileStorageWhole(
+  deps: ReconcileDeps,
+  options?: ReconcileOptions,
+): Promise<ReconciliationReport> {
+  const report = await reconcileStorage(deps, options);
+  return endWhole(
+    'reconciliation',
+    {
+      refused: report.refused ? 1 : 0,
+      'rows missing their original': report.missingOriginals,
+    },
+    report,
   );
 }
 

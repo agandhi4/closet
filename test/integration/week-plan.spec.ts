@@ -27,6 +27,7 @@ import {
 } from '../../src/db/schema';
 import type { Occasion } from '../../src/wardrobe/occasions';
 import { addDays, instantAt, type IsoDate } from '../../src/calendar-date';
+import { PartialFailure } from '../../src/metrics/partial-failure';
 import { insertEntry } from '../../src/web/calendar/queries';
 import { claimAutoEntries } from '../../src/web/week-plan/queries';
 import type { PushPayload } from '../../src/web/push/payload';
@@ -55,6 +56,7 @@ import {
   REPLAN_HOUR,
   type ReplanDeps,
   replanWeeks,
+  replanWeeksWhole,
 } from '../../src/web/week-plan/replan';
 import {
   createTestApp,
@@ -1224,6 +1226,31 @@ describe('the weekly auto-plan', () => {
       );
     });
 
+    it('a failed re-plan does not claim the day: the scheduled run ends as a PartialFailure and the next minute retries (#687)', async () => {
+      await planWarm();
+      forecastDays = weekAt(() => -2);
+      const broken: ReplanDeps = {
+        ...deps,
+        weather: {
+          ...fakeWeather(() => forecastDays),
+          forecastFor: () => Promise.reject(new Error('Open-Meteo down')),
+        },
+      };
+      const failure = await replanWeeksWhole(broken, at(TODAY, 7)).catch(
+        (error: unknown) => error,
+      );
+      expect(failure).toBeInstanceOf(PartialFailure);
+      expect(failure).toMatchObject({ job: 'replan', counts: { failed: 1 } });
+      expect(await t.db.$count(weekReplan)).toBe(0);
+
+      const retry = await replanWeeksWhole(
+        deps,
+        new Date(at(TODAY, 7).getTime() + 60_000),
+      );
+      expect(retry).toMatchObject({ claimed: 1, failed: 0 });
+      expect(await t.db.$count(weekReplan)).toBe(1);
+    });
+
     it('two servers re-planning the same minute claim each user once', async () => {
       await planWarm();
       forecastDays = weekAt(() => -2);
@@ -1655,11 +1682,9 @@ describe('the weekly auto-plan', () => {
         expect(t.logs.messages('error', 'WeekPlan')).toContain(
           `Week re-plan for user ${t.owner.id} on ${TODAY} failed`,
         );
-        // Claimed all the same: tried again tomorrow, not every minute.
-        expect(await t.db.$count(weekReplan)).toBe(1);
-        expect(await replanWeeks(deps, at(TODAY, 7))).toMatchObject({
-          claimed: 0,
-        });
+        // Not claimed (#687): the failed transaction rolled its claim back,
+        // so the next run tries the person again.
+        expect(await t.db.$count(weekReplan)).toBe(0);
         expect(
           (await weekEntries()).find((e) => e.id === planned.id)!.plannedBy,
         ).toBe('user');
