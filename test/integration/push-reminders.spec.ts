@@ -33,6 +33,7 @@ import {
   sendDueRemindersWhole,
 } from '../../src/web/push/reminders';
 import { scheduleJob } from '../../src/maintenance/scheduled';
+import { waitUnlessAborted } from '../../src/web/abort';
 import { createPushSender } from '../../src/web/push/sender';
 import { createGarment } from './garments';
 import {
@@ -784,7 +785,7 @@ describe('push reminders', () => {
       ).filter((row) => row.day === day);
     };
 
-    it('a stop while the run is still composing gives every claim back, sends nothing and ends interrupted (#914)', async () => {
+    it('a stop while the run is still composing cancels the forecast wait, gives every claim back, sends nothing and ends interrupted (#914, #920)', async () => {
       const day = addDays(DAY, 40);
       const email = 'composing@example.com';
       const cookie = await t.register(email);
@@ -799,12 +800,16 @@ describe('push reminders', () => {
       const started = new Promise<void>((resolve) => (fetchStarted = resolve));
       let letGo!: () => void;
       const hold = new Promise<void>((resolve) => (letGo = resolve));
+      // Held as the real cache holds a refresh: the ask stops waiting at
+      // the run's abort (ReadOptions.signal), the fetch is the cache's.
       const weather: WeatherService = {
         timeZone: 'America/New_York',
-        forecastFor: async () => {
+        forecastFor: (_location, read) => {
           fetchStarted();
-          await hold;
-          return null;
+          return waitUnlessAborted(
+            hold.then(() => null),
+            read?.signal,
+          );
         },
         normalsFor: () => Promise.reject(new Error('never asked')),
         searchPlaces: () => Promise.resolve([]),
@@ -812,19 +817,23 @@ describe('push reminders', () => {
       };
       const at = onTheMinute(day, 6, 15);
       const held = { ...deps, weather, replan: { ...deps.replan, weather } };
+      let running: Promise<unknown> | undefined;
+      const timed = t.metrics.timeJob('reminders', (signal: AbortSignal) =>
+        sendDueRemindersWhole(held, at, signal),
+      );
       const job = scheduleJob({
         name: 'Push reminders',
         logger: deps.logger,
         now: () => at,
         untilNext: () => 0,
-        run: t.metrics.timeJob('reminders', (signal: AbortSignal) =>
-          sendDueRemindersWhole(held, at, signal),
-        ),
+        run: (signal) => (running = timed(signal)),
       });
       await started;
       expect(await claimsOn(phone, day)).toHaveLength(1);
 
       await job.stop();
+      // Settled, not abandoned: nothing of it runs on into the next run.
+      await expect(running).rejects.toBeInstanceOf(JobInterrupted);
       expect(await claimsOn(phone, day)).toEqual([]);
       expect(sentTo(phone)).toEqual([]);
       const { body } = await t.metrics.exposition();
@@ -863,6 +872,47 @@ describe('push reminders', () => {
 
       await sendDueReminders(deps, onTheMinute(day, 22, 1));
       expect(sentTo(phone)).toHaveLength(1);
+    });
+
+    it('a shutdown whose give-back fails is a failure, captured once, never interrupted (#920)', async () => {
+      const day = addDays(DAY, 42);
+      const email = 'give-back-down@example.com';
+      const cookie = await t.register(email);
+      const userId = await userIdOf(t, email);
+      const phone = await subscribe(cookie);
+      await remind(userId, phone, { evening: minute(21, 30) });
+      const releaseClaims = vi.fn<NonNullable<ReminderDeps['releaseClaims']>>(
+        () => Promise.reject(new Error('Connection terminated unexpectedly')),
+      );
+      const capture = vi.spyOn(t.errors, 'captureException');
+      const outcomes = async (outcome: string) =>
+        Number(
+          new RegExp(
+            `^job_duration_seconds_count\\{name="reminders",outcome="${outcome}"\\} (\\d+)$`,
+            'm',
+          ).exec((await t.metrics.exposition()).body)?.[1] ?? 0,
+        );
+      const [failures, interruptions] = [
+        await outcomes('failure'),
+        await outcomes('interrupted'),
+      ];
+      const stop = new AbortController();
+      stop.abort();
+
+      const failure = await t.metrics
+        .timeJob('reminders', (now: Date) =>
+          sendDueRemindersWhole({ ...deps, releaseClaims }, now, stop.signal),
+        )(onTheMinute(day, 21, 30))
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(PartialFailure);
+      expect(failure).toMatchObject({ counts: { lost: 1 } });
+      expect(releaseClaims).toHaveBeenCalledTimes(1);
+      expect(capture).toHaveBeenCalledTimes(1);
+      expect(await outcomes('failure')).toBe(failures + 1);
+      expect(await outcomes('interrupted')).toBe(interruptions);
+      // The claim stayed: that reminder is lost, as the failure says.
+      expect(await claimsOn(phone, day)).toHaveLength(1);
+      expect(sentTo(phone)).toEqual([]);
     });
 
     it('a forecast fetch that fails with nothing cached is no forecast, not a failed reminder (#687)', async () => {
