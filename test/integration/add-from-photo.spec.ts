@@ -382,6 +382,21 @@ describe('adding a garment from a photo', () => {
       });
     });
 
+    it('refuses an upload cut off before its closing boundary (multipart 10 raises, no longer ends the form quietly), storing nothing', async () => {
+      const body = await multipart({}, { photo: await jpegFile() });
+      const whole = Buffer.from(body.payload);
+      await expectNothingStored(async () => {
+        const res = await t.inject({
+          method: 'POST',
+          url: '/wardrobe/new/photo',
+          payload: whole.subarray(0, whole.length - 200),
+          headers: { ...body.headers },
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.headers['content-type']).toContain('text/html');
+      });
+    });
+
     it('sends a signed-out visitor to log in, storing nothing', async () => {
       await expectNothingStored(async () => {
         const res = await upload(await jpegFile(), { anonymous: true });
