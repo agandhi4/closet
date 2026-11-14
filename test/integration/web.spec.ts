@@ -112,6 +112,15 @@ describe('web layer', () => {
       expect(res.headers['x-frame-options']).toBe('DENY');
     });
 
+    it('says the page was not saved and links the cached tab roots', async () => {
+      const res = await t.inject({ method: 'GET', url: '/offline.html' });
+      expect(res.body).toContain('t saved on this device');
+      expect(res.body).toContain('data-offline-fallback');
+      for (const root of ['/wardrobe', '/styling', '/outfits', '/calendar']) {
+        expect(res.body).toContain(`<a href="${root}" class="btn">`);
+      }
+    });
+
     it('shows the signed-in account as the avatar, which opens Profile', async () => {
       const res = await t.inject({ method: 'GET', url: '/offline.html' });
       expect(res.statusCode).toBe(200);

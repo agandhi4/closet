@@ -1,6 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { signIn } from './support/e2e-session';
-import { waitForServiceWorker, withoutWarming } from './support/service-worker';
+import {
+  cachePage,
+  waitForServiceWorker,
+  withoutWarming,
+} from './support/service-worker';
 import { WEBKIT_CANNOT_NAVIGATE_OFFLINE } from './support/webkit-limits';
 
 /**
@@ -48,6 +52,9 @@ test.describe('installed app delivery', () => {
       )
       .toMatchObject({ enabled: true });
 
+    // The worker stores a page after answering it: wait for the one the
+    // fallback page must link.
+    await cachePage(page, '/wardrobe');
     const online = await page.goto('/outfits');
     expect(online?.fromServiceWorker()).toBe(true);
     expect(online?.status()).toBe(200);
@@ -68,8 +75,15 @@ test.describe('installed app delivery', () => {
     // Never visited: the offline page.
     await page.goto('/calendar');
     await expect(
-      page.getByRole('heading', { level: 1, name: 'Offline.' }),
+      page.getByRole('heading', { level: 1, name: 'Offline' }),
     ).toBeVisible();
+    // It says so, links the tab roots, and shows no "saved data" banner (#658).
+    await expect(page.getByText("This page wasn't saved")).toBeVisible();
+    // Only the tab roots this device saved (Wardrobe and Outfits, visited
+    // above) are linked; the others would loop back here.
+    const saved = page.locator('main').getByRole('link');
+    await expect(saved).toHaveText(['Wardrobe', 'Outfits']);
+    await expect(page.locator('#connectivity-banner')).toBeHidden();
     await context.setOffline(false);
   });
 });

@@ -52,6 +52,7 @@ import { todayIn } from '../../src/calendar-date';
 import {
   enqueue,
   isChecklist,
+  packedCount,
   OUTBOX_MAX_PENDING,
   OUTBOX_SYNCED,
   type OutboxStore,
@@ -339,10 +340,53 @@ const refresh = singleFlight(async () => {
 function render(records: OutboxRecord[]): void {
   const waiting = records.filter(isPending).length;
   renderRegions(records);
+  renderPackedCounts(records);
   renderBanner(waiting);
   renderNotice(records.filter((record) => record.state === 'failed'));
   guardFull(waiting);
 }
+
+/**
+ * The trip's "N of M packed" lines (`data-packed-count`: the string with
+ * `{packed}` left in it, `data-packed-served` the server's number,
+ * src/web/trips/trip-page.tsx): while ticks wait to sync, the server's
+ * count plus the pending records' net (`packedCount`), so a queued tick
+ * moves the counter before the server has saved it. With nothing pending in
+ * the counter's section the line is left as the server rendered it.
+ */
+function renderPackedCounts(records: OutboxRecord[]): void {
+  const waiting = new Map(
+    records.filter(isPending).map((record) => [record.key, record]),
+  );
+  for (const counter of document.querySelectorAll<HTMLElement>(
+    '[data-packed-count]',
+  )) {
+    const regions = counter
+      .closest('section')
+      ?.querySelectorAll<HTMLElement>(`${REGION}:has(input[name="packed"])`);
+    const rows = Array.from(regions ?? []).map((region) => ({
+      served:
+        region.querySelector<HTMLInputElement>('input[name="packed"]')
+          ?.defaultChecked ?? false,
+      queued: intentOf(waiting.get(region.dataset.outboxKey ?? '')),
+    }));
+    if (rows.every((row) => row.queued === undefined)) {
+      if (counter.dataset.counted === undefined) continue;
+      delete counter.dataset.counted;
+    } else {
+      counter.dataset.counted = '';
+    }
+    const count = packedCount(Number(counter.dataset.packedServed), rows);
+    counter.textContent = (counter.dataset.packedCount ?? '').replace(
+      '{packed}',
+      String(count),
+    );
+  }
+}
+
+/** A pending tick's intent: ticked or not; undefined without a record. */
+const intentOf = (record: OutboxRecord | undefined) =>
+  record && [record.fields.packed ?? []].flat().length > 0;
 
 /**
  * A region with a pending record is marked and shows the intent it waits
@@ -657,6 +701,14 @@ async function queue(
     refuse(text('textOutboxUnavailable'), trigger);
   } else {
     console.info(`[outbox] queued ${keys}`);
+    // The autosave line says "Saved" for the last answer the server gave;
+    // this tap has none, and the row's "Waiting to sync" is the state.
+    for (const write of writes) {
+      write.region
+        .closest('form')
+        ?.querySelector('[data-autosave-status]')
+        ?.replaceChildren();
+    }
     void schedule('queued');
   }
 }
