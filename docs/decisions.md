@@ -947,3 +947,9 @@ Consequence: thresholds came from the real days, not from tuning; a new real-wor
 **Why:** Styling's phone bar grew from Shuffle and Save to the outfit's strip and the fit chips (they wrap, and the strip opens), so a fixed bar's guessed page padding (`pb-40`) could no longer promise the last row stays uncovered.
 **Decision:** the aside is `sticky bottom-dock` in the flow after the rows (the page pads only `pb-dock`): it rides on the dock while they scroll and lands below them at their end, whatever its height. The preview's phone strip and desktop stack are one markup; `group-open:` and `lg:` spell the stack twice and must agree (`group-open:` wins on specificity).
 **Consequence:** a new bar above the dock whose height varies is sticky in its page's flow; a fixed one (`fixed left-rail bottom-dock`) suits only a bar of known height. `test/styling.spec.ts` holds the geometry at 390 px.
+
+## 2026-11-14 — The bare composer opens on "No garment", Shuffle leads (#665)
+
+**Why:** `freshStates` chose the newest garment per role, by id, over `inCloset`: on a rainy November day it opened on swim trunks and slides and looked like a suggestion, ignoring wash and away state. The page must stay byte-stable (a stale-while-revalidate tab root), so it cannot be seeded by the day or the clean state.
+**Decision:** every drawn row opens on "No garment" (newest first stays the strip's order); Shuffle is the primary button while no row holds a garment (server-rendered, Save then outline), and the bar's preview says "Nothing chosen yet" (CSS off the slots). The fit line already answers nothing without a garment. `?with=`, `?outfit=` and edits open on their garments as before.
+**Consequence:** the bare page's bytes still depend on the wardrobe alone. The action bar is not swapped by a rows answer, so after a Shuffle both buttons read primary until the next load. Rejected: skipping away or unwashed garments in `freshStates` (needs state that changes by itself).

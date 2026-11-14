@@ -1,5 +1,5 @@
 import { and, asc, count, eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   outfit,
   outfitCalendar,
@@ -284,23 +284,28 @@ describe('Styling', () => {
     });
 
     describe('GET /styling', () => {
-      it('stacks a row per role top to toe, the newest of each worn role chosen', async () => {
+      // #665: the newest garment of a role is not a suggestion (it ignores
+      // wash and away state), so the page opens empty and Shuffle leads.
+      it('stacks a row per role top to toe, every one on "No garment", Shuffle primary', async () => {
         const res = await get('/styling');
         expect(res.statusCode).toBe(200);
         expectFullPage(res);
         expectNativePostForms(res);
         expect(res.body).toMatch(/<h1[^>]*>Styling<\/h1>/);
         expect(rowsOf(res.body)).toEqual([
-          ['layer', jacket, false],
-          // A dress beside separates starts empty.
+          ['layer', null, false],
           ['one-piece', null, false],
-          ['top', dirtyTee, false],
-          ['bottom', bottoms[1], false],
-          ['footwear', shoes[0], false],
-          // Accessories and the uncategorised ride along, empty at first.
+          ['top', null, false],
+          ['bottom', null, false],
+          ['footwear', null, false],
           ['accessory', null, false],
           ['none', null, false],
         ]);
+        const html = unescapeHtml(res.body);
+        expect(/<button[^>]*data-styling-shuffle[^>]*>/.exec(html)![0]).toMatch(
+          /class="btn btn-primary"/,
+        );
+        expect(html).toContain('Nothing chosen yet');
         // The strips: every closet garment of the role, newest first; the
         // wishlist item is in none.
         expect(stripOf(res.body, 'top')).toEqual([dirtyTee, tops[1], tops[0]]);
@@ -369,11 +374,21 @@ describe('Styling', () => {
 
       // A tab root the worker opens stale (page-cache.ts): the same bytes
       // until the wardrobe changes, so nothing of the day's seed.
-      it('renders the fresh stack byte for byte the same, without a seed', async () => {
+      it('renders the fresh stack byte for byte the same, without a seed, on any day', async () => {
         const first = await get('/styling');
         const second = await get('/styling');
         expect(second.body).toBe(first.body);
         expect(first.body).not.toContain('name="seed"');
+        // Only Date is faked (as calendar.spec.ts): the session keeps working.
+        vi.useFakeTimers({
+          toFake: ['Date'],
+          now: new Date('2026-01-04T15:00:00Z'),
+        });
+        try {
+          expect((await get('/styling')).body).toBe(first.body);
+        } finally {
+          vi.useRealTimers();
+        }
       });
 
       it('reads a window of each strip, whatever the wardrobe holds', async () => {
@@ -420,10 +435,11 @@ describe('Styling', () => {
 
       it('?capsule= cycles only its garments; not an id is a 400, not the wardrobe’s a 404', async () => {
         const res = await get(`/styling?capsule=${capsuleId}`);
+        // Its garments are on the strips, never chosen (#665).
         expect(res.statusCode).toBe(200);
         expect(rowsOf(res.body)).toEqual([
-          ['top', tops[0], false],
-          ['bottom', bottoms[1], false],
+          ['top', null, false],
+          ['bottom', null, false],
         ]);
         expect(res.body).toContain(`name="capsule" value="${capsuleId}"`);
         expect((await get('/styling?capsule=abc')).statusCode).toBe(400);
@@ -979,7 +995,7 @@ describe('Styling', () => {
         const res = await get(`/styling?ownerId=${ownerId}`, viewer);
         expect(res.statusCode).toBe(200);
         expectFullPage(res);
-        expect(rowsOf(res.body)).toContainEqual(['top', dirtyTee, false]);
+        expect(rowsOf(res.body)).toContainEqual(['top', null, false]);
         expect(res.body).toContain(`name="ownerId" value="${ownerId}"`);
         expect(res.body).toContain('data-styling-shared');
         expect(res.body).not.toContain('id="styling-save"');

@@ -137,8 +137,23 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
   await page.goto('/styling');
   await expect(page.locator('h1')).toHaveText('Styling');
   await expect(page.locator('[data-styling-row]')).toHaveCount(3);
-  // The newest of each role, centred.
+  // Opens on "No garment" in every row, Shuffle leading (#665).
   const tops = row(page, 'top');
+  for (const role of ['top', 'bottom', 'footwear']) {
+    await expect(chosen(row(page, role))).toHaveValue('');
+  }
+  await expect(page.getByRole('button', { name: /Shuffle/ })).toHaveClass(
+    /btn-primary/,
+  );
+  await test.step('one tap on Shuffle fills the rows with an idea', async () => {
+    await page.getByRole('button', { name: /Shuffle/ }).click();
+    for (const role of ['top', 'bottom', 'footwear']) {
+      await expect(chosen(row(page, role))).not.toHaveValue('');
+    }
+    await page.goto('/styling');
+  });
+  // Centre the newest tee for the steps below.
+  await tap(page, tops, String(g.newTee));
   await expect(chosen(tops)).toHaveValue(String(g.newTee));
   await expect(tops.locator('[data-selected]')).toHaveAttribute(
     'data-snap-value',
@@ -261,7 +276,10 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
       props: '1',
       warmth: '5',
     });
-    await createGarment(page, 'Thin tee', 'tops', { props: '1', warmth: '1' });
+    const thin = await createGarment(page, 'Thin tee', 'tops', {
+      props: '1',
+      warmth: '1',
+    });
     const home = await page.request.post('/weather/home', {
       form: {
         name: 'Fort Greene, New York, United States',
@@ -278,6 +296,12 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
     const bar = page.locator('[data-styling-bar]');
     const layerSlot = bar.locator('#styling-preview [data-preview-slot="0"]');
     const fit = bar.locator('#styling-fit-line');
+    // Opens empty (#665): the bar says so and judges nothing; choosing the
+    // parka over a thin tee fills the slots and the fit line follows.
+    await expect(bar).toContainText('Nothing chosen yet');
+    await expect(fit).toBeEmpty();
+    await tap(page, row(page, 'layer'), String(parka));
+    await tap(page, row(page, 'top'), String(thin));
     await expect(layerSlot).toBeVisible();
     await expect(layerSlot).toHaveAttribute(
       'data-preview-garment',
