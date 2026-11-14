@@ -127,6 +127,8 @@ export interface IdeasInput {
    * rather than home's.
    */
   place?: Location | null;
+  /** The trip these ideas are for: its packing list's rain gear, not the closet's (rainGearFor). */
+  tripId?: number;
   /**
    * The person's own weather, when the caller has read it already (Today
    * reads it with its entries for its line, #158): not read again. Only
@@ -260,6 +262,7 @@ export async function ideasFrom(
     deps.db,
     ownerId,
     await weatherFrom(deps, input, row.weather, now),
+    input.tripId,
   );
   const demands = occasionDemands(input.occasion);
   const page = generateIdeas({
@@ -295,9 +298,10 @@ async function withClosetRainGear(
   db: Queryable,
   ownerId: number,
   weather: IdeasWeather | null,
+  tripId: number | undefined,
 ): Promise<IdeasWeather | null> {
   if (!weather) return null;
-  const gear = await rainGearFor(db, ownerId, [weather.needs]);
+  const gear = await rainGearFor(db, ownerId, [weather.needs], tripId);
   return { ...weather, needs: withRainGear(weather.needs, gear) };
 }
 

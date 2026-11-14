@@ -661,8 +661,19 @@ describe('one answer to the rain on every surface (#759)', () => {
       await api('DELETE', `/week-plans/${plan.weekPlanId}`);
       return day!.problems;
     };
+    // The trip day's ideas page: "Take the umbrella" is the umbrella advice,
+    // which must agree with the trip's own forecast (the packing list's gear).
+    const tripIdeasUmbrella = async () => {
+      const page = await t.inject({
+        method: 'GET',
+        url: `/outfits/ideas?for=trip:${tripId}:${REFERENCE_ANCHOR}`,
+      });
+      expect(page.statusCode).toBe(200);
+      return page.body.includes('Take the umbrella');
+    };
     try {
       await rainy();
+      expect(await tripIdeasUmbrella()).toBe(false);
       const bare = await everywhere();
       expect(bare).toEqual(
         Array(bare.length).fill({
@@ -713,6 +724,7 @@ describe('one answer to the rain on every surface (#759)', () => {
         }));
       const atHome = await everywhere();
       expect(atHome).toEqual(answers(atHome, false));
+      expect(await tripIdeasUmbrella()).toBe(false);
       // The plan reads the gear as Today does: the hat answers the rain.
       expect(await planProblems()).not.toContain('needs-water-resistance');
 
@@ -756,6 +768,7 @@ describe('one answer to the rain on every surface (#759)', () => {
       expect(added.statusCode, added.body).toBe(201);
       const listed = await everywhere();
       expect(listed).toEqual(answers(listed, true));
+      expect(await tripIdeasUmbrella()).toBe(true);
 
       // Lent out, the closet at home has no gear (not available), but it is
       // still the one on the trip's list.
@@ -773,6 +786,18 @@ describe('one answer to the rain on every surface (#759)', () => {
             : { needsWaterResistance: true, takeUmbrella: false },
         ),
       );
+      expect(await tripIdeasUmbrella()).toBe(true);
+
+      // Archived, it left the closet: it is no gear even on the list.
+      const archived = await api('PUT', `/garments/${hatRow.id}/status`, {
+        status: 'archived',
+      });
+      expect(archived.statusCode, archived.body).toBe(200);
+      const gone = await everywhere();
+      expect(gone).toEqual(
+        gone.map(() => ({ needsWaterResistance: true, takeUmbrella: false })),
+      );
+      expect(await tripIdeasUmbrella()).toBe(false);
     } finally {
       for (const row of rows) {
         await t.db

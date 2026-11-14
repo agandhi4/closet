@@ -28,7 +28,6 @@ import type {
   CachedNormals,
   WeatherService,
 } from '../weather/service';
-import { listGarmentIdsSql } from './packed';
 import type { TripRow } from './queries';
 
 /**
@@ -148,7 +147,7 @@ export async function tripForecast(
     deps.db,
     ownerId,
     [...days.map((d) => d.needs), ...typical.map((d) => d.needs)],
-    listGarmentIdsSql(trip.id),
+    trip.id,
   );
   const withGear = (needs: WeatherNeeds | null) =>
     needs && withRainGear(needs, rainGear);
