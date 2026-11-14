@@ -35,7 +35,8 @@ const RECONCILE_HOUR = 3;
  * background-removal queue started with
  * `runner`,
  * signal handling, listen. main.ts passes the model (ModelRunner), or none
- * with CUTOUT_ENABLED=false (no queue start, no nightly retry);
+ * with CUTOUT_ENABLED=false, which alone decides whether the queue starts and
+ * the nightly retry is scheduled (a runner passed then is ignored);
  * test/support/test-server.ts, which Playwright and Lighthouse boot on
  * the build, passes a stub, so no test downloads or runs
  * the 940 MB model. createApp() itself never starts the queue or a timer:
@@ -91,7 +92,8 @@ export async function serve(
       'Storage reconciliation disabled (MAINTENANCE_ENABLED=false)',
     );
   }
-  if (runner) {
+  if (config.CUTOUT_ENABLED) {
+    if (!runner) throw new Error('CUTOUT_ENABLED needs a cutout runner');
     jobs.push(startCutouts(config, logger, metrics, db, cutouts, runner));
   }
   // The changes feed's old deletions (src/maintenance/sync-prune.ts):

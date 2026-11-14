@@ -428,7 +428,9 @@ export async function createGarmentWithPendingPhoto(
     return undefined;
   }
   logger.info(
-    `Garment ${claimed.id} photo ${fileName} (a pending photo) queued for background removal`,
+    cutouts.enabled
+      ? `Garment ${claimed.id} photo ${fileName} (a pending photo) queued for background removal`
+      : `Garment ${claimed.id} photo ${fileName} (a pending photo) kept as taken: background removal is off`,
   );
   if (cutouts.enabled) cutouts.wake();
   return claimed;
@@ -650,6 +652,10 @@ async function swapPhoto(
       `Garment ${id} photo ${photo.fileName} queued for background removal`,
     );
     deps.cutouts.wake();
+  } else if (cutout === 'none') {
+    deps.logger.info(
+      `Garment ${id} photo ${photo.fileName} kept as taken: background removal is off`,
+    );
   }
   if (replaced) {
     await deps.photos.deleteVariants(replaced);

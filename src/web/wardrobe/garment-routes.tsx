@@ -26,7 +26,7 @@ import {
   setGarmentCondition,
   updateGarment,
 } from './garment-actions';
-import { GarmentPage } from './garment-page';
+import { GarmentPage, shownWithoutCutouts } from './garment-page';
 import { afterDraft } from './draft-redirects';
 import { pendingPhotoView } from './link-import/photo-choice';
 import { PropertiesFragment } from './property-fields';
@@ -321,7 +321,7 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         <GarmentPage
           ctx={viewContext(reply)}
           model={{
-            garment,
+            garment: shownWithoutCutouts(garment, options.cutouts.enabled),
             today,
             capsules: context.capsules,
             viewOwner,

@@ -364,6 +364,10 @@ export async function retryGarmentCutout(
   address: GarmentAddress,
 ): Promise<AuthorizedWardrobe & { outcome: CutoutOutcome }> {
   const { photo, ...wardrobe } = await photoToChange(deps.db, actor, address);
+  // Nothing would run it: the page shows no "Try again" then (shownWithoutCutouts).
+  if (!deps.cutouts.enabled) {
+    return { ...wardrobe, outcome: { ok: false, reason: 'not-allowed' } };
+  }
   const outcome = await recordCutoutEvent(deps.db, photo.fileName, {
     type: 'retry',
   });

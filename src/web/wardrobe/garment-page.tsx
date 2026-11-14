@@ -163,6 +163,27 @@ const GARMENT_PAGE_FLAGS = [
 ] as const;
 
 /**
+ * With CUTOUT_ENABLED=false nothing will ever finish a `pending` cutout or
+ * retry a `failed` one, so the page shows both as `none`: the original with
+ * the mask editor's pencil, no spinner, no poll, no "Try again". Read-time
+ * only: the rows are untouched, so turning removal back on resumes them.
+ */
+export function shownWithoutCutouts(
+  garment: GarmentDetail,
+  cutoutsEnabled: boolean,
+): GarmentDetail {
+  const photo = garment.photo;
+  if (
+    cutoutsEnabled ||
+    !photo ||
+    (photo.cutoutStatus !== 'pending' && photo.cutoutStatus !== 'failed')
+  ) {
+    return garment;
+  }
+  return { ...garment, photo: { ...photo, cutoutStatus: 'none' } };
+}
+
+/**
  * GET /wardrobe/:id (redesign plan, "Garment page"; #84): the hero, the
  * facts, the wear line with the primary actions, the property chips, the
  * capsules row, "In N outfits", then the details and care. Everything

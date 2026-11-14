@@ -12,7 +12,11 @@ import {
   saveEditedGarmentCutout,
   turnGarmentPhoto,
 } from './garment-actions';
-import { GarmentPhotoView, pollCount } from './garment-page';
+import {
+  GarmentPhotoView,
+  pollCount,
+  shownWithoutCutouts,
+} from './garment-page';
 import { batchEnd } from './draft-redirects';
 import { nextDraft } from './draft-queue';
 import { refuseOtherWardrobesDraft } from './render-form';
@@ -135,7 +139,7 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       return renderFragment(
         reply,
         <GarmentPhotoView
-          garment={garment}
+          garment={shownWithoutCutouts(garment, options.cutouts.enabled)}
           viewOwner={viewOwner}
           canEdit={access.canManage}
           poll={pollCount(request.query.poll)}
