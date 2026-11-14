@@ -325,16 +325,6 @@
   }
 }
 
-/* A notice that hides itself after 4 s (the garment page's "saved" toasts). */
-.toast-auto-hide {
-  animation: toast-auto-hide 0s 4s forwards;
-}
-@keyframes toast-auto-hide {
-  to {
-    visibility: hidden;
-  }
-}
-
 /* The mask editor's canvas (garment-page.tsx): the checkerboard shows
    through erased pixels. Its colours are the editors' convention for
    transparency, not the theme's, so the same in both schemes. */
