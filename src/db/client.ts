@@ -12,6 +12,7 @@ import {
   currentRequestTiming,
   type RequestTiming,
 } from '../metrics/request-timing';
+import { DatabaseUnreachable } from './errors';
 import * as schema from './schema';
 
 /**
@@ -49,11 +50,14 @@ export function dbConfig(config: Config): DbConfig {
 }
 
 /**
- * The session timeouts a connection opens with (startup parameters, so they
- * cost no round trip). A stalled transaction holds its row locks, the owner
- * lock included (src/web/auth/queries.ts), until one of these ends it.
+ * The limits a connection opens with. The session's are startup parameters
+ * (they cost no round trip): a stalled transaction holds its row locks, the
+ * owner lock included (src/web/auth/queries.ts), until one of these ends it.
  * `lock_timeout` is not here: every owner lock sets it for its own
- * transaction (OWNER_LOCK_TIMEOUT_MS, src/db/owner-lock.ts).
+ * transaction (OWNER_LOCK_TIMEOUT_MS, src/db/owner-lock.ts). The client's
+ * own are for a host that stops answering (a NAS reboot, blackholed
+ * packets), which no server-side limit can end: without them a request
+ * waits on the kernel's TCP timeout, minutes (#643).
  */
 export interface DbTimeouts {
   /** statement_timeout: the longest any one statement may run. */
@@ -64,12 +68,32 @@ export interface DbTimeouts {
    * request stuck on I/O inside a transaction, a client gone mid-way).
    */
   idleInTransactionMs: number;
+  /** connectionTimeoutMillis: how long opening a connection may take. */
+  connectMs: number;
+  /**
+   * query_timeout: how long the client waits for a statement's answer
+   * before failing it itself. Just above statementMs, so a live server's
+   * statement_timeout always fails first, with its SQLSTATE.
+   */
+  queryMs: number;
 }
 
-/** The server's pool: every request, timer and job. */
+/**
+ * TCP keepalive's first probe on an idle connection: one that silently died
+ * is noticed (and dropped by the pool, or reopened by the cutout listener)
+ * within about a minute, not the OS default's two hours.
+ */
+const KEEPALIVE_DELAY_MS = 60_000;
+
+/**
+ * The server's connections: every request, timer and job through the pool,
+ * and the cutout listener's LISTEN connection (src/cutout/listener.ts).
+ */
 export const SERVER_TIMEOUTS: DbTimeouts = {
   statementMs: 15_000,
   idleInTransactionMs: 30_000,
+  connectMs: 5_000,
+  queryMs: 16_000,
 };
 
 /**
@@ -82,11 +106,13 @@ export const SERVER_TIMEOUTS: DbTimeouts = {
 export const MAINTENANCE_TIMEOUTS: DbTimeouts = {
   statementMs: 10 * 60_000,
   idleInTransactionMs: 5 * 60_000,
+  connectMs: 5_000,
+  queryMs: 10 * 60_000 + 5_000,
 };
 
 /**
- * Without `timeouts` a session keeps the database's defaults (none): the
- * cutout listener only LISTENs, and the specs' own clients build fixtures.
+ * Without `timeouts` a session keeps the database's and node-postgres's
+ * defaults (none): the specs' own clients, which build fixtures.
  */
 export function connectionOptions(
   config: DbConfig,
@@ -103,6 +129,10 @@ export function connectionOptions(
     ...(timeouts && {
       statement_timeout: timeouts.statementMs,
       idle_in_transaction_session_timeout: timeouts.idleInTransactionMs,
+      connectionTimeoutMillis: timeouts.connectMs,
+      query_timeout: timeouts.queryMs,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: KEEPALIVE_DELAY_MS,
     }),
   };
 }
@@ -152,7 +182,8 @@ export function createDb(
   });
   logger.info(
     `Drizzle pool for ${config.database} on ${config.host}:${config.port} (max ${POOL_MAX}, min ${POOL_MIN}; ` +
-      `statement_timeout ${timeouts.statementMs} ms, idle_in_transaction_session_timeout ${timeouts.idleInTransactionMs} ms)`,
+      `statement_timeout ${timeouts.statementMs} ms, idle_in_transaction_session_timeout ${timeouts.idleInTransactionMs} ms, ` +
+      `connect ${timeouts.connectMs} ms, query ${timeouts.queryMs} ms)`,
   );
   return drizzle(pool, { schema, logger: new StatementCounter() });
 }
@@ -184,6 +215,11 @@ class StatementCounter implements DrizzleLogger {
  * callbacks may run in another request's (a waiting connect is served from
  * whoever releases), so they only carry what was captured here. `release`
  * is the pool's own event, emitted synchronously as a client is returned.
+ *
+ * A connection it cannot open fails as DatabaseUnreachable (errors.ts), the
+ * driver's error its cause: node-postgres gives a connect timeout no code,
+ * and a refused socket's errno is the same as an outbound fetch's, so only
+ * here is it known to be the database.
  */
 class TimedPool extends Pool {
   private readonly held = new WeakMap<
@@ -224,13 +260,18 @@ class TimedPool extends Pool {
     if (callback) {
       super.connect((err, client, done) => {
         hold(client);
-        callback(err, client, done);
+        callback(err && new DatabaseUnreachable(err), client, done);
       });
       return;
     }
-    return super.connect().then((client) => {
-      hold(client);
-      return client;
-    });
+    return super.connect().then(
+      (client) => {
+        hold(client);
+        return client;
+      },
+      (error: unknown) => {
+        throw new DatabaseUnreachable(error);
+      },
+    );
   }
 }

@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { STATUS_CODES } from 'node:http';
-import { isLockTimeout } from '../db/errors';
+import { isDatabaseUnavailable, isLockTimeout } from '../db/errors';
+import { driverError } from '../driver-error';
 import { FRAGMENT_VARY, isFragmentRequest } from '../htmx/fragment-request';
 import { hxTrigger } from '../htmx/trigger';
 import { OWNER_LOCK_TIMEOUT_MS } from '../db/owner-lock';
@@ -103,6 +104,66 @@ export class OwnerLockTimeout extends HttpError {
 }
 
 /**
+ * How long a page asks to wait when the database cannot be reached: one
+ * connect timeout (SERVER_TIMEOUTS.connectMs), the soonest a retry learns
+ * anything new.
+ */
+const DATABASE_RETRY_SECONDS = 5;
+
+/**
+ * The database could not be reached (isDatabaseUnavailable: a connection
+ * the pool could not open, the server shutting down, a connection lost
+ * under a query): a 503 `busy` asking to try again, never a 500. The
+ * installed app answers a navigation with its cached copy instead
+ * (src-sw.ts, ServerFirstPages). `logDetail` names the driver's code (an
+ * errno, a SQLSTATE) or the error's class, never its message.
+ */
+export class DatabaseUnavailable extends HttpError {
+  constructor(cause: unknown) {
+    super(503, t('DATABASE_UNAVAILABLE'), {
+      logDetail: `database unavailable: ${driverError(cause)?.code ?? (cause instanceof Error ? cause.name : typeof cause)}`,
+      retryAfterSeconds: DATABASE_RETRY_SECONDS,
+    });
+    this.name = 'DatabaseUnavailable';
+  }
+}
+
+/**
+ * The error handler's memory of an outage (createErrorHandler): the first
+ * request an outage fails goes to the error tracker, the rest only to the
+ * log, until the pool opens a connection again. createApp wires `recovered`
+ * to the pool's `connect` event: the first connection after an outage is the
+ * database answering again, and one opened while it is up finds no outage
+ * to end. One per app.
+ */
+export class DatabaseOutage {
+  private since: number | undefined;
+  private failed = 0;
+
+  constructor(private readonly logger: Logger) {}
+
+  /** Counts a failed request; true for the one that begins an outage. */
+  failure(): boolean {
+    this.failed += 1;
+    if (this.since !== undefined) return false;
+    this.since = Date.now();
+    this.logger.warn(
+      'Database unavailable: requests answer busy until it is back',
+    );
+    return true;
+  }
+
+  recovered(): void {
+    if (this.since === undefined) return;
+    this.logger.info(
+      `Database reachable again after ${Math.round((Date.now() - this.since) / 1000)} s; ${this.failed} request(s) answered busy`,
+    );
+    this.since = undefined;
+    this.failed = 0;
+  }
+}
+
+/**
  * Every JSON error answer's body: the status, the message people may read,
  * and the request's id (its X-Request-ID), which a user reports and which
  * finds the request's log lines and Bugsink event (observability.md).
@@ -133,6 +194,11 @@ export interface ErrorAnswer {
   validation?: readonly ValidationFailure[];
   /** A crash, not a chosen answer: logged with its stack. */
   unexpected: boolean;
+  /**
+   * The database could not be reached (DatabaseUnavailable): logged with the
+   * driver's error and captured once per outage (DatabaseOutage).
+   */
+  databaseUnavailable?: true;
 }
 
 export interface ValidationFailure {
@@ -191,27 +257,41 @@ function errorKind(error: Error): string {
 }
 
 /**
+ * The HttpError an error is answered as: its own, or the one a driver
+ * failure we recognise stands for (a lock wait past the owner lock's
+ * timeout, the database out of reach).
+ */
+function chosenAnswer(error: unknown): HttpError | undefined {
+  if (error instanceof HttpError) return error;
+  if (isLockTimeout(error)) return new OwnerLockTimeout('a write');
+  if (isDatabaseUnavailable(error)) return new DatabaseUnavailable(error);
+  return undefined;
+}
+
+/**
  * Status and page message for anything a route or tool throws: an HttpError
  * keeps its status and message (we wrote them); a schema validation failure
  * its 400 and ajv's message, which names the rule and the field, never the
  * value; any other 4xx (a failed body parse, an oversized upload) its status
  * and a fixed message (requestRefusal), its code in the log line; a lock
- * wait past the owner lock's timeout (55P03) OwnerLockTimeout's 503; everything
- * else is an unexpected 500 without detail.
+ * wait past the owner lock's timeout (55P03) OwnerLockTimeout's 503; the
+ * database out of reach DatabaseUnavailable's 503; everything else is an
+ * unexpected 500 without detail.
  */
 export function describeError(error: unknown): ErrorAnswer {
-  if (!(error instanceof HttpError) && isLockTimeout(error)) {
-    return describeError(new OwnerLockTimeout('a write'));
-  }
-  if (error instanceof HttpError) {
+  const chosen = chosenAnswer(error);
+  if (chosen) {
     return {
-      status: error.statusCode,
-      message: error.message,
-      code: error.code,
-      logDetail: error.logDetail,
-      retryAfterSeconds: error.retryAfterSeconds,
-      validation: error.validation,
+      status: chosen.statusCode,
+      message: chosen.message,
+      code: chosen.code,
+      logDetail: chosen.logDetail,
+      retryAfterSeconds: chosen.retryAfterSeconds,
+      validation: chosen.validation,
       unexpected: false,
+      ...(chosen instanceof DatabaseUnavailable && {
+        databaseUnavailable: true,
+      }),
     };
   }
   if (error instanceof Error) {
@@ -348,30 +428,47 @@ function retryHref(request: FastifyRequest): string | undefined {
  * statement or idle-in-transaction timeout) fails its own request with an
  * unexpected error, which is captured there. The 503s themselves stay in
  * the warn line and the request metric's 5xx.
+ *
+ * The database out of reach (DatabaseUnavailable) is between the two: a
+ * warn line with the driver's error, and one event per outage, not one per
+ * request (`outage`, #643): a NAS reboot was a Bugsink event for every tap.
  */
-export function createErrorHandler(logger: Logger, errors: ErrorTracker) {
+export function createErrorHandler(
+  logger: Logger,
+  errors: ErrorTracker,
+  outage: DatabaseOutage,
+) {
+  function capture(error: unknown, request: FastifyRequest): void {
+    errors.captureException(error, {
+      source: 'route',
+      tags: {
+        route: request.routeOptions.url ?? 'unmatched',
+        method: request.method,
+      },
+      userId: request.auth?.user.id ?? request.accessToken?.user.id,
+    });
+  }
+
   /** The 500 with its stack, to the tracker too; a chosen answer a warn line. */
   function report(
     error: unknown,
     request: FastifyRequest,
-    { status, message, logDetail, unexpected }: ErrorAnswer,
+    answer: ErrorAnswer,
     url: string,
   ): void {
+    const { status, message, logDetail, unexpected } = answer;
     if (unexpected) {
       logger.error({ err: error }, `${request.method} ${url} -> ${status}`);
-      errors.captureException(error, {
-        source: 'route',
-        tags: {
-          route: request.routeOptions.url ?? 'unmatched',
-          method: request.method,
-        },
-        userId: request.auth?.user.id ?? request.accessToken?.user.id,
-      });
+      capture(error, request);
       return;
     }
-    logger.warn(
-      `${request.method} ${url} -> ${status}: ${message}${logDetail ? ` (${logDetail})` : ''}`,
-    );
+    const line = `${request.method} ${url} -> ${status}: ${message}${logDetail ? ` (${logDetail})` : ''}`;
+    if (answer.databaseUnavailable) {
+      logger.warn({ err: error }, line);
+      if (outage.failure()) capture(error, request);
+      return;
+    }
+    logger.warn(line);
   }
 
   return async function handleError(
@@ -387,6 +484,11 @@ export function createErrorHandler(logger: Logger, errors: ErrorTracker) {
     if (reply.sent) {
       logger.warn(`${url}: response already sent, no error page`);
       return;
+    }
+    // A rate limit, a busy wardrobe, the database out of reach: said to the
+    // page, the toast and the problem alike.
+    if (answer.retryAfterSeconds !== undefined) {
+      reply.header('Retry-After', String(Math.ceil(answer.retryAfterSeconds)));
     }
     // The API answers problem+json whatever failed, an unmatched path
     // included (surfaceOf), and never has a page context.

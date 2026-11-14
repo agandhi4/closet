@@ -1,3 +1,5 @@
+import { DrizzleQueryError } from 'drizzle-orm/errors';
+import { causeChain, driverError } from '../driver-error';
 import type { UniqueConstraint } from './schema';
 
 /** Postgres' SQLSTATE for unique_violation. */
@@ -10,25 +12,6 @@ const LOCK_NOT_AVAILABLE = '55P03';
  * tombstone, a replayed create of a row since deleted.
  */
 const DELETED_CLIENT_ID = 'CL410';
-
-interface PgError {
-  code?: unknown;
-  constraint?: unknown;
-}
-
-/**
- * The driver's error in `error`'s chain, the first with a SQLSTATE: drizzle
- * wraps it as `cause` of an error whose message is the failed statement.
- */
-function driverError(error: unknown): PgError | undefined {
-  let current: unknown = error;
-  while (current instanceof Error) {
-    const pg = current as Error & PgError;
-    if (typeof pg.code === 'string') return pg;
-    current = current.cause;
-  }
-  return undefined;
-}
 
 /**
  * Whether `error` is Postgres refusing a write on `constraint`: a
@@ -60,4 +43,80 @@ export function isLockTimeout(error: unknown): boolean {
  */
 export function isDeletedClientId(error: unknown): boolean {
   return driverError(error)?.code === DELETED_CLIENT_ID;
+}
+
+/**
+ * The pool could not open a connection (TimedPool.connect, client.ts): the
+ * one typed failure every path to the database shares, Drizzle's single
+ * statements (pool.query) and its transactions (pool.connect, unwrapped by
+ * Drizzle) alike. The driver's reason is its cause.
+ */
+export class DatabaseUnreachable extends Error {
+  constructor(cause: unknown) {
+    super('Could not connect to the database', { cause });
+    this.name = 'DatabaseUnreachable';
+  }
+}
+
+/**
+ * Node's errno names for a socket to the database that failed under a
+ * query: reset or timed out with the host gone. Only counted inside a
+ * Drizzle query error or DatabaseUnreachable: the same names come from an
+ * outbound fetch, which is not the database.
+ */
+const SOCKET_ERRNOS = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'EPIPE',
+]);
+
+/**
+ * SQLSTATEs of a server going away: class 08 (connection exception), and
+ * admin_shutdown, crash_shutdown and cannot_connect_now (57P01-03: a restart
+ * ending sessions, a database still starting).
+ */
+const SERVER_GONE_SQLSTATES = new Set(['57P01', '57P02', '57P03']);
+
+/**
+ * node-postgres (pinned, src/db/AGENTS.md) fails a query on a lost
+ * connection without a code, so only its exact messages say it: the
+ * client-side query timeout (query_timeout: the host stopped answering), a
+ * socket that closed under a query, a client already broken.
+ * Re-check them when bumping pg.
+ */
+const CONNECTION_LOST_MESSAGES = new Set([
+  'Query read timeout',
+  'Connection terminated unexpectedly',
+  'Client has encountered a connection error and is not queryable',
+]);
+
+/**
+ * Whether `error` says the database cannot be reached, rather than that one
+ * statement failed: the request may succeed in a moment with nothing changed
+ * on our side (the web layer's 503 `busy`, describeError). A connection the
+ * pool could not open, a SQLSTATE of the server going away, or a query
+ * whose connection was lost. A statement_timeout (57014) is not one: the
+ * server answered.
+ */
+export function isDatabaseUnavailable(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const chain = causeChain(error);
+  if (chain.some((e) => e instanceof DatabaseUnreachable)) return true;
+  const code = driverError(error)?.code;
+  if (
+    code !== undefined &&
+    (code.startsWith('08') || SERVER_GONE_SQLSTATES.has(code))
+  ) {
+    return true;
+  }
+  if (!chain.some((e) => e instanceof DrizzleQueryError)) return false;
+  return (
+    (code !== undefined && SOCKET_ERRNOS.has(code)) ||
+    chain.some((e) => CONNECTION_LOST_MESSAGES.has(e.message))
+  );
 }

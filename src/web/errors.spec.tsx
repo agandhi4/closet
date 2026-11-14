@@ -5,7 +5,12 @@ import {
   recordErrors,
   type RecordedErrors,
 } from '../../test/support/sentry-stub';
-import { createErrorHandler, HttpError, REQUEST_FAILED_EVENT } from './errors';
+import {
+  createErrorHandler,
+  DatabaseOutage,
+  HttpError,
+  REQUEST_FAILED_EVENT,
+} from './errors';
 import { renderPage } from './render';
 import type { ViewContext } from './view-context';
 
@@ -56,7 +61,13 @@ describe('createErrorHandler', () => {
     app.addHook('preValidation', async (request, reply) => {
       if (request.url !== '/static') reply.locals = ctx;
     });
-    app.setErrorHandler(createErrorHandler(captured.logger, errors.tracker));
+    app.setErrorHandler(
+      createErrorHandler(
+        captured.logger,
+        errors.tracker,
+        new DatabaseOutage(captured.logger),
+      ),
+    );
     app.get('/missing', () => {
       throw new HttpError(404);
     });

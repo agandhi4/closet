@@ -331,6 +331,18 @@ export type RefetchVerdict =
 /** The answers that say the server, not the page, is unwell. */
 const UNAVAILABLE_STATUSES = new Set([429, 502, 503, 504]);
 
+/**
+ * Whether an answer says the server, not the page, is unwell (a 429, or a
+ * 502, 503 or 504 from it or the proxy before it; the server's 503 `busy`
+ * when its database is out of reach, #643). The worker treats it as no
+ * answer: a refetch stops (refetchVerdict), and a page or htmx GET is
+ * answered from its cached copy when it has one (ServerFirstPages,
+ * views/assets/src-sw.ts), like a timeout.
+ */
+export function serverUnavailable(status: number): boolean {
+  return UNAVAILABLE_STATUSES.has(status);
+}
+
 export function refetchVerdict(answer: {
   status: number;
   redirected: boolean;
@@ -347,7 +359,7 @@ export function refetchVerdict(answer: {
   if (answer.redirected) return 'kept';
   if (answer.status === 200) return 'stored';
   if (answer.status === 404 || answer.status === 403) return 'deleted';
-  if (UNAVAILABLE_STATUSES.has(answer.status)) return 'stop';
+  if (serverUnavailable(answer.status)) return 'stop';
   if (answer.status >= 500) return 'failed';
   return 'kept';
 }

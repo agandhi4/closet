@@ -2,7 +2,12 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { captureLogs } from '../../test/support/log-capture';
 import { recordErrors } from '../../test/support/sentry-stub';
-import { createErrorHandler, HttpError, OwnerLockTimeout } from './errors';
+import {
+  createErrorHandler,
+  DatabaseOutage,
+  HttpError,
+  OwnerLockTimeout,
+} from './errors';
 import { Forbidden, NotFound } from './refusals';
 import { assignSurface } from './surface';
 
@@ -23,7 +28,13 @@ beforeEach(async () => {
   // A page context on every request, as app.ts builds for pages: the API
   // must not render the page from it.
   app.decorateReply('locals', undefined);
-  app.setErrorHandler(createErrorHandler(logger, recordErrors().tracker));
+  app.setErrorHandler(
+    createErrorHandler(
+      logger,
+      recordErrors().tracker,
+      new DatabaseOutage(logger),
+    ),
+  );
   app.setNotFoundHandler((request) => {
     throw new HttpError(404, `Cannot ${request.method} ${request.url}`);
   });

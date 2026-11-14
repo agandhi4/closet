@@ -1,6 +1,10 @@
 import { Socket } from 'node:net';
 import { Client } from 'pg';
-import { connectionOptions, type DbConfig } from '../db/client';
+import {
+  connectionOptions,
+  type DbConfig,
+  SERVER_TIMEOUTS,
+} from '../db/client';
 import type { Logger } from '../logger';
 import { settlesWithin } from './deadline';
 import { CUTOUT_QUEUED_CHANNEL } from './queries';
@@ -15,12 +19,6 @@ export const LISTENER_APPLICATION_NAME = 'closet-cutout-listener';
 // listening again. The cap keeps a long database outage to a line a minute.
 const RECONNECT_FIRST_MS = 1_000;
 const RECONNECT_MAX_MS = 60_000;
-// A host that does not answer fails the attempt instead of hanging on the
-// OS's TCP timeout.
-const CONNECT_TIMEOUT_MS = 10_000;
-// TCP keepalive: a connection that silently died (a NAS reboot, a dropped
-// route) is eventually noticed and replaced. Until then the idle poll covers.
-const KEEPALIVE_DELAY_MS = 60_000;
 // How long close() waits for pg's orderly end (Terminate, then the server
 // closing the socket) before destroying the socket itself. Milliseconds on a
 // live connection; a peer that went silent would otherwise hold shutdown
@@ -101,11 +99,12 @@ export class CutoutListener {
     const { database, logger } = this.deps;
     const socket = new Socket();
     const client = new Client({
-      ...connectionOptions(database),
+      // The pool's limits: a host that does not answer fails the attempt
+      // instead of hanging on the OS's TCP timeout, and TCP keepalive
+      // notices a connection that silently died (a NAS reboot, a dropped
+      // route); until then the idle poll covers.
+      ...connectionOptions(database, SERVER_TIMEOUTS),
       application_name: LISTENER_APPLICATION_NAME,
-      connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
-      keepAlive: true,
-      keepAliveInitialDelayMillis: KEEPALIVE_DELAY_MS,
       stream: () => socket,
     });
     const connection = { client, socket };

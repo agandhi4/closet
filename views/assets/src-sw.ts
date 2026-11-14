@@ -42,6 +42,7 @@ import {
   type Revalidation,
   revalidationOutcome,
   sentToLogin,
+  serverUnavailable,
   servesStaleWhileRevalidate,
   PAGES_CACHE,
 } from '../../src/web/page-cache';
@@ -616,7 +617,36 @@ const pagePlugins: WorkboxPlugin[] = [
   }),
 ];
 
-const pages = new NetworkFirst({
+/**
+ * NetworkFirst, with the server's own "unwell" answers (serverUnavailable:
+ * the 503 `busy` of a database outage, #643; a proxy's 502 or 504; a 429)
+ * taken like a timeout: the cached copy answers, with its freshness stamp,
+ * when the cache has one, and the server's answer only when it has none
+ * (its busy page or toast says more than the offline page). In the handler,
+ * not a fetchDidSucceed plugin: a navigation's preload response skips the
+ * fetch plugins. Such an answer is never stored (the 200 filter).
+ */
+class ServerFirstPages extends NetworkFirst {
+  override async _handle(
+    request: Request,
+    handler: StrategyHandler,
+  ): Promise<Response> {
+    const answer = await super._handle(request, handler);
+    if (!serverUnavailable(answer.status)) return answer;
+    const path = new URL(request.url).pathname;
+    const cached = await handler.cacheMatch(request);
+    if (!cached) {
+      console.warn(`[sw] ${path}: server answered ${answer.status}, no copy`);
+      return answer;
+    }
+    console.info(
+      `[sw] ${path}: server answered ${answer.status}, the cached copy answers`,
+    );
+    return cached;
+  }
+}
+
+const pages = new ServerFirstPages({
   cacheName: PAGES_CACHE,
   networkTimeoutSeconds: 3,
   plugins: pagePlugins,

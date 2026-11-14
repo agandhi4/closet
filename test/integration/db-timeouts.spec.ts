@@ -56,6 +56,8 @@ describe('database timeouts', () => {
     expect(SERVER_TIMEOUTS).toEqual({
       statementMs: 15_000,
       idleInTransactionMs: 30_000,
+      connectMs: 5_000,
+      queryMs: 16_000,
     });
     expect(await setting(t.db, 'statement_timeout')).toBe('15s');
     expect(await setting(t.db, 'idle_in_transaction_session_timeout')).toBe(
@@ -156,7 +158,7 @@ describe('database timeouts', () => {
 
   it('ends a transaction left idle past idle_in_transaction_session_timeout, and the pool recovers', async () => {
     await withPool(
-      { statementMs: SERVER_TIMEOUTS.statementMs, idleInTransactionMs: 200 },
+      { ...SERVER_TIMEOUTS, idleInTransactionMs: 200 },
       async (db) => {
         let pid = 0;
         const stalled = await db
@@ -196,19 +198,13 @@ describe('database timeouts', () => {
   });
 
   it('cancels a statement past statement_timeout', async () => {
-    await withPool(
-      {
-        statementMs: 200,
-        idleInTransactionMs: SERVER_TIMEOUTS.idleInTransactionMs,
-      },
-      async (db) => {
-        const outcome = await db.execute(sql`select pg_sleep(2)`).then(
-          () => 'finished',
-          // drizzle's error names the statement; the driver's, its cause.
-          (error: Error) => String((error.cause as Error | undefined)?.message),
-        );
-        expect(outcome).toBe('canceling statement due to statement timeout');
-      },
-    );
+    await withPool({ ...SERVER_TIMEOUTS, statementMs: 200 }, async (db) => {
+      const outcome = await db.execute(sql`select pg_sleep(2)`).then(
+        () => 'finished',
+        // drizzle's error names the statement; the driver's, its cause.
+        (error: Error) => String((error.cause as Error | undefined)?.message),
+      );
+      expect(outcome).toBe('canceling statement due to statement timeout');
+    });
   });
 });
