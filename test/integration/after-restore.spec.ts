@@ -14,7 +14,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recordCutoutEvent } from '../../src/cutout/queries';
 import { file, syncEpoch, userDevice } from '../../src/db/schema';
 import { afterRestore } from '../../src/maintenance/after-restore';
-import { reconcileStorage } from '../../src/maintenance/reconcile';
+import {
+  missingMarksStatement,
+  reconcileStorage,
+  writeMissingMarks,
+} from '../../src/maintenance/reconcile';
 import { repointCutout } from '../../src/maintenance/repoint-cutout';
 import { PROJECT_ROOT } from '../../src/project-root';
 import { variantFileName } from '../../src/web/files/image-variant';
@@ -375,6 +379,66 @@ describe('after a database restore', () => {
     expect((await photoRow(t, garment.fileName))?.variantKey).toBe(
       'fedcba987654',
     );
+  });
+
+  it('repoint-cutout unkeyed on a pending row takes edit, not the already-there shortcut, and the job’s result is refused', async () => {
+    const garment = await garmentWithPhoto('Pending, unkeyed set');
+    await recordCutoutEvent(t.db, garment.fileName, {
+      type: 'start',
+      worker: 'job:2:dddd',
+    });
+    const jobVersion = (await photoRow(t, garment.fileName))!.version;
+    const thumb = (await setFiles(garment.fileName)).find((name) =>
+      name.includes('-thumb'),
+    )!;
+    for (const variant of ['nobg', 'thumb'] as const) {
+      const target = variantFileName(garment.fileName, variant, null);
+      if (target !== thumb)
+        await copyFile(join(t.dataPath, thumb), join(t.dataPath, target));
+    }
+
+    expect(await repoint(garment.fileName, 'unkeyed')).toMatchObject({
+      repointed: true,
+      status: 'edited',
+    });
+    expect(await photoRow(t, garment.fileName)).toMatchObject({
+      cutoutStatus: 'edited',
+      cutoutWorker: null,
+    });
+    expect(
+      await recordCutoutEvent(t.db, garment.fileName, {
+        type: 'succeed',
+        jobVersion,
+        variantKey: '222222222222',
+      }),
+    ).toMatchObject({ ok: false });
+  });
+
+  it('the marks statement binds each id set once, so its parameter count does not grow with the ids', () => {
+    const marks = (n: number) => ({
+      mark: Array.from({ length: n }, (_, i) => i + 1),
+      clear: Array.from({ length: n }, (_, i) => n + i + 1),
+    });
+    const small = missingMarksStatement(t.db, marks(2)).toSQL();
+    const large = missingMarksStatement(t.db, marks(30_000)).toSQL();
+    expect(large.params.length).toBe(small.params.length);
+    expect(large.params.length).toBeLessThan(10);
+  });
+
+  it('the mark counts are the rows the UPDATE changed: a row its WHERE skips is not counted', async () => {
+    const already = await markedGarment('Already marked');
+    const fresh = await garmentWithPhoto('Not yet marked');
+    const alreadyId = (await photoRow(t, already.fileName))!.id;
+    const freshId = (await photoRow(t, fresh.fileName))!.id;
+    // `mark` names both; the already-marked row is re-asserted out.
+    expect(
+      await writeMissingMarks(
+        { db: t.db, logger: silentLogger } as Parameters<
+          typeof writeMissingMarks
+        >[0],
+        { mark: [alreadyId, freshId], clear: [] },
+      ),
+    ).toEqual({ marked: 1, cleared: 0 });
   });
 
   it('repoint-cutout clears a missing mark once its files are stored', async () => {

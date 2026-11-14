@@ -1,14 +1,4 @@
-import {
-  and,
-  count,
-  eq,
-  inArray,
-  isNotNull,
-  isNull,
-  not,
-  or,
-  sql,
-} from 'drizzle-orm';
+import { and, count, eq, isNotNull, isNull, not, or, sql } from 'drizzle-orm';
 import { garmentOwnersOf } from '../cutout/queries';
 import type { Db } from '../db/client';
 import { ownersLockCte } from '../db/owner-lock';
@@ -275,7 +265,10 @@ async function cleanUp(
   // the guard refused: a mark deletes nothing, and a restore is exactly
   // when the guard refuses. The rows deleted as orphans are not in the
   // plan's marks.
-  const marksFailed = !dryRun && !(await writeMissingMarks(deps, plan.marks));
+  const written = dryRun
+    ? undefined
+    : await writeMissingMarks(deps, plan.marks);
+  const marksFailed = !dryRun && written === undefined;
   // Not while the guard refuses: storage and the database disagreeing
   // wholesale is exactly when the trash may hold what is needed back.
   const trashSetsPurged = refused
@@ -296,8 +289,13 @@ async function cleanUp(
     orphanedRowsDeleted: deleted.rows,
     missingOriginals: plan.missingOriginals.length,
     missingOriginalPhotos: plan.missingOriginals,
-    photosMarkedMissing: plan.marks.mark.length,
-    photosNoLongerMissing: plan.marks.clear.length,
+    // A dry run counts the plan; a real run what the UPDATE changed.
+    photosMarkedMissing: dryRun
+      ? plan.marks.mark.length
+      : (written?.marked ?? 0),
+    photosNoLongerMissing: dryRun
+      ? plan.marks.clear.length
+      : (written?.cleared ?? 0),
     ...(marksFailed ? { marksFailed: true as const } : {}),
     pendingPhotosDeleted: agedPending.size,
     pendingRowsWithoutFiles,
@@ -896,61 +894,69 @@ function showsSomething(
 }
 
 /**
+ * The statement that writes `marks`, built apart so a spec can read its
+ * parameter count: each id set is bound once, as one array parameter
+ * (`sql.param`; a bare array in `sql` expands to one parameter per id,
+ * which passes Postgres' 65535 past ~21k ids after a big restore).
+ */
+export function missingMarksStatement(db: Db, { mark, clear }: MissingMarks) {
+  const markIds = sql`${sql.param(mark)}::int[]`;
+  const clearIds = sql`${sql.param(clear)}::int[]`;
+  const lock = ownersLockCte(
+    db,
+    garmentOwnersOf(
+      sql`select unnest(${sql.param([...mark, ...clear])}::int[])`,
+    ),
+  );
+  return db
+    .with(lock)
+    .update(file)
+    .set({
+      originalMissingSince: sql`case when ${file.id} = any(${markIds}) then now() end`,
+    })
+    .where(
+      and(
+        // Runs the lock before the scan (an uncorrelated InitPlan, as
+        // ownerLocked); `>= 0`, not `> 0`: photos no garment shows
+        // have no owner to lock and are written all the same.
+        sql`(${db.select({ owners: count() }).from(lock)}) >= 0`,
+        or(
+          and(
+            sql`${file.id} = any(${markIds})`,
+            isNull(file.originalMissingSince),
+          ),
+          and(
+            sql`${file.id} = any(${clearIds})`,
+            isNotNull(file.originalMissingSince),
+          ),
+        ),
+      ),
+    )
+    .returning({
+      fileName: file.fileName,
+      missing: file.originalMissingSince,
+    });
+}
+
+/**
  * Writes `marks` in one statement under the owners' lock: the photo row is
  * synced data (its garment's revision moves, closet_sync_touch_photo), so
  * every owner of a garment showing one of them is locked first, in id
  * order (ownersLockCte over garmentOwnersOf, the cutout retry's shape). A
  * photo no garment shows (a selfie's, a look's) locks nobody. The WHERE
  * re-asserts each change's condition, so a row another run marked or
- * cleared meanwhile is left as it is. False when it failed (a 55P03 behind
- * a stalled writer): logged, and the next run tries again.
+ * cleared meanwhile is left as it is. Returns what the UPDATE changed, or
+ * undefined when it failed (a 55P03 behind a stalled writer): logged, and
+ * the next run tries again.
  */
-async function writeMissingMarks(
+export async function writeMissingMarks(
   { db, logger }: ReconcileDeps,
-  { mark, clear }: MissingMarks,
-): Promise<boolean> {
-  const ids = [...mark, ...clear];
-  if (ids.length === 0) return true;
+  marks: MissingMarks,
+): Promise<{ marked: number; cleared: number } | undefined> {
+  const total = marks.mark.length + marks.clear.length;
+  if (total === 0) return { marked: 0, cleared: 0 };
   try {
-    const lock = ownersLockCte(
-      db,
-      garmentOwnersOf(
-        sql`${sql.join(
-          ids.map((id) => sql`${id}::int`),
-          sql`, `,
-        )}`,
-      ),
-    );
-    const marked = mark.length > 0 ? inArray(file.id, mark) : sql`false`;
-    const written = await db
-      .with(lock)
-      .update(file)
-      .set({
-        originalMissingSince: sql`case when ${marked} then now() end`,
-      })
-      .where(
-        and(
-          // Runs the lock before the scan (an uncorrelated InitPlan, as
-          // ownerLocked); `>= 0`, not `> 0`: photos no garment shows
-          // have no owner to lock and are written all the same.
-          sql`(${db.select({ owners: count() }).from(lock)}) >= 0`,
-          or(
-            mark.length > 0
-              ? and(inArray(file.id, mark), isNull(file.originalMissingSince))
-              : undefined,
-            clear.length > 0
-              ? and(
-                  inArray(file.id, clear),
-                  isNotNull(file.originalMissingSince),
-                )
-              : undefined,
-          ),
-        ),
-      )
-      .returning({
-        fileName: file.fileName,
-        missing: file.originalMissingSince,
-      });
+    const written = await missingMarksStatement(db, marks);
     for (const row of written) {
       logger.info(
         row.missing
@@ -958,12 +964,13 @@ async function writeMissingMarks(
           : `Photo ${row.fileName} no longer missing: its bytes are back in storage`,
       );
     }
-    return true;
+    const marked = written.filter((row) => row.missing).length;
+    return { marked, cleared: written.length - marked };
   } catch (error) {
     logger.error(
       { err: error },
-      `Could not write the missing-photo marks of ${ids.length} photos`,
+      `Could not write the missing-photo marks of ${total} photos`,
     );
-    return false;
+    return undefined;
   }
 }

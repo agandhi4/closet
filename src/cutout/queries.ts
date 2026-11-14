@@ -340,10 +340,15 @@ export function repointCutoutRow(
   return db.transaction(async (tx): Promise<RepointedRow> => {
     const row = await lockCutoutRow(tx, fileName);
     if (!row) return { gone: true };
-    const next =
-      row.variantKey === variantKey
-        ? null
-        : await applyCutoutEvent(tx, row, repointEvent(row, variantKey));
+    // Only a ready or edited row can already point at the key: a none,
+    // pending or failed row has a null key, and `unkeyed` must still take
+    // `edit` there (it clears a running job).
+    const alreadyThere =
+      (row.status === 'ready' || row.status === 'edited') &&
+      row.variantKey === variantKey;
+    const next = alreadyThere
+      ? null
+      : await applyCutoutEvent(tx, row, repointEvent(row, variantKey));
     if (next && !next.ok) return { gone: false, row, next, unmarked: false };
     const cleared = await tx
       .update(file)
