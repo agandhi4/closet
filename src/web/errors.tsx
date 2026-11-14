@@ -381,18 +381,15 @@ export function problemOf(
 }
 
 /**
- * Answers `reply` with the problem. A 401 names the scheme to retry with
- * (RFC 6750: a native client signs in again); a rate limit or a busy
- * wardrobe says when to retry.
+ * Answers `reply` with the problem; a rate limit or a busy wardrobe says
+ * when to retry. A 401's WWW-Authenticate is the error handler's (its
+ * bearer branch, for /mcp and /api alike), never set here.
  */
 export function sendProblem(
   request: Pick<FastifyRequest, 'id'>,
   reply: FastifyReply,
   answer: ProblemAnswer,
 ): FastifyReply {
-  if (answer.status === 401) {
-    reply.header('WWW-Authenticate', 'Bearer realm="closet"');
-  }
   if (answer.retryAfterSeconds !== undefined) {
     reply.header('Retry-After', String(Math.ceil(answer.retryAfterSeconds)));
   }
@@ -530,9 +527,16 @@ export function createErrorHandler(
     if (answer.retryAfterSeconds !== undefined) {
       reply.header('Retry-After', String(Math.ceil(answer.retryAfterSeconds)));
     }
+    const surface = surfaceOf(request);
+    // A bearer surface's 401 names the scheme to retry with (RFC 6750: sign
+    // in again, or a new agent token), the one place it is set: the bearer
+    // gate's refusals and the API sign-in's wrong password alike.
+    if (status === 401 && surface !== 'page') {
+      reply.header('WWW-Authenticate', 'Bearer realm="closet"');
+    }
     // The API answers problem+json whatever failed, an unmatched path
     // included (surfaceOf), and never has a page context.
-    if (surfaceOf(request) === 'api') {
+    if (surface === 'api') {
       return sendProblem(request, reply, answer);
     }
     // Decided by the request's htmx headers: a cache keeps the two apart.

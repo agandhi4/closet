@@ -5,9 +5,8 @@ import type {
   FastifyReply,
   FastifyRequest,
 } from 'fastify';
-import { presentedBearer } from '../auth/bearer';
-import { authenticateToken } from '../auth/personal-tokens';
-import { errorBody } from '../errors';
+import { type BearerRefusalLimit, createBearerGate } from '../auth/bearer-gate';
+import { HttpError } from '../errors';
 import { MAX_OPTIONS_PER_GROUP } from '../../wardrobe/suggestions';
 import { MCP_PATH } from '../page-cache';
 import type { WebOptions } from '../plugin';
@@ -53,15 +52,17 @@ const INSTRUCTIONS = [
  * in `Authorization: Bearer`, never the session cookie; no page context, so
  * errors are JSON; the same-origin check lets a request without Origin
  * through and refuses a foreign one; the service worker never handles it
- * (bypassesWorker). Rate-limited per token (MCP_LIMIT). The path is logged
+ * (bypassesWorker). The token is checked at onRequest by the bearer gate
+ * /api shares (src/web/auth/bearer-gate.ts), before the body is read;
+ * refusals count on BEARER_REFUSAL_LIMIT per address. Rate-limited per
+ * token (MCP_LIMIT), one JSON-RPC message per request (a batch is
+ * refused, so the limit counts tool calls). The path is logged
  * as the pattern (secretPath), so a client that puts a token in the query
  * string never writes it to a log.
  */
-export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
-  app,
-  options,
-  done,
-) => {
+export const mcpRoutes: FastifyPluginCallback<
+  WebOptions & BearerRefusalLimit
+> = (app, options, done) => {
   const {
     db,
     photos,
@@ -73,38 +74,23 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
     logger,
     mcpLogger,
     metrics,
+    bearerRefusalLimit,
   } = options;
   const tools = mcpTools({ weather: weather !== undefined });
   const linkImportLimit = app.createRateLimit(MCP_LINK_IMPORT_LIMIT);
 
-  async function requireToken(request: FastifyRequest, reply: FastifyReply) {
-    const presented = presentedBearer(request);
-    // Agent tokens only: a native client's device token is refused here as
-    // an unknown one would be (#189).
-    const auth =
-      'token' in presented
-        ? await authenticateToken(db, presented.token, 'mcp')
-        : undefined;
-    if (!auth) {
-      mcpLogger.warn(
-        `MCP ${request.method} refused: ${'token' in presented ? 'unknown, revoked or non-MCP token' : presented.refused} from ${request.ip}`,
-      );
-      return (
-        reply
-          .status(401)
-          .header('WWW-Authenticate', 'Bearer realm="closet"')
-          // Every refusal of the credential is this one answer, whatever was
-          // wrong (no header, a malformed one, an unknown or revoked token),
-          // so a probe learns nothing about which tokens exist.
-          .send(errorBody(request, 401, 'Unauthorized'))
-      );
-    }
-    request.accessToken = auth;
-  }
-
   const route = {
     config: { surface: 'mcp', secretPath: true },
-    preValidation: requireToken,
+    // Agent tokens only: a native client's device token is refused here as
+    // an unknown one would be (#189).
+    onRequest: createBearerGate({
+      db,
+      logger: mcpLogger,
+      label: 'MCP',
+      kind: 'mcp',
+      refusalLimit: bearerRefusalLimit,
+      refusal: () => new HttpError(401, 'Unauthorized'),
+    }),
   } as const;
 
   app.post(
@@ -112,6 +98,22 @@ export const mcpRoutes: FastifyPluginCallback<WebOptions> = (
     { ...route, config: { ...route.config, rateLimit: MCP_LIMIT } },
     async (request, reply) => {
       const auth = request.accessToken!;
+      // One request is one message, so MCP_LIMIT counts tool calls (#667):
+      // a JSON-RPC batch (up to the SDK's 100, which the current MCP spec
+      // dropped) is refused before anything is built for it.
+      if (Array.isArray(request.body)) {
+        mcpLogger.warn(
+          `MCP batch of ${request.body.length} refused for user ${auth.user.id} (token ${auth.tokenId})`,
+        );
+        return reply.status(400).send({
+          jsonrpc: '2.0',
+          error: {
+            code: -32600,
+            message: 'Batches are not supported: send one message per request.',
+          },
+          id: null,
+        });
+      }
       const context: ToolContext = {
         db,
         photos,

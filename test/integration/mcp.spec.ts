@@ -203,7 +203,7 @@ describe('the MCP endpoint', () => {
       });
     });
 
-    it('refuses a device token (#189) as an unknown one, recording no use', async () => {
+    it('refuses a device token (#189) with the same 401 as an unknown one, recording no use', async () => {
       const device = await mintToken(t, t.owner.id, 'Phone', 'device');
       if (!device.created) throw new Error('no device token');
       issued.push(device.token);
@@ -224,7 +224,7 @@ describe('the MCP endpoint', () => {
       const refused = t.logs.messages('warn', 'Mcp');
       expect(refused).toHaveLength(1);
       expect(refused[0]).toMatch(
-        /^MCP POST refused: unknown, revoked or non-MCP token from /,
+        /^MCP POST \/mcp refused: wrong kind of token \(wants mcp\) from /,
       );
     });
 

@@ -7,6 +7,7 @@ import { PROJECT_ROOT } from '../src/project-root';
 import { DEVICE_TOKEN_SCHEME } from '../src/web/api/contract';
 import { type ApiOptions, registerApi } from '../src/web/api/plugin';
 import {
+  BEARER_REFUSAL_LIMIT,
   LINK_IMPORT_LIMIT,
   SIGN_IN_LIMIT,
 } from '../src/web/security/rate-limit';
@@ -81,6 +82,7 @@ export async function generateApiSpec(): Promise<unknown> {
   await registerApi(app, {
     ...unservedOptions(),
     signInLimit: app.createRateLimit(SIGN_IN_LIMIT),
+    bearerRefusalLimit: app.createRateLimit(BEARER_REFUSAL_LIMIT),
     linkImportLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
     inspirationLinkLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
   });

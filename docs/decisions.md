@@ -1233,3 +1233,9 @@ Consequence: revisit when Sentry drops bundler-plugins from node's runtime deps 
 Why: #923 counted every mailbox-level failure as a strike on the email being read, so a 10-poll session 503, a 429 or a database blip parked healthy emails.
 Decision: `failureScope` returns `email` (spends an attempt), `message` (that id's own body fetch: 5xx or wrong shape; a strike, 3 in a row spend one) or `outage` (everything else, every database error that is not a refusal of the email's values: no row written). Strikes left by the old rule are harmless: the next strike or outcome resets them.
 Consequence: a new failure path picks one of the three in `failureScope` or `JmapError.scope`, nowhere else.
+
+## 2026-11-14 — One bearer gate for /mcp and /api; refusals limited per address; no MCP batches (#667)
+
+Why: `/mcp` parsed up to 1 MiB of JSON before its 401, had no limit for refused callers, and counted a 100-message batch as one request against `MCP_LIMIT`.
+Decision: `createBearerGate` (`src/web/auth/bearer-gate.ts`) is both surfaces' onRequest token check. Refusals, and only refusals, count on one `BEARER_REFUSAL_LIMIT` per `request.ip` (30 a minute); past it a missing, malformed or unknown credential is a 429, a revoked or other-kind token still the 401 (`authenticateToken` now reads by hash alone and says which). A JSON-RPC batch is a 400 `-32600` before any server is built. `WWW-Authenticate` is set only by the error handler, for every bearer-surface 401.
+Consequence: a valid token is never throttled by its address, so a household behind one IP keeps working; the cost is one indexed SELECT for each throttled `closet_` guess. Past the budget, 401 versus 429 tells a prober that a token existed and was revoked: accepted, since it needs the revoked token's value. A pre-2025-06 MCP client that batches is refused.

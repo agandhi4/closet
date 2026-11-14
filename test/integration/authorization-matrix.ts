@@ -43,6 +43,7 @@ import {
   OWNER_EMAIL,
   TestApp,
   type TestAppOptions,
+  uniqueClient,
   userIdOf,
   asFixture,
 } from './harness';
@@ -978,7 +979,20 @@ export function describeMatrix(
       request: InjectOptions,
     ): Promise<LightMyRequestResponse> => {
       const { cookie, token } = actors[actor];
-      if (surface === 'api') return t.api(token, request);
+      // Each tokenless twin request comes from an address of its own: the
+      // matrix proves the 401, and from one address a group's replays would
+      // spend BEARER_REFUSAL_LIMIT and meet its 429 (bearer-gate.spec.ts).
+      if (surface === 'api') {
+        return t.api(
+          token,
+          token
+            ? request
+            : {
+                ...request,
+                headers: { ...uniqueClient(), ...request.headers },
+              },
+        );
+      }
       return t.inject({
         ...request,
         headers: { ...request.headers, ...(cookie ? { cookie } : {}) },

@@ -12,7 +12,7 @@ import type { Logger } from '../../logger';
  * unless its route opts in with `config: { rateLimit: SIGN_IN_LIMIT }` (or
  * ACCOUNT_LIMIT, LINK_IMPORT_LIMIT, WEATHER_SEARCH_LIMIT, WEATHER_LOCATION_LIMIT,
  * VITALS_LIMIT, CLIENT_ERROR_LIMIT, MCP_LIMIT; HEALTH_LIMIT, SIGN_IN_LIMIT's
- * two sign-in doors, SIGN_IN_ACCOUNT_LIMIT, API_LIMIT and API_PHOTO_LIMIT through one
+ * two sign-in doors, SIGN_IN_ACCOUNT_LIMIT, BEARER_REFUSAL_LIMIT, API_LIMIT and API_PHOTO_LIMIT through one
  * createRateLimit checker each). Every limited route counts on its own. Counters live in
  * process memory, which is right for the single container this runs as.
  *
@@ -76,13 +76,35 @@ export async function enforceLimit(
   request: FastifyRequest,
   { logger, who }: { logger: Logger; who: string },
 ): Promise<void> {
+  const exceeded = await countAgainst(checker, request);
+  if (exceeded) throw limitReached(request, exceeded, { logger, who });
+}
+
+/**
+ * Counts `request` against `checker`: undefined while there is room, else
+ * the seconds until there is. For a caller that decides itself whether an
+ * exhausted budget refuses (the bearer gate); everyone else enforceLimit.
+ */
+export async function countAgainst(
+  checker: RateLimitChecker,
+  request: FastifyRequest,
+): Promise<{ ttlInSeconds: number } | undefined> {
   const verdict = await checker(request);
   // `isAllowed` is the plugin's allow list; the count is isExceeded.
-  if (verdict.isAllowed || !verdict.isExceeded) return;
+  if (verdict.isAllowed || !verdict.isExceeded) return undefined;
+  return { ttlInSeconds: verdict.ttlInSeconds };
+}
+
+/** enforceLimit's refusal, logged naming `who`. */
+export function limitReached(
+  request: FastifyRequest,
+  { ttlInSeconds }: { ttlInSeconds: number },
+  { logger, who }: { logger: Logger; who: string },
+): HttpError {
   logger.warn(
     `Rate limit reached: ${request.method} ${loggableUrl(request)} for ${who}`,
   );
-  throw tooManyAttempts(verdict.ttlInSeconds);
+  return tooManyAttempts(ttlInSeconds);
 }
 
 /**
@@ -262,10 +284,28 @@ export const HEALTH_LIMIT = {
 };
 
 /**
+ * The bearer surfaces' refused credentials (/mcp and /api, the bearer gate,
+ * src/web/auth/bearer-gate.ts): per client address, on ONE checker both
+ * surfaces count on (`bearerRefusalLimit`, built in webPlugin), as
+ * HEALTH_LIMIT is per address. Only a refusal is counted, never a token
+ * that opens: a household behind one address keeps working while a
+ * stranger probes. Past it, a missing, malformed or unknown credential is a
+ * 429 instead of the 401; a revoked or other-kind token stays the 401, so a
+ * signed-out device behind a throttled address still learns to sign in.
+ */
+export const BEARER_REFUSAL_LIMIT = {
+  max: 30,
+  timeWindow: MINUTE_MS,
+  keyGenerator: (request: FastifyRequest) => `refused ${request.ip}`,
+};
+
+/**
  * The MCP endpoint (src/web/mcp): per personal access token, a preHandler
- * after the endpoint's own hook has authenticated it (an unauthenticated
- * call is a 401 there and never counted). An agent calls tools in bursts;
- * this is room for a busy conversation and a ceiling on a runaway loop.
+ * after the bearer gate has authenticated it at onRequest (a refused
+ * credential counts on BEARER_REFUSAL_LIMIT instead). One request is one
+ * JSON-RPC message (a batch is refused), so this counts tool calls. An
+ * agent calls tools in bursts; this is room for a busy conversation and a
+ * ceiling on a runaway loop.
  */
 export const MCP_LIMIT = {
   max: 120,
@@ -276,8 +316,8 @@ export const MCP_LIMIT = {
 
 /**
  * Every authenticated /api/v1 route (src/web/api/plugin.ts): per device
- * token, counted after the token is authenticated (an unauthenticated
- * request is the 401 and never counted), as MCP_LIMIT is. One checker for
+ * token, counted after the token is authenticated (a refused credential
+ * counts on BEARER_REFUSAL_LIMIT instead), as MCP_LIMIT is. One checker for
  * the whole API: a client's budget, not a route's.
  */
 export const API_LIMIT = {
