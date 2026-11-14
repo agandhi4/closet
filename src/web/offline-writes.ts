@@ -7,10 +7,13 @@ import type { IsoDate } from '../calendar-date';
 import type { Logger } from '../logger';
 import {
   dayRefusal,
+  instantOnDay,
   isReplayRequest,
   type QueueableKind,
   REPLAY_HEADER,
   type ReplayRefusal,
+  type TapInstant,
+  tapInstant,
 } from '../offline-writes';
 import { sessionUserId } from './auth/require-session';
 import { HttpError } from './errors';
@@ -107,6 +110,42 @@ export function requestedDay(
   if (refusal)
     throw replayRefused(reply, refusal, { logDetail: `day ${posted}` });
   return posted;
+}
+
+/**
+ * The request's tap (#676, tapInstant): its posted `at` (a replay's, an API
+ * client's) judged against the server's clock; without one, now for a live
+ * request and unknown (null) for a replay.
+ */
+export function requestTap(
+  request: FastifyRequest,
+  posted: string | undefined,
+  timeZone: string,
+): TapInstant | null {
+  return tapInstant(
+    posted === undefined ? undefined : new Date(posted),
+    isReplay(request),
+    new Date(),
+    timeZone,
+  );
+}
+
+/**
+ * The instant a wear or wash on `day` is stored with (#676): the request's
+ * tap when it falls on `day`, else null, the day rule (instantOnDay).
+ */
+export function postedInstant(
+  request: FastifyRequest,
+  posted: string | undefined,
+  day: IsoDate,
+  timeZone: string,
+): Date | null {
+  return instantOnDay(requestTap(request, posted, timeZone), day);
+}
+
+/** A wash's log words for its instant: `at <ISO>`, or that it is not known. */
+export function instantNote(at: Date | null): string {
+  return at ? `at ${at.toISOString()}` : 'at an unknown time';
 }
 
 /**

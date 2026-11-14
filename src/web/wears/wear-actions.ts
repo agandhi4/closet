@@ -49,7 +49,13 @@ export async function wearGarment(
   db: Db,
   actor: Actor,
   address: GarmentAddress,
-  change: { day: IsoDate; worn: boolean; clientId?: string },
+  change: {
+    day: IsoDate;
+    worn: boolean;
+    /** Its instant on `day`, or null (instantOnDay, #676). */
+    wornAt: Date | null;
+    clientId?: string;
+  },
 ): Promise<WearWrite> {
   const { access } = await garmentWardrobe(db, actor, address, 'own');
   const outcome = await setWoreToday(db, {
@@ -67,15 +73,24 @@ export async function wearGarment(
   return { ownerId: access.ownerId, changed: outcome === 'changed' };
 }
 
-/** Washed on `day` (markWashed: a wash never moves back, so an older one is unchanged). */
+/**
+ * Washed on `day` at `at`, its instant on that day or null (markWashed: a
+ * wash never moves back, so an older one is unchanged).
+ */
 export async function washGarment(
   db: Db,
   actor: Actor,
   address: GarmentAddress,
-  day: IsoDate,
+  wash: { day: IsoDate; at: Date | null },
 ): Promise<WearWrite> {
   const { access } = await garmentWardrobe(db, actor, address, 'own');
-  const [washed] = await markWashed(db, access.ownerId, [address.id], day);
+  const [washed] = await markWashed(
+    db,
+    access.ownerId,
+    [address.id],
+    wash.day,
+    wash.at,
+  );
   if (!washed) throw await refusalOf(db, address.id, access.ownerId);
   return { ownerId: access.ownerId, changed: washed.changed };
 }

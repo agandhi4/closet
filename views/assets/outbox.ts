@@ -66,6 +66,7 @@ import {
   routesThroughOutbox,
   sharedUntilRejected,
   takesDay,
+  takesInstant,
 } from '../../src/offline-writes';
 import {
   inTransaction,
@@ -590,8 +591,11 @@ function toRecord(
   const id = newId();
   const fields = { ...draft.fields };
   // The tap's day, not the replay's: a Sunday-night wear replayed Monday is
-  // Sunday's (the server takes it back to REPLAY_WINDOW_DAYS).
+  // Sunday's (the server takes it back to REPLAY_WINDOW_DAYS). Its instant
+  // too, for an entry marked worn as well, so a same-day wear and wash keep
+  // the tap's order (#676); a replay without one is an unknown instant.
   if (takesDay(draft.kind)) fields.day = today;
+  if (takesInstant(draft.kind)) fields.at = new Date(queuedAt).toISOString();
   if (draft.kind === 'wear' && fields.worn === '1') fields.clientId = id;
   return {
     id,

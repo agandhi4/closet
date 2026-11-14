@@ -9,11 +9,19 @@ import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import {
   answerReplay,
+  instantNote,
   isReplay,
+  postedInstant,
   replayNote,
   requestedDay,
 } from '../offline-writes';
-import { GarmentParams, IsoDateSchema, OwnerQuery, RowId } from '../schemas';
+import {
+  GarmentParams,
+  IsoDateSchema,
+  OwnerQuery,
+  RowId,
+  TapInstantSchema,
+} from '../schemas';
 import { actorOf, sharedWardrobesOf } from '../sharing/access';
 import { viewContext } from '../view-context';
 import { garmentAddress, garmentNotFound } from '../wardrobe/garment-access';
@@ -34,6 +42,8 @@ import { WearStatus } from './wear-section';
 const WoreTodayBody = Type.Object({
   worn: Type.Union([Type.Literal('1'), Type.Literal('0')]),
   day: Type.Optional(IsoDateSchema),
+  // The tap's instant (#676), for a same-day wash's order: postedInstant.
+  at: Type.Optional(TapInstantSchema),
   // A queued wear's id (the outbox record's), stored on the wear it
   // creates (setWoreToday): a replay of a wear deleted since is a 410,
   // the id on another wear a 409. Ignored with worn=0.
@@ -41,7 +51,10 @@ const WoreTodayBody = Type.Object({
 });
 
 const WashedBody = Type.Union([
-  Type.Object({ day: Type.Optional(IsoDateSchema) }),
+  Type.Object({
+    day: Type.Optional(IsoDateSchema),
+    at: Type.Optional(TapInstantSchema),
+  }),
   Type.Null(),
 ]);
 
@@ -128,7 +141,12 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         db,
         actorOf(request),
         garmentAddress(request),
-        { day, worn, clientId: worn ? clientId : undefined },
+        {
+          day,
+          worn,
+          wornAt: postedInstant(request, request.body.at, day, config.timeZone),
+          clientId: worn ? clientId : undefined,
+        },
       ).catch((error: unknown) => {
         if (error instanceof WearClientIdRefusal) {
           logger.info(
@@ -159,14 +177,15 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const { id } = request.params;
       const day = requestedDay(reply, request.body?.day, today());
+      const at = postedInstant(request, request.body?.at, day, config.timeZone);
       const { ownerId, changed } = await washGarment(
         db,
         actorOf(request),
         garmentAddress(request),
-        day,
+        { day, at },
       );
       logger.info(
-        `Garment ${id} washed on ${day} by user ${ownerId}${changed ? '' : ', already washed then or later'}${replayNote(request)}`,
+        `Garment ${id} washed on ${day} ${instantNote(at)} by user ${ownerId}${changed ? '' : ', already washed then or later'}${replayNote(request)}`,
       );
       return answer(request, reply, { id, ownerId, changed });
     },
@@ -234,7 +253,13 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const userId = sessionUserId(request);
       const ids = request.body?.ids ?? [];
       const day = today();
-      const washed = await markWashed(db, userId, ids, day);
+      const washed = await markWashed(
+        db,
+        userId,
+        ids,
+        day,
+        postedInstant(request, undefined, day, config.timeZone),
+      );
       logger.info(
         `Laundry by user ${userId} on ${day}: ${washed.length} washed of ${ids.length} checked`,
       );
