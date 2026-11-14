@@ -1,5 +1,5 @@
 import type { Logger } from '../../logger';
-import type { WriteProbe } from '../../storage-probe';
+import type { StorageFailure, WriteProbe } from '../../storage-probe';
 
 /**
  * The /health/ready contract (~/.claude/conventions/observability.md,
@@ -105,13 +105,16 @@ export function checkCutoutQueue(running: boolean): HealthCheck {
 /** How long a storage verdict is reused: a probe writes to disk (and NFS). */
 const STORAGE_PROBE_TTL_MS = 5_000;
 
+/** The bound on one directory's probe, as the database's: under the TTL. */
+const STORAGE_PROBE_TIMEOUT_MS = 3_000;
+
 export interface StorageCheckDeps {
   /** DATA_PATH and MODELS_PATH, as the process sees them. */
   directories: readonly string[];
   /** probeWritable (src/storage-probe.ts); the specs pass it too, on tmp dirs. */
   probe: (directory: string) => Promise<WriteProbe>;
-  /** ownershipFix (src/storage-probe.ts): the chown, with the process's uid:gid. */
-  fix: (unwritable: readonly string[]) => string;
+  /** storageFix (src/storage-probe.ts): the operator's step for each failure code. */
+  fix: (failures: readonly StorageFailure[]) => string;
   /**
    * Why DATA_PATH is not the storage this process claimed at boot, or
    * undefined when it is (PhotoStorage.identityProblem, the marker: #650).
@@ -121,6 +124,7 @@ export interface StorageCheckDeps {
   identityFix: string;
   logger: Logger;
   ttlMs?: number;
+  timeoutMs?: number;
   now?: () => number;
 }
 
@@ -131,11 +135,19 @@ export interface StorageCheckDeps {
  * mountpoint: uploads would land where the remount hides them). Required because the image runs non-root and its
  * directories are host mounts (docs/operations.md#permissions): with a
  * root-owned one every page would serve and the first upload or the model
- * download would fail, so readiness would lie. The fix names the chown.
+ * download would fail, so readiness would lie. The fix is per failure code (storageFix).
  *
  * One probe per STORAGE_PROBE_TTL_MS whatever the request rate (the
  * HEALTHCHECK, the smoke's poll and anyone within HEALTH_LIMIT share it),
- * and concurrent callers await the same probe.
+ * and concurrent callers await the same probe. Each directory's probe is
+ * bounded by `timeoutMs` (code `TIMEOUT`: a stalled NFS share never answers),
+ * which is under the TTL, so the cached verdict always settles. A timed-out
+ * probe cannot be cancelled, so at most ONE is in flight per directory: while
+ * it is pending, later windows report TIMEOUT at once and start nothing (each
+ * abandoned fs call would hold one of libuv's four pool threads, and a few
+ * stall every fs call and DNS lookup in the process); a new probe starts only
+ * after the pending one settles. A problem is logged when it appears or
+ * changes, not per probe.
  */
 export function createStorageCheck({
   directories,
@@ -145,12 +157,36 @@ export function createStorageCheck({
   identityFix,
   logger,
   ttlMs = STORAGE_PROBE_TTL_MS,
+  timeoutMs = STORAGE_PROBE_TIMEOUT_MS,
   now = Date.now,
 }: StorageCheckDeps): () => Promise<HealthCheck> {
   let cached: { at: number; verdict: Promise<HealthCheck> } | undefined;
+  let reported = '';
+  const pending = new Map<string, Promise<WriteProbe>>();
+  const bounded = (directory: string): Promise<WriteProbe> => {
+    if (pending.has(directory)) {
+      return Promise.resolve({ writable: false, code: 'TIMEOUT' });
+    }
+    const started = probe(directory);
+    const forget = (): void => {
+      pending.delete(directory);
+    };
+    pending.set(directory, started);
+    started.then(forget, forget);
+    let timer: NodeJS.Timeout | undefined;
+    const expired = new Promise<WriteProbe>((resolve) => {
+      timer = setTimeout(
+        () => resolve({ writable: false, code: 'TIMEOUT' }),
+        timeoutMs,
+      );
+    });
+    return Promise.race([started, expired]).finally(() => clearTimeout(timer));
+  };
   const run = async (): Promise<HealthCheck> => {
-    const [results, problem] = await Promise.all([
-      Promise.all(directories.map(probe)),
+    // One probe per distinct directory (DATA_PATH may equal MODELS_PATH).
+    const distinct = [...new Set(directories)];
+    const [probed, problem] = await Promise.all([
+      Promise.all(distinct.map(bounded)),
       // identityProblem never rejects for the disk's sake; anything else
       // still reads as down, never as a rejected readiness check.
       identity().catch((error: unknown) => {
@@ -161,15 +197,26 @@ export function createStorageCheck({
         return 'the storage marker could not be checked';
       }),
     ]);
-    const unwritable = directories.filter((directory, i) => {
+    const results = directories.map(
+      (directory) => probed[distinct.indexOf(directory)],
+    );
+    const messages: string[] = [];
+    const unwritable: StorageFailure[] = [];
+    directories.forEach((directory, i) => {
       const result = results[i];
-      if (result.writable) return false;
-      logger.warn(
+      if (result.writable) return;
+      messages.push(
         `Readiness: ${directory} is not writable by this process (${result.code})`,
       );
-      return true;
+      unwritable.push({ directory, code: result.code });
     });
-    if (problem) logger.warn(`Readiness: ${problem}`);
+    if (problem) messages.push(`Readiness: ${problem}`);
+    const state = messages.join('\n');
+    if (state !== reported) {
+      for (const message of messages) logger.warn(message);
+      if (messages.length === 0) logger.info('Readiness: storage is healthy');
+      reported = state;
+    }
     const fixes = [
       ...(unwritable.length > 0 ? [fix(unwritable)] : []),
       ...(problem ? [identityFix] : []),
