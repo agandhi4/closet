@@ -554,7 +554,9 @@ describe('the weekly auto-plan', () => {
         );
         expect(html).toMatch(/data-still-empty[^>]*>[^<]*Workout/);
         expect(html).toContain('data-needs-activewear');
-        expect(html).toContain('A workout is planned only in activewear');
+        expect(html).toContain(
+          'Your closet has no running shoes and athletic bottoms',
+        );
       } finally {
         await post('/auth/profile/week', TEMPLATE);
       }

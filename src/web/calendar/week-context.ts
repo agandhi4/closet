@@ -1,6 +1,7 @@
 import type { Db } from '../../db/client';
 import { selectScalars } from '../../db/select-scalars';
 import type { TemplateSlot } from '../../wardrobe/week';
+import { closetKindsSql } from '../gallery/queries';
 import { type DetachedLook, detachedLooksSql } from '../selfies/queries';
 import { planDays, type PlannedBanner, plannedBanner } from '../week-plan/plan';
 import { batchEntriesSql, entrySlotsSql } from '../week-plan/queries';
@@ -52,6 +53,7 @@ export async function weekContext(
         ? batchEntriesSql(ownerId, banner.planned)
         : undefined,
     window: window && entrySlotsSql(ownerId, window[0], window.at(-1)!),
+    closetKinds: banner && closetKindsSql(ownerId),
   });
   const template = inTemplateOrder(row.template);
   return {
@@ -62,7 +64,12 @@ export async function weekContext(
       banner &&
       plannedBanner(
         banner.planned,
-        { batch: row.batch ?? [], template, window: row.window ?? [] },
+        {
+          batch: row.batch ?? [],
+          template,
+          window: row.window ?? [],
+          closetKinds: row.closetKinds ?? [],
+        },
         banner,
       ),
   };

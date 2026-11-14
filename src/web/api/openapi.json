@@ -18896,6 +18896,23 @@
                           "type": "boolean"
                         }
                       }
+                    },
+                    "emptyReason": {
+                      "description": "Present only when there are no ideas and the occasion is dressed for moving (a workout), which takes running shoes and athletic bottoms: 'no-activewear' when the closet has none (set garment types), 'none-available' when it has but none is clean and at home that day",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no-activewear"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "none-available"
+                          ]
+                        }
+                      ]
                     }
                   }
                 }

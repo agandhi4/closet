@@ -1,5 +1,5 @@
 import type { Idea } from '../../wardrobe/generator';
-import type { Occasion } from '../../wardrobe/occasions';
+import type { ActivewearGap, Occasion } from '../../wardrobe/occasions';
 import { displayTemperature } from '../../weather/temperature';
 import { PostForm } from '../auth/form';
 import type { IsoDate } from '../../calendar-date';
@@ -116,11 +116,7 @@ export function IdeasPage(props: { ctx: ViewContext; model: IdeasPageModel }) {
             <SnapStripsInit />
           </>
         ) : (
-          <EmptyState
-            message={t(
-              model.capsule ? 'gallery.EMPTY_CAPSULE' : 'gallery.EMPTY',
-            )}
-          >
+          <EmptyState message={emptyMessage(model)}>
             <a href="/wardrobe" class="btn btn-primary btn-sm">
               {t('gallery.EMPTY_ACTION')}
             </a>
@@ -130,6 +126,16 @@ export function IdeasPage(props: { ctx: ViewContext; model: IdeasPageModel }) {
       <Dock ctx={ctx} />
     </Layout>
   );
+}
+
+/** Why there are no ideas: no activewear, or none available (a workout), else the everyday reason. */
+function emptyMessage(model: IdeasPageModel): string {
+  const { emptyReason } = model.cards;
+  if (emptyReason === 'no-activewear') return t('gallery.EMPTY_NO_ACTIVEWEAR');
+  if (emptyReason === 'none-available') {
+    return t('gallery.EMPTY_ACTIVEWEAR_AWAY');
+  }
+  return t(model.capsule ? 'gallery.EMPTY_CAPSULE' : 'gallery.EMPTY');
 }
 
 /**
@@ -235,6 +241,8 @@ export interface IdeaCardsModel {
   planning: { day: IsoDate; occasion: Occasion };
   ideas: Idea<PoolGarment>[];
   weather: IdeasWeather | null;
+  /** The Ideas page's empty state, when activewear is why (IdeasResult.emptyReason). */
+  emptyReason?: ActivewearGap;
   /** 1-based. */
   page: number;
   more: boolean;

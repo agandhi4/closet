@@ -2,6 +2,7 @@ import { seededRandom } from '../random';
 import {
   assessOutfit,
   FIT_PROBLEMS,
+  legsTooColdForRun,
   type MatchGarment,
   type WeatherNeeds,
 } from '../weather/match';
@@ -254,7 +255,7 @@ export function generateIdeas<G extends IdeaGarment>(
   const lockedIds = new Set(locked.map((g) => g.id));
   const lockedRoles = new Set(locked.map((g) => g.role));
   const active = request.active ?? null;
-  const byRole = drawableByRole(request.pool, locked, active);
+  const byRole = drawableByRole(request.pool, locked, active, request.needs);
   const templates = templatesFor(byRole, lockedRoles, active);
   const rules = compileRules(rulesOf(request));
   const compatible = compatibleWith(rules, lockedIds);
@@ -557,7 +558,8 @@ function pageOf<G extends IdeaGarment>(
  * The pool by role: only the roles drawn, never a type no outfit is drawn
  * with (socks, swimwear: isDrawnType; one still rides along locked), never
  * an everyday garment in a role an active occasion keeps for activewear
- * (ActiveDemand; a locked one rides along: the person chose it), and never
+ * (ActiveDemand; a locked one rides along: the person chose it; in a cold
+ * snap, bottoms too light for it, legsTooColdForRun), and never
  * a locked garment twice.
  * Each role's garments in id order, whatever order the pool came in: the
  * draws pick by position, and a pool is a query's rows, whose order
@@ -570,12 +572,21 @@ function drawableByRole<G extends IdeaGarment>(
   pool: readonly G[],
   locked: readonly G[],
   active: ActiveDemand | null,
+  needs: WeatherNeeds | null | undefined,
 ): Map<GarmentRole, G[]> {
   const lockedIds = new Set(locked.map((g) => g.id));
+  // A cold snap asks full-length bottoms, not running shorts.
+  const tooLightForRun = (garment: G) =>
+    needs != null &&
+    garment.role === 'bottom' &&
+    legsTooColdForRun(needs, garment.weather);
+  const notActivewear = (garment: G) =>
+    purposeOf(garment.category, garment.type) !== 'active' ||
+    tooLightForRun(garment);
   const everyday = (garment: G) =>
     active !== null &&
     active.roles.includes(garment.role) &&
-    purposeOf(garment.category, garment.type) !== 'active';
+    notActivewear(garment);
   const byRole = new Map<GarmentRole, G[]>();
   for (const garment of [...pool].sort((a, b) => a.id - b.id)) {
     if (

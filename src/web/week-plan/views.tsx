@@ -1,4 +1,4 @@
-import { DAY_OCCASIONS, OCCASION_HINTS } from '../../wardrobe/occasions';
+import { DAY_OCCASIONS } from '../../wardrobe/occasions';
 import {
   AROUND_OCCASIONS,
   templateDays,
@@ -94,14 +94,18 @@ export function PlannedWeekBanner({ banner }: { banner: PlannedBanner }) {
           })}
         </p>
       )}
-      {/* An empty active slot (a workout) may be the closet's: the planner
-          never dresses one in everyday wear (#647). Said whatever emptied
-          it, since the banner reads the calendar, not the plan's reasons. */}
-      {banner.stillEmpty.some(
-        (slot) => OCCASION_HINTS[slot.occasion].active,
-      ) && (
-        <p class="text-sm text-muted" data-needs-activewear>
-          {t('weekPlan.NEEDS_ACTIVEWEAR')}
+      {/* An empty workout may be the closet's: the planner never dresses one
+          in everyday wear (#647). */}
+      {banner.activewearGap && (
+        <p
+          class="text-sm text-muted"
+          data-needs-activewear={banner.activewearGap}
+        >
+          {t(
+            banner.activewearGap === 'no-activewear'
+              ? 'weekPlan.NEEDS_ACTIVEWEAR'
+              : 'weekPlan.ACTIVEWEAR_AWAY',
+          )}
         </p>
       )}
       {banner.weekPlanId !== null && (

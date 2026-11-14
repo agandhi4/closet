@@ -1,4 +1,9 @@
-import type { Formality, GarmentRole } from './properties';
+import {
+  categoryRole,
+  type Formality,
+  type GarmentRole,
+  purposeOf,
+} from './properties';
 
 /**
  * The part of the day a calendar entry is for (#13; plan section 8):
@@ -89,6 +94,41 @@ export function occasionDemands(occasion: Occasion): {
 } {
   const hints = OCCASION_HINTS[occasion];
   return { formality: hints.formality, active: hints.active ?? null };
+}
+
+/** Why an active occasion has no outfit for want of activewear (activewearGap). */
+export type ActivewearGap = 'no-activewear' | 'none-available';
+
+/** Whether `garments` lack an active-type garment in a role `active` requires. */
+export function lacksActivewear(
+  active: ActiveDemand,
+  garments: readonly { category: string; type: string | null }[],
+): boolean {
+  return active.roles.some(
+    (role) =>
+      !garments.some(
+        (g) =>
+          categoryRole(g.category) === role &&
+          purposeOf(g.category, g.type) === 'active',
+      ),
+  );
+}
+
+/**
+ * What an empty answer for an active occasion is owed to, when it is
+ * activewear: the closet has none of a required kind ('no-activewear': set
+ * garment types), or it has, but none is available (`available`: clean,
+ * at home) for the day ('none-available'). Undefined for everyday wear, or
+ * when activewear is not what is missing (the weather or a rule is).
+ */
+export function activewearGap(
+  active: ActiveDemand | null,
+  closet: readonly { category: string; type: string | null }[],
+  available: readonly { category: string; type: string | null }[],
+): ActivewearGap | undefined {
+  if (active === null) return undefined;
+  if (lacksActivewear(active, closet)) return 'no-activewear';
+  return lacksActivewear(active, available) ? 'none-available' : undefined;
 }
 
 /**

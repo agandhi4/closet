@@ -381,6 +381,28 @@ describe('a workout in the demo closet (#647)', () => {
     );
   });
 
+  it('asks full-length bottoms again in a cold snap, and spares shorts at 0 °C', () => {
+    // The planner takes an idea's best (first) of each seed: that is what
+    // a slot is dressed in.
+    const bestBottoms = (day: DayForecast) =>
+      SEEDS.map((seed) => {
+        const [best] = generateIdeas({
+          pool: CLOSET.pool,
+          avoid: CLOSET.avoid,
+          saved: CLOSET.saved,
+          needs: weatherNeeds(day, 'workout', 0),
+          ...occasionDemands('workout'),
+          seed,
+          offset: 0,
+          limit: PAGE,
+        }).ideas;
+        return best.garments.find((g) => g.role === 'bottom')?.type;
+      });
+    expect(bestBottoms(steadyDay(0))).toContain('running-shorts');
+    expect(bestBottoms(steadyDay(-20))).not.toContain('running-shorts');
+    expect(allIdeas(steadyDay(-20), 'workout').length).toBeGreaterThan(0);
+  });
+
   it('fits a hot morning run outright', () => {
     expect(fittingIdeas(steadyDay(30), 'workout').length).toBeGreaterThan(0);
   });

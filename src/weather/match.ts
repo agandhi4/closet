@@ -64,6 +64,30 @@ export function torsoTarget(feelsLike: number): number {
 const COLD_SNAP = -10;
 
 /**
+ * How far under the cold snap's ask a run's legs may be (legsTooColdForRun):
+ * wider than an everyday outfit's tolerance, since the effort warms a run:
+ * leggings and joggers (2) pass, running shorts (1) do not.
+ */
+const COLD_RUN_LEGS_BELOW = 2;
+
+/**
+ * Whether a run's legs are too cold in `garment` (running shorts) in a cold
+ * snap (#647): below COLD_SNAP an active occasion asks full-length bottoms
+ * again, where above it the cold floor is spared. The generator keeps such
+ * a garment out of an active occasion's draws, so a planner never takes it
+ * as a near miss.
+ */
+export function legsTooColdForRun(
+  needs: WeatherNeeds,
+  garment: MatchGarment,
+): boolean {
+  return (
+    needs.feelsLike.min < COLD_SNAP &&
+    needs.limbs - COLD_RUN_LEGS_BELOW - garment.warmth > 0
+  );
+}
+
+/**
  * Legs and feet (one garment's warmth, 1-4 asked): shorts and sandals (1)
  * from about 26 °C, chinos and sneakers (2) around 19 °C, jeans (3) from
  * about 12 °C through an ordinary winter, heavy denim and boots (4) in a
@@ -359,9 +383,11 @@ export function assessOutfit(
   }
   if (needs.layer && !hasLayer) miss('needs-layer', MISSING_PENALTY);
 
-  // Dressed for moving (ActiveDemand): running shorts and running shoes in
-  // the cold are what a run wears, so only too warm is judged.
-  const coldFloor = !OCCASION_HINTS[needs.occasion].active;
+  // Dressed for moving (ActiveDemand): running shorts and shoes at 0 °C are
+  // what a run wears, so legs and feet are judged only too warm. Below
+  // COLD_SNAP the floor is back: full-length bottoms, not running shorts.
+  const coldFloor =
+    !OCCASION_HINTS[needs.occasion].active || needs.feelsLike.min < COLD_SNAP;
   const limb = (
     roles: readonly GarmentRole[],
     tolerance: { below: number; above: number },
