@@ -4,6 +4,7 @@ import { PostForm } from '../auth/form';
 import { loginUrl, registerUrl } from '../auth/return-to';
 import { t, type StringKey } from '../i18n';
 import { AppBar } from '../layout/app-bar';
+import { BrandMark } from '../layout/brand-mark';
 import { Layout } from '../layout/layout';
 import { ProfileSection } from '../layout/parts';
 import { CopyableText } from '../share/share-button';
@@ -252,7 +253,8 @@ export function InvitePage(props: {
         title={t('WARDROBE_INVITE')}
         returnTo={invite && invitePath(props.token)}
       />
-      <main class="flex flex-col justify-center items-center min-h-[80vh] px-4 pt-20">
+      <main class="flex flex-col justify-center items-center gap-4 min-h-[80vh] px-4 pt-20">
+        {!ctx.user && <BrandMark ctx={ctx} />}
         <div class="card bg-base-100 shadow-md w-full max-w-md">
           <div class="card-body">
             {invite ? (

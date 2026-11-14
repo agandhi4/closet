@@ -1,6 +1,7 @@
 import type { Child } from 'hono/jsx';
 import { t } from '../i18n';
 import type { ViewContext } from '../view-context';
+import { HANGER_PATHS } from './parts';
 import { DOCK_TABS, type Section, SECTION_HOME, sectionOf } from './sections';
 
 /**
@@ -9,10 +10,13 @@ import { DOCK_TABS, type Section, SECTION_HOME, sectionOf } from './sections';
  * garment, a filtered grid, a capsule or an outfit page keeps its tab lit.
  * Rendered by the server into the body, so a boosted navigation, an htmx
  * history restore and the service worker's cached tab roots all carry the
- * dock of the page they show. Its z-index (above page content) and its
+ * dock of the page they show. Signed out it renders nothing: every tab
+ * would bounce to the login page, so the one rule lives here and every
+ * signed-out page (sign in, register, the 404) inherits it. Its z-index (above page content) and its
  * restyling as a left rail at lg (one markup, CSS only) are in main.css.
  */
 export function Dock({ ctx }: { ctx: ViewContext }) {
+  if (!ctx.user) return null;
   const active = sectionOf(ctx.path);
   return (
     <nav class="dock" aria-label={t('NAV_MAIN')}>
@@ -49,22 +53,8 @@ const TABS: Readonly<Record<Section, { label: () => string; icon: Child }>> = {
   },
   wardrobe: {
     label: () => t('WARDROBE'),
-    // https://cdn.hugeicons.com/icons/hanger-stroke-rounded.svg
-    icon: (
-      <>
-        <path
-          d="M4.12572 15.3668L10.1284 11.9903C10.7234 11.6556 11.3252 11.5 12 11.5C12.6748 11.5 13.2766 11.6556 13.8716 11.9903L19.8743 15.3668C20.5697 15.7579 21 16.4937 21 17.2916C21 18.5113 20.0113 19.5 18.7916 19.5H5.20841C3.98874 19.5 3 18.5113 3 17.2916C3 16.4937 3.43034 15.7579 4.12572 15.3668Z"
-          stroke-width="1.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        ></path>
-        <path
-          d="M10 6.40476C10 5.35279 10.8954 4.5 12 4.5C13.1046 4.5 14 5.35279 14 6.40476C14 7.12453 13.5808 7.75106 12.9623 8.07498C12.473 8.33119 12 8.75724 12 9.30952V11.5"
-          stroke-width="1.5"
-          stroke-linecap="round"
-        ></path>
-      </>
-    ),
+    // The hanger HangerIcon draws for a garment too.
+    icon: HANGER_PATHS,
   },
   styling: {
     label: () => t('styling.DOCK'),

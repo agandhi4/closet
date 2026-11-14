@@ -172,7 +172,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       }
       const shown = weekOf(anchor ?? today);
       const planned = parsePlanned(request.query.planned);
-      const { entries, looks, template, banner } = await weekContext(
+      const { entries, looks, template, banner, canDress } = await weekContext(
         db,
         ownerId,
         { ...shown, today },
@@ -195,6 +195,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           view={view}
           alreadySaved={alreadySavedOf(request.query.alreadySaved)}
           banner={banner}
+          canDress={canDress}
           undone={
             undone !== undefined && /^\d+$/.test(undone)
               ? Number(undone)

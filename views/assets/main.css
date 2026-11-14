@@ -257,12 +257,17 @@
    from inside it. The toasts (z 999) sit above both. Pages leave the bar's
    4rem with pt-20 (the bar and a 1rem gutter), or pt-16 when their first
    row sits flush under it (the Wardrobe tabs). */
+/* The app bar's height, once: the bar's own and what a bar sticky between it
+   and the dock (Styling's) subtracts from the viewport (`--app-bar-h`). */
+:root {
+  --app-bar-h: 4rem;
+}
 .app-bar {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  height: 4rem;
+  height: var(--app-bar-h);
   z-index: 900;
 }
 .dock {

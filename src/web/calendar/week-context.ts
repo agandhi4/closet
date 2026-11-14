@@ -1,7 +1,7 @@
 import type { Db } from '../../db/client';
 import { selectScalars } from '../../db/select-scalars';
 import type { TemplateSlot } from '../../wardrobe/week';
-import { closetKindsSql } from '../gallery/queries';
+import { closetCanDress, closetKindsSql } from '../gallery/queries';
 import { type DetachedLook, detachedLooksSql } from '../selfies/queries';
 import { planDays, type PlannedBanner, plannedBanner } from '../week-plan/plan';
 import { batchEntriesSql, entrySlotsSql } from '../week-plan/queries';
@@ -17,13 +17,16 @@ import { entriesSql } from './queries';
  * - `looks`: the selfies kept on a day after their entry went (DayLooks);
  * - `template`: the open slots from today on (OpenSlotRow);
  * - `banner`: after "Plan my week" (`?planned=`), what it planned and the
- *   next 7 days' slots still empty (PlannedWeekBanner).
+ *   next 7 days' slots still empty (PlannedWeekBanner);
+ * - `canDress`: the first-run gate (closetCanDress, #666): "Plan my week"
+ *   shows only once the closet can be dressed as an outfit.
  */
 export interface WeekContext {
   entries: CalendarEntry[];
   looks: DetachedLook[];
   template: TemplateSlot[];
   banner: PlannedBanner | undefined;
+  canDress: boolean;
 }
 
 /**
@@ -53,7 +56,8 @@ export async function weekContext(
         ? batchEntriesSql(ownerId, banner.planned)
         : undefined,
     window: window && entrySlotsSql(ownerId, window[0], window.at(-1)!),
-    closetKinds: banner && closetKindsSql(ownerId),
+    // The gate's, and the banner's (plannedBanner) when it is asked for.
+    closetKinds: closetKindsSql(ownerId),
   });
   const template = inTemplateOrder(row.template);
   return {
@@ -68,9 +72,10 @@ export async function weekContext(
           batch: row.batch ?? [],
           template,
           window: row.window ?? [],
-          closetKinds: row.closetKinds ?? [],
+          closetKinds: row.closetKinds,
         },
         banner,
       ),
+    canDress: closetCanDress(row.closetKinds),
   };
 }

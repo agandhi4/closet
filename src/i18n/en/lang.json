@@ -427,6 +427,7 @@
   "ABOUT_OPEN_SOURCE_DESC": "{appName} keeps the upstream AGPL-3.0 license. The source code for this fork and for the original project is available on GitHub.",
   "ABOUT_TECH": "Technology",
   "ABOUT_TECH_DESC": "Built with NestJS, HTMX, PostgreSQL, Docker, and ONNX runtime for client-side AI background removal. The progressive web app works offline on desktop and mobile.",
+  "LOGIN_TITLE": "Sign in",
   "LOGIN_OG_TITLE": "Sign In — {appName}",
   "LOGIN_OG_DESC": "Sign in to {appName} to manage your wardrobe, build outfits, and plan looks.",
   "REGISTER_OG_TITLE": "Register — {appName}",
@@ -1293,6 +1294,7 @@
     "NEW": "Style an outfit",
     "STRIP_LABEL": "{role}: choose one",
     "PREVIEW": "The outfit",
+    "PREVIEW_EMPTY": "Nothing chosen yet: Shuffle draws an idea.",
     "FIT_OFFLINE": "Offline: the weather check needs a connection.",
     "LOCK": "Lock {role}",
     "NO_GARMENT": "None",
@@ -1333,6 +1335,14 @@
     "WEAR_THIS": "Wear this",
     "CHANGE": "Change",
     "PLAN_ANOTHER": "Plan another outfit",
+    "firstRun": {
+      "WELCOME_TITLE": "Welcome to your closet",
+      "WELCOME": "Photograph your clothes and the app suggests what to wear each day, checks the weather and plans your week. Start with one garment.",
+      "ADD_FIRST": "Add your first garment",
+      "INCOMPLETE_TITLE": "Almost ready for outfits",
+      "INCOMPLETE": "Outfit ideas and planning start once your closet has a top and a bottom, or a dress.",
+      "ADD_MORE": "Add a garment"
+    },
     "push": {
       "MORNING_TITLE": "Today's outfit",
       "EVENING_TITLE": "What did you wear?",

@@ -130,7 +130,8 @@ describe('createErrorHandler', () => {
     expect(res.body).toMatch(/^<!DOCTYPE html><html lang="en">/);
     expect(res.body).toMatch(/<h1\b[^>]*>Not found<\/h1>/);
     expect(res.body).toContain('>Not Found</p>');
-    expect(res.body).toContain('class="dock"');
+    // No session here: no dock (#662).
+    expect(res.body).not.toContain('class="dock"');
     expect(logs.messages('warn')).toEqual(['GET /missing -> 404: Not Found']);
   });
 

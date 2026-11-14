@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ALL_GARMENT_TYPES,
   applyPresets,
+  canProduceOutfit,
   categoryRole,
   FORMALITIES,
   GARMENT_TYPES,
@@ -69,6 +70,18 @@ describe('garment roles', () => {
     ] as const) {
       expect(propertyApplies(property, 'hats')).toBe(true);
     }
+  });
+});
+
+describe('canProduceOutfit', () => {
+  it('needs a top and a bottom, or a dress', () => {
+    expect(canProduceOutfit([])).toBe(false);
+    expect(canProduceOutfit(['top', 'footwear', 'layer'])).toBe(false);
+    expect(canProduceOutfit(['bottom', 'accessory', 'bag', 'none'])).toBe(
+      false,
+    );
+    expect(canProduceOutfit(['top', 'bottom'])).toBe(true);
+    expect(canProduceOutfit(['one-piece'])).toBe(true);
   });
 });
 

@@ -30,44 +30,23 @@ const row = (
 ): RowState => ({ role, garmentId, locked });
 
 describe('freshStates', () => {
-  it('a row per role top to toe, the newest of each worn role chosen', () => {
+  it('a row per role top to toe, every one on "No garment"', () => {
     const windows: RoleWindow[] = [
       window('footwear', [9]),
       window('top', [5, 4]),
+      window('accessory', [20]),
+      window('one-piece', [30]),
       window('layer', [7]),
       window('bottom', [3]),
     ];
     expect(freshStates(windows)).toEqual([
-      row('layer', 7),
-      row('top', 5),
-      row('bottom', 3),
-      row('footwear', 9),
-    ]);
-  });
-
-  it('starts accessories, bags, the uncategorised and a dress beside separates empty', () => {
-    const windows = [
-      window('accessory', [20]),
-      window('bag', [21]),
-      window('none', [22]),
-      window('one-piece', [30]),
-      window('top', [5]),
-      window('bottom', [3]),
-    ];
-    expect(freshStates(windows)).toEqual([
+      row('layer', null),
       row('one-piece', null),
-      row('top', 5),
-      row('bottom', 3),
+      row('top', null),
+      row('bottom', null),
+      row('footwear', null),
       row('accessory', null),
-      row('bag', null),
-      row('none', null),
     ]);
-  });
-
-  it('chooses the dress when there are no separates to wear instead', () => {
-    expect(
-      freshStates([window('one-piece', [30]), window('top', [5])]),
-    ).toEqual([row('one-piece', 30), row('top', 5)]);
   });
 });
 
@@ -250,7 +229,7 @@ describe('Include picks (#335)', () => {
       [toBuy(20, 'top'), toBuy(21, 'footwear')],
     );
     const states = freshStates(windows);
-    expect(states).toEqual([row('top', 5), row('footwear', null)]);
+    expect(states).toEqual([row('top', null), row('footwear', null)]);
     const rows = stylingRows(states, windows, []);
     expect(rows[0].garments.map((g) => g.id)).toEqual([20, 5, 4]);
     expect(rows[0].moreBefore).toBe(4);

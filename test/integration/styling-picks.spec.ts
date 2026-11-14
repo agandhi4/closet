@@ -287,8 +287,8 @@ describe('Styling: Include picks (#335)', () => {
       // A role the closet has nothing of still gets its row.
       expect(stripOf(page, 'footwear')).toEqual([boots]);
       expect(page.match(/data-mark="to-buy"/g)).toHaveLength(5);
-      // Opened on the closet's own, never on a piece to buy.
-      expect(carries(page, tee)).toBe(true);
+      // Opened on no garment at all, a piece to buy least of all.
+      expect(carries(page, tee)).toBe(false);
       expect(carries(page, blazerOne)).toBe(false);
     });
 
@@ -395,20 +395,21 @@ describe('Styling: Include picks (#335)', () => {
   });
 
   describe('where the switch is offered', () => {
-    it('an empty closet, or an empty capsule, offers it as a link: picks alone make rows', async () => {
+    it('an empty capsule offers it as a link (picks alone make rows); an empty closet only once on', async () => {
+      // The first-run gate (#666): a closet with no outfit in it offers no
+      // switch, but ?picks=1 keeps the one that turns it off.
       const cookie = await t.register('empty-closet-picks@example.com');
       await createWishlistItem(t, {
         name: 'First coat',
         category: 'outerwear',
         cookie,
       });
-      const empty = unescapeHtml((await get('/styling', cookie)).body);
-      expect(empty).toMatch(
-        /<a href="\/styling\?picks=1"[^>]*role="switch"[^>]*aria-checked="false"/,
-      );
-      const on = (await get('/styling?picks=1', cookie)).body;
+      const empty = (await get('/styling', cookie)).body;
+      expect(empty).not.toContain('data-styling-picks');
+      const on = unescapeHtml((await get('/styling?picks=1', cookie)).body);
       expect(on).toContain('data-mark="to-buy"');
       expect(on).toContain('data-styling-row="layer"');
+      expect(on).toMatch(/data-styling-picks="on"/);
       const capsule = await t.inject({
         method: 'POST',
         url: '/capsules',

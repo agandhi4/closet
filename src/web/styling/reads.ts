@@ -19,7 +19,9 @@ import {
   weatherFrom,
 } from '../gallery/ideas';
 import {
+  closetCanDress,
   closetGarmentsSql,
+  closetKindsSql,
   type PoolGarment,
   readCloset,
   readPool,
@@ -156,6 +158,12 @@ export interface StripsReads extends CheckedReads {
    * offered.
    */
   editingHeld: boolean;
+  /**
+   * One's own closet can be dressed as an outfit (closetCanDress, the
+   * first-run gate, #666), whatever capsule the strips show; false over a
+   * shared wardrobe, which offers no picks anyway.
+   */
+  canDress: boolean;
 }
 
 /**
@@ -165,7 +173,8 @@ export interface StripsReads extends CheckedReads {
  * around the rows (the capsule menu, whose wardrobe a grantee browses).
  * With the scope's `picks`, the garments offered to style with ride in
  * the same statement (picksSql), and whether the outfit the rows edit is
- * held, which leaves them off the strips. One statement.
+ * held, which leaves them off the strips. One's own closet's kinds ride
+ * along for the first-run gate (`canDress`). One statement.
  */
 export async function stripsReads(
   db: Db,
@@ -193,6 +202,7 @@ export async function stripsReads(
         : outfitIsHeld(sql`${scope.editingOutfitId}::int`),
     capsules: ask.menu || ask.capsules ? capsuleNamesSql(ownerId) : undefined,
     shares: ask.menu && shared ? sharedWardrobesSql(userId) : undefined,
+    closetKinds: shared ? undefined : closetKindsSql(ownerId),
   });
   const editingHeld = row.editingHeld === true;
   return {
@@ -202,6 +212,7 @@ export async function stripsReads(
       editingHeld ? [] : readGarments(row.picks ?? []),
     ),
     editingHeld,
+    canDress: row.closetKinds !== undefined && closetCanDress(row.closetKinds),
     capsules: row.capsules ?? [],
     owner: row.shares
       ?.map(toSharedWardrobe)

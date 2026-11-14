@@ -82,25 +82,20 @@ export function topToToe<R extends { role: GarmentRole }>(
 
 /**
  * What a fresh stack opens on (the dock's Style, a capsule): one row per
- * role the wardrobe has, the newest garment of each worn role chosen, so
- * the page reads as an outfit before anything is touched. Accessories,
- * bags and uncategorised garments start at "No garment" (a newest belt and
- * a newest tote are not an outfit's), and so does a one-piece when there
- * are separates to wear instead. Deterministic: a function of the
- * wardrobe, never of the day, so the page renders the same until the
- * wardrobe changes (the service worker's tab-root rule, page-cache.ts).
+ * role the wardrobe has, every one on "No garment" (#665). The newest
+ * garment of each role is neither a suggestion nor wearable (it ignores wash
+ * and away state: swim trunks under a coat in November), so the page opens
+ * empty and Shuffle, its primary action, draws an idea that respects both.
+ * Newest first stays the strip's order. Deterministic, never of the day or
+ * the wardrobe's contents (the service worker's tab-root rule,
+ * page-cache.ts).
  */
 export function freshStates(windows: readonly RoleWindow[]): RowState[] {
-  const has = (role: GarmentRole) => windows.some((w) => w.role === role);
-  const separates = has('top') && has('bottom');
-  return topToToe(windows).map(({ role, garments }) => {
-    // A role of picks alone has no cycle to open on.
-    const empty =
-      !DRAWN_ROLES.includes(role) ||
-      (role === 'one-piece' && separates) ||
-      garments.length === 0;
-    return { role, garmentId: empty ? null : garments[0].id, locked: false };
-  });
+  return topToToe(windows).map(({ role }) => ({
+    role,
+    garmentId: null,
+    locked: false,
+  }));
 }
 
 /**

@@ -122,8 +122,8 @@ export function navigationPostAnswer(
 /**
  * The sections whose home opens stale-while-revalidate: every one but
  * Today. Styling's `/styling` (#42) qualifies: the bare page is the fresh
- * stack, a function of the wardrobe alone (freshStates: the newest garment
- * of each worn role, never the day's seed, the forecast, rotation or what
+ * stack, a function of the wardrobe alone (freshStates: every row on "No
+ * garment", never the day's seed, the forecast, rotation or what
  * is clean), so it renders byte for byte the same until the wardrobe
  * changes; Shuffle's seed only appears once Shuffle answers. Its other
  * addresses (`?with=`, `?for=`, `?outfit=`, `?ownerId=`) carry a query and

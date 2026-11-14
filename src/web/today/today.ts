@@ -11,7 +11,12 @@ import { type IsoDate, todayIn } from '../../calendar-date';
 import type { CalendarEntry } from '../calendar/calendar-view';
 import { entriesSql } from '../calendar/queries';
 import { dailySeed, ideasFor, type IdeasWeather } from '../gallery/ideas';
-import type { PoolGarment } from '../gallery/queries';
+import {
+  closetCanDress,
+  type ClosetKind,
+  closetKindsSql,
+  type PoolGarment,
+} from '../gallery/queries';
 import {
   readWeatherWithForecast,
   weatherWithForecastSql,
@@ -45,7 +50,10 @@ import { type MuseRound, museRoundSql } from '../wishlist/rounds';
  * evening reminder reads it for every evening person at once (eveningDays).
  * So are Muse's needs waiting on the owner's choice (`needs`, #333) and
  * its latest round while any of it waits (#337), which only the page
- * shows, as one card: the round's while it waits, else the needs'.
+ * shows, as one card: the round's while it waits, else the needs'. So is
+ * the first-run gate (`firstRun`, #666): until the closet can be dressed
+ * as an outfit the page leads with adding garments and offers no plan,
+ * and no ideas are drawn (none could be).
  */
 
 /** Ideas a suggestions row shows at once. */
@@ -73,6 +81,17 @@ export interface IdeasRow {
 
 type TodayRow = PlannedRow | IdeasRow;
 
+/**
+ * Where a closet that cannot be dressed yet stands (#666): nothing in it,
+ * or garments but not an outfit's worth (no top and bottom, no dress).
+ */
+export type FirstRun = 'empty' | 'incomplete';
+
+function firstRunOf(kinds: readonly ClosetKind[]): FirstRun | null {
+  if (kinds.length === 0) return 'empty';
+  return closetCanDress(kinds) ? null : 'incomplete';
+}
+
 export interface TodayModel {
   today: IsoDate;
   rows: TodayRow[];
@@ -84,6 +103,8 @@ export interface TodayModel {
   needs?: NeedsToDecide | null;
   /** Muse's latest round while any of it waits (museRoundSql); null otherwise; read with `needs`. */
   round?: MuseRound | null;
+  /** The first-run path's stage; null once the closet can be dressed; read only when asked (`firstRun`). */
+  firstRun?: FirstRun | null;
 }
 
 export interface TodayOptions {
@@ -96,6 +117,8 @@ export interface TodayOptions {
   worn?: boolean;
   /** Also read Muse's needs and latest round waiting on the owner (the page's card). */
   needs?: boolean;
+  /** Also read the first-run gate over the closet's kinds (the page). */
+  firstRun?: boolean;
 }
 
 export interface TodayDeps {
@@ -106,8 +129,9 @@ export interface TodayDeps {
 
 /**
  * The day's entries, the person's settings with their forecast row, and
- * (when asked) whether anything was worn and Muse's needs waiting on a
- * choice, in one statement (#172; the
+ * (when asked) whether anything was worn, Muse's needs waiting on a
+ * choice and the closet's kinds (the first-run gate, #666), in one
+ * statement (#172; the
  * entries and the weather were two, in parallel), so the ideas start with
  * the weather in hand. Only a forecast that must be fetched reads again
  * (userWeatherFrom).
@@ -117,7 +141,7 @@ async function readDay(
   ownerId: number,
   today: IsoDate,
   now: Date,
-  { ownWeather, worn, needs }: TodayOptions,
+  { ownWeather, worn, needs, firstRun }: TodayOptions,
 ) {
   const read = await selectScalars(deps.db, {
     entries: entriesSql(ownerId, today, today, { washOn: today }),
@@ -128,6 +152,7 @@ async function readDay(
     worn: worn ? somethingWornSql(ownerId, today) : undefined,
     needs: needs ? needsToDecideSql(ownerId) : undefined,
     round: needs ? museRoundSql(ownerId) : undefined,
+    closet: firstRun ? closetKindsSql(ownerId) : undefined,
   });
   const weather =
     ownWeather ??
@@ -143,6 +168,7 @@ async function readDay(
     worn: read.worn,
     needs: read.needs,
     round: read.round,
+    closet: read.closet,
   };
 }
 
@@ -153,13 +179,14 @@ export async function todayFor(
   options: TodayOptions = {},
 ): Promise<TodayModel> {
   const today = todayIn(deps.timeZone, now);
-  const { entries, weather, worn, needs, round } = await readDay(
+  const { entries, weather, worn, needs, round, closet } = await readDay(
     deps,
     ownerId,
     today,
     now,
     options,
   );
+  const firstRun = closet && firstRunOf(closet);
   // Occasion order, the calendar's; a stable sort keeps the planned first.
   entries.sort((a, b) => compareOccasions(a.occasion, b.occasion));
   const rows: TodayRow[] = [];
@@ -176,7 +203,8 @@ export async function todayFor(
     }
   }
   const dressed = entries.some((e) => DAY_OCCASIONS.includes(e.occasion));
-  if (!dressed) {
+  // A closet that cannot be dressed draws no idea: the statement is saved.
+  if (!dressed && !firstRun) {
     // All day sorts first among occasions, so it opens the list.
     rows.unshift(
       await todayIdeas(deps, ownerId, now, DEFAULT_OCCASION, 1, weather),
@@ -189,6 +217,7 @@ export async function todayFor(
     wornToday: worn,
     needs,
     round,
+    firstRun,
   };
 }
 
