@@ -19,7 +19,7 @@ sha256_of() {
 }
 
 fetch() {
-  local platform archive_sha dir archive
+  local platform archive_sha dir final
   case "$(uname -s)" in Darwin) platform=darwin ;; Linux) platform=linux ;; *) echo "actionlint: unsupported OS $(uname -s)" >&2; exit 1 ;; esac
   case "$(uname -m)" in x86_64 | amd64) platform+=_amd64 ;; arm64 | aarch64) platform+=_arm64 ;; *) echo "actionlint: unsupported CPU $(uname -m)" >&2; exit 1 ;; esac
   case $platform in
@@ -28,30 +28,34 @@ fetch() {
     linux_amd64) archive_sha=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 ;;
     linux_arm64) archive_sha=325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6 ;;
   esac
-  dir=${XDG_CACHE_HOME:-$HOME/.cache}/closet/actionlint-$VERSION-$platform
-  if [[ ! -x $dir/actionlint ]]; then
+  dir=${XDG_CACHE_HOME:-$HOME/.cache}/closet
+  final=$dir/actionlint-$VERSION-$platform.bin
+  if [[ ! -x $final ]]; then
+    # Installed by rename, so a concurrent run (two worktrees' hooks) sees the whole verified
+    # binary or none, and nothing here deletes a path another run may be executing.
     mkdir -p "$dir"
-    archive=$dir/archive.tar.gz
-    if ! curl -fsSL --retry 2 -o "$archive" \
+    tmp=$(mktemp -d "$dir/.install.XXXXXX")
+    trap 'rm -rf "$tmp"' EXIT
+    if ! curl -fsSL --retry 2 -o "$tmp/archive.tar.gz" \
       "https://github.com/rhysd/actionlint/releases/download/v$VERSION/actionlint_${VERSION}_$platform.tar.gz"; then
-      rm -rf "$dir"
       echo "actionlint: could not download v$VERSION; connect, or set ACTIONLINT_BIN to a binary" >&2
       exit 1
     fi
-    if [[ $(sha256_of "$archive") != "$archive_sha" ]]; then
-      rm -rf "$dir"
+    if [[ $(sha256_of "$tmp/archive.tar.gz") != "$archive_sha" ]]; then
       echo "actionlint: v$VERSION archive does not match its pinned sha256" >&2
       exit 1
     fi
-    tar -xzf "$archive" -C "$dir" actionlint
-    rm "$archive"
+    tar -xzf "$tmp/archive.tar.gz" -C "$tmp" actionlint
+    mv "$tmp/actionlint" "$final"
   fi
-  echo "$dir/actionlint"
+  echo "$final"
 }
 
 bin=${ACTIONLINT_BIN:-$(fetch)}
 cd "$(dirname "$0")/../.."
 shopt -s nullglob
 files=(.github/workflows/*.yml .github/workflows/*.yaml)
-"$bin" "${files[@]}"
+# Linters off that would make the verdict depend on what else the machine has installed;
+# shell linting of run: blocks is a separate decision.
+"$bin" -shellcheck= -pyflakes= "${files[@]}"
 echo "actionlint: ${#files[@]} workflow files clean"

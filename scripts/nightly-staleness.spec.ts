@@ -88,11 +88,20 @@ describe('nightly-staleness.sh', () => {
       [
         { conclusion: 'cancelled', updatedAt: '2026-11-14T08:35:00Z' },
         { conclusion: 'skipped', updatedAt: '2026-11-13T08:35:00Z' },
+        { conclusion: 'startup_failure', updatedAt: '2026-11-13T09:35:00Z' },
         { conclusion: 'success', updatedAt: '2026-11-10T08:35:00Z' },
       ],
       [],
     );
     expect(r.stdout).toContain('opened the tracking issue');
+  });
+
+  it('counts a timed-out scheduled run: its jobs ran', () => {
+    const r = check(
+      [{ conclusion: 'timed_out', updatedAt: '2026-11-14T08:35:00Z' }],
+      [],
+    );
+    expect(r.stdout).toContain('no tracking issue open');
   });
 
   it('updates the open issue instead of opening a second one', () => {

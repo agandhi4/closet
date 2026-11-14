@@ -11,8 +11,10 @@
 #   GH_TOKEN, GH_REPO   for gh: actions: read and issues: write, owner/repo
 #   RUN_URL             the watchdog run, linked from the issue
 #   NOW_EPOCH           optional, seconds since the epoch: the clock, for the unit spec
-# A completed run is any scheduled run that finished as success or failure; a red one is
-# webkit-nightly-issue.sh's to report. Push runs and cancelled or skipped runs do not count.
+# The rule: a scheduled run counts when it ran its jobs to an end, that is concluded success,
+# failure or timed_out; a red one is webkit-nightly-issue.sh's to report. Cancelled, skipped,
+# startup_failure and push-triggered runs do not count: they prove no suite ran.
+# Accepted limit: if Actions is disabled or out of minutes, this watchdog cannot run either.
 
 # The issue's backticks are Markdown, not command substitutions.
 # shellcheck disable=SC2016
@@ -26,7 +28,7 @@ NOW=${NOW_EPOCH:-$(date -u +%s)}
 # Newest first; the most recent completed scheduled run is all that is needed.
 last=$(gh run list --workflow nightly.yml --event schedule --status completed --limit 20 \
   --json conclusion,updatedAt \
-  | jq -r '[.[] | select(.conclusion == "success" or .conclusion == "failure") | .updatedAt] | max // empty')
+  | jq -r '[.[] | select(.conclusion == "success" or .conclusion == "failure" or .conclusion == "timed_out") | .updatedAt] | max // empty')
 
 issue=$(gh issue list --state open --limit 500 --json number,title \
   | jq -r --arg title "$TITLE" '.[] | select(.title == $title) | .number' | head -n 1)
