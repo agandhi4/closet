@@ -1476,7 +1476,8 @@ async function endFetchedSession(
 /**
  * The server's warm list, once the session caches are claimed for its
  * account (it says whose it is, like a page): undefined, with nothing
- * stored, when it cannot be had or a drop overtook it. A list refused for
+ * stored, when it cannot be had or a drop overtook it (which asks for one
+ * more run). A list refused for
  * want of a session means it ended away from this device: the session's
  * caches go (endFetchedSession).
  */
@@ -1510,7 +1511,18 @@ async function fetchWarmList(
     return undefined;
   }
   const claimed = await claimPageCache(account, since, WARM_LIST_PATH, event);
-  return claimed ? { list, account } : undefined;
+  if (!claimed) {
+    // A drop overtook the fetch (the first signed-in page claiming the cache
+    // from the sign-in page's empty owner is one, #812): this list belongs
+    // to a session that may be gone, and no WARM_PAGES may follow to ask
+    // again, so the run goes once more in the new generation (warmPages).
+    console.info(
+      `[sw] ${WARM_LIST_PATH} (warm) overtaken by a drop: warming again`,
+    );
+    warmAgain = true;
+    return undefined;
+  }
+  return { list, account };
 }
 
 /**
