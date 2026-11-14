@@ -331,6 +331,25 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
     await bar.locator('summary').click();
     await expect(bar.locator('details')).toHaveAttribute('open', '');
     expect((await layerSlot.boundingBox())!.height).toBeGreaterThan(strip);
+
+    // The summary is named by visible text, and the fit line sits outside
+    // it, so its notes are read.
+    await expect(bar.locator('summary')).toContainText('The outfit');
+    await expect(bar.locator('summary #styling-fit-line')).toHaveCount(0);
+    await expect(bar.locator('summary')).not.toHaveAttribute('aria-label');
+
+    // A tall outfit stays reachable: on a short screen (the room five pieces
+    // need) the open bar's heading is under the app bar's edge, not behind it.
+    await page.setViewportSize({ width: 390, height: 480 });
+    const appBar = (await page.locator('.app-bar').boundingBox())!;
+    const heading = page.locator('#styling-preview p').first();
+    await expect(heading).toBeVisible();
+    expect((await heading.boundingBox())!.y).toBeGreaterThanOrEqual(
+      appBar.y + appBar.height - 1,
+    );
+    expect((await bar.boundingBox())!.y).toBeGreaterThanOrEqual(
+      appBar.y + appBar.height - 1,
+    );
   });
 
   expect(errors, errors.join('\n')).toEqual([]);

@@ -335,6 +335,13 @@ describe('Styling', () => {
         expect(aside).toContain('data-styling-shuffle');
         expect(aside).toContain("getElementById('styling-save').showModal()");
         expect(aside).not.toContain('<dialog');
+        // The toggle is named by its visible (sr-only) text, never an
+        // aria-label that would replace what the summary holds.
+        const summary = /<summary[^>]*>/.exec(html.slice(at - 600, at))![0];
+        expect(summary).not.toContain('aria-label');
+        expect(html.slice(at - 200, at)).toContain(
+          '<span class="sr-only">The outfit</span>',
+        );
       });
 
       it('opens the preview on the idea ?with= chooses', async () => {

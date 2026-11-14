@@ -247,19 +247,23 @@ function StylingAside(props: { ctx: ViewContext; model: StylingModel }) {
   return (
     <div
       data-styling-bar=""
-      class="sticky bottom-dock z-10 flex flex-col border-t border-base-300 bg-base-100 lg:top-20 lg:bottom-auto lg:z-auto lg:gap-4 lg:self-start lg:border-0 lg:bg-transparent"
+      class="sticky bottom-dock z-10 flex max-h-[calc(100dvh-4rem-var(--spacing-dock))] flex-col border-t border-base-300 bg-base-100 lg:top-20 lg:max-h-none lg:bottom-auto lg:z-auto lg:gap-4 lg:self-start lg:border-0 lg:bg-transparent"
     >
-      <details class="group">
-        {/* A tap opens the strip into the whole outfit (CSS off `open`,
-            the PREVIEW_* classes); from lg it is always whole, so the
-            toggle changes nothing there. Named, as the preview inside is
-            aria-hidden (each strip says its choice). */}
-        <summary
-          class="relative flex cursor-pointer list-none flex-col gap-1 px-4 pt-2 lg:cursor-auto lg:gap-4 lg:p-0 [&::-webkit-details-marker]:hidden"
-          aria-label={t('styling.PREVIEW')}
-        >
+      {/* A tap opens the strip into the whole outfit (CSS off `open`, the
+          PREVIEW_* classes). The open panel scrolls inside the space between
+          the app bar (4rem, `.app-bar`) and the dock, so a tall outfit never
+          slides under either. From lg the outfit is always whole: styling.js
+          keeps the details open and its summary out of the tab order there
+          (`syncPreviewToggle`). The summary is named by its sr-only text, as
+          the preview inside is aria-hidden (each strip says its choice). The
+          fit line stays outside it, so it is read on its own. */}
+      <details
+        class="group min-h-0 overflow-y-auto lg:overflow-visible"
+        data-preview-toggle=""
+      >
+        <summary class="relative flex cursor-pointer list-none flex-col px-4 pt-2 lg:cursor-auto lg:p-0 [&::-webkit-details-marker]:hidden">
+          <span class="sr-only">{t('styling.PREVIEW')}</span>
           <StylingPreview rows={model.rows} />
-          {props.ctx.weatherEnabled && !model.shared && <StylingFit />}
           <span
             class="absolute right-4 top-4 text-muted group-open:rotate-180 lg:hidden"
             aria-hidden="true"
@@ -268,6 +272,11 @@ function StylingAside(props: { ctx: ViewContext; model: StylingModel }) {
           </span>
         </summary>
       </details>
+      {props.ctx.weatherEnabled && !model.shared && (
+        <div class="px-4 pt-1 lg:p-0">
+          <StylingFit />
+        </div>
+      )}
       <ActionBar model={model} />
     </div>
   );
@@ -275,7 +284,9 @@ function StylingAside(props: { ctx: ViewContext; model: StylingModel }) {
 
 /**
  * The fit line's slot (#468b), under the preview: on a phone (#664) the
- * chips under the bar's strip. Empty in the page, so /styling stays
+ * chips under the bar's strip, its 1.5 rem kept only while a request is out
+ * or chips are shown (an answer without a judgement collapses it; the one
+ * frame before the first request is the only shift). Empty in the page, so /styling stays
  * byte-stable (a tab root, OPENS_STALE): GET /styling/fit answers into it
  * with the rows (`hx-include`). It loads on `intersect` (the bar is on
  * screen on load at every width), again on `styling:outfit-changed`, which
@@ -295,7 +306,7 @@ export function StylingFit(props: { oob?: boolean }) {
     >
       <div
         id="styling-fit-line"
-        class="min-h-6"
+        class="min-h-6 [&:empty:not(.htmx-request)]:min-h-0"
         hx-get={STYLING_FIT_PATH}
         hx-include="#styling-form"
         hx-trigger="intersect once, styling:outfit-changed delay:500ms"
