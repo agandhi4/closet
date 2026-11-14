@@ -103,7 +103,8 @@ export const apiPlugin: FastifyPluginAsyncTypebox<ApiOptions> = async (
       kind: 'device',
       refusalLimit: bearerRefusalLimit,
       refusalSummaries,
-      refusal: signInAgain,
+      // quiet: the gate logs its refusals itself (bearer-gate.ts).
+      refusal: () => signInAgain({ quiet: true }),
       readsShare: true,
     }),
   );

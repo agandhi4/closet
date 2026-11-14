@@ -29,7 +29,8 @@ export class UntrustedProxyWatch {
   /** A root onRequest hook: one comparison per request, one log line per boot. */
   observe(request: FastifyRequest): void {
     if (this.#peer !== undefined) return;
-    if (request.headers['x-forwarded-for'] === undefined) return;
+    // A blank value names no client, so a trusted proxy sending one is no finding.
+    if (![request.headers['x-forwarded-for']].flat().join('').trim()) return;
     if ((request.ips?.length ?? 1) > 1) return;
     const peer = request.socket.remoteAddress ?? 'unknown';
     this.#peer = peer;

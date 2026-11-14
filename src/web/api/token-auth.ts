@@ -21,9 +21,8 @@ import { t } from '../i18n';
  * a probe learns nothing about which tokens exist. To a client it means one
  * thing: sign in again (POST /api/v1/auth/token).
  */
-export function signInAgain(): HttpError {
-  // quiet: the bearer gate logs its refusals itself (bearer-gate.ts).
-  return new HttpError(401, t('api.SIGN_IN_AGAIN'), { quiet: true });
+export function signInAgain({ quiet }: { quiet?: true } = {}): HttpError {
+  return new HttpError(401, t('api.SIGN_IN_AGAIN'), { quiet });
 }
 
 /** Query keys a client might put a token under, in any case. */
