@@ -21,6 +21,7 @@ import {
   clearHere,
   clearHome,
   nudgeTemperatureOffset,
+  rainGearFor,
   resetTemperatureOffset,
   setHere,
   setHome,
@@ -123,8 +124,17 @@ export const weatherApiRoutes: FastifyPluginCallbackTypebox<
         throw new HttpError(400, t('api.DAY_RANGE', { max: MAX_SUMMARY_DAYS }));
       }
       const days = Array.from({ length: span }, (_, i) => addDays(from, i));
-      const own = await userWeather(db, weather, actorOf(request).userId, now);
-      return toWeatherResource(own, days, query.occasion ?? DEFAULT_OCCASION);
+      const { userId } = actorOf(request);
+      const own = await userWeather(db, weather, userId, now);
+      const occasion = query.occasion ?? DEFAULT_OCCASION;
+      const rainGear = await rainGearFor(
+        db,
+        userId,
+        own.cached?.forecast.days.filter((d) => days.includes(d.day)) ?? [],
+        occasion,
+        own.settings.offset,
+      );
+      return toWeatherResource(own, days, occasion, rainGear);
     },
   );
 

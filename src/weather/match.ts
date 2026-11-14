@@ -31,7 +31,10 @@ import { type DayForecast, RAIN_CHANCE } from './forecast';
  *    by the warmest. A swing inside the heat (25 to 33 °C) asks for nothing:
  *    both ends want a tee.
  * 5. Rain in the window (any hour at RAIN_CHANCE or more) asks for a
- *    water-resistant layer, footwear or accessory.
+ *    water-resistant layer, footwear or accessory, unless the umbrella
+ *    answers it (WeatherNeeds.umbrella: warm rain hours, or the owner's
+ *    water-resistant accessory, withRainGear): then it is advice for the
+ *    day, "Take the umbrella", and no outfit is judged on it (#648).
  */
 
 /**
@@ -76,6 +79,16 @@ export function limbTarget(feelsLike: number): Warmth {
 }
 
 /**
+ * Above this feels-like (°C, about 72 °F) at every rain hour, rain is the
+ * umbrella's, not the outfit's: the only water-resistant garments a closet
+ * usually has are a shell and boots, and asking for one at 30 °C dressed
+ * every July rain idea in the same shell over the one top light enough to go
+ * under it (#648, real-days.spec.ts). Judged on the rain hours, not the
+ * window's warmest: rain in a cool morning of a warm day still wants a shell.
+ */
+export const SHELL_CEILING = 22;
+
+/**
  * What the cold would welcome on legs and feet, uncapped (1-5): the bound
  * for "too warm". `limbTarget`'s cap only lets ordinary gear meet the cold
  * side; it must not make insulated boots too warm for a winter day (#645).
@@ -103,8 +116,15 @@ export interface WeatherNeeds {
   limbsCeiling: Warmth;
   /** The swing is LAYER_STEPS or more: add a layer that comes off. */
   layer: boolean;
-  /** An hour of the window reaches RAIN_CHANCE: water resistance wanted. */
+  /** An hour of the window reaches RAIN_CHANCE. */
   rain: boolean;
+  /**
+   * The rain is met outside the outfit ("Take the umbrella", advice for the
+   * day, never a card's problem): warm rain hours (SHELL_CEILING) or the
+   * owner's water-resistant accessory (withRainGear). False without rain;
+   * with rain and false, the outfit wants water resistance.
+   */
+  umbrella: boolean;
 }
 
 /**
@@ -128,6 +148,10 @@ export function weatherNeeds(
   const max = Math.max(...feels);
   const middle = (min + max) / 2;
   const layer = torsoTarget(min) - torsoTarget(max) >= LAYER_STEPS;
+  const rainFeels = hours
+    .filter((h) => h.precipitationChance >= RAIN_CHANCE)
+    .map((h) => h.feelsLike + offset);
+  const rain = rainFeels.length > 0;
   return {
     occasion,
     window,
@@ -137,8 +161,30 @@ export function weatherNeeds(
     limbs: limbTarget(middle),
     limbsCeiling: limbCeiling(middle),
     layer,
-    rain: hours.some((h) => h.precipitationChance >= RAIN_CHANCE),
+    rain,
+    umbrella: rain && Math.min(...rainFeels) > SHELL_CEILING,
   };
+}
+
+/**
+ * `needs` for an owner whose `closet` holds what keeps them dry beside the
+ * outfit (a water-resistant accessory, an umbrella among them, which the
+ * generator never draws): a cool rainy day's water resistance becomes the
+ * umbrella's too. ideasFor applies it over its pool, so the cards and the
+ * advice agree; a closet without one keeps the requirement.
+ */
+export function withRainGear(
+  needs: WeatherNeeds,
+  closet: readonly MatchGarment[],
+): WeatherNeeds {
+  if (!needs.rain || needs.umbrella) return needs;
+  const carried = closet.some((g) => g.rainGear);
+  return carried ? { ...needs, umbrella: true } : needs;
+}
+
+/** The outfit itself must keep the rain off: rain the umbrella does not answer. */
+export function needsWaterResistance(needs: WeatherNeeds): boolean {
+  return needs.rain && !needs.umbrella;
 }
 
 /** A garment as the matching sees it: its role and the warmth it counts for. */
@@ -147,6 +193,11 @@ export interface MatchGarment {
   /** 1-5: the garment's own, else its type's preset, else its role's middle. */
   warmth: Warmth;
   waterResistant: boolean;
+  /**
+   * Keeps rain off the wearer beside the outfit: a water-resistant hat or
+   * cap (RAIN_GEAR_TYPES). A water-resistant watch or belt is not.
+   */
+  rainGear: boolean;
 }
 
 /** The garment columns matchGarment reads (a garment row has them all). */
@@ -171,6 +222,9 @@ const ROLE_WARMTH: Readonly<Record<GarmentRole, Warmth>> = {
   none: 1,
 };
 
+/** Accessory types that shed rain; there is no umbrella type yet. */
+const RAIN_GEAR_TYPES: readonly string[] = ['hat', 'cap'];
+
 /**
  * A garment for the matching. Nothing is required (plan section 6): an
  * unknown warmth is the type's preset (with its weight step: a 6 oz tee is
@@ -182,6 +236,11 @@ export function matchGarment(garment: GarmentWeatherFields): MatchGarment {
     role,
     warmth: garment.warmth ?? presetsFor(garment).warmth ?? ROLE_WARMTH[role],
     waterResistant: garment.waterResistant,
+    rainGear:
+      role === 'accessory' &&
+      garment.waterResistant &&
+      garment.type !== null &&
+      RAIN_GEAR_TYPES.includes(garment.type),
   };
 }
 
@@ -203,7 +262,8 @@ export interface OutfitFit {
   problems: FitProblem[];
   /**
    * 0 for a fit; otherwise how far off, in warmth steps (each missing layer
-   * or water resistance counts MISSING_PENALTY). The generator sorts on it.
+   * or water resistance counts MISSING_PENALTY; rain the umbrella answers
+   * counts nothing). The generator sorts on it.
    */
   score: number;
   /** The torso's combined warmth with the layer on, and with it off. */
@@ -317,7 +377,7 @@ export function assessOutfit(
   limb(['footwear'], TOLERANCE.feet, 'feet-too-cold', 'feet-too-warm');
 
   if (
-    needs.rain &&
+    needsWaterResistance(needs) &&
     !garments.some((g) => g.waterResistant && RAIN_ROLES.includes(g.role))
   ) {
     miss('needs-water-resistance', MISSING_PENALTY);

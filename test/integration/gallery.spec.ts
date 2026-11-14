@@ -7,6 +7,7 @@ import {
   outfitRule,
   outfitSlot,
   userWeather,
+  weatherForecast,
 } from '../../src/db/schema';
 import { addDays } from '../../src/calendar-date';
 import { pickIdea } from '../../src/web/outfits/pick';
@@ -1040,6 +1041,73 @@ describe('outfit gallery with the weather', () => {
     expect(read.statements).toBe(2);
     expect(read.sql[1]).toContain('"weather_forecast"');
     expect(stub.hits).toHaveLength(hits);
+  });
+
+  describe('rain (#648)', () => {
+    /** Today's cached forecast made `feelsLike` °C with rain from 8:00 to 22:00. */
+    const rainyToday = async (feelsLike: number) => {
+      const [row] = await t.db.select().from(weatherForecast);
+      const forecast = row.forecast!;
+      const days = forecast.days.map((day) =>
+        day.day === t.today()
+          ? {
+              ...day,
+              hours: day.hours.map((h) => ({
+                ...h,
+                feelsLike,
+                precipitationChance: h.hour >= 8 && h.hour < 22 ? 90 : 0,
+              })),
+            }
+          : day,
+      );
+      await t.db
+        .update(weatherForecast)
+        .set({ forecast: { ...forecast, days }, fetchedAt: new Date() });
+    };
+    const pages = async () =>
+      Promise.all(
+        ['/outfits/ideas', '/'].map(async (url) => {
+          const res = await t.inject({ method: 'GET', url });
+          expect(res.statusCode).toBe(200);
+          return unescapeHtml(res.body);
+        }),
+      );
+    const umbrellas = (html: string) =>
+      html.split('Take the umbrella').length - 1;
+
+    it('in the heat is "Take the umbrella" once on Ideas and Today, no card missing it', async () => {
+      await rainyToday(30);
+      for (const html of await pages()) {
+        expect(umbrellas(html)).toBe(1);
+        expect(html).toContain('data-idea=');
+        expect(html).not.toContain('Rain: nothing waterproof');
+      }
+    });
+
+    it('on a cool day asks the outfit for it, until the closet has a rain accessory', async () => {
+      await rainyToday(12);
+      for (const html of await pages()) {
+        expect(umbrellas(html)).toBe(0);
+        expect(html).toContain('Rain: nothing waterproof');
+      }
+      const umbrella = await t.inject({
+        method: 'POST',
+        url: '/wardrobe',
+        payload: {
+          name: 'Rain hat',
+          category: 'accessories',
+          type: 'hat',
+          props: '1',
+          color: ['black'],
+          waterResistant: 'true',
+        },
+      });
+      expect(umbrella.statusCode).toBe(302);
+      for (const html of await pages()) {
+        expect(umbrellas(html)).toBe(1);
+        expect(html).not.toContain('Rain: nothing waterproof');
+      }
+    });
   });
 
   it('"too warm" nudges the offset and comes back to the same ideas', async () => {

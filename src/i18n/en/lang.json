@@ -1081,6 +1081,7 @@
     "FEELS": "Feels {range}",
     "FEELS_TYPICAL": "Typically feels {range} (not a forecast)",
     "RAIN": "rain likely",
+    "TAKE_UMBRELLA": "Take the umbrella",
     "OFFLINE": "Offline: these are the ideas from your last visit. Saving or planning one needs a connection.",
     "EMPTY": "No ideas yet. Ideas need a clean top and bottom (or a dress) in the closet, and shoes if you have any.",
     "EMPTY_CAPSULE": "No ideas from this capsule. It needs a clean top and bottom (or a dress), and shoes if you have any.",

@@ -9,7 +9,11 @@ import {
 import { OCCASION_HINTS, type Occasion } from '../../wardrobe/occasions';
 import { FORECAST_DAYS, forecastDay } from '../../weather/forecast';
 import type { Location } from '../../weather/location';
-import { type WeatherNeeds, weatherNeeds } from '../../weather/match';
+import {
+  type WeatherNeeds,
+  weatherNeeds,
+  withRainGear,
+} from '../../weather/match';
 import { normalsOn, typicalDay } from '../../weather/normals';
 import type { TemperatureUnit } from '../../weather/temperature';
 import { addDays, type IsoDate } from '../../calendar-date';
@@ -234,10 +238,14 @@ export async function ideasFrom(
   now: Date,
 ): Promise<IdeasResult> {
   const { saved, avoid, rules } = readGeneratorMemory(row);
-  const weather = await weatherFrom(deps, input, row.weather, now);
+  const pool = readPool(row.pool);
+  const weather = rainGearFrom(
+    await weatherFrom(deps, input, row.weather, now),
+    pool,
+  );
   const page = generateIdeas({
     seed: input.seed,
-    pool: readPool(row.pool),
+    pool,
     locked: input.locked ?? [],
     needs: weather?.needs ?? null,
     formality: OCCASION_HINTS[input.occasion].formality,
@@ -248,6 +256,26 @@ export async function ideasFrom(
     limit: input.limit,
   });
   return { ...page, weather, capsules: row.capsules };
+}
+
+/**
+ * The day's needs with the owner's rain gear (withRainGear) over the pool
+ * the ideas draw from: the needs the cards are judged by are the ones the
+ * page's "Take the umbrella" reads, so the two never disagree.
+ */
+function rainGearFrom(
+  weather: IdeasWeather | null,
+  pool: readonly PoolGarment[],
+): IdeasWeather | null {
+  return (
+    weather && {
+      ...weather,
+      needs: withRainGear(
+        weather.needs,
+        pool.map((g) => g.weather),
+      ),
+    }
+  );
 }
 
 /**

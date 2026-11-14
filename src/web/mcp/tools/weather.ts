@@ -8,6 +8,7 @@ import {
   todayIn,
 } from '../../../calendar-date';
 import { HttpError } from '../../errors';
+import { rainGearFor } from '../../weather/queries';
 import { userWeather, type UserWeather } from '../../weather/service';
 import { dayWeather } from '../../weather/weather-resource';
 import { defineTool } from '../tool';
@@ -109,15 +110,25 @@ export const weatherTools = [
           note: 'The forecast is not available right now; try again later.',
         };
       }
+      const asked = cached.forecast.days.filter(
+        (day) => day.day >= first && day.day <= last,
+      );
+      const rainGear = await rainGearFor(
+        ctx.db,
+        ctx.userId,
+        asked,
+        occasion,
+        settings.offset,
+      );
       return {
         today,
         location,
         unit: settings.unit,
         temperatureOffsetC: settings.offset,
         fetchedAt: cached.fetchedAt.toISOString(),
-        days: cached.forecast.days
-          .filter((day) => day.day >= first && day.day <= last)
-          .map((day) => dayWeather(day, occasion, settings.offset)),
+        days: asked.map((day) =>
+          dayWeather(day, occasion, settings.offset, rainGear),
+        ),
       };
     },
   }),

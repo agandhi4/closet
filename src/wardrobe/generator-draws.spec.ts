@@ -60,7 +60,7 @@ function garment(
     colors,
     pattern: 'solid',
     formality,
-    weather: { role, warmth: 2, waterResistant: false },
+    weather: { role, warmth: 2, waterResistant: false, rainGear: false },
     idleDays: null,
   };
 }
