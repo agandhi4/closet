@@ -109,8 +109,11 @@ export function extractProduct(
     ),
     price: fields.price,
     ...guessed,
+    // Like the brand: the address stands in for a colour only where the page
+    // gave less than a product, since a slug names brands and styles too
+    // ('red-wing-boots', 'blackwatch-plaid').
     colors:
-      guessed.colors.length > 0
+      guessed.colors.length > 0 || confidence === 'product'
         ? guessed.colors
         : guessColors(urlWords(pageUrl)),
     images: absoluteImages(
@@ -200,13 +203,13 @@ function registrableName(url: URL): string | null {
 /**
  * The words of a product's address that a colour can hide in: its last
  * path segment (`mens-merino-sweater-navy`) and the `color`/`colour`
- * variant parameter.
+ * variant parameter (any key case: `?Color=Olive`).
  */
 function urlWords(url: URL): string {
   const slug = (pathSegments(url).pop() ?? '').replace(/\.[a-z0-9]{2,5}$/i, '');
-  const variants = ['color', 'colour'].flatMap((key) =>
-    url.searchParams.getAll(key),
-  );
+  const variants = [...url.searchParams]
+    .filter(([key]) => /^colou?r$/i.test(key))
+    .map(([, value]) => value);
   return [slug, ...variants].join(' ').replace(/[-_+]+/g, ' ');
 }
 
