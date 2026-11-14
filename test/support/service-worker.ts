@@ -34,10 +34,15 @@ export async function networkSwitch(context: BrowserContext) {
  * from it, and that rejection lands on `close()` (#867). Unrouting with
  * 'wait' first lets every pending handler finish while the context is alive,
  * and nothing intercepts after it, so close() has no handler left to fail.
+ * setOffline(true) comes first: unrouting alone would put the device online
+ * for a moment, and its queued ticks and wears would replay against the shared
+ * e2e server, changing other scenarios' state. Chromium's own network kill
+ * needs no route.
  */
 export async function closeSwitchedContext(
   context: BrowserContext,
 ): Promise<void> {
+  await context.setOffline(true);
   await context.unrouteAll({ behavior: 'wait' });
   await context.close();
 }
