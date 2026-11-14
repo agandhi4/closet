@@ -10,8 +10,9 @@ const REFUSED_LOGIN =
 /**
  * The account's whole loop through the real forms: signed out, the root is
  * the login page (no console errors); the registration form signs the new
- * account in; Profile's sign-out (a POST) ends it; the login form, with the
- * right password after a wrong one, signs back in. The account forms post
+ * account in, on Today; Profile's sign-out (a POST) ends it; the login form
+ * a bounce from the wardrobe opens, with the right password after a wrong
+ * one, signs back in on that wardrobe (#661). The account forms post
  * natively (no htmx), which is what lets a browser save the password and
  * what makes a refusal one page, not a page swapped into a page. Every
  * other account route is test/integration/account.spec.ts and auth.spec.ts.
@@ -49,8 +50,8 @@ test('register through the form, sign out from Profile, sign back in', async ({
   await page.locator('#confirmPassword').press('Tab');
   await checked;
   await page.getByRole('button', { name: 'Register' }).click();
-  await expect(page).toHaveURL(/\/auth\/profile$/);
-  await expect(page.locator('#account')).toContainText(email);
+  // A plain registration lands on Today (#661).
+  await page.waitForURL((url) => url.pathname === '/' && url.search === '');
 
   // The avatar opens Profile, whose sign-out signs out (#82).
   await page.goto('/wardrobe');
@@ -63,8 +64,9 @@ test('register through the form, sign out from Profile, sign back in', async ({
     .getByRole('button', { name: 'Logout' })
     .click();
   await expect(page).toHaveURL(/\/auth\/login$/);
+  // Signed out, the wardrobe bounces to login, which returns there (#661).
   await page.goto('/wardrobe');
-  await expect(page).toHaveURL(/\/auth\/login$/);
+  await expect(page).toHaveURL(/\/auth\/login\?returnTo=%2Fwardrobe$/);
 
   // A refused login is one page with a specific message and the email kept.
   await page.locator('#email').fill(email);
@@ -82,10 +84,14 @@ test('register through the form, sign out from Profile, sign back in', async ({
   await expect(page.locator('form')).toHaveCount(1);
   await expect(page.locator('#email')).toHaveValue(email);
 
+  // The refused post's page kept the returnTo: signing in lands on the
+  // wardrobe it bounced from.
   await page.locator('#password').fill(E2E_PASSWORD);
   await page.getByRole('button', { name: 'Login' }).click();
-  await expect(page).toHaveURL(/\/auth\/profile$/);
-  await expect(page.locator('#account')).toContainText(email);
+  await expect(page).toHaveURL(/\/wardrobe$/);
+  await expect(page.locator('#avatar')).toHaveText(
+    email.charAt(0).toUpperCase(),
+  );
   // The refusal's 401 is the only error the page may log; anything else is
   // a page script failing. Chromium logs it once; WebKit logged it twice
   // while the worker relayed the login (until #542), so the spec counts no

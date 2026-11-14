@@ -1067,7 +1067,8 @@ export function describeMatrix(
         expect(res.statusCode).toBe(401);
       } else expect(res.statusCode).toBe(REFUSED_STATUS[outcome]);
       if (surface === 'page' && outcome === 'login') {
-        expect(res.headers.location).toBe(LOGIN_PATH);
+        // A GET returns there after sign-in (?returnTo=, #661; auth.spec.ts).
+        expect(res.headers.location?.split('?')[0]).toBe(LOGIN_PATH);
       }
       expect(res.body).not.toContain(secret);
     };
