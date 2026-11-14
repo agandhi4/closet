@@ -160,8 +160,8 @@ const NO_SELECTION: Selection = { ids: new Set(), all: false };
 
 /** What a select-mode verb did, for its toast (the redirect's flags). */
 export type BulkOutcome =
-  | { verb: 'set'; count: number; skipped: number }
-  | { verb: 'archive' | 'wash' | 'capsule'; count: number };
+  | { verb: 'set' | 'wash'; count: number; skipped: number }
+  | { verb: 'archive' | 'capsule'; count: number };
 
 /** The one-shot flags select mode's verbs' redirects carry (GridQuery). */
 const BULK_FLAGS = [
@@ -1706,20 +1706,30 @@ function BulkToast(props: { outcome: BulkOutcome }) {
 
 /** Each verb's toast, for one garment and for `{count}` (never "1 garments"). */
 const BULK_TOASTS: Record<
-  BulkOutcome['verb'] | 'setSkipped',
+  BulkOutcome['verb'] | 'setSkipped' | 'washSkipped',
   { one: StringKey; many: StringKey }
 > = {
   set: { one: 'BULK_RESULT_ONE', many: 'BULK_RESULT' },
   setSkipped: { one: 'BULK_RESULT_ONE_SKIPPED', many: 'BULK_RESULT_SKIPPED' },
   archive: { one: 'BULK_ARCHIVED_ONE', many: 'BULK_ARCHIVED' },
   wash: { one: 'BULK_WASHED_ONE', many: 'BULK_WASHED' },
+  washSkipped: {
+    one: 'BULK_WASHED_ONE_SKIPPED',
+    many: 'BULK_WASHED_SKIPPED',
+  },
   capsule: { one: 'BULK_ADDED_ONE', many: 'BULK_ADDED' },
 };
 
 function bulkOutcomeText(outcome: BulkOutcome): string {
   const { count } = outcome;
-  const skipped = outcome.verb === 'set' ? outcome.skipped : 0;
-  const keys = BULK_TOASTS[skipped > 0 ? 'setSkipped' : outcome.verb];
+  const skipped =
+    outcome.verb === 'set' || outcome.verb === 'wash' ? outcome.skipped : 0;
+  const keys =
+    BULK_TOASTS[
+      skipped > 0 && (outcome.verb === 'set' || outcome.verb === 'wash')
+        ? (`${outcome.verb}Skipped` as const)
+        : outcome.verb
+    ];
   return count === 1
     ? t(keys.one, { skipped })
     : t(keys.many, { count, skipped });
