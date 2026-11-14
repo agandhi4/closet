@@ -5,6 +5,7 @@ import type { Logger } from '../logger';
 import { operationFields } from '../request-context';
 import { SESSION_COOKIE } from '../credential-names';
 import { FILTERED, scrubSecrets } from '../secret-text';
+import { ERROR_TRACKER_CLOSE_MS } from '../shutdown-budget';
 
 /**
  * Error tracking (#117): the process's failures, sent to the homelab's
@@ -95,7 +96,7 @@ export interface ErrorTrackerOptions {
   loadSdk?: () => Promise<SentrySdk>;
 }
 
-const CLOSE_TIMEOUT_MS = 2_000;
+const CLOSE_TIMEOUT_MS = ERROR_TRACKER_CLOSE_MS;
 
 /**
  * The app's tracker. The SDK is imported here, after the DSN check, so a
@@ -213,6 +214,32 @@ export async function createErrorTracker({
 
 /** How long a crash waits for its event to reach Bugsink before exiting. */
 const CRASH_FLUSH_TIMEOUT_MS = 2_000;
+
+/**
+ * main.ts's boot catch: a boot that fails (a refused migration, an
+ * unmounted share, a taken port) ends the process before any crash handler
+ * exists, and the container restarts into the same failure, visible
+ * otherwise only in its logs. Reports it to Bugsink (tagged `origin: boot`)
+ * and waits up to `flushTimeoutMs` for the send, so the process may exit
+ * after. Never throws: the failure is already logged and the exit is the
+ * caller's.
+ */
+export async function reportBootFailure(
+  errors: ErrorTracker,
+  error: unknown,
+  logger: Logger,
+  flushTimeoutMs = CRASH_FLUSH_TIMEOUT_MS,
+): Promise<void> {
+  try {
+    errors.captureException(error, {
+      source: 'process',
+      tags: { origin: 'boot' },
+    });
+    await errors.flush(flushTimeoutMs);
+  } catch (trackerError) {
+    logger.warn({ err: trackerError }, 'Could not report the boot failure');
+  }
+}
 
 export interface CrashHandlerOptions {
   errors: ErrorTracker;

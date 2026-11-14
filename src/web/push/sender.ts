@@ -54,7 +54,19 @@ export interface PushSender {
    * notices) pays one round trip, not one per person (#173). The reports
    * are in the messages' order. Throws only when that read fails.
    */
-  sendEach(messages: readonly DeviceMessage[]): Promise<SendReport[]>;
+  sendEach(
+    messages: readonly DeviceMessage[],
+    options?: SendEachOptions,
+  ): Promise<SendReport[]>;
+}
+
+export interface SendEachOptions {
+  /**
+   * Called as each message's sends finish, before the batch's last one does:
+   * a caller that gives up on the batch (shutdown) knows which messages
+   * went and which did not (the reminders release the claims of the rest).
+   */
+  onReport?: (index: number, report: SendReport) => void;
 }
 
 /** One message of a batch (PushSender.sendEach). */
@@ -216,21 +228,23 @@ export function createPushSender(options: {
     async sendToUser(userId, payload, sendOptions) {
       return send(userId, await devicesOf(db, userId), payload, sendOptions);
     },
-    async sendEach(messages) {
+    async sendEach(messages, { onReport } = {}) {
       if (messages.length === 0) return [];
       const rows = await devicesOfUsers(
         db,
         messages.map((message) => message.userId),
       );
       return Promise.all(
-        messages.map((message) =>
-          send(
+        messages.map(async (message, index) => {
+          const report = await send(
             message.userId,
             chosenDevices(rows, message),
             message.payload,
             message.options,
-          ),
-        ),
+          );
+          onReport?.(index, report);
+          return report;
+        }),
       );
     },
   };

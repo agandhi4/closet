@@ -1,8 +1,14 @@
+import { createAppErrorTracker } from './app';
 import { type Config, ConfigError, loadConfig } from './config';
 import { bootModelRunner } from './cutout/boot';
 import { SchemaAheadError, schemaAheadRefusal } from './db/migrate';
 import { createBootLogger, createLogger } from './logger';
-import { createCrashHandler } from './metrics/error-tracker';
+import {
+  createCrashHandler,
+  DISABLED_ERROR_TRACKER,
+  type ErrorTracker,
+  reportBootFailure,
+} from './metrics/error-tracker';
 import { serve } from './server';
 import { probeWritable, storageFix } from './storage-probe';
 import {
@@ -46,12 +52,13 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   const logger = createLogger(config);
+  // Made here, before serve(), so a boot that fails inside it (migrations,
+  // storage, listen) reaches Bugsink: the container would otherwise
+  // crash-loop with only its logs to say so. serve() uses this one.
+  let errors: ErrorTracker = DISABLED_ERROR_TRACKER;
   try {
-    const { errors } = await serve(
-      config,
-      logger,
-      bootModelRunner(config, logger),
-    );
+    errors = await createAppErrorTracker(config, logger);
+    await serve(config, logger, bootModelRunner(config, logger), { errors });
     const onCrash = createCrashHandler({
       errors,
       logger,
@@ -71,6 +78,7 @@ async function main(): Promise<void> {
     } else {
       logger.fatal({ err: error }, 'Boot failed');
     }
+    await reportBootFailure(errors, error, logger);
     process.exit(1);
   }
 }

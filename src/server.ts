@@ -210,8 +210,8 @@ function startReminders(
   };
   const reminders = scheduleMinutely({
     name: 'Push reminders',
-    run: metrics.timeJob('reminders', (now: Date) =>
-      sendDueRemindersWhole(deps, now),
+    run: metrics.timeJob('reminders', (now: Date, signal: AbortSignal) =>
+      sendDueRemindersWhole(deps, now, signal),
     ),
     logger: log,
   });

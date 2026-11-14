@@ -6,6 +6,7 @@ import {
   SERVER_TIMEOUTS,
 } from '../db/client';
 import type { Logger } from '../logger';
+import { CUTOUT_LISTENER_CLOSE_MS } from '../shutdown-budget';
 import { settlesWithin } from './deadline';
 import { CUTOUT_QUEUED_CHANNEL } from './queries';
 
@@ -23,7 +24,7 @@ const RECONNECT_MAX_MS = 60_000;
 // closing the socket) before destroying the socket itself. Milliseconds on a
 // live connection; a peer that went silent would otherwise hold shutdown
 // until TCP keepalive gave up on it, many minutes later.
-const CLOSE_TIMEOUT_MS = 5_000;
+const CLOSE_TIMEOUT_MS = CUTOUT_LISTENER_CLOSE_MS;
 
 export interface CutoutListenerDeps {
   /** Where the pool connects (dbConfig): the listener uses the same settings. */

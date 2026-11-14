@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { captureLogs } from '../../test/support/log-capture';
 import { scheduleMinutely } from './minutely';
+import { JOBS_STOP_MS } from '../shutdown-budget';
 import { scheduleNightly } from './nightly';
 import {
   JobRoster,
@@ -75,13 +76,13 @@ describe('stopBeforeClose', () => {
     expect(reconcile.run).toHaveBeenCalledTimes(1);
 
     const closing = app.close();
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(JOBS_STOP_MS / 2);
     expect(events).toEqual([]);
     reconcile.finish();
     await closing;
     expect(events).toEqual(['reconciliation ended', 'pool ended']);
     expect(logs.messages('info')).toContain(
-      'Stopped 1 scheduled jobs in 10000 ms',
+      `Stopped 1 scheduled jobs in ${JOBS_STOP_MS / 2} ms`,
     );
 
     await vi.advanceTimersByTimeAsync(3 * DAY);
@@ -133,16 +134,16 @@ describe('stopBeforeClose', () => {
 
     let closed = false;
     const closing = app.close().then(() => (closed = true));
-    await vi.advanceTimersByTimeAsync(14_999);
+    await vi.advanceTimersByTimeAsync(JOBS_STOP_MS - 1);
     expect(closed).toBe(false);
     expect(events).toEqual([]);
-    // The two bounds run side by side: 15 s in all, not 30.
+    // The two bounds run side by side: JOBS_STOP_MS in all, not twice that.
     await vi.advanceTimersByTimeAsync(1);
     await closing;
     expect(events).toEqual(['pool ended']);
     expect(logs.messages('warn').sort()).toEqual([
-      'Cutout retry still running after 15000 ms; stopped',
-      'Reconciliation still running after 15000 ms; stopped',
+      `Cutout retry still running after ${JOBS_STOP_MS} ms; stopped`,
+      `Reconciliation still running after ${JOBS_STOP_MS} ms; stopped`,
     ]);
   });
 

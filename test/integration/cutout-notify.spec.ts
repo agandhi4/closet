@@ -1,3 +1,4 @@
+import { CUTOUT_LISTENER_CLOSE_MS } from '../../src/shutdown-budget';
 import { inArray, sql } from 'drizzle-orm';
 import { connect, createServer, type Socket } from 'node:net';
 import { Readable } from 'node:stream';
@@ -303,10 +304,12 @@ describe('cutout queue: notifications from another process', () => {
 
       await queue.stop();
 
-      // The listener's 5 s close timeout, and not much more.
-      expect(Date.now() - startedAt).toBeLessThan(7_000);
+      // The listener's close timeout, and not much more.
+      expect(Date.now() - startedAt).toBeLessThan(
+        CUTOUT_LISTENER_CLOSE_MS + 2_000,
+      );
       expect(t.logs.messages('warn', 'Cutout')).toContain(
-        'Cutout listener connection did not close within 5 s; destroying its socket',
+        `Cutout listener connection did not close within ${CUTOUT_LISTENER_CLOSE_MS / 1000} s; destroying its socket`,
       );
     } finally {
       await queue.stop();

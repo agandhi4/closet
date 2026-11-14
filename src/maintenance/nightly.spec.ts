@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { captureLogs } from '../../test/support/log-capture';
+import { JOBS_STOP_MS } from '../shutdown-budget';
 import { nextRunAt, scheduleNightly } from './nightly';
 
 // Every instant is explicit UTC and every zone is named, so these hold
@@ -105,7 +106,7 @@ describe('scheduleNightly', () => {
 
     let stopped = false;
     const stopping = job.stop().then(() => (stopped = true));
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(JOBS_STOP_MS / 2);
     expect(stopped).toBe(false);
     finish();
     await stopping;
@@ -137,7 +138,7 @@ describe('scheduleNightly', () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  it('stop() gives up on a run that never ends after 15 s, with a warning', async () => {
+  it('stop() gives up on a run that never ends within JOBS_STOP_MS, with a warning', async () => {
     const run = vi.fn(() => new Promise<void>(() => {}));
     const job = scheduleNightly({
       name: 'Stuck job',
@@ -149,12 +150,12 @@ describe('scheduleNightly', () => {
     await vi.advanceTimersByTimeAsync(20 * HOUR);
     let stopped = false;
     const stopping = job.stop().then(() => (stopped = true));
-    await vi.advanceTimersByTimeAsync(14_999);
+    await vi.advanceTimersByTimeAsync(JOBS_STOP_MS - 1);
     expect(stopped).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     await stopping;
     expect(logs.messages('warn')).toEqual([
-      'Stuck job still running after 15000 ms; stopped',
+      `Stuck job still running after ${JOBS_STOP_MS} ms; stopped`,
     ]);
     await vi.advanceTimersByTimeAsync(3 * 24 * HOUR);
     expect(run).toHaveBeenCalledTimes(1);

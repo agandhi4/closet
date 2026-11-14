@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { captureLogs } from '../../test/support/log-capture';
+import { JOBS_STOP_MS } from '../shutdown-budget';
 import { scheduleMinutely, untilNextMinute } from './minutely';
 
 /**
@@ -169,10 +170,10 @@ describe('scheduleMinutely', () => {
     const job = scheduleMinutely({ name: 'Stuck job', run, logger });
     await vi.advanceTimersByTimeAsync(31_000);
     const stopping = job.stop();
-    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(JOBS_STOP_MS);
     await stopping;
     expect(logs.messages('warn')).toEqual([
-      'Stuck job still running after 15000 ms; stopped',
+      `Stuck job still running after ${JOBS_STOP_MS} ms; stopped`,
     ]);
   });
 });
