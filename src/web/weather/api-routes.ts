@@ -21,7 +21,7 @@ import {
   clearHere,
   clearHome,
   nudgeTemperatureOffset,
-  rainGearFor,
+  rainGearForDays,
   resetTemperatureOffset,
   setHere,
   setHome,
@@ -127,12 +127,11 @@ export const weatherApiRoutes: FastifyPluginCallbackTypebox<
       const { userId } = actorOf(request);
       const own = await userWeather(db, weather, userId, now);
       const occasion = query.occasion ?? DEFAULT_OCCASION;
-      const rainGear = await rainGearFor(
+      const rainGear = await rainGearForDays(
         db,
         userId,
-        own.cached?.forecast.days.filter((d) => days.includes(d.day)) ?? [],
-        occasion,
-        own.settings.offset,
+        own,
+        days.map((day) => ({ day, occasion })),
       );
       return toWeatherResource(own, days, occasion, rainGear);
     },

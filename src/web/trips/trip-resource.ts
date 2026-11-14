@@ -613,9 +613,7 @@ export function toTripWeather(forecast: TripForecast): TripWeather {
     temperatureOffset: forecast.offset,
     ...(forecast.fetchedAt && { fetchedAt: forecast.fetchedAt.toISOString() }),
     forecastUnavailable: forecast.unavailable,
-    days: forecast.days.map((day) =>
-      toDayWeather(day.forecast, 'all-day', forecast.offset),
-    ),
+    days: forecast.days.map((day) => toDayWeather(day.forecast, day.needs)),
     ...(forecast.later && {
       later: { from: forecast.later.day, forecastArrives: forecast.later.from },
     }),

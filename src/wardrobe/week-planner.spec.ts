@@ -119,6 +119,7 @@ function input(
     pool: roomyCloset(),
     forecast: new Map(),
     offset: 0,
+    rainGear: [],
     avoid: [],
     rules: [],
     saved: [],

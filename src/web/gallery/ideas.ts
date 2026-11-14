@@ -34,6 +34,7 @@ import { OUTFIT_NAME_MAX } from '../outfits/queries';
 import { categoryLabel } from '../wardrobe/garment';
 import { type ScalarValues, selectScalars } from '../../db/select-scalars';
 import {
+  rainGearFor,
   readWeatherWithForecast,
   type WeatherSettings,
   weatherWithForecastSql,
@@ -126,6 +127,8 @@ export interface IdeasInput {
    * rather than home's.
    */
   place?: Location | null;
+  /** The trip these ideas are for: its packing list's rain gear, not the closet's (rainGearFor). */
+  tripId?: number;
   /**
    * The person's own weather, when the caller has read it already (Today
    * reads it with its entries for its line, #158): not read again. Only
@@ -210,7 +213,7 @@ export async function ideasFor(
     deps.db,
     ideasColumns(deps, ownerId, input, now),
   );
-  return ideasFrom(deps, input, row, now);
+  return ideasFrom(deps, ownerId, input, row, now);
 }
 
 /**
@@ -247,16 +250,19 @@ export type IdeasRow = ScalarValues<ReturnType<typeof ideasColumns>>;
 
 /** ideasFor's answer from its statement's row (ideasColumns). */
 export async function ideasFrom(
-  deps: { weather: WeatherService | undefined },
+  deps: { db: Queryable; weather: WeatherService | undefined },
+  ownerId: number,
   input: IdeasInput,
   row: IdeasRow,
   now: Date,
 ): Promise<IdeasResult> {
   const { saved, avoid, rules } = readGeneratorMemory(row);
   const pool = readPool(row.pool);
-  const weather = rainGearFrom(
+  const weather = await withClosetRainGear(
+    deps.db,
+    ownerId,
     await weatherFrom(deps, input, row.weather, now),
-    pool,
+    input.tripId,
   );
   const demands = occasionDemands(input.occasion);
   const page = generateIdeas({
@@ -283,23 +289,20 @@ export async function ideasFrom(
 }
 
 /**
- * The day's needs with the owner's rain gear (withRainGear) over the pool
- * the ideas draw from: the needs the cards are judged by are the ones the
- * page's "Take the umbrella" reads, so the two never disagree.
+ * The day's needs with the closet's rain gear (rainGearFor, never narrowed
+ * by `?capsule=`): what the cards are judged by is what "Take the umbrella"
+ * and every other surface read of the same day. One more read only on a day
+ * that asks the outfit for water resistance.
  */
-function rainGearFrom(
+async function withClosetRainGear(
+  db: Queryable,
+  ownerId: number,
   weather: IdeasWeather | null,
-  pool: readonly PoolGarment[],
-): IdeasWeather | null {
-  return (
-    weather && {
-      ...weather,
-      needs: withRainGear(
-        weather.needs,
-        pool.map((g) => g.weather),
-      ),
-    }
-  );
+  tripId: number | undefined,
+): Promise<IdeasWeather | null> {
+  if (!weather) return null;
+  const gear = await rainGearFor(db, ownerId, [weather.needs], tripId);
+  return { ...weather, needs: withRainGear(weather.needs, gear) };
 }
 
 /**
@@ -362,7 +365,7 @@ export async function ideasWith(
   if (ask.capsuleId !== undefined && !row.capsule) throw capsuleNotFound();
   const locked = row.lockable ? readPool(row.lockable) : [];
   if (locked.length !== wanted.length) throw garmentNotFound();
-  return ideasFrom(deps, { ...ask, locked }, row, now);
+  return ideasFrom(deps, ownerId, { ...ask, locked }, row, now);
 }
 
 /** What the aimed day's weather is read for: IdeasInput's day, occasion and place. */

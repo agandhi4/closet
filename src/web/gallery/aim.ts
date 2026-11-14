@@ -15,7 +15,7 @@ export interface IdeasAim {
   /** The trip of `for=trip:ID`, the requester's own. */
   trip?: TripRow;
   /** Where the day's weather is (IdeasInput.place): absent for the person's own. */
-  weatherAt: { place?: Location | null };
+  weatherAt: { place?: Location | null; tripId?: number };
 }
 
 /**
@@ -57,6 +57,6 @@ export async function aimIdeas(
         : { kind: 'trip', tripId: parsed.tripId, occasion: parsed.occasion },
     planning: { day, occasion: parsed.occasion ?? DEFAULT_OCCASION },
     trip,
-    weatherAt: { place: trip.location },
+    weatherAt: { place: trip.location, tripId: trip.id },
   };
 }

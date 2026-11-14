@@ -6,6 +6,7 @@ import {
   type FitProblem,
   type MatchGarment,
   type WeatherNeeds,
+  withRainGear,
   weatherNeeds,
 } from '../weather/match';
 import {
@@ -119,6 +120,12 @@ export interface WeekContext<G extends PlannerGarment> {
   forecast: ReadonlyMap<IsoDate, DayForecast>;
   /** The personal temperature offset, °C. */
   offset: number;
+  /**
+   * The closet's rain gear (rainGearFor), read by the caller once, so the
+   * planner judges a rainy day as every other surface does; empty when no
+   * planned day asks for water resistance.
+   */
+  rainGear: readonly MatchGarment[];
   avoid: readonly (readonly [number, number])[];
   /** The owner's outfit rules (outfit_rule). */
   rules: readonly OutfitRule[];
@@ -484,14 +491,19 @@ function weatherScore(
 
 // ---- Shared by both --------------------------------------------------------
 
+/** The slot's needs with the closet's rain gear (withRainGear). */
 function needsOf(
-  context: Pick<WeekContext<PlannerGarment>, 'forecast' | 'offset'>,
+  context: Pick<
+    WeekContext<PlannerGarment>,
+    'forecast' | 'offset' | 'rainGear'
+  >,
   slot: Slot,
 ): WeatherNeeds | null {
   const forecast = context.forecast.get(slot.day);
-  return forecast
+  const needs = forecast
     ? weatherNeeds(forecast, slot.occasion, context.offset)
     : null;
+  return needs && withRainGear(needs, context.rainGear);
 }
 
 /** The slot's seed: the same slot draws the same ideas. */
