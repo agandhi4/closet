@@ -27,10 +27,11 @@ export const ORDER_EMAIL_STATUSES = ['decided', 'failed', 'parked'] as const;
 export type OrderEmailStatus = (typeof ORDER_EMAIL_STATUSES)[number];
 
 /**
- * Whose fault a failed read was: the email's own (its answer's shape, a
- * product the columns refuse) spends one of its attempts; the mailbox's
- * (JMAP unreachable, refusing the token, a 5xx) fails the run and spends
- * none, so an outage never parks the inbox.
+ * Whose fault a failed read was: the email's own (its body answer's shape,
+ * a 4xx for it, a product the columns refuse) spends one of its attempts;
+ * the mailbox's (JMAP unreachable, refusing the token, a 5xx, a method
+ * error; the database out of reach or timing out counts here too) fails the
+ * run and spends none, so an outage never parks the inbox.
  */
 export type OrderEmailFailureScope = 'email' | 'mailbox';
 

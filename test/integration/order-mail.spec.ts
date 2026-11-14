@@ -691,6 +691,50 @@ describe('order email import', () => {
       });
       jmap.failBodyOf('Mgone00001', undefined);
     });
+
+    it("counts a JMAP method error as the mailbox's, never the email's", async () => {
+      jmap.deliver(
+        productEmail('Mmethod001', '2026-09-28T14:00:00Z', 'Method Tee'),
+      );
+      jmap.failBodyOf('Mmethod001', 'method');
+      await expect(whole()).rejects.toThrow(
+        'JMAP body failed: serverUnavailable',
+      );
+      expect(await emailRow('Mmethod001')).toMatchObject({
+        status: 'failed',
+        attempts: 0,
+        mailboxFailures: 1,
+      });
+      jmap.failBodyOf('Mmethod001', undefined);
+      await whole();
+      expect(await emailRow('Mmethod001')).toMatchObject({
+        status: 'decided',
+      });
+    });
+
+    it('reports a first failure in the event of a run a later mailbox failure stopped', async () => {
+      jmap.deliver(
+        productEmail('Mfirst0001', '2026-09-28T15:00:00Z', 'First Tee'),
+      );
+      jmap.deliver(
+        productEmail('Mstop00001', '2026-09-28T15:05:00Z', 'Stop Tee'),
+      );
+      jmap.failBodyOf('Mfirst0001', 'shape');
+      jmap.failBodyOf('Mstop00001', 503);
+
+      const stopped = await whole().catch((error: unknown) => error);
+      expect(stopped).toBeInstanceOf(PartialFailure);
+      expect(stopped).toMatchObject({
+        reported: false,
+        counts: { failing: 1, 'stopped by a mailbox failure': 1 },
+      });
+      expect((stopped as Error).cause).toBeInstanceOf(JmapError);
+      expect(await emailRow('Mfirst0001')).toMatchObject({ attempts: 1 });
+
+      jmap.failBodyOf('Mfirst0001', undefined);
+      jmap.failBodyOf('Mstop00001', undefined);
+      await expect(whole()).resolves.toMatchObject({ failing: 0 });
+    });
   });
 });
 

@@ -58,7 +58,8 @@ export interface JmapStub {
   failWith(status: number | undefined): void;
   /**
    * Fails the body read of email `id` until reset (undefined): an HTTP
-   * status, or `shape`, an answer of the wrong shape (#693).
+   * status, `shape` (an answer of the wrong shape) or `method` (a JMAP
+   * method error, serverUnavailable) (#693).
    */
   failBodyOf(id: string, failure: BodyFailure | undefined): void;
   /** Takes an email out of the inbox (deleted or moved). */
@@ -66,7 +67,7 @@ export interface JmapStub {
   close(): Promise<void>;
 }
 
-export type BodyFailure = number | 'shape';
+export type BodyFailure = number | 'shape' | 'method';
 
 const TEST_INTERNET: DestinationPolicy = {
   allowsAddress: (address) => address === STUB_IP || isPublicAddress(address),
@@ -166,6 +167,9 @@ export async function startJmapStub(token: string): Promise<JmapStub> {
         calls.push(isBody ? 'Email/get body' : name);
         if (isBody && bodyFailure === 'shape') {
           return [name, { accountId: ACCOUNT_ID, list: [{ id: 1 }] }, tag];
+        }
+        if (isBody && bodyFailure === 'method') {
+          return ['error', { type: 'serverUnavailable' }, tag];
         }
         const method = methods[name];
         return method

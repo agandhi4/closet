@@ -1,8 +1,9 @@
 import type { Db } from '../../../db/client';
 import type { Logger } from '../../../logger';
 import { todayIn } from '../../../calendar-date';
+import { isDatabaseUnavailable, isPoolExhausted } from '../../../db/errors';
 import { driverError } from '../../../driver-error';
-import { endWhole } from '../../../metrics/partial-failure';
+import { endWhole, PartialFailure } from '../../../metrics/partial-failure';
 import {
   ORDER_MAIL_ATTEMPTS,
   ORDER_MAIL_MAILBOX_STRIKES,
@@ -48,8 +49,8 @@ import { judgeSender } from './trust';
  * (recordOrderEmail). One whose read fails is a `failed` row, read again
  * by the next poll (the watermark starts at it) and parked after
  * ORDER_MAIL_ATTEMPTS; the poll goes on to the next email. A failure of the
- * mailbox, not the email (JMAP unreachable, a 5xx: JmapError's `scope`),
- * still fails the run and spends no attempt, but for its backstop: a
+ * mailbox or the database, not the email (JMAP unreachable, a 5xx:
+ * JmapError's `scope`; failureScope), still fails the run and spends no attempt, but for its backstop: a
  * mailbox failure ORDER_MAIL_MAILBOX_STRIKES times in a row on the same
  * email spends one. A link that fails to fetch is skipped (the fetcher logs
  * its host and reason).
@@ -152,7 +153,18 @@ export async function pollOrderMail(deps: OrderMailDeps): Promise<PollSummary> {
       listed += await readEmail(deps, mailbox, envelope, ownerId);
       failing.delete(envelope.id);
     } catch (error) {
-      const failure = await recordFailure(deps, mailbox, envelope, error);
+      const failure = await recordFailure(deps, mailbox, envelope, error).catch(
+        (stopped: unknown) => {
+          // The run ends here; an email this run failed first is reported in
+          // the same event, or no later run would (theirs is not the first).
+          if (firstFailures === 0) throw stopped;
+          throw new PartialFailure(
+            'order_mail',
+            { failing: failing.size, 'stopped by a mailbox failure': 1 },
+            { cause: stopped },
+          );
+        },
+      );
       if (failure.first) firstFailures += 1;
       if (failure.status === 'parked') {
         parked += 1;
@@ -227,9 +239,27 @@ async function recordFailure(
   return { status: read.status, first: read.attempts === 1 };
 }
 
-/** A JMAP failure says whose it was; anything else came of the email's content. */
+/**
+ * Statements the database refused for its own state, not the email's
+ * values: a statement or lock timeout, a serialization failure, a deadlock.
+ */
+const TRANSIENT_SQLSTATES = new Set(['57014', '55P03', '40001', '40P01']);
+
+/**
+ * Whose failure a read was. A JMAP failure says (JmapError.scope). The
+ * database out of reach, its pool full or a transient refusal are the
+ * run's, like the mailbox's: they spend no attempt, or an outage would park
+ * the inbox. Anything else came of the email's content (a value a column
+ * refuses, a bug of ours on its data).
+ */
 function failureScope(error: unknown): OrderEmailFailureScope {
-  return error instanceof JmapError ? error.scope : 'email';
+  if (error instanceof JmapError) return error.scope;
+  const code = driverError(error)?.code;
+  const transient =
+    isDatabaseUnavailable(error) ||
+    isPoolExhausted(error) ||
+    (code !== undefined && TRANSIENT_SQLSTATES.has(code));
+  return transient ? 'mailbox' : 'email';
 }
 
 /**

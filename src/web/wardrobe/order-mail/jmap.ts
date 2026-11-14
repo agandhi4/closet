@@ -46,21 +46,18 @@ interface JmapErrorDetails {
   refusal?: OutboundFetchRefusal;
   /** The answer's HTTP status, when the refusal was one. */
   status?: number;
-  /** JMAP answered, but not as asked: a method error, a shape, not JSON. */
-  answered?: boolean;
   scope?: OrderEmailFailureScope;
 }
 
 /**
  * A JMAP failure: the step and why, never the token or a body. `scope` is
- * `mailbox` but for one email's body that JMAP answered wrongly
- * (bodyFailureScope, #693), which spends that email's attempt instead of
- * failing the run.
+ * `mailbox` but for one email's body that JMAP answered wrongly (#693): a
+ * body answer of the wrong shape, or a 4xx for that id (bodyFailureScope),
+ * which spend that email's attempt instead of failing the run.
  */
 export class JmapError extends Error {
   readonly refusal: OutboundFetchRefusal | undefined;
   readonly status: number | undefined;
-  readonly answered: boolean;
   readonly scope: OrderEmailFailureScope;
 
   constructor(message: string, details: JmapErrorDetails = {}) {
@@ -68,7 +65,6 @@ export class JmapError extends Error {
     this.name = 'JmapError';
     this.refusal = details.refusal;
     this.status = details.status;
-    this.answered = details.answered ?? false;
     this.scope = details.scope ?? 'mailbox';
   }
 }
@@ -77,13 +73,15 @@ export class JmapError extends Error {
 const MAILBOX_STATUSES = new Set([401, 403, 408, 429]);
 
 /**
- * Whose failure one email's body read was: an answer of the wrong shape, a
- * method error or a 4xx for that id is the email's; the transport, auth,
- * rate limits and 5xx are the mailbox's. The session, the query and the
- * envelopes are never one email's: their errors stay `mailbox`.
+ * Whose failure one email's body request was: a 4xx for that id is the
+ * email's; the transport, auth, rate limits, 5xx, a method error
+ * (serverUnavailable, serverFail, forbidden: RFC 8620 names the server's
+ * or the account's state, not one email's) and an answer that is not JSON
+ * (a maintenance page) are the mailbox's, so an incident never parks real
+ * emails; one that persists on a single email is the strikes' backstop.
+ * The session, the query and the envelopes are never one email's.
  */
 function bodyFailureScope(error: JmapError): OrderEmailFailureScope {
-  if (error.answered) return 'email';
   const { status } = error;
   return status !== undefined &&
     status >= 400 &&
@@ -207,9 +205,7 @@ export function createJmapClient({
         );
       }
       if (error instanceof SyntaxError) {
-        throw new JmapError(`JMAP ${step} answered something not JSON`, {
-          answered: true,
-        });
+        throw new JmapError(`JMAP ${step} answered something not JSON`);
       }
       throw error;
     }
@@ -243,7 +239,6 @@ export function createJmapClient({
             const type = (args as { type?: unknown } | null)?.type;
             throw new JmapError(
               `JMAP ${step} failed: ${typeof type === 'string' ? type : 'error'}`,
-              { answered: true },
             );
           }
           byTag.set(tag, args);
@@ -338,7 +333,6 @@ export function createJmapClient({
             throw new JmapError(error.message, {
               refusal: error.refusal,
               status: error.status,
-              answered: error.answered,
               scope: bodyFailureScope(error),
             });
           }
@@ -371,7 +365,6 @@ function checked<S extends TSchema>(
 ): Static<S> {
   if (!Value.Check(schema, value)) {
     throw new JmapError(`JMAP ${step} answered an unexpected shape`, {
-      answered: true,
       scope,
     });
   }
