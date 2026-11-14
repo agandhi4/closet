@@ -58,19 +58,24 @@ function fakeFactory() {
   const records: string[] = [];
   const failStarts = { name: [] as string[] };
   const handles: FakeDatabase[] = [];
+  const opens = { failNext: 0 };
   const factory = {
     open: () => {
       const db = new FakeDatabase(records, failStarts);
       handles.push(db);
       const request = {
         result: db,
+        error: new Error('open failed'),
         onsuccess: undefined as undefined | (() => void),
+        onerror: undefined as undefined | (() => void),
       };
-      queueMicrotask(() => request.onsuccess?.());
+      const fails = opens.failNext > 0;
+      if (fails) opens.failNext -= 1;
+      queueMicrotask(() => (fails ? request.onerror : request.onsuccess)?.());
       return request as unknown as IDBOpenDBRequest;
     },
   };
-  return { factory, records, failStarts, handles };
+  return { factory, records, failStarts, handles, opens };
 }
 
 async function read(connection: ReturnType<typeof createOutboxConnection>) {
@@ -107,6 +112,16 @@ describe('createOutboxConnection', () => {
     expect(handles).toHaveLength(2);
   });
 
+  it('forgets an open that failed, so the next call retries', async () => {
+    const { factory, opens, handles } = fakeFactory();
+    const connection = createOutboxConnection(factory);
+    opens.failNext = 1;
+    await expect(put(connection, 'a')).rejects.toThrow('open failed');
+    await put(connection, 'b');
+    expect(await read(connection)).toEqual(['b']);
+    expect(handles).toHaveLength(2);
+  });
+
   it('shares one open between concurrent callers', async () => {
     const { factory, handles } = fakeFactory();
     const connection = createOutboxConnection(factory);
@@ -124,6 +139,7 @@ describe('createOutboxConnection', () => {
       await put(connection, 'b');
       expect(records).toEqual(['a', 'b']);
       expect(handles).toHaveLength(2);
+      expect(handles[0].closed).toBe(true);
     },
   );
 

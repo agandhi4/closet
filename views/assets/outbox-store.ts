@@ -125,6 +125,13 @@ export function createOutboxConnection(
           throw error;
         }
         console.warn(`[outbox] ${error.name} at transaction start; reopening`);
+        // An UnknownError handle may still be open: close it so two connections
+        // never coexist (and a versionchange upgrade is not held up by it).
+        try {
+          db.close();
+        } catch {
+          // already closed
+        }
         forget(db);
         transaction = (await open()).transaction(OUTBOX_STORE, mode);
       }
