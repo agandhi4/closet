@@ -1045,6 +1045,16 @@ describe('trips', () => {
             hit.includes('timezone=America%2FChicago'),
         ),
       ).toBe(true);
+      // An empty zone field (a result that named none) is the household's zone (#807).
+      const noZone = await post(`/trips/${id}/destination`, {
+        name: 'Austin, Texas, United States',
+        latitude: '30.26715',
+        longitude: '-97.74306',
+        timeZone: '',
+      });
+      expect(noZone.statusCode).toBe(303);
+      const [unzoned] = await t.db.select().from(trip).where(eq(trip.id, id));
+      expect(unzoned.timeZone).toBeNull();
       // A new destination name clears the location it no longer describes.
       await post(`/trips/${id}`, {
         name: 'Austin conference',

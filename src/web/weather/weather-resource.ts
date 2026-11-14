@@ -252,6 +252,22 @@ export const KeptPlace = Type.Object(
   },
 );
 
+/** A trip's destination as kept: the place and the zone saved with it. */
+export const KeptDestination = Type.Object(
+  {
+    ...KeptPlace.properties,
+    timeZone: Type.Union([Type.String(), Type.Null()], {
+      description:
+        "The IANA time zone kept with the destination; null when the one sent was absent or unknown, so the trip's days are the household's",
+    }),
+  },
+  {
+    title: 'KeptDestination',
+    description:
+      "A trip's destination as kept: the name trimmed, the coordinates rounded, the zone as saved",
+  },
+);
+
 export const HerePlace = Type.Object(
   {
     ...Coordinates,
