@@ -1,9 +1,15 @@
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
 import { parseStoredName } from './image-variant';
-import { photoRowNames } from './queries';
+import {
+  pairedInstallId,
+  pairInstallOnce,
+  photoRowNames,
+  repairInstallId,
+} from './queries';
 import {
   type IdentityProblem,
+  type InstallPairing,
   type PhotoStorage,
   STORAGE_MARKER,
   type StorageMarker,
@@ -33,6 +39,16 @@ export const ADOPT_MIN_COVERAGE = 0.9;
  * Anything else unmarked is the unmounted share or the wrong directory, and
  * so is a marker that cannot be read: refused, nothing written there.
  *
+ * And the marker must be this database's (#833): the `install` row records
+ * its install id, written by the claim that writes or adopts the marker
+ * (or, at the first claim after that table shipped, from the marker already
+ * there), so a marked share from another install, or a database restored
+ * from another install's dump, is refused. A marker this claim writes
+ * carries the paired id, so re-adopting a restored, unmarked share pairs.
+ * Only `enforced` pairing (APP_ENV production) refuses a mismatch: in dev
+ * and gate, worktrees each with their own DATA_PATH share one database, so
+ * it is one warn line and the claim goes on (#650's rules apply in all).
+ *
  * Called by createPhotos, so the server's boot and every CLI that writes
  * photos (reconcile, retrim, seed) refuse the same directory.
  */
@@ -40,19 +56,48 @@ export async function claimStorage(
   storage: PhotoStorage,
   db: Db,
   logger: Logger,
+  pairing: InstallPairing,
 ): Promise<StorageMarker> {
   const read = await storage.readMarker();
-  if (read.state === 'present') {
-    storage.claim(read.marker);
-    logger.info(
-      `Photo storage ${read.marker.installId} (marked ${read.marker.createdAt})`,
-    );
-    return read.marker;
-  }
   if (read.state === 'unreadable') {
     throw new StorageIdentityError({ kind: 'unreadable', code: read.code });
   }
-  // Only for an unmarked directory: a marked boot sends no statement.
+  let paired = await pairedInstallId(db);
+  const marker =
+    read.state === 'present'
+      ? read.marker
+      : await markUnmarked(storage, db, paired, logger);
+  if (paired === undefined) {
+    await pairInstallOnce(db, marker.installId);
+    // Read back: a process claiming beside this one may have paired first.
+    paired = await pairedInstallId(db);
+    if (paired === marker.installId) {
+      logger.info(
+        `Photo storage ${marker.installId} paired with this database`,
+      );
+    }
+  }
+  if (paired !== marker.installId) {
+    const mismatch = `photo storage ${marker.installId}: this database belongs to install ${paired}`;
+    if (pairing === 'enforced') {
+      logger.warn(`Refusing ${mismatch}`);
+      throw new StorageIdentityError({ kind: 'unpaired' });
+    }
+    logger.warn(`Using ${mismatch} (not refused outside APP_ENV production)`);
+  }
+  storage.claim(marker, pairing);
+  logger.info(`Photo storage ${marker.installId} (marked ${marker.createdAt})`);
+  return marker;
+}
+
+// An unmarked DATA_PATH: marked when #650's rules prove it is ours, with the
+// database's install id once it has one.
+async function markUnmarked(
+  storage: PhotoStorage,
+  db: Db,
+  paired: string | undefined,
+  logger: Logger,
+): Promise<StorageMarker> {
   const rows = await photoRowNames(db);
   const covered = rows.length === 0 ? 0 : await coveredRows(storage, rows);
   if (rows.length > 0 && covered < rows.length * ADOPT_MIN_COVERAGE) {
@@ -62,12 +107,11 @@ export async function claimStorage(
     throw new StorageIdentityError({ kind: 'absent' });
   }
   // Ours, or the marker a process booting beside this one linked first.
-  const created = await storage.createMarker();
+  const created = await storage.createMarker(paired);
   if (created.state === 'unreadable') {
     throw new StorageIdentityError({ kind: 'unreadable', code: created.code });
   }
   const { marker } = created;
-  storage.claim(marker);
   if (rows.length === 0) {
     logger.info(
       `Photo storage ${marker.installId}: marked (no photo rows yet: a first boot)`,
@@ -78,6 +122,56 @@ export async function claimStorage(
     );
   }
   return marker;
+}
+
+/**
+ * Whether DATA_PATH is still the storage this process claimed and, where
+ * the pairing is enforced, the one the database is paired with: every
+ * reconciliation run asks (a job may read the row; the database can be
+ * restored or repointed under a running server). Readiness asks only
+ * PhotoStorage.identityProblem, the marker against the id claimed at boot,
+ * never the database: storage and database health stay separate checks.
+ */
+export async function storageIdentityProblem(
+  storage: PhotoStorage,
+  db: Db,
+): Promise<IdentityProblem | undefined> {
+  const problem = await storage.identityProblem();
+  if (problem || storage.installPairing === 'advisory') return problem;
+  const paired = await pairedInstallId(db);
+  return paired === storage.claimedInstallId ? undefined : { kind: 'unpaired' };
+}
+
+export type StorageRepair = { paired: string } | { refused: string };
+
+/**
+ * `maintenance:reconcile -- --repair-storage-identity --confirm`: pairs the
+ * database with the marker DATA_PATH holds now, once an operator checked it
+ * is the right share (a deliberate restore onto new storage:
+ * docs/operations.md#photo-storage-marker). Never writes the marker, so an
+ * unmounted share (no marker) is refused, never paired. Runs without
+ * claimStorage, which refuses exactly this storage.
+ */
+export async function repairStorageIdentity(
+  storage: PhotoStorage,
+  db: Db,
+  logger: Logger,
+): Promise<StorageRepair> {
+  const read = await storage.readMarker();
+  if (read.state === 'absent') {
+    return { refused: identityRefusal({ kind: 'absent' }) };
+  }
+  if (read.state === 'unreadable') {
+    return {
+      refused: identityRefusal({ kind: 'unreadable', code: read.code }),
+    };
+  }
+  const was = await pairedInstallId(db);
+  await repairInstallId(db, read.marker.installId);
+  logger.warn(
+    `Storage identity repaired: the database now belongs to photo storage ${read.marker.installId} (was ${was ?? 'unpaired'})`,
+  );
+  return { paired: read.marker.installId };
 }
 
 /** Where an operator reads what the marker is and how to re-adopt. */
@@ -106,6 +200,11 @@ export function identityRefusal(problem: IdentityProblem): string {
       return (
         `DATA_PATH holds another install's ${STORAGE_MARKER} than the one this process booted with: ` +
         `a different share was mounted (${STORAGE_MARKER_FIX})`
+      );
+    case 'unpaired':
+      return (
+        `DATA_PATH holds the ${STORAGE_MARKER} of another install than the one this database belongs to: ` +
+        `another household's or a copy's share, or a restore onto new storage (${STORAGE_MARKER_FIX})`
       );
     case 'unreadable':
       return `DATA_PATH storage unreadable: ${problem.code} (${STORAGE_MARKER_FIX})`;

@@ -266,6 +266,40 @@ export async function userWeatherFrom(
 }
 
 /**
+ * userWeather for a scheduled job: a fetch that fails with nothing cached
+ * (a cold place and Open-Meteo down) is no forecast, not a failed person.
+ * Neither the reminder (no weather line) nor the re-plan (availability
+ * only) needs one, and a provider outage must not end the job as a
+ * failure (#687). A failure with an answer cached never reaches here: the
+ * cache serves it (location-cache.ts).
+ */
+export async function userWeatherOrNone(
+  deps: { db: Db; weather: WeatherService; logger: Logger },
+  userId: number,
+  now: Date,
+): Promise<UserWeather> {
+  const found = await findWeatherWithForecast(
+    deps.db,
+    userId,
+    now,
+    deps.weather.timeZone,
+  );
+  try {
+    return await userWeatherFrom(deps.weather, found, now);
+  } catch (error) {
+    deps.logger.warn(
+      { err: error },
+      `No forecast for user ${userId}: the fetch failed and nothing is cached`,
+    );
+    return {
+      settings: found.settings,
+      active: activeLocation(found.settings, now),
+      cached: null,
+    };
+  }
+}
+
+/**
  * Refreshes, together, the forecasts a batch job is about to decide on:
  * the distinct active locations of `userIds`, each through the cache's
  * fresh read (its single flight), BATCH_REFRESH_CONCURRENCY at a time,

@@ -137,7 +137,7 @@ const paths: [string, (actor: Actor) => Promise<unknown>][] = [
     'editTrip',
     (actor) => {
       vi.mocked(updateTrip).mockResolvedValue('not-found');
-      return editTrip(db, actor, TRIP, fields);
+      return editTrip(db, actor, TRIP, fields, TODAY);
     },
   ],
   [
@@ -274,7 +274,7 @@ describe("another user's trip is not found, whatever they share", () => {
     expect(findTrip).toHaveBeenCalledWith(db, TRIP, OTHER);
     expect(tripPageModel).toHaveBeenCalledWith(db, OTHER, TRIP, TODAY);
     expect(tripModel).toHaveBeenCalledWith(db, OTHER, TRIP, TODAY);
-    expect(updateTrip).toHaveBeenCalledWith(db, TRIP, OTHER, fields);
+    expect(updateTrip).toHaveBeenCalledWith(db, TRIP, OTHER, fields, TODAY);
     expect(deleteTrip).toHaveBeenCalledWith(db, TRIP, OTHER);
     expect(setTripDestination).toHaveBeenCalledWith(db, TRIP, OTHER, place);
     expect(addTripOutfit).toHaveBeenCalledWith(db, {

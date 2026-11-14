@@ -157,7 +157,7 @@ function autoEntryOf(row: EntryRow): AutoEntryRow {
  * claimed already (another run, the morning reminder, a second server),
  * which the caller treats alike: nothing to do. Called inside the
  * re-plan's transaction under lockOwner, so the claim commits with the
- * work (claimReplan's rule). Entries the person has since edited or worn
+ * work (claimAutoEntries' rule). Entries the person has since edited or worn
  * are 'user' and never come back here.
  */
 export async function claimAutoEntries(
@@ -607,15 +607,11 @@ export async function replanCandidates(
 }
 
 /**
- * Claims `userId`'s re-plan for `day`: true when this call inserted the
- * (user, day) row, false when it was there. The re-plan itself claims
- * inside its own transaction, under lockOwner, with its read
- * (claimAutoEntries), so the claim commits with the work: whoever finds it
- * claimed finds the re-plan done, never half done (a second server, the
- * morning reminder's re-plan first). This claims on its own, in a
- * transaction of its own (under the owner lock too), after a failed
- * re-plan, so a user whose re-plan throws is tried once a day, not every
- * minute.
+ * Claims `userId`'s re-plan for `day` on its own, in a transaction of its
+ * own (under the owner lock): true when this call inserted the (user, day)
+ * row. The re-plan claims inside its own transaction with its read
+ * (claimAutoEntries); this is for a person whose re-plan failed through
+ * every retry (ReplanRetries), so they are tried no more that day.
  */
 export async function claimReplan(
   db: Queryable,

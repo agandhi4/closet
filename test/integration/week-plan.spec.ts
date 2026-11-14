@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm';
 import {
   afterAll,
   afterEach,
@@ -28,6 +28,7 @@ import {
 } from '../../src/db/schema';
 import type { Occasion } from '../../src/wardrobe/occasions';
 import { addDays, instantAt, type IsoDate } from '../../src/calendar-date';
+import { PartialFailure } from '../../src/metrics/partial-failure';
 import { insertEntry } from '../../src/web/calendar/queries';
 import { dayLabel } from '../../src/web/date-labels';
 import { claimAutoEntries } from '../../src/web/week-plan/queries';
@@ -56,7 +57,9 @@ import {
   pruneReplans,
   REPLAN_HOUR,
   type ReplanDeps,
+  ReplanRetries,
   replanWeeks,
+  replanWeeksWhole,
 } from '../../src/web/week-plan/replan';
 import {
   createTestApp,
@@ -1290,12 +1293,12 @@ describe('the weekly auto-plan', () => {
       expect(sends).toEqual([]);
     });
 
-    it("a trip created or moved over planned days takes the planner's entries off them at once, and leaves the person's (#684)", async () => {
+    it("a trip created or moved over planned days takes the planner's entries off them from today on, and leaves the person's and the past's (#684)", async () => {
       await planWarm();
       const before = await weekEntries();
-      const [wednesday, thursday, friday] = [2, 3, 4].map(
-        (i) => before.find((e) => e.day === WEEK[i])!,
-      );
+      const [tuesday, wednesday, thursday, friday, saturday] = [
+        1, 2, 3, 4, 5,
+      ].map((i) => before.find((e) => e.day === WEEK[i])!);
       // Friday's is theirs now.
       await asFixture(t.db, (tx) =>
         tx
@@ -1303,11 +1306,13 @@ describe('the weekly auto-plan', () => {
           .set({ plannedBy: 'user' })
           .where(eq(outfitCalendar.id, friday.id)),
       );
+      // Wednesday, 08:00 in New York: Tuesday's plan is past, still theirs to mark worn.
+      vi.setSystemTime(at(WEEK[2], 8));
       const trip = {
         name: 'Lisbon long weekend',
         destination: 'Lisbon',
-        startsOn: WEEK[3],
-        endsOn: WEEK[4],
+        startsOn: WEEK[1],
+        endsOn: WEEK[3],
       };
       t.logs.clear();
       const created = await post('/trips', trip);
@@ -1315,10 +1320,12 @@ describe('the weekly auto-plan', () => {
       const tripId = Number(
         /^\/trips\/(\d+)/.exec(String(created.headers.location))![1],
       );
+      const gone = new Set([wednesday.id, thursday.id]);
       const after = await weekEntries();
       expect(after.map((e) => e.id)).toEqual(
-        before.filter((e) => e.id !== thursday.id).map((e) => e.id),
+        before.filter((e) => !gone.has(e.id)).map((e) => e.id),
       );
+      expect(after.map((e) => e.id)).toContain(tuesday.id);
       // The outfit the planner made for Thursday went with its entry.
       expect(await t.db.$count(outfit, eq(outfit.id, thursday.outfitId))).toBe(
         0,
@@ -1326,27 +1333,19 @@ describe('the weekly auto-plan', () => {
       expect(t.logs.messages('info', 'Web')).toContainEqual(
         expect.stringMatching(
           new RegExp(
-            `^Trip ${tripId} created .*, 1 planned entr\\(ies\\) removed from its days$`,
+            `^Trip ${tripId} created .*, 2 planned entr\\(ies\\) removed from its days$`,
           ),
         ),
       );
-      // Moved to start a day earlier: Wednesday's goes too, Friday's stays.
+      // Moved to end on Saturday: Saturday's goes too, Friday's stays.
       const moved = await post(`/trips/${tripId}`, {
         ...trip,
-        startsOn: WEEK[2],
+        endsOn: WEEK[5],
       });
       expect(moved.statusCode, moved.body).toBe(303);
       expect((await weekEntries()).map((e) => e.id)).toEqual(
-        after.filter((e) => e.id !== wednesday.id).map((e) => e.id),
+        after.filter((e) => e.id !== saturday.id).map((e) => e.id),
       );
-      // The re-plan finds nothing left to take off those days.
-      const run = await replanWeeks(deps, at(TODAY, 7));
-      expect(run).toMatchObject({ swapped: 0, failed: 0 });
-      expect(
-        (await weekEntries()).filter((e) =>
-          [WEEK[2], WEEK[3], WEEK[4]].includes(e.day),
-        ),
-      ).toEqual([expect.objectContaining({ id: friday.id })]);
     });
 
     it("is idempotent: once a day per user, whatever the minutes, and never touches the person's entries", async () => {
@@ -1386,6 +1385,106 @@ describe('the weekly auto-plan', () => {
       expect((await replanWeeks(deps, at(addDays(TODAY, 1), 7))).claimed).toBe(
         1,
       );
+    });
+
+    /**
+     * Runs `work` with every calendar insert of the owner failing in the
+     * database, which is what a swap writes: a real failure of the person's
+     * own work, after the re-plan's claim in the same transaction.
+     */
+    const withFailingSwaps = async <T>(work: () => Promise<T>): Promise<T> => {
+      await t.db.execute(
+        sql.raw(`
+        create function fail_swap() returns trigger language plpgsql as
+        $$ begin raise exception 'injected failure'; end $$;
+        create trigger fail_swap before insert on outfit_calendar
+          for each row when (new.owner_id = ${t.owner.id})
+          execute function fail_swap();`),
+      );
+      try {
+        return await work();
+      } finally {
+        await t.db.execute(
+          sql.raw(
+            'drop trigger fail_swap on outfit_calendar; drop function fail_swap();',
+          ),
+        );
+      }
+    };
+
+    const minutesAfter = (minutes: number) =>
+      new Date(at(TODAY, 7).getTime() + minutes * 60_000);
+    const failures = () =>
+      t.logs
+        .messages('error', 'WeekPlan')
+        .filter((m) => m.startsWith(`Week re-plan for user ${t.owner.id}`));
+
+    it('a failing re-plan is tried at 5, 15 and 60 minutes, then claimed; one failure is reported, not four (#687)', async () => {
+      await planWarm();
+      forecastDays = weekAt(() => -2);
+      const retrying: ReplanDeps = { ...deps, retries: new ReplanRetries() };
+      t.logs.clear();
+      await withFailingSwaps(async () => {
+        const first = await replanWeeksWhole(retrying, minutesAfter(0)).catch(
+          (error: unknown) => error,
+        );
+        expect(first).toBeInstanceOf(PartialFailure);
+        expect(first).toMatchObject({ job: 'replan', counts: { failed: 1 } });
+        expect(await t.db.$count(weekReplan)).toBe(0);
+
+        // Waiting: no attempt, no error line, a success for the run.
+        for (const m of [1, 4]) {
+          expect(await replanWeeks(retrying, minutesAfter(m))).toMatchObject({
+            claimed: 0,
+            failed: 0,
+          });
+        }
+        expect(failures()).toHaveLength(1);
+
+        // Retries fail too, but only the day's first failure is reported.
+        for (const m of [5, 20]) {
+          expect(
+            await replanWeeksWhole(retrying, minutesAfter(m)),
+          ).toMatchObject({ claimed: 1, failed: 0 });
+          expect(await t.db.$count(weekReplan)).toBe(0);
+        }
+        // 5 + 15 + 60 minutes after the first: the last try claims the day.
+        await replanWeeksWhole(retrying, minutesAfter(80));
+      });
+      expect(failures()).toHaveLength(4);
+      expect(failures().at(-1)).toMatch(/claimed for the day$/);
+      expect(await t.db.$count(weekReplan)).toBe(1);
+      expect(await replanWeeks(retrying, minutesAfter(81))).toMatchObject({
+        claimed: 0,
+      });
+    });
+
+    it('a retry that succeeds re-plans the person and claims the day (#687)', async () => {
+      await planWarm();
+      forecastDays = weekAt(() => -2);
+      const retrying: ReplanDeps = { ...deps, retries: new ReplanRetries() };
+      await withFailingSwaps(() =>
+        replanWeeksWhole(retrying, minutesAfter(0)).catch(() => undefined),
+      );
+      expect(await t.db.$count(weekReplan)).toBe(0);
+      const run = await replanWeeksWhole(retrying, minutesAfter(5));
+      expect(run).toMatchObject({ claimed: 1, failed: 0 });
+      expect(run.swapped).toBeGreaterThan(0);
+      expect(await t.db.$count(weekReplan)).toBe(1);
+    });
+
+    it('a forecast fetch that fails with nothing cached is no forecast, not a failed re-plan (#687)', async () => {
+      await planWarm();
+      const cold: ReplanDeps = {
+        ...deps,
+        weather: {
+          ...fakeWeather(() => forecastDays),
+          forecastFor: () => Promise.reject(new Error('Open-Meteo down')),
+        },
+      };
+      const run = await replanWeeksWhole(cold, minutesAfter(0));
+      expect(run).toMatchObject({ claimed: 1, failed: 0 });
+      expect(await t.db.$count(weekReplan)).toBe(1);
     });
 
     it('two servers re-planning the same minute claim each user once', async () => {
@@ -1800,26 +1899,18 @@ describe('the weekly auto-plan', () => {
           occasion: 'all-day',
         });
         forecastDays = weekAt(() => -2);
-        const broken: ReminderDeps = {
-          ...reminders,
-          replan: {
-            ...deps,
-            weather: {
-              ...fakeWeather(() => forecastDays),
-              forecastFor: () => Promise.reject(new Error('Open-Meteo down')),
-            },
-          },
-        };
         t.logs.clear();
-        const run = await sendDueReminders(broken, at(TODAY, REPLAN_HOUR));
+        const run = await withFailingSwaps(() =>
+          sendDueReminders(reminders, at(TODAY, REPLAN_HOUR)),
+        );
         expect(run).toMatchObject({ claimed: 1, sent: 1, failed: 0 });
         expect(reminderTo()[0].payload.body).toContain(
           await nameOf(planned.outfitId),
         );
         expect(t.logs.messages('error', 'WeekPlan')).toContain(
-          `Week re-plan for user ${t.owner.id} on ${TODAY} failed`,
+          `Week re-plan for user ${t.owner.id} on ${TODAY} failed, claimed for the day`,
         );
-        // Claimed all the same: tried again tomorrow, not every minute.
+        // Without ReplanRetries a failure claims the day at once.
         expect(await t.db.$count(weekReplan)).toBe(1);
         expect(await replanWeeks(deps, at(TODAY, 7))).toMatchObject({
           claimed: 0,

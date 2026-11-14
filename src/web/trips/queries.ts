@@ -251,7 +251,9 @@ export async function createTrip(
  * place's name replaces the typed destination, as the trip page's Find
  * does); and the planner's unworn auto entries on its days removed
  * (removeAutoEntries, the re-plan's rule: the planner never dresses a day
- * away; a person's or an agent's entry stays). `away` is how many went.
+ * away; a person's or an agent's entry stays), from `today` on only:
+ * a trip logged after the fact keeps the past plans a person can still
+ * mark worn. `away` is how many went.
  * createTrip alone is the bare insert the seed and fixtures write.
  */
 export function createTripAt(
@@ -259,17 +261,36 @@ export function createTripAt(
   ownerId: number,
   fields: TripFields,
   place: { name: string; location: PickedLocation } | null,
+  today: IsoDate,
 ): Promise<{ id: number; away: number }> {
   return db.transaction(async (tx) => {
     const id = await createTrip(tx, ownerId, fields);
     // Just inserted under the owner's lock this transaction holds: never false.
     if (place) await setTripDestination(tx, id, ownerId, place);
-    const away = await removeAutoEntries(tx, ownerId, {
-      from: fields.startsOn,
-      to: fields.endsOn,
-    });
-    return { id, away: away.entries };
+    const away = await removeAwayAutoEntries(tx, ownerId, fields, today);
+    return { id, away };
   });
+}
+
+/**
+ * The planner's unworn auto entries on a trip's days from `today` on, removed
+ * (removeAutoEntries, the re-plan's rule); a trip wholly past sends nothing.
+ * createTripAt's and updateTrip's, in their transaction. How many went.
+ */
+async function removeAwayAutoEntries(
+  tx: Queryable,
+  ownerId: number,
+  days: Pick<TripFields, 'startsOn' | 'endsOn'>,
+  today: IsoDate,
+): Promise<number> {
+  if (days.endsOn < today) return 0;
+  // ISO dates compare correctly as strings.
+  const from = days.startsOn < today ? today : days.startsOn;
+  const removed = await removeAutoEntries(tx, ownerId, {
+    from,
+    to: days.endsOn,
+  });
+  return removed.entries;
 }
 
 /**
@@ -279,8 +300,8 @@ export function createTripAt(
  * trip ("Any day"), so trip_outfit.day is always one of the trip's days;
  * one that would then be the outfit's second undated row goes, since the
  * outfit is on the trip already. New dates remove the planner's unworn
- * auto entries on them, as a create does (removeAutoEntries, #684: one
- * more statement, only then). 'not-found' when the trip is not the
+ * auto entries on them from `today` on, as a create does
+ * (removeAwayAutoEntries, #684: one more statement, only then). 'not-found' when the trip is not the
  * owner's.
  *
  * Two statements in its transaction (#166): the trip locked and its
@@ -296,6 +317,7 @@ export function updateTrip(
   id: number,
   ownerId: number,
   fields: TripFields,
+  today: IsoDate,
 ): Promise<
   { undated: number; locationCleared: boolean; away: number } | 'not-found'
 > {
@@ -346,9 +368,9 @@ export function updateTrip(
       )
       select count(*)::int as undated from undated`);
     const away = redated
-      ? await removeAutoEntries(tx, ownerId, { from: startsOn, to: endsOn })
-      : { entries: 0 };
-    return { undated: rows[0].undated, locationCleared, away: away.entries };
+      ? await removeAwayAutoEntries(tx, ownerId, fields, today)
+      : 0;
+    return { undated: rows[0].undated, locationCleared, away };
   });
 }
 

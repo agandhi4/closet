@@ -485,6 +485,11 @@ describe('account', () => {
     expect(res.body).toContain(
       'data-confirm="Are you sure you want to delete your account?"',
     );
+    // What deletion removes, and that the export is no way to keep it (#654).
+    expect(res.body).toContain('Deleting your account removes your garments');
+    expect(res.body).toContain(
+      'keeps no photos, outfits or history; download it first if you want that list.',
+    );
     expect(await t.db.$count(user, eq(user.email, 'leaving@example.com'))).toBe(
       1,
     );
@@ -657,6 +662,16 @@ describe('account', () => {
       expect(post.headers.location).toBe('/auth/login');
       expect(await passwordHash(email)).toBe(hashBefore);
     });
+  });
+
+  it("the profile's Export section is a garment list and says what it leaves out (#654)", async () => {
+    const profile = await t.inject({ method: 'GET', url: '/auth/profile' });
+    expect(profile.statusCode).toBe(200);
+    // The apostrophe in the hint is escaped in markup.
+    expect(profile.body).toContain('Download your garment list');
+    expect(profile.body).toContain('no photo files');
+    expect(profile.body).toContain('outfits, calendar, wears, washes');
+    expect(profile.body).toContain('It is not a backup');
   });
 
   // PWA_ENABLED is off in this app: no service worker, so no Web Push

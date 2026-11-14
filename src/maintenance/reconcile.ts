@@ -18,8 +18,12 @@ import { photoRowExists, STORED_PHOTO_COLUMNS } from '../web/files/queries';
 import { photoIsReferenced } from '../web/files/references';
 import type { Photos } from '../web/files/photos';
 import type { StoredObject } from '../web/files/storage';
-import { identityRefusal } from '../web/files/storage-identity';
+import {
+  identityRefusal,
+  storageIdentityProblem,
+} from '../web/files/storage-identity';
 import type { Logger } from '../logger';
+import { endWhole } from '../metrics/partial-failure';
 import { type IsoDate, todayIn } from '../calendar-date';
 import { purgeTrash } from './trash';
 
@@ -155,8 +159,9 @@ export async function reconcileStorage(
 
   // The directory first: a bare mountpoint (the share not mounted) looks
   // like storage whose every photo is gone. Nothing is read or deleted,
-  // pending rows included, and --force does not override (#650).
-  const identity = await deps.photos.storage.identityProblem();
+  // pending rows included, and --force does not override (#650). So is a
+  // share or database of another install (#833).
+  const identity = await storageIdentityProblem(deps.photos.storage, deps.db);
   if (identity) {
     return refuse(deps, dryRun, startedAt, identityRefusal(identity));
   }
@@ -174,6 +179,28 @@ export async function reconcileStorage(
     deps,
     { pendingRows, rows, ...scan },
     { cutoff, now, startedAt, dryRun, force },
+  );
+}
+
+/**
+ * The nightly run: reconcileStorage, then a PartialFailure when the guard
+ * or the directory check refused (nothing was cleaned, whoever is looking
+ * must look) or photo rows lack their original bytes, for `timeJob` to
+ * record as `failure` (#687). server.ts only: the CLI reports the same
+ * facts in its JSON and exit code.
+ */
+export async function reconcileStorageWhole(
+  deps: ReconcileDeps,
+  options?: ReconcileOptions,
+): Promise<ReconciliationReport> {
+  const report = await reconcileStorage(deps, options);
+  return endWhole(
+    'reconciliation',
+    {
+      refused: report.refused ? 1 : 0,
+      'rows missing their original': report.missingOriginals,
+    },
+    report,
   );
 }
 

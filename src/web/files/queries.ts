@@ -7,7 +7,7 @@ import {
 } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { ownersLockCte } from '../../db/owner-lock';
-import { file, garment } from '../../db/schema';
+import { file, garment, install } from '../../db/schema';
 import { currentRequest } from '../../request-context';
 import { unkeyedPhoto } from './image-variant';
 import type {
@@ -221,6 +221,39 @@ export async function lockOwnersAndPhotoName(
 export async function photoRowNames(q: Queryable): Promise<string[]> {
   const rows = await q.select({ fileName: file.fileName }).from(file);
   return rows.map((row) => row.fileName);
+}
+
+/** The install id this database is paired with (#833), or undefined before the first claim. */
+export async function pairedInstallId(
+  q: Queryable,
+): Promise<string | undefined> {
+  const [row] = await q.select({ installId: install.installId }).from(install);
+  return row?.installId;
+}
+
+/**
+ * Pairs the database with an install id, once: a row already there (another
+ * process's claim racing this one) is kept, and the caller reads it back.
+ */
+export async function pairInstallOnce(
+  q: Queryable,
+  installId: string,
+): Promise<void> {
+  await q.insert(install).values({ installId }).onConflictDoNothing();
+}
+
+/** Re-pairs the database with the marker an operator vouched for (repairStorageIdentity). */
+export async function repairInstallId(
+  q: Queryable,
+  installId: string,
+): Promise<void> {
+  await q
+    .insert(install)
+    .values({ installId })
+    .onConflictDoUpdate({
+      target: install.singleton,
+      set: { installId, pairedAt: sql`now()` },
+    });
 }
 
 export async function photoRowExists(

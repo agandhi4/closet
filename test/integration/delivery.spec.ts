@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -521,5 +522,42 @@ describe('delivery (PWA_ENABLED=true)', () => {
         'public, max-age=31536000, immutable',
       );
     });
+  });
+});
+
+// A directory the process cannot create (its parent is a file) is the
+// unwritable storage the 503 names, whoever runs the spec.
+describe('/health/ready with unwritable storage', () => {
+  let t: TestApp;
+  let scratch: string;
+
+  beforeAll(async () => {
+    scratch = mkdtempSync(join(tmpdir(), 'closet-health-'));
+    const file = join(scratch, 'not-a-directory');
+    writeFileSync(file, '');
+    t = await createTestApp({ MODELS_PATH: join(file, 'models') });
+  });
+
+  afterAll(async () => {
+    await t?.cleanup();
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  it('answers 503 naming storage, with its fix and no error text', async () => {
+    const res = await t.inject({
+      method: 'GET',
+      url: '/health/ready',
+      headers: uniqueClient(),
+    });
+    expect(res.statusCode).toBe(503);
+    const body = res.json();
+    expect(body.status).toBe('down');
+    expect(body.checks.storage).toEqual({
+      status: 'down',
+      required: true,
+      fix: expect.stringContaining('docs/operations.md#permissions'),
+    });
+    expect(body.checks.database).toEqual({ status: 'up', required: true });
+    expect(res.body).not.toContain('ENOTDIR');
   });
 });

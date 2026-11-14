@@ -143,6 +143,23 @@ describe('with the database out of reach', () => {
     await relay.restore();
   });
 
+  // #833: the storage check compares the marker with the boot's claim in
+  // memory, so a database out of reach is the database check's alone.
+  it('keeps readiness storage up while the database check is down', async () => {
+    await relay.refuse();
+    try {
+      const res = await t.inject({ method: 'GET', url: '/health/ready' });
+      expect(res.statusCode).toBe(503);
+      const { checks } = res.json<{
+        checks: Record<string, { status: string }>;
+      }>();
+      expect(checks.database.status).toBe('down');
+      expect(checks.storage).toEqual({ status: 'up', required: true });
+    } finally {
+      await relay.restore();
+    }
+  });
+
   // The blackholed host: the TCP connection opens and nothing answers the
   // startup message. Without connectionTimeoutMillis that waited on the
   // kernel, minutes; a short one here keeps the spec quick.

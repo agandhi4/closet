@@ -230,6 +230,7 @@ export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         userId,
         form.fields,
         place ? pickedPlace(place) : null,
+        today(),
       );
       logger.info(
         `Trip ${id} created by user ${userId} (API): ${form.fields.startsOn} to ${form.fields.endsOn}${place ? ', destination located' : ''}${away > 0 ? `, ${away} planned entr(ies) removed from its days` : ''}${clientId ? `, client id ${clientId.slice(0, 8)}` : ''}`,
@@ -264,7 +265,7 @@ export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         await requireTrip(db, actor, id);
         throw refusedBody(form.errors, POINTER_OF_TRIP_FIELD);
       }
-      const saved = await editTrip(db, actor, id, form.fields);
+      const saved = await editTrip(db, actor, id, form.fields, today());
       logger.info(
         `Trip ${id} updated by user ${actor.userId} (API): ${form.fields.startsOn} to ${form.fields.endsOn}${saved.undated > 0 ? `, ${saved.undated} outfit(s) moved to any day` : ''}${saved.locationCleared ? ', destination location cleared' : ''}${saved.away > 0 ? `, ${saved.away} planned entr(ies) removed from its days` : ''}`,
       );

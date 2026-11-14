@@ -187,7 +187,13 @@ export const tripRoutes: FastifyPluginCallbackTypebox<
           who: `user ${ownerId}`,
         });
       }
-      const { id, away } = await createTripAt(db, ownerId, form.fields, place);
+      const { id, away } = await createTripAt(
+        db,
+        ownerId,
+        form.fields,
+        place,
+        today(),
+      );
       // Whether it was located, never the place: where someone travels is theirs.
       logger.info(
         `Trip ${id} created by user ${ownerId}: ${form.fields.startsOn} to ${form.fields.endsOn}${place ? ', destination located' : ''}${away > 0 ? `, ${away} planned entr(ies) removed from its days` : ''}`,
@@ -254,7 +260,7 @@ export const tripRoutes: FastifyPluginCallbackTypebox<
         await requireTrip(db, actor, id);
         return refuseForm(reply, form, { tripId: id });
       }
-      const saved = await editTrip(db, actor, id, form.fields);
+      const saved = await editTrip(db, actor, id, form.fields, today());
       logger.info(
         `Trip ${id} updated by user ${actor.userId}: ${form.fields.startsOn} to ${form.fields.endsOn}${saved.undated > 0 ? `, ${saved.undated} outfit(s) moved to any day` : ''}${saved.locationCleared ? ', destination location cleared' : ''}${saved.away > 0 ? `, ${saved.away} planned entr(ies) removed from its days` : ''}`,
       );
