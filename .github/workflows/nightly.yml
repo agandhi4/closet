@@ -271,6 +271,9 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: scripts/webkit-nightly-issue.sh
+          sparse-checkout-cone-mode: false
       - name: Materialize devkit (private repo, read token)
         env:
           DEVKIT_READ_TOKEN: ${{ secrets.DEVKIT_READ_TOKEN }}
@@ -281,9 +284,6 @@ jobs:
           fi
           git config --global url."https://x-access-token:${DEVKIT_READ_TOKEN}@github.com/kashhq/devkit".insteadOf "https://github.com/kashhq/devkit"
           ./.devkit-bootstrap.sh
-        with:
-          sparse-checkout: scripts/webkit-nightly-issue.sh
-          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: webkit-results-*
