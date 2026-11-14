@@ -152,7 +152,7 @@ export function isProductLink(url: URL): boolean {
 
 /**
  * One form of an address for every check (#949): no fragment, and the path's
- * percent-escapes of letters and digits decoded (`/%63ancel` is `/cancel`
+ * percent-escapes of unreserved characters decoded (`/%63ancel` is `/cancel`
  * to the server, so to the deny rules). The host is already lower case. A
  * check never reads an address that did not pass through here; the checks
  * below take the canonical URL and decode nothing themselves.
@@ -164,7 +164,7 @@ function canonicalUrl(url: URL): URL {
     /%([0-7][0-9A-F])/gi,
     (escape, hex: string) => {
       const char = String.fromCharCode(parseInt(hex, 16));
-      return /[A-Za-z0-9]/.test(char) ? char : escape;
+      return /[A-Za-z0-9._~-]/.test(char) ? char : escape;
     },
   );
   return canonical;

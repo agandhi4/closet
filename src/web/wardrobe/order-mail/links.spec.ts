@@ -208,6 +208,12 @@ describe('one canonical form (#949)', () => {
     expect(
       isProductLink(new URL('https://shop.example/products/blue-%74ee')),
     ).toBe(true);
+    // An escaped hyphen is the hyphen the word rules split on.
+    expect(
+      isProductLink(
+        new URL('https://shop.example/cancel%2Dorder-12345678.html'),
+      ),
+    ).toBe(false);
   });
 });
 
