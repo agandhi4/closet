@@ -68,8 +68,14 @@ test.describe('installed app delivery', () => {
     // Never visited: the offline page.
     await page.goto('/calendar');
     await expect(
-      page.getByRole('heading', { level: 1, name: 'Offline.' }),
+      page.getByRole('heading', { level: 1, name: 'Offline' }),
     ).toBeVisible();
+    // It says so, links the tab roots, and shows no "saved data" banner (#658).
+    await expect(page.getByText("This page wasn't saved")).toBeVisible();
+    await expect(
+      page.locator('main').getByRole('link', { name: 'Wardrobe' }),
+    ).toBeVisible();
+    await expect(page.locator('#connectivity-banner')).toBeHidden();
     await context.setOffline(false);
   });
 });

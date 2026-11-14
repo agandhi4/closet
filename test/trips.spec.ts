@@ -232,7 +232,9 @@ test.describe('Trips', () => {
           '2 of 3 packed',
         );
         await expect(
-          device.locator('[data-autosave-status]'),
+          device.locator(
+            'section[aria-labelledby="trip-packing-heading"] [data-autosave-status]',
+          ),
         ).not.toContainText('Saved');
       } finally {
         await context.close();
