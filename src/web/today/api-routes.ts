@@ -2,7 +2,7 @@ import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebo
 import { CloneType, Type } from '@sinclair/typebox';
 import { todayIn } from '../../calendar-date';
 import { REPLAY_WINDOW_DAYS } from '../../offline-writes';
-import { OCCASIONS } from '../../wardrobe/occasions';
+import { DEFAULT_OCCASION, OCCASIONS } from '../../wardrobe/occasions';
 import { apiResponses } from '../api/contract';
 import type { ApiOptions } from '../api/plugin';
 import { literals } from '../api/resource';
@@ -10,6 +10,7 @@ import { dayOutsideWindow } from '../offline-writes';
 import { garmentsGoneError } from '../outfits/gone-garments';
 import { IsoDateSchema, RowId } from '../schemas';
 import { actorOf } from '../sharing/access';
+import { rainGearForDays } from '../weather/queries';
 import { MAX_WORN_GARMENTS, wearIdea } from './queries';
 import { todayFor } from './today';
 import { TodayResource, toTodayResource } from './today-resource';
@@ -93,7 +94,10 @@ export const todayApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       logger.debug(
         `Today for user ${ownerId} (${model.today}) (API): ${model.rows.length} row(s) in ${Math.round(performance.now() - started)} ms`,
       );
-      return toTodayResource(model);
+      const rainGear = await rainGearForDays(deps.db, ownerId, model.weather, [
+        { day: model.today, occasion: DEFAULT_OCCASION },
+      ]);
+      return toTodayResource(model, rainGear);
     },
   );
   app.post(

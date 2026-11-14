@@ -6,6 +6,7 @@ import {
   type FitProblem,
   type MatchGarment,
   type WeatherNeeds,
+  withRainGear,
   weatherNeeds,
 } from '../weather/match';
 import {
@@ -481,14 +482,27 @@ function weatherScore(
 
 // ---- Shared by both --------------------------------------------------------
 
+/**
+ * The slot's needs with the closet's rain gear: the pool is the owner's
+ * whole closet, so a water-resistant hat in it answers a cool rainy day as
+ * it does on every other surface (withRainGear). A hat in the wash still
+ * counts: the planner decides cleanliness per garment, not for the gear.
+ */
 function needsOf(
-  context: Pick<WeekContext<PlannerGarment>, 'forecast' | 'offset'>,
+  context: Pick<WeekContext<PlannerGarment>, 'forecast' | 'offset' | 'pool'>,
   slot: Slot,
 ): WeatherNeeds | null {
   const forecast = context.forecast.get(slot.day);
-  return forecast
+  const needs = forecast
     ? weatherNeeds(forecast, slot.occasion, context.offset)
     : null;
+  return (
+    needs &&
+    withRainGear(
+      needs,
+      context.pool.map((g) => g.weather),
+    )
+  );
 }
 
 /** The slot's seed: the same slot draws the same ideas. */

@@ -276,7 +276,7 @@ export async function ideaReads(
     ...readChecks(row),
     lockable: readPool(row.lockable ?? []),
     draw: async (locked) =>
-      (await ideasFrom(deps, { ...input, locked }, row, now)).ideas[0],
+      (await ideasFrom(deps, ownerId, { ...input, locked }, row, now)).ideas[0],
   };
 }
 

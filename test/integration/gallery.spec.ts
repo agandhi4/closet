@@ -1,6 +1,16 @@
 import { and, asc, count, eq, sql } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
+import {
+  garment,
   generatorAvoid,
   outfit,
   outfitCalendar,
@@ -18,6 +28,7 @@ import {
 } from '../support/weather-stub';
 import { createWishlistItem } from './garments';
 import {
+  asFixture,
   createTestApp,
   recordQueries,
   type TestApp,
@@ -1046,8 +1057,7 @@ describe('outfit gallery with the weather', () => {
   describe('rain (#648)', () => {
     /** Today's cached forecast made `feelsLike` °C with rain from 8:00 to 22:00. */
     const rainyToday = async (feelsLike: number) => {
-      const [row] = await t.db.select().from(weatherForecast);
-      const forecast = row.forecast!;
+      const forecast = kept.forecast!;
       const days = forecast.days.map((day) =>
         day.day === t.today()
           ? {
@@ -1064,6 +1074,20 @@ describe('outfit gallery with the weather', () => {
         .update(weatherForecast)
         .set({ forecast: { ...forecast, days }, fetchedAt: new Date() });
     };
+    // The forecast row is shared with every spec of the file, and the Rain
+    // hat is in the closet they draw from: both go back after each.
+    let kept: typeof weatherForecast.$inferSelect;
+    beforeEach(async () => {
+      [kept] = await t.db.select().from(weatherForecast);
+    });
+    afterEach(async () => {
+      await t.db
+        .update(weatherForecast)
+        .set({ forecast: kept.forecast, fetchedAt: kept.fetchedAt });
+      await asFixture(t.db, (tx) =>
+        tx.delete(garment).where(eq(garment.name, 'Rain hat')),
+      );
+    });
     const pages = async () =>
       Promise.all(
         ['/outfits/ideas', '/'].map(async (url) => {

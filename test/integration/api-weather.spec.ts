@@ -1,7 +1,12 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { addDays, type IsoDate } from '../../src/calendar-date';
-import { trip, userWeather, weatherForecast } from '../../src/db/schema';
+import {
+  garment,
+  trip,
+  userWeather,
+  weatherForecast,
+} from '../../src/db/schema';
 import { REFERENCE_ANCHOR } from '../../src/seed/simulate';
 import {
   STUB_WEATHER_NOW,
@@ -10,7 +15,8 @@ import {
 } from '../support/weather-stub';
 import { deviceToken, expectProblem } from './api';
 import { createGarment } from './garments';
-import { createTestApp, type TestApp } from './harness';
+import { asFixture, createTestApp, type TestApp } from './harness';
+import { createAccessToken, tool } from './mcp';
 
 /**
  * Today and the weather on /api/v1 (#195a): each route its page twin's
@@ -206,6 +212,9 @@ describe('the weather', () => {
       await t.db
         .update(weatherForecast)
         .set({ forecast, fetchedAt: kept.fetchedAt });
+      await asFixture(t.db, (tx) =>
+        tx.delete(garment).where(eq(garment.name, 'Rain hat')),
+      );
     }
   });
 
@@ -512,5 +521,173 @@ describe("a trip's weather", () => {
       addDays(REFERENCE_ANCHOR, 2),
     ]);
     expect(weather.days[0].outfit?.occasion).toBe('all-day');
+  });
+});
+
+describe('one answer to the rain on every surface (#759)', () => {
+  const placeOf = (row: { latitude: number; longitude: number }) =>
+    and(
+      eq(weatherForecast.latitude, row.latitude),
+      eq(weatherForecast.longitude, row.longitude),
+    );
+  interface Outfit {
+    rain: boolean;
+    needsWaterResistance: boolean;
+    takeUmbrella: boolean;
+  }
+  // The ideas' weather carries no `rain`: the two answers are the contract.
+  const pick = (o: Outfit | undefined) => ({
+    needsWaterResistance: o?.needsWaterResistance,
+    takeUmbrella: o?.takeUmbrella,
+  });
+
+  it('a cool rainy day with a water-resistant hat is the umbrella on all of them, a capsule without the hat included', async () => {
+    const shirt = await createGarment(t, {
+      name: 'Rain tee',
+      category: 'tops',
+    });
+    const made = await api('POST', '/outfits', {
+      slots: [{ category: 'tops', garmentId: shirt }],
+    });
+    const outfitId = made.json<{ id: number }>().id;
+    const entry = await api('POST', '/calendar-entries', {
+      outfitId,
+      day: REFERENCE_ANCHOR,
+      occasion: 'all-day',
+    });
+    expect(entry.statusCode, entry.body).toBe(201);
+    const capsule = (await api('POST', '/capsules', { name: 'Hatless' })).json<{
+      id: number;
+    }>().id;
+    const tripId = (
+      await api('POST', '/trips', {
+        name: 'Rainy weekend',
+        startsOn: REFERENCE_ANCHOR,
+        endsOn: addDays(REFERENCE_ANCHOR, 1),
+      })
+    ).json<{ id: number }>().id;
+    await api('PUT', `/trips/${tripId}/destination`, {
+      name: 'Brooklyn, New York, United States',
+      latitude: 40.6501,
+      longitude: -73.94958,
+    });
+    const mcp = await createAccessToken(t);
+
+    const rows = await t.db.select().from(weatherForecast);
+    const rainy = async () => {
+      for (const row of rows) {
+        await t.db
+          .update(weatherForecast)
+          .set({
+            fetchedAt: new Date(),
+            forecast: {
+              ...row.forecast!,
+              days: row.forecast!.days.map((day) =>
+                day.day === REFERENCE_ANCHOR
+                  ? {
+                      ...day,
+                      hours: day.hours.map((h) => ({
+                        ...h,
+                        feelsLike: 12,
+                        precipitationChance:
+                          h.hour >= 8 && h.hour < 22 ? 90 : 0,
+                      })),
+                    }
+                  : day,
+              ),
+            },
+          })
+          .where(placeOf(row));
+      }
+    };
+    const everywhere = async () => {
+      const weather = (
+        await api('GET', `/weather?to=${REFERENCE_ANCHOR}`)
+      ).json<{ days: { outfit?: Outfit }[] }>();
+      const todayRes = await api('GET', '/today');
+      const today = todayRes.json<{
+        weather: { days: { outfit?: Outfit }[] };
+        rows: { kind: string; weather?: Outfit }[];
+      }>();
+      const ideasRes = await api(
+        'GET',
+        `/ideas?day=${REFERENCE_ANCHOR}&capsuleId=${capsule}`,
+      );
+      const ideas = ideasRes.json<{ weather: Outfit }>();
+      const tripDays = (await api('GET', `/trips/${tripId}/weather`)).json<{
+        days: { outfit?: Outfit }[];
+      }>();
+      const calendar = await tool<{
+        entries: { weather?: { outfit?: Outfit } }[];
+      }>(t, mcp, 'get_calendar', {
+        from: REFERENCE_ANCHOR,
+        to: REFERENCE_ANCHOR,
+      });
+      const mcpToday = await tool<{ weather: { outfit?: Outfit } }>(
+        t,
+        mcp,
+        'get_today',
+      );
+      const mcpTrip = await tool<{
+        weather: { days: { outfit?: Outfit }[] };
+      }>(t, mcp, 'get_trip', { tripId });
+      const mcpWeather = await tool<{ days: { outfit?: Outfit }[] }>(
+        t,
+        mcp,
+        'get_weather',
+        { from: REFERENCE_ANCHOR, to: REFERENCE_ANCHOR },
+      );
+      return [
+        weather.days[0].outfit,
+        today.weather.days[0].outfit,
+        ideas.weather,
+        tripDays.days[0].outfit,
+        calendar.entries[0].weather?.outfit,
+        mcpToday.weather.outfit,
+        mcpTrip.weather.days[0].outfit,
+        mcpWeather.days[0].outfit,
+      ].map(pick);
+    };
+    try {
+      await rainy();
+      const bare = await everywhere();
+      expect(bare).toEqual(
+        Array(bare.length).fill({
+          needsWaterResistance: true,
+          takeUmbrella: false,
+        }),
+      );
+
+      const hat = await t.inject({
+        method: 'POST',
+        url: '/wardrobe',
+        payload: {
+          name: 'Rain hat',
+          category: 'accessories',
+          type: 'hat',
+          props: '1',
+          color: ['black'],
+          waterResistant: 'true',
+        },
+      });
+      expect(hat.statusCode).toBe(302);
+      const geared = await everywhere();
+      expect(geared).toEqual(
+        Array(geared.length).fill({
+          needsWaterResistance: false,
+          takeUmbrella: true,
+        }),
+      );
+    } finally {
+      for (const row of rows) {
+        await t.db
+          .update(weatherForecast)
+          .set({ forecast: row.forecast, fetchedAt: row.fetchedAt })
+          .where(placeOf(row));
+      }
+      await asFixture(t.db, (tx) =>
+        tx.delete(garment).where(eq(garment.name, 'Rain hat')),
+      );
+    }
   });
 });
