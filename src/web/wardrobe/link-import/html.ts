@@ -41,8 +41,10 @@ const MAX_ANCHORS = 200;
 // Bounded so an anchor never closed costs a window, not the rest of the page.
 const ANCHOR_WINDOW = 2000;
 const ANCHOR_CLOSE = /<\/a[\s>]/i;
-// `[^<>]`, so a match attempt stops at the next "<": linear on any input.
-const INNER_TAG = /<([a-zA-Z][a-zA-Z0-9-]*)([^<>]*)>|<[^<>]*>/g;
+// Linear on any input: the lookahead ends the name where it ends, so the
+// two groups never share letters to backtrack over, and `[^<>]` stops an
+// attempt at the next "<".
+const INNER_TAG = /<([a-zA-Z][a-zA-Z0-9-]*)(?![a-zA-Z0-9-])([^<>]*)>|<[^<>]*>/g;
 const TAG_NAME = /[a-zA-Z][a-zA-Z0-9-]*/y;
 const RAW_TEXT_ELEMENTS = new Set(['script', 'style', 'textarea']);
 

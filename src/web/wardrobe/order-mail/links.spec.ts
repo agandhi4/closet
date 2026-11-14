@@ -49,6 +49,11 @@ describe('judgeLink', () => {
       'https://shop.example/products/confirm-hoodie',
       'https://shop.example/products/confirm-hoodie',
     ],
+    [
+      "a SKU page (Zara's shape)",
+      'https://www.shop.example/us/en/linen-shirt-p01234567.html?v1=9',
+      'https://www.shop.example/us/en/linen-shirt-p01234567.html?v1=9',
+    ],
   ])('selects %s as a product', (_, href, link) => {
     expect(judgeLink(href)).toEqual({ link, kind: 'product' });
   });
@@ -122,6 +127,12 @@ describe('judgeLink', () => {
     ],
     ['an opaque link of no known shape', 'https://shop.example/c/abc123'],
     ['an opaque link on an email. host', 'https://email.shop.example/x/abc'],
+    ['a bare numeric id', 'https://shop.example/u/1234567890'],
+    ['a numeric id below a path', 'https://shop.example/a/s/12345678/view'],
+    [
+      'a SKU-like page naming an action',
+      'https://shop.example/cancel-order-12345678.html',
+    ],
   ])('refuses %s', (_, href) => {
     expect(judgeLink(href)?.kind).toBe('refused');
   });
@@ -226,6 +237,24 @@ describe('emailLinks', () => {
       ),
     ]);
     expect(links).toEqual(['https://shop.example/products/tee']);
+  });
+
+  it('fetches a tracker with no text of its own only when an HTML anchor names it', () => {
+    const text = {
+      type: 'text/plain',
+      value:
+        'Cancel your order: https://shop.example/ls/click?upn=c\nLinen shirt: https://shop.example/ls/click?upn=s',
+    };
+    // A text part's links have no anchor to read: never fetched alone.
+    expect(emailLinks([text])).toEqual({ links: [], skipped: 2 });
+    expect(
+      emailLinks([
+        text,
+        htmlPart(
+          '<a href="https://shop.example/ls/click?upn=s">Linen shirt</a>',
+        ),
+      ]),
+    ).toEqual({ links: ['https://shop.example/ls/click?upn=s'], skipped: 1 });
   });
 
   it('refuses a tracker when any of its anchors names an action', () => {

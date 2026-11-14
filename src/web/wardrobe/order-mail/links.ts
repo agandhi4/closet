@@ -15,7 +15,7 @@ import { scanDocument } from '../link-import/html';
  * target in plain sight (`?url=https%3A...`, Google's `?q=`, Outlook's safe
  * links), up to MAX_UNWRAP_DEPTH wrappers; the target must be https, pass
  * the deny rules (`excluded`, `refusedQuery`) and be either a product path
- * (`isProductLink`: the shapes PRODUCT_PATH names) or an opaque click
+ * (`isProductLink`: the shapes isProductPath names) or an opaque click
  * tracker of a known shape (`isTracker`) whose anchor text names no action.
  * A tracker is fetched only to see where it redirects: the poll passes
  * `isProductLink` as the fetcher's `mayFollow`, so every hop must be a
@@ -51,11 +51,26 @@ export interface EmailLinks {
   skipped: number;
 }
 
-/** A link as the poll judges it, without its fragment. */
+/**
+ * A link as the poll judges it, without its fragment. `unlabelled` is a
+ * tracker with no text to read (a text part's link, an image without
+ * `alt`): fetched only when another anchor of the same link names a
+ * product, never on its own.
+ */
 export interface JudgedLink {
   link: string;
-  kind: 'product' | 'tracker' | 'refused';
+  kind: 'product' | 'tracker' | 'unlabelled' | 'refused';
 }
+
+// When one link appears more than once, the stronger verdict holds: one
+// refused anchor refuses it (a tracker behind both "Cancel" and a product's
+// name is the cancel link), and one labelled anchor labels it.
+const VERDICT_STRENGTH: Readonly<Record<JudgedLink['kind'], number>> = {
+  unlabelled: 0,
+  tracker: 1,
+  product: 1,
+  refused: 2,
+};
 
 /** The email's links to fetch, and how many of its others were not. */
 export function emailLinks(parts: readonly BodyPart[]): EmailLinks {
@@ -63,9 +78,11 @@ export function emailLinks(parts: readonly BodyPart[]): EmailLinks {
   for (const { href, text } of parts.flatMap(partLinks)) {
     const verdict = judgeLink(href, text);
     if (!verdict) continue;
-    // One refused anchor refuses the link: a tracker behind both "Cancel"
-    // and a product's name is the cancel link.
-    if (!judged.has(verdict.link) || verdict.kind === 'refused') {
+    const known = judged.get(verdict.link);
+    if (
+      known === undefined ||
+      VERDICT_STRENGTH[verdict.kind] > VERDICT_STRENGTH[known]
+    ) {
       judged.set(verdict.link, verdict.kind);
     }
   }
@@ -115,14 +132,14 @@ export function judgeLink(href: string, text = ''): JudgedLink | undefined {
   const link = target.href;
   if (isProductLink(target)) return { link, kind: 'product' };
   if (
-    target.protocol === 'https:' &&
-    isTracker(target) &&
-    !excluded(target) &&
-    !namesAnAction(text)
+    target.protocol !== 'https:' ||
+    !isTracker(target) ||
+    excluded(target) ||
+    namesAnAction(text)
   ) {
-    return { link, kind: 'tracker' };
+    return { link, kind: 'refused' };
   }
-  return { link, kind: 'refused' };
+  return { link, kind: text.trim() ? 'tracker' : 'unlabelled' };
 }
 
 /**
@@ -133,7 +150,7 @@ export function judgeLink(href: string, text = ''): JudgedLink | undefined {
 export function isProductLink(url: URL): boolean {
   return (
     url.protocol === 'https:' &&
-    PRODUCT_PATH.test(url.pathname) &&
+    isProductPath(url.pathname) &&
     !excluded(url) &&
     !refusedQuery(url)
   );
@@ -419,8 +436,23 @@ const TRACKING_PARAMETERS = new Set([
   'cm_mmc',
 ]);
 
-// Paths retailers give product pages: /p/, /dp/ (Amazon), /product(s)/,
-// /item/, or a long numeric id (a SKU). The id alone is why the deny rules
-// stay beside it: `/orders/cancel/12345678` has one.
-const PRODUCT_PATH =
-  /\/(?:p|dp|pd|pdp|prod|product|products|item|items)(?:\/|$)|\d{5,}/i;
+// Paths retailers give product pages: a /p/, /dp/ (Amazon), /product(s)/
+// or /item(s)/ segment, or a last segment naming the SKU as a page
+// (`shirt-p01234567.html`, Zara; `productpage.0970819001.html`, H&M) with
+// no denied word among its tokens. A bare numeric id is no product: order,
+// unsubscribe and sign-in links carry those too (`/u/1234567890`).
+const PRODUCT_SEGMENT =
+  /\/(?:p|dp|pd|pdp|prod|product|products|item|items)(?:\/|$)/i;
+const SKU_PAGE = /\d{5,}[^/]*\.html?$/i;
+
+function isProductPath(pathname: string): boolean {
+  if (PRODUCT_SEGMENT.test(pathname)) return true;
+  const last = pathname.slice(pathname.lastIndexOf('/') + 1);
+  return (
+    SKU_PAGE.test(last) &&
+    !last
+      .toLowerCase()
+      .split(/[^a-z]+/)
+      .some((word) => EXCLUDED_WORDS.has(word))
+  );
+}

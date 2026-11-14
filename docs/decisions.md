@@ -1242,4 +1242,4 @@ Consequence: `src/web/wardrobe/order-mail.md` says so; a future counter change s
 ## 2026-11-14 — The order-mail poll fetches by allowlist, every redirect judged (#698)
 Why: link selection was a deny list applied once to the unwrapped href, and redirects were followed unjudged, so a tracker in front of "Cancel this order" or a single-use sign-in link was requested from the home IP.
 Decision: `judgeLink` fetches only https product paths (`isProductLink`) and at most 2 opaque trackers of a known shape whose anchor text names no action; the fetcher's `mayFollow` asks `isProductLink` of every redirect before it is resolved (`redirect-not-followed`). Fail closed: unknown product shapes, `?code=` and the "host that already yielded a product" bypass are refused.
-Consequence: a shop whose product URLs fit no shape lists nothing; widen `PRODUCT_PATH` or the tracker shapes with a spec, never the deny words alone. `src/web/wardrobe/order-mail.md`, Gotchas.
+Consequence: a shop whose product URLs fit no shape lists nothing; widen `isProductPath` or the tracker shapes with a spec, never the deny words alone. `src/web/wardrobe/order-mail.md`, Gotchas.
