@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { addDays, startOfWeek } from '../../src/calendar-date';
-import { user, wardrobeShare } from '../../src/db/schema';
+import { garment, user, wardrobeShare } from '../../src/db/schema';
 import { deviceToken } from './api';
 import { createGarment } from './garments';
 import {
@@ -175,5 +175,34 @@ describe('agent badges (#822)', () => {
     expect(await badges(page)).toEqual(['Dana’s agent']);
     expect(await badges(page, dana.cookie)).toEqual(['Dana’s laptop']);
     expect(await badges(page, sam.cookie)).toEqual(['Agent']);
+  });
+  it("shows Today's card the badge of an agent's entry", async () => {
+    const own = await ownOutfit([g.top2, g.bottom1]);
+    await tool(t, token, 'schedule_outfit', { outfitId: own, date: day(0) });
+    expect(await badges('/')).toEqual(['Laptop Claude']);
+  });
+
+  it("leaves Muse's rows to their own 'From Muse': no badge on a suggested garment or a proposed outfit", async () => {
+    const added = await tool<{ garment: { id: number } }>(
+      t,
+      token,
+      'add_garment_from_link',
+      { url: sites.url('/products/tee') },
+    );
+    const before = await badges('/wardrobe/wishlist');
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(garment)
+        .set({ suggestedAt: new Date() })
+        .where(eq(garment.id, added.garment.id)),
+    );
+    expect(await badges('/wardrobe/wishlist')).toHaveLength(before.length - 1);
+    expect(await badges(`/wardrobe/${added.garment.id}`)).toEqual([]);
+
+    const proposed = await tool<{ id: number }>(t, token, 'suggest_outfit', {
+      garmentIds: [g.top3, g.bottom2],
+      note: 'Weekend',
+    });
+    expect(await badges(`/outfits/${proposed.id}`)).toEqual([]);
   });
 });

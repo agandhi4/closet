@@ -241,9 +241,12 @@ function Summary({ model }: { model: GarmentPageModel }) {
     <section class="flex flex-col gap-4" aria-label={t('garment.SUMMARY')}>
       <div class="flex flex-col gap-2">
         <StatusMark model={model} />
-        {model.agent && !model.suggestion && (
+        {model.agent && (
           <p>
-            <AgentBadge agent={model.agent} />
+            <AgentBadge
+              agent={model.agent}
+              byMuse={model.garment.suggestedAt !== null}
+            />
           </p>
         )}
         <FactsLine garment={garment} />

@@ -94,10 +94,12 @@ export function OutfitPage(props: {
             complete={toBuy.length === 0}
           />
         )}
-        {/* A proposal's provenance is its block's "From Muse". */}
-        {!outfit.proposal && outfit.agent && (
+        {outfit.agent && (
           <p class="px-1">
-            <AgentBadge agent={outfit.agent} />
+            <AgentBadge
+              agent={outfit.agent}
+              byMuse={outfit.proposal !== null}
+            />
           </p>
         )}
         {outfit.notes && <p class="text-muted text-sm px-1">{outfit.notes}</p>}

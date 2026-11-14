@@ -249,9 +249,9 @@ function OutfitTile(props: {
           {props.name ?? outfitName(outfit)}
         </span>
         {line && <span class="text-xs text-muted truncate">{line}</span>}
-        {outfit.agent && (
+        {outfit.agent && !outfit.proposed && (
           <span class="flex">
-            <AgentBadge agent={outfit.agent} />
+            <AgentBadge agent={outfit.agent} byMuse={outfit.proposed} />
           </span>
         )}
       </span>

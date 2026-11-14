@@ -412,11 +412,8 @@ function OwnWishlist({ model }: { model: InboxModel }) {
             primary={false}
             attributes={{ 'data-own': String(item.id) }}
           >
-            {item.suggested ? (
-              <FromAgent agent={null} />
-            ) : (
-              <AgentBadge agent={item.agent} />
-            )}
+            {item.suggested && <FromAgent agent={null} />}
+            <AgentBadge agent={item.agent} byMuse={item.suggested} />
             {[item.brand, categoryLabel(item.category)]
               .filter(Boolean)
               .join(' · ')}

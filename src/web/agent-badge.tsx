@@ -10,8 +10,22 @@ import { type AgentLabel, agentName } from './write-origin';
  * name is the owner's free text) so a row at phone width never overflows;
  * assistive tech reads "Made by <name>" instead of the bare name.
  */
-export function AgentBadge({ agent }: { agent: AgentLabel | null }) {
-  if (agent === null) return null;
+export function AgentBadge({
+  agent,
+  byMuse = false,
+}: {
+  agent: AgentLabel | null;
+  /**
+   * The row is one of Muse's: `suggested_at` (a garment) or `proposed_at`
+   * (an outfit), the explicit marker, never a token on the row (#821). Its
+   * own "From Muse" says who made it, so it gets no second badge; a
+   * surface that can show a Muse row states its marker here, so the rule is
+   * decided in this one place (calendar entries and trip outfits are never
+   * Muse's).
+   */
+  byMuse?: boolean;
+}) {
+  if (agent === null || byMuse) return null;
   const name = agentName(agent);
   return (
     <span
