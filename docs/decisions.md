@@ -1137,3 +1137,15 @@ Consequence: a server-wide outage marks records stuck and loses none; a poisoned
 Why: the 11 `hx-confirm`/`data-confirm` sites fell through to the browser's confirm(), titled with the server host, unstyled in the installed app; reversible removals asked anyway.
 Decision: one `htmx:confirm` + PostForm `submit` listener (`public/js/confirm-sheet.js`) over one `<dialog>` in every body; the outbox's discard uses `confirmAction()`. A calendar entry's Remove acts at once with an Undo toast (`POST /calendar/restore`) only when the restore is exact: unworn, a kept outfit, not an agent's. Worn entries and entries whose one-off outfit would be pruned (#748) keep the sheet: recreating a pruned outfit (new id, slots) was not worth the code, and deferring the prune would leave unheld one-offs in Saved until a sweep.
 Consequence: `@native-confirm` guard; `pageErrors` fails a scenario on a native dialog. Undo is a client post of the removed entry's fields (web-only; the API's `createCalendarEntry` is its twin).
+
+## 2026-11-14 — Stuck retry ladder; Try again and Discard take the drain turn
+
+Why: a Postgres blip answers 500 behind a live heartbeat, so writes went stuck for a flat 30 min (#877); Try again/Discard raced a replay in flight (#878, #881).
+Decision: a stuck record retries after `stuckRetryMs` (1 min, doubling per further 5xx, capped at `STUCK_RETRY_MS`); a negative stuck age is due; the notice buttons run inside the drain lock (`exclusively`).
+Consequence: a poisoned record is retried a little more often early on; no second concurrent replay of a record.
+
+## 2026-11-14 — `closeSwitchedContext` unroutes with 'ignoreErrors', never 'wait' (#886; replaces #867's 'wait')
+
+Why: `unrouteAll({ behavior: 'wait' })` awaits every in-flight handler invocation, and `networkSwitch`'s handler awaits `route.abort()`, a browser round trip Playwright races only against the request's page or worker closing (a request tied to neither races a scope that never closes). One unanswered abort hung trips' teardown until the 30 s test timeout. A handler that never settles reproduces it: 'wait' never returns, 'ignoreErrors' returns at once.
+Decision: setOffline(true), `unrouteAll({ behavior: 'ignoreErrors' })` (Playwright drops in-flight handlers' target-closed errors without waiting on them, the #867 failure), then close().
+Consequence: teardown waits on no handler. A route handler on a switched context must not catch its own `abort()` rejection: Playwright then never marks the route handled and the invocation stays pending.
