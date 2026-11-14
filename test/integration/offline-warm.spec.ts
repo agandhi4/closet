@@ -475,6 +475,35 @@ describe('GET /offline/warm', () => {
         ),
       );
     });
+
+    // #756: the window is the whole of this week, which the calendar's week
+    // page links, not just the days from today.
+    it('warms a one-off planned earlier this week and only keeps last week’s', async () => {
+      const email = 'warm-one-offs-week@example.com';
+      const cookie = await t.register(email);
+      const ownerId = await userIdOf(t, email);
+      const weekStart = weekOf(t.today()).start;
+      const ids = await asFixture(t.db, async (tx) => {
+        const insert = async (): Promise<number> => {
+          const [row] = await tx
+            .insert(outfit)
+            .values({ shareableId: randomUUID(), ownerId, origin: 'idea' })
+            .returning({ id: outfit.id });
+          return row.id;
+        };
+        const thisWeek = await insert();
+        const lastWeek = await insert();
+        await tx.insert(outfitCalendar).values([
+          { day: weekStart, outfitId: thisWeek, ownerId },
+          { day: addDays(weekStart, -1), outfitId: lastWeek, ownerId },
+        ]);
+        return { thisWeek, lastWeek };
+      });
+      const list = await warmList(cookie);
+      expect(list.pages).toContain(`/outfits/${ids.thisWeek}`);
+      expect(list.pages).not.toContain(`/outfits/${ids.lastWeek}`);
+      expect(list.keep).toEqual([`/outfits/${ids.lastWeek}`]);
+    });
   });
 
   describe('pages with queueable controls (#657)', () => {
