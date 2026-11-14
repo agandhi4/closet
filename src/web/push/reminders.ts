@@ -14,6 +14,7 @@ import { TODAY_PATH } from '../today/urls';
 import {
   refreshForecastsFor,
   type UserWeather,
+  userWeatherOrNone,
   type WeatherService,
 } from '../weather/service';
 import { todayLine } from '../weather/summary';
@@ -363,9 +364,16 @@ async function morningPayload(
 ): Promise<PushPayload> {
   const swapped = await swappedToday(deps, userId, now, batch);
   // The line and Today's ideas share the batch's weather (refreshed first).
-  const model = await todayFor(deps, userId, now, {
-    ownWeather: batch.weather.get(userId),
-  });
+  const ownWeather =
+    batch.weather.get(userId) ??
+    (deps.weather
+      ? await userWeatherOrNone(
+          { db: deps.db, weather: deps.weather, logger: deps.logger },
+          userId,
+          now,
+        )
+      : undefined);
+  const model = await todayFor(deps, userId, now, { ownWeather });
   const outfits = [...morningIdea(model), ...plannedOutfits(model)];
   return {
     title: t('today.push.MORNING_TITLE'),

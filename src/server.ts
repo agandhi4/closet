@@ -18,6 +18,7 @@ import type { PushSender } from './web/push/sender';
 import {
   pruneReplans,
   type ReplanDeps,
+  ReplanRetries,
   replanWeeksWhole,
 } from './web/week-plan/replan';
 
@@ -110,6 +111,7 @@ export async function serve(
     push,
     timeZone: config.APP_TIMEZONE,
     logger: logger.child({ logger: 'WeekPlan' }),
+    retries: new ReplanRetries(),
   };
   if (push) {
     jobs.push(...startReminders(config, logger, metrics, push, replan));

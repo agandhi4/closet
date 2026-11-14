@@ -627,50 +627,75 @@ describe('push reminders', () => {
       },
     });
 
-    it("one person's failed reminder is sent around, and the scheduled run ends as one recorded failure (#687)", async () => {
-      const day = addDays(DAY, 30);
-      const broken = { latitude: 13, longitude: -74 };
+    const twoMorningPeople = async (tag: string) => {
       const phones: string[] = [];
       for (const n of [1, 2]) {
-        const email = `partial-${n}@example.com`;
+        const email = `${tag}-${n}@example.com`;
         const cookie = await t.register(email);
         const userId = await userIdOf(t, email);
         const phone = await subscribe(cookie);
         await remind(userId, phone, { morning: minute(6, 15) });
-        // Only the first has a place, and its forecast is the one that fails.
-        if (n === 1) {
-          await setHome(t.db, userId, { name: 'Nowhere', location: broken });
-        }
         phones.push(phone);
       }
-      const weather: WeatherService = {
-        timeZone: 'America/New_York',
-        forecastFor: (location) =>
-          location.latitude === broken.latitude
-            ? Promise.reject(new Error('Open-Meteo down'))
-            : Promise.resolve(null),
-        normalsFor: () => Promise.reject(new Error('never asked')),
-        searchPlaces: () => Promise.resolve([]),
-        settled: () => Promise.resolve(),
-      };
+      return phones;
+    };
+
+    it('a send that failed ends the scheduled run as one recorded failure, claims given back (#687)', async () => {
+      const day = addDays(DAY, 30);
+      const phones = await twoMorningPeople('send-down');
+      const down = senderThat(() =>
+        Promise.reject(new Error('Connection terminated unexpectedly')),
+      );
       const scheduled = t.metrics.timeJob('reminders', (now: Date) =>
-        sendDueRemindersWhole({ ...deps, weather }, now),
+        sendDueRemindersWhole({ ...deps, sender: down }, now),
       );
 
       const failure = await scheduled(onTheMinute(day, 6, 15)).catch(
         (error: unknown) => error,
       );
       expect(failure).toBeInstanceOf(PartialFailure);
-      expect(failure).toMatchObject({
-        job: 'reminders',
-        counts: { failed: 1 },
-      });
-      expect(sentTo(phones[0])).toEqual([]);
-      expect(sentTo(phones[1])).toHaveLength(1);
+      expect(failure).toMatchObject({ job: 'reminders' });
+      // Everyone due this minute (earlier specs' devices too), people-many.
+      expect((failure as PartialFailure).counts.failed).toBeGreaterThanOrEqual(
+        2,
+      );
+      expect(phones.flatMap(sentTo)).toEqual([]);
       const { body } = await t.metrics.exposition();
       expect(body).toMatch(
         /^job_duration_seconds_count\{name="reminders",outcome="failure"\} 1$/m,
       );
+
+      // The next minute sends both, and ends as a success.
+      await t.metrics.timeJob('reminders', (now: Date) =>
+        sendDueRemindersWhole(deps, now),
+      )(onTheMinute(day, 6, 16));
+      expect(phones.flatMap(sentTo)).toHaveLength(2);
+      expect((await t.metrics.exposition()).body).toMatch(
+        /^job_duration_seconds_count\{name="reminders",outcome="success"\} 1$/m,
+      );
+    });
+
+    it('a forecast fetch that fails with nothing cached is no forecast, not a failed reminder (#687)', async () => {
+      const day = addDays(DAY, 31);
+      const [phone] = await twoMorningPeople('blip');
+      const email = 'blip-1@example.com';
+      await setHome(t.db, await userIdOf(t, email), {
+        name: 'Nowhere',
+        location: { latitude: 13, longitude: -74 },
+      });
+      const weather: WeatherService = {
+        timeZone: 'America/New_York',
+        forecastFor: () => Promise.reject(new Error('Open-Meteo down')),
+        normalsFor: () => Promise.reject(new Error('never asked')),
+        searchPlaces: () => Promise.resolve([]),
+        settled: () => Promise.resolve(),
+      };
+      const run = await sendDueRemindersWhole(
+        { ...deps, weather },
+        onTheMinute(day, 6, 15),
+      );
+      expect(run.failed).toBe(0);
+      expect(sentTo(phone)).toHaveLength(1);
     });
 
     it('gives back the claims when the batch cannot read its devices, and the next run sends them', async () => {

@@ -613,6 +613,27 @@ export async function replanCandidates(
   return rows.map((row) => row.userId);
 }
 
+/**
+ * Claims `userId`'s re-plan for `day` on its own, in a transaction of its
+ * own (under the owner lock): true when this call inserted the (user, day)
+ * row. The re-plan claims inside its own transaction with its read
+ * (claimAutoEntries); this is for a person whose re-plan failed through
+ * every retry (ReplanRetries), so they are tried no more that day.
+ */
+export async function claimReplan(
+  db: Queryable,
+  userId: number,
+  day: IsoDate,
+  now: Date,
+): Promise<boolean> {
+  const rows = await db
+    .insert(weekReplan)
+    .values({ userId, day, claimedAt: now })
+    .onConflictDoNothing({ target: [weekReplan.userId, weekReplan.day] })
+    .returning({ userId: weekReplan.userId });
+  return rows.length > 0;
+}
+
 /** A "Plan my week" batch as the changes feed carries it (weekPlansByIds, week-plan-resource.ts). */
 export interface WeekPlanRow {
   id: number;

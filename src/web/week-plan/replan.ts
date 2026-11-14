@@ -15,7 +15,7 @@ import {
 } from '../../wardrobe/week-planner';
 import { ownerTransaction } from '../auth/queries';
 import { OwnerLockTimeout } from '../errors';
-import { dayOfWeek, hourIn, todayIn } from '../../calendar-date';
+import { dayOfWeek, hourIn, type IsoDate, todayIn } from '../../calendar-date';
 import { DAY_NAMES, occasionLabel } from '../date-labels';
 import { ideaName } from '../gallery/ideas';
 import type { WeekPoolGarment } from '../gallery/queries';
@@ -25,12 +25,14 @@ import type { PushSender, SendReport } from '../push/sender';
 import {
   refreshForecastsFor,
   type UserWeather,
+  userWeatherOrNone,
   type WeatherService,
 } from '../weather/service';
 import {
   forecastOf,
+  NO_FORECAST,
   readWeekColumns,
-  weekForecast,
+  type WeekForecast,
   weekRainGear,
   weekSql,
   writeAutoPick,
@@ -38,6 +40,7 @@ import {
 import {
   type AutoEntryRow,
   claimAutoEntries,
+  claimReplan,
   outfitGarmentStatesSql,
   pruneReplanClaims,
   readOutfitGarmentStates,
@@ -97,6 +100,72 @@ export interface ReplanDeps {
   timeZone: string;
   /** Context `WeekPlan`. */
   logger: Logger;
+  /**
+   * Bounds a failing person's retries (ReplanRetries). Undefined: a failure
+   * claims the day at once, as the one-shot callers (specs) want.
+   */
+  retries?: ReplanRetries;
+}
+
+/** Minutes after a failed re-plan before the next try; the failure after the last claims the day. */
+export const REPLAN_RETRY_MINUTES = [5, 15, 60] as const;
+
+/**
+ * What a failing re-plan has tried today, in process (no table: week_replan
+ * is the claim, and a restart or a second server forgetting only retries
+ * sooner, which the claim makes harmless). A failed person-day is retried
+ * after REPLAN_RETRY_MINUTES, then claimed, so a persistent failure is four
+ * attempts a day, not one a minute; and only the first failure of a
+ * person-day is `reported` (counted into the run's `failed`, so one failure
+ * metric and one error-tracker capture per person-day, #687). server.ts
+ * holds one for the minutely run and the morning reminder alike.
+ */
+export class ReplanRetries {
+  private readonly tries = new Map<
+    string,
+    { failures: number; nextAt: number }
+  >();
+
+  private static key(userId: number, day: IsoDate): string {
+    return `${userId}:${day}`;
+  }
+
+  /** False while a failed person-day waits for its next attempt. */
+  isDue(userId: number, day: IsoDate, now: Date): boolean {
+    const tried = this.tries.get(ReplanRetries.key(userId, day));
+    return !tried || now.getTime() >= tried.nextAt;
+  }
+
+  /** Records a failure: whether it is the day's first and whether it was the last try. */
+  failed(
+    userId: number,
+    day: IsoDate,
+    now: Date,
+  ): { first: boolean; exhausted: boolean } {
+    this.forgetBefore(day);
+    const key = ReplanRetries.key(userId, day);
+    const failures = (this.tries.get(key)?.failures ?? 0) + 1;
+    const wait = REPLAN_RETRY_MINUTES[failures - 1];
+    if (wait === undefined) {
+      this.tries.delete(key);
+      return { first: failures === 1, exhausted: true };
+    }
+    this.tries.set(key, {
+      failures,
+      nextAt: now.getTime() + wait * 60_000,
+    });
+    return { first: failures === 1, exhausted: false };
+  }
+
+  succeeded(userId: number, day: IsoDate): void {
+    this.tries.delete(ReplanRetries.key(userId, day));
+  }
+
+  private forgetBefore(day: IsoDate): void {
+    for (const key of this.tries.keys()) {
+      if (key.slice(key.indexOf(':') + 1) < day) this.tries.delete(key);
+    }
+  }
 }
 
 export interface ReplanRun {
@@ -138,8 +207,12 @@ type ReplanResult =
 type NotReplanned =
   /** Nothing to do: re-planned today already (here or elsewhere), or no auto entry. */
   | { kind: 'skipped' }
-  /** Logged; the transaction rolled back with its claim, so the next run tries again (#687). */
-  | { kind: 'failed' }
+  /**
+   * Logged; the transaction rolled back with its claim, so a later run tries
+   * again (ReplanRetries) until the last try claims the day. `reported` is
+   * the person-day's first failure: the only one the run counts (#687).
+   */
+  | { kind: 'failed'; reported: boolean }
   /**
    * Another of the owner's writes held the owner lock past its timeout:
    * nothing judged, logged, the day left unclaimed for the next minute.
@@ -172,7 +245,7 @@ export async function replanWeeks(
     if (outcome.kind === 'skipped' || outcome.kind === 'deferred') continue;
     run.claimed += 1;
     if (outcome.kind === 'failed') {
-      run.failed += 1;
+      if (outcome.reported) run.failed += 1;
       continue;
     }
     run.swapped += outcome.swaps.length;
@@ -278,6 +351,10 @@ async function replanOnce(
 ): Promise<ReplanResult> {
   const today = todayIn(deps.timeZone, now);
   const started = performance.now();
+  // A failed person-day waits for its next try (ReplanRetries).
+  if (deps.retries && !deps.retries.isDue(userId, today, now)) {
+    return { kind: 'skipped' };
+  }
   try {
     // A cheap look first: the forecast read below is for users with
     // something to judge. The claim decides.
@@ -288,6 +365,7 @@ async function replanOnce(
       return { kind: 'skipped' };
     }
     const result = await replanUser(deps, userId, now, weather);
+    deps.retries?.succeeded(userId, today);
     if (!result) return { kind: 'skipped' };
     const { swaps, kept } = result;
     const swapped = swaps
@@ -311,12 +389,53 @@ async function replanOnce(
       );
       return { kind: 'deferred' };
     }
+    const { first, exhausted } = deps.retries?.failed(userId, today, now) ?? {
+      first: true,
+      exhausted: true,
+    };
     deps.logger.error(
       { err: error },
-      `Week re-plan for user ${userId} on ${today} failed`,
+      `Week re-plan for user ${userId} on ${today} failed${exhausted ? ', claimed for the day' : ', to be tried again'}`,
     );
-    return { kind: 'failed' };
+    if (exhausted) await claimAfterFailure(deps, userId, today, now);
+    return { kind: 'failed', reported: first };
   }
+}
+
+// The failed transaction took its claim with it: claim the day on its own.
+async function claimAfterFailure(
+  deps: ReplanDeps,
+  userId: number,
+  today: IsoDate,
+  now: Date,
+): Promise<void> {
+  try {
+    await ownerTransaction(deps.db, userId, 'claimAfterFailure', (tx) =>
+      claimReplan(tx, userId, today, now),
+    );
+  } catch (error) {
+    deps.logger.error(
+      { err: error },
+      `Week re-plan for user ${userId} on ${today} could not be claimed after its failure: tried again next minute`,
+    );
+  }
+}
+
+// The person's forecast read here, for a user the caller's batch did not
+// answer: none without WEATHER_ENABLED, or when the fetch failed with nothing
+// cached (userWeatherOrNone).
+async function jobForecast(
+  deps: Pick<ReplanDeps, 'db' | 'weather' | 'logger'>,
+  userId: number,
+  now: Date,
+): Promise<WeekForecast> {
+  if (!deps.weather) return NO_FORECAST;
+  const weather = await userWeatherOrNone(
+    { db: deps.db, weather: deps.weather, logger: deps.logger },
+    userId,
+    now,
+  );
+  return forecastOf(weather);
 }
 
 /**
@@ -347,7 +466,7 @@ async function replanUser(
   // wait must never hold it.
   const forecast = weather
     ? forecastOf(weather)
-    : await weekForecast(deps, userId, now, {});
+    : await jobForecast(deps, userId, now);
   return ownerTransaction(deps.db, userId, 'replanUser', async (tx) => {
     const auto = await claimAutoEntries(tx, userId, today, now);
     if (!auto) return undefined;
