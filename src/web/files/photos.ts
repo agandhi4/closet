@@ -42,7 +42,7 @@ import {
   type NewPhotoRow,
 } from './queries';
 import { claimStorage } from './storage-identity';
-import { PhotoStorage } from './storage';
+import { type InstallPairing, PhotoStorage } from './storage';
 
 const IMAGE_MAX_PX = 1080;
 const IMAGE_QUALITY = 90;
@@ -161,6 +161,8 @@ export interface PhotosConfig {
   watermarkIconPath: string;
   /** WATERMARK_ENABLED: composite the icon; the resize happens regardless. */
   watermarkEnabled: boolean;
+  /** Enforced only with APP_ENV production (claimStorage, #833). */
+  installPairing: InstallPairing;
 }
 
 /** Where photos live and how share previews are made, from config. */
@@ -170,6 +172,7 @@ export function photosConfig(config: Config): PhotosConfig {
     maxHeicBytes: config.MAX_HEIC_BYTES,
     watermarkIconPath: join(PROJECT_ROOT, 'public', 'assets', config.ICON_NAME),
     watermarkEnabled: config.WATERMARK_ENABLED,
+    installPairing: config.APP_ENV === 'production' ? 'enforced' : 'advisory',
   };
 }
 
@@ -187,7 +190,7 @@ export async function createPhotos(
 ): Promise<Photos> {
   const storage = new PhotoStorage(config.dataPath, logger);
   storage.prepare();
-  await claimStorage(storage, db, logger);
+  await claimStorage(storage, db, logger, config.installPairing);
   logger.info(`Photos stored under ${config.dataPath}`);
   return new Photos(storage, db, logger, config);
 }

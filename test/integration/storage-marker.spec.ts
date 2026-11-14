@@ -14,13 +14,20 @@ import { join } from 'node:path';
 import { eq, inArray } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/app';
-import { file, pendingPhoto } from '../../src/db/schema';
+import { file, install, pendingPhoto } from '../../src/db/schema';
 import { reconcileStorage } from '../../src/maintenance/reconcile';
-import { PhotoStorage, STORAGE_MARKER } from '../../src/web/files/storage';
+import {
+  PhotoStorage,
+  STORAGE_MARKER,
+  type StorageMarker,
+} from '../../src/web/files/storage';
 import {
   claimStorage,
+  repairStorageIdentity,
   StorageIdentityError,
+  storageIdentityProblem,
 } from '../../src/web/files/storage-identity';
+import { captureLogs } from '../support/log-capture';
 import {
   createGarment,
   jpegPhoto,
@@ -31,6 +38,10 @@ import { asFixture, createTestApp, type TestApp } from './harness';
 import { silentLogger } from './logger';
 
 const TWO_DAYS_AGO = () => new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+const installIdOf = (text: string) =>
+  (JSON.parse(text) as StorageMarker).installId;
+const OTHER_INSTALL =
+  /^DATA_PATH holds the \.closet-storage of another install than the one this database belongs to/;
 
 /**
  * #650: DATA_PATH's identity is a marker, never its contents. An unmounted
@@ -55,6 +66,14 @@ describe('the photo storage marker', () => {
     );
   const storedFiles = async () =>
     (await readdir(t.dataPath)).filter((name) => name.endsWith('.webp'));
+  const pairedIds = async () =>
+    (await t.db.select({ id: install.installId }).from(install)).map(
+      (row) => row.id,
+    );
+  // The pairing is enforced only there (#833).
+  const production = () => ({ ...t.config, APP_ENV: 'production' as const });
+  const otherInstallMarker = () =>
+    JSON.stringify({ installId: randomUUID(), createdAt: 'then' });
   const pendingNames = async () =>
     (await t.db.select({ name: pendingPhoto.fileName }).from(pendingPhoto))
       .map((row) => row.name)
@@ -80,9 +99,10 @@ describe('the photo storage marker', () => {
     );
   });
 
-  // Every test leaves the marker the app booted with.
+  // Every test leaves the marker the app booted with, and its pairing.
   afterEach(async () => {
     await writeFile(markerPath(), marker);
+    await t.db.update(install).set({ installId: installIdOf(marker) });
   });
 
   afterAll(() => t?.cleanup());
@@ -92,6 +112,8 @@ describe('the photo storage marker', () => {
       installId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       createdAt: expect.any(String),
     });
+    // #833: the same claim paired the database with it.
+    expect(await pairedIds()).toEqual([installIdOf(marker)]);
     const res = await t.inject({
       method: 'GET',
       url: `/file/${STORAGE_MARKER}`,
@@ -233,13 +255,126 @@ describe('the photo storage marker', () => {
     await rm(markerPath());
     const second = await createApp(t.config, silentLogger);
     await second.app.close();
-    const adopted = JSON.parse(await readFile(markerPath(), 'utf8')) as {
-      installId: string;
-    };
-    expect(adopted.installId).not.toBe(
-      (JSON.parse(marker) as { installId: string }).installId,
-    );
+    // A new marker carrying the install id the database is paired with
+    // (#833): a restored share that lost its marker re-adopts as itself.
+    const adopted = await readFile(markerPath(), 'utf8');
+    expect(adopted).not.toBe(marker);
+    expect(installIdOf(adopted)).toBe(installIdOf(marker));
     expect(await storedFiles()).toContain(live);
+  });
+
+  // #833: a marked share is this database's only when its install id is
+  // the one the database is paired with, enforced in production only.
+  it("refuses a production boot over another install's marked share, naming DATA_PATH only; dev boots with a warning", async () => {
+    const other = await mkdtemp(join(tmpdir(), 'closet-other-install-'));
+    const foreign = otherInstallMarker();
+    try {
+      await writeFile(join(other, STORAGE_MARKER), foreign);
+      const boot = createApp(
+        { ...production(), DATA_PATH: other },
+        silentLogger,
+      );
+      await expect(boot).rejects.toThrow(StorageIdentityError);
+      await expect(boot).rejects.toThrow(OTHER_INSTALL);
+      await expect(boot).rejects.not.toThrow(other);
+      expect(await readFile(join(other, STORAGE_MARKER), 'utf8')).toBe(foreign);
+
+      // Dev (worktrees with their own DATA_PATH on one database): one warn
+      // line, and the boot goes on.
+      const { logger, logs } = captureLogs();
+      const dev = await createApp({ ...t.config, DATA_PATH: other }, logger);
+      await dev.app.close();
+      expect(
+        logs
+          .messages('warn')
+          .filter((line) => line.includes(installIdOf(foreign))),
+      ).toEqual([
+        `Using photo storage ${installIdOf(foreign)}: this database belongs to install ${installIdOf(marker)} (not refused outside APP_ENV production)`,
+      ]);
+      expect(await pairedIds()).toEqual([installIdOf(marker)]);
+    } finally {
+      await rm(other, { recursive: true, force: true });
+    }
+  });
+
+  it('paired with another install under a running production server: reconciliation refuses, deleting nothing; readiness reads no row', async () => {
+    const second = await createApp(production(), silentLogger);
+    try {
+      // The database restored from another install's dump, or repointed.
+      await t.db.update(install).set({ installId: randomUUID() });
+      // Readiness compares the marker with the boot's claim only: the
+      // database's health is its own check.
+      const res = await second.app.inject({
+        method: 'GET',
+        url: '/health/ready',
+      });
+      expect(
+        res.json<{ checks: Record<string, unknown> }>().checks.storage,
+      ).toEqual({ status: 'up', required: true });
+      const files = await storedFiles();
+      const pending = await pendingNames();
+      for (const force of [false, true]) {
+        const report = await reconcileStorage(
+          {
+            db: t.db,
+            photos: second.photos,
+            logger: silentLogger,
+            timeZone: t.timeZone,
+          },
+          { force },
+        );
+        expect(report.refused).toMatch(OTHER_INSTALL);
+        expect(report).toMatchObject({
+          pendingPhotosDeleted: 0,
+          orphanedSetsQuarantined: 0,
+          orphanedRowsDeleted: 0,
+        });
+      }
+      expect(await storedFiles()).toEqual(files);
+      expect(await pendingNames()).toEqual(pending);
+      // Outside production the pairing is advisory: no refusal, no read.
+      expect(
+        await storageIdentityProblem(t.photos.storage, t.db),
+      ).toBeUndefined();
+    } finally {
+      await second.app.close();
+    }
+  });
+
+  it('is paired by the first claim after the deploy, from the marker already there', async () => {
+    await t.db.delete(install);
+    const second = await createApp(production(), silentLogger);
+    await second.app.close();
+    expect(await pairedIds()).toEqual([installIdOf(marker)]);
+    expect(await readFile(markerPath(), 'utf8')).toBe(marker);
+  });
+
+  it('is re-paired by the repair command after a deliberate restore onto new storage', async () => {
+    const restored = otherInstallMarker();
+    await writeFile(markerPath(), restored);
+    await expect(createApp(production(), silentLogger)).rejects.toThrow(
+      OTHER_INSTALL,
+    );
+    const storage = new PhotoStorage(t.dataPath, silentLogger);
+    expect(await repairStorageIdentity(storage, t.db, silentLogger)).toEqual({
+      paired: installIdOf(restored),
+    });
+    expect(await pairedIds()).toEqual([installIdOf(restored)]);
+    const second = await createApp(production(), silentLogger);
+    await second.app.close();
+    expect(await readFile(markerPath(), 'utf8')).toBe(restored);
+  });
+
+  it('is never re-paired with a DATA_PATH that has no marker', async () => {
+    await rm(markerPath());
+    const storage = new PhotoStorage(t.dataPath, silentLogger);
+    expect(await repairStorageIdentity(storage, t.db, silentLogger)).toEqual({
+      refused: expect.stringMatching(
+        /^DATA_PATH has no \.closet-storage marker/,
+      ),
+    });
+    expect(await pairedIds()).toEqual([installIdOf(marker)]);
+    expect(await readdir(t.dataPath)).not.toContain(STORAGE_MARKER);
   });
 
   it('refuses a boot whose racing process left a malformed marker, naming the code only', async () => {
@@ -255,9 +390,12 @@ describe('the photo storage marker', () => {
       },
       remove: (path) => rm(path, { force: true }),
     });
-    const error = await claimStorage(racing, t.db, silentLogger).catch(
-      (e: unknown) => e,
-    );
+    const error = await claimStorage(
+      racing,
+      t.db,
+      silentLogger,
+      'enforced',
+    ).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(StorageIdentityError);
     expect((error as StorageIdentityError).message).toMatch(
       /^DATA_PATH storage unreadable: MALFORMED /,

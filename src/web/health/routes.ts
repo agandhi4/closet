@@ -45,6 +45,8 @@ export const healthRoutes: FastifyPluginCallback<WebOptions> = (
     probe: probeWritable,
     fix: ownershipFix,
     identity: async () => {
+      // The marker against the id claimed (and, in production, paired) at
+      // boot: no statement, so a slow database never reads as storage (#833).
       const problem = await photos.storage.identityProblem();
       return problem && identityRefusal(problem);
     },

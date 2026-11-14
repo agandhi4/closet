@@ -18,7 +18,10 @@ import { photoRowExists, STORED_PHOTO_COLUMNS } from '../web/files/queries';
 import { photoIsReferenced } from '../web/files/references';
 import type { Photos } from '../web/files/photos';
 import type { StoredObject } from '../web/files/storage';
-import { identityRefusal } from '../web/files/storage-identity';
+import {
+  identityRefusal,
+  storageIdentityProblem,
+} from '../web/files/storage-identity';
 import type { Logger } from '../logger';
 import { type IsoDate, todayIn } from '../calendar-date';
 import { purgeTrash } from './trash';
@@ -155,8 +158,9 @@ export async function reconcileStorage(
 
   // The directory first: a bare mountpoint (the share not mounted) looks
   // like storage whose every photo is gone. Nothing is read or deleted,
-  // pending rows included, and --force does not override (#650).
-  const identity = await deps.photos.storage.identityProblem();
+  // pending rows included, and --force does not override (#650). So is a
+  // share or database of another install (#833).
+  const identity = await storageIdentityProblem(deps.photos.storage, deps.db);
   if (identity) {
     return refuse(deps, dryRun, startedAt, identityRefusal(identity));
   }

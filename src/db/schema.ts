@@ -380,6 +380,25 @@ export const personalAccessToken = pgTable(
   ],
 );
 
+// Which photo storage this database belongs to (#833): the install id of
+// DATA_PATH's `.closet-storage` marker, written once by the claim that
+// writes or adopts the marker (claimStorage, src/web/files/storage-identity.ts)
+// and compared at every claim, by readiness and by reconciliation, so a
+// marked share from another install is refused. One row: the primary key
+// is a boolean that can only be true. Not synced (no owner); changed only
+// by `maintenance:reconcile -- --repair-storage-identity --confirm`.
+export const install = pgTable(
+  'install',
+  {
+    singleton: boolean('singleton').primaryKey().default(true),
+    installId: uuid('install_id').notNull(),
+    pairedAt: timestamp('paired_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [check('install_singleton_check', sql`${table.singleton}`)],
+);
+
 // One row per stored photo set (the original's name; see AGENTS.md, Images).
 export const file = pgTable(
   'file',
