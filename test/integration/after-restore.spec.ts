@@ -10,6 +10,7 @@ import {
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { eq, sql } from 'drizzle-orm';
+import jwt from 'jsonwebtoken';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recordCutoutEvent } from '../../src/cutout/queries';
 import { file, syncEpoch, userDevice } from '../../src/db/schema';
@@ -122,6 +123,36 @@ describe('after a database restore', () => {
   });
 
   afterAll(() => t?.cleanup());
+
+  // Must stay the first spec: it needs a database never restored, so the
+  // cookies signed in now carry no `sep` (the shape issued before #908).
+  it('a cookie without `sep`, valid until the first restore, is refused after it (#908)', async () => {
+    const cookie = await t.login(t.owner.email);
+    expect(
+      jwt.decode(cookie.replace(/^access_token=/, '')),
+      'a never-restored database issues no sep',
+    ).not.toHaveProperty('sep');
+    const get = (headers: Record<string, string>) =>
+      t.inject({
+        method: 'GET',
+        url: '/wardrobe',
+        headers: { cookie, ...headers },
+      });
+    expect((await get({})).statusCode).toBe(200);
+
+    await afterRestore(deps());
+
+    const page = await get({});
+    expect(page.statusCode).toBe(302);
+    expect(page.headers.location).toMatch(/^\/auth\/login/);
+    const fragment = await get({
+      'hx-request': 'true',
+      'sec-fetch-mode': 'cors',
+    });
+    expect(fragment.statusCode).toBe(401);
+    expect(fragment.headers['hx-redirect']).toBe('/auth/login');
+    await signOwnerInAgain();
+  });
 
   it('after-restore bumps the epoch, revokes push, frees dead leases and lists missing originals, deleting and marking nothing', async () => {
     const gone = await garmentWithPhoto('Gone tee');
@@ -578,5 +609,33 @@ describe('after a database restore', () => {
     const row = await garmentRow(t, id);
     expect(row?.name).toBe('Linen shirt');
     expect(row!.revision).toBeGreaterThan(before);
+  });
+
+  it('a missing sync_epoch row is corruption, not "never restored": every session is refused and logged', async () => {
+    const cookie = await t.login(t.owner.email);
+    await t.db.delete(syncEpoch);
+    try {
+      const page = await t.inject({
+        method: 'GET',
+        url: '/wardrobe',
+        headers: { cookie },
+      });
+      expect(page.statusCode).toBe(302);
+      expect(page.headers.location).toMatch(/^\/auth\/login/);
+      const fragment = await t.inject({
+        method: 'GET',
+        url: '/wardrobe',
+        headers: {
+          cookie,
+          'hx-request': 'true',
+          'sec-fetch-mode': 'cors',
+        },
+      });
+      expect(fragment.statusCode).toBe(401);
+      expect(t.logs.messages('error', 'Session').length).toBeGreaterThan(0);
+    } finally {
+      await t.db.insert(syncEpoch).values({});
+    }
+    await signOwnerInAgain();
   });
 });

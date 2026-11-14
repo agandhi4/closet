@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Db } from '../../db/client';
 import { SESSION_COOKIE } from '../../credential-names';
+import { SYNC_EPOCH_MISSING } from '../../db/sync-epoch';
 import { isFragmentRequest } from '../../htmx/fragment-request';
 import type { Logger } from '../../logger';
 import { isStaticPath } from '../../static-prefixes';
@@ -136,6 +137,13 @@ export function createSessionResolver(deps: {
     if (!row) return { rejected: `unknown user ${claims.userId}` };
     if (row.fingerprint !== claims.pwf) {
       return { rejected: `password fingerprint mismatch for user ${row.id}` };
+    }
+    if (row.sessionEpoch === SYNC_EPOCH_MISSING) {
+      logger.error(
+        { userId: row.id },
+        'sync_epoch has no row: refusing every session until the schema is repaired',
+      );
+      return { rejected: `sync_epoch row missing, for user ${row.id}` };
     }
     if ((claims.sep ?? null) !== row.sessionEpoch) {
       return {

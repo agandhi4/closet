@@ -23,15 +23,26 @@ export async function bumpSyncEpoch(db: Queryable): Promise<string> {
 }
 
 /**
+ * What `restoreEpochSql` yields when the `sync_epoch` row is gone: not a
+ * value any cookie carries (a uuid or absent), so a session check refuses
+ * on it. The row is written by migration 0061 and never deleted, so its
+ * absence is corruption, which the changes feed also refuses
+ * (SyncEpochMissingError).
+ */
+export const SYNC_EPOCH_MISSING = '!missing';
+
+/**
  * The epoch a restore last set, or null while the database was never
- * restored (no bump): a scalar subquery over the one `sync_epoch` row, for
- * folding into a statement that reads something else. Session cookies carry
- * it as `sep` (src/web/auth/tokens.ts), so the bump that expires every
- * changes cursor also ends every session issued before the restore (#908).
- * Null rather than the migration's random epoch, so a cookie from before
- * epochs (no `sep`) stays valid until the first restore, as a cursor does
- * (isCurrentEpoch).
+ * restored (the row's `bumped_at` is null): a scalar subquery over the one
+ * `sync_epoch` row, for folding into a statement that reads something else.
+ * Session cookies carry it as `sep` (src/web/auth/tokens.ts), so the bump
+ * that expires every changes cursor also ends every session issued before
+ * the restore (#908). Null rather than the migration's random epoch, so a
+ * cookie from before epochs (no `sep`) stays valid until the first restore,
+ * as a cursor does (isCurrentEpoch). No row at all yields
+ * SYNC_EPOCH_MISSING, never null: a missing row must not pass for "never
+ * restored".
  */
 export const restoreEpochSql = sql<
   string | null
->`(select case when ${syncEpoch.bumpedAt} is null then null else ${syncEpoch.epoch}::text end from ${syncEpoch})`;
+>`nullif(coalesce((select case when ${syncEpoch.bumpedAt} is null then '' else ${syncEpoch.epoch}::text end from ${syncEpoch}), ${SYNC_EPOCH_MISSING}), '')`;
