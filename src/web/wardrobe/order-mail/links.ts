@@ -109,6 +109,7 @@ export function isProductLink(url: URL): boolean {
   return (
     url.protocol === 'https:' &&
     isProductPath(url.pathname) &&
+    !isTracker(url) &&
     !excluded(url) &&
     !refusedQuery(url)
   );
@@ -269,9 +270,23 @@ function excluded(url: URL): boolean {
     return true;
   }
   return (
-    url.pathname.toLowerCase().split('/').some(namesExcludedWord) ||
+    safeDecode(url.pathname).toLowerCase().split('/').some(namesExcludedWord) ||
     isAmazonServicePath(url.pathname) ||
     url.searchParams.has('unsubscribe')
+  );
+}
+
+// Opaque click trackers, whose target only their redirect tells: SendGrid's
+// `/ls/click` and `/wf/click`, Amazon SES's `/CL0/`, and a `click.` or
+// `links.` host. Never a product, whatever else their path says (#946): a
+// fetch is the click they record.
+const TRACKER_PATH = /^\/(?:ls|wf)\/click(?:\/|$)|\/CL0(?:\/|$)/i;
+const TRACKER_HOSTS = new Set(['click', 'links']);
+
+function isTracker(url: URL): boolean {
+  return (
+    TRACKER_PATH.test(url.pathname) ||
+    TRACKER_HOSTS.has(url.hostname.toLowerCase().split('.')[0])
   );
 }
 

@@ -110,6 +110,14 @@ describe('judgeLink', () => {
       'an opaque SendGrid tracker',
       'https://shop.example/ls/click?upn=abc-2Fdef',
     ],
+    [
+      'a click. host with a product path',
+      'https://click.shop.example/p/abc123',
+    ],
+    [
+      'a percent-encoded deny word',
+      'https://shop.example/products/123/%63ancel',
+    ],
     ['an opaque click. host', 'https://click.shop.example/q/abc'],
     ['an opaque links. host', 'https://links.shop.example/u/abc'],
     ['an opaque SES tracker', 'https://r.shop.example/CL0/abc/1/x'],
