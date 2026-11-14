@@ -137,13 +137,18 @@ export async function dropSessionCaches(page: Page): Promise<void> {
  * `release()`, by wrapping `fetch` inside the worker itself. A route cannot
  * do it: Playwright attaches its interception to a service worker after the
  * worker has started, and a request made before that goes unseen. Call it
- * once the worker controls the page, before the warm is asked for.
+ * once the worker controls the page, before the warm is asked for. Known
+ * limit: the wrapper lives in the worker's memory, so a browser restart of an
+ * idle worker loses it (the hold then never reports asked).
  */
 export async function holdWarmList(page: Page) {
   const [worker] = page
     .context()
     .serviceWorkers()
     .filter((candidate) => new URL(candidate.url()).pathname === '/sw.js');
+  if (!worker) {
+    throw new Error('holdWarmList: no /sw.js service worker in the context');
+  }
   await worker.evaluate(() => {
     const real = self.fetch.bind(self);
     let release = () => {};

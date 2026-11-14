@@ -1512,14 +1512,17 @@ async function fetchWarmList(
   }
   const claimed = await claimPageCache(account, since, WARM_LIST_PATH, event);
   if (!claimed) {
-    // A drop overtook the fetch (the first signed-in page claiming the cache
-    // from the sign-in page's empty owner is one, #812): this list belongs
-    // to a session that may be gone, and no WARM_PAGES may follow to ask
-    // again, so the run goes once more in the new generation (warmPages).
-    console.info(
-      `[sw] ${WARM_LIST_PATH} (warm) overtaken by a drop: warming again`,
-    );
-    warmAgain = true;
+    // claimPageCache refuses only an answer from an older generation: a drop
+    // overtook the fetch (the first signed-in page claiming the cache from
+    // the sign-in page's empty owner is one, #812). No WARM_PAGES may follow
+    // to ask again, so the run goes once more, and the next one reads its own
+    // generation: it repeats only when another drop lands in its fetch.
+    if (generation !== since) {
+      console.info(
+        `[sw] ${WARM_LIST_PATH} (warm) overtaken by a drop: warming again`,
+      );
+      warmAgain = true;
+    }
     return undefined;
   }
   return { list, account };

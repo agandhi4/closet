@@ -219,7 +219,9 @@ test.describe('Trips', () => {
         // moment the spec chooses.
         const list = await holdWarmList(device);
         await warmOnce(device);
-        await expect.poll(list.asked).toBe(true);
+        await expect
+          .poll(list.asked, { message: 'warm hold lost (worker restarted?)' })
+          .toBe(true);
         await dropSessionCaches(device);
         await list.release();
         // The warm that the drop overtook runs again and stores the trip.
