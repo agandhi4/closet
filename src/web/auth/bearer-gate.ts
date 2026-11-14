@@ -6,12 +6,13 @@ import type { HttpError } from '../errors';
 import { loggableUrl } from '../loggable-url';
 import {
   countAgainst,
-  limitReached,
   type RateLimitChecker,
+  tooManyAttempts,
 } from '../security/rate-limit';
 import { rememberShareReadAhead, shareToReadAhead } from '../sharing/access';
 import { type PresentedBearer, presentedBearer } from './bearer';
 import { authenticateToken, type TokenRefusal } from './personal-tokens';
+import type { RefusalSummaries } from './refusal-summaries';
 
 /**
  * BEARER_REFUSAL_LIMIT's one checker (src/web/security/rate-limit.ts),
@@ -20,6 +21,8 @@ import { authenticateToken, type TokenRefusal } from './personal-tokens';
  */
 export interface BearerRefusalLimit {
   bearerRefusalLimit: RateLimitChecker;
+  /** What an address is refused past that budget, one line per window (#940). */
+  refusalSummaries: RefusalSummaries;
 }
 
 /**
@@ -38,7 +41,9 @@ export interface BearerRefusalLimit {
  * budget, a missing, malformed or unknown credential is the 429; a revoked
  * or other-kind token stays `refusal()` (a signed-out device must still
  * learn to sign in again). Logs the reason and the client address, never
- * the token.
+ * the token: a refusal within the budget is a line of its own, those past
+ * it are counted into one summary line per address per window
+ * (RefusalSummaries), so a flood is not a log flood (#940).
  */
 export function createBearerGate({
   db,
@@ -46,6 +51,7 @@ export function createBearerGate({
   label,
   kind,
   refusalLimit,
+  refusalSummaries,
   refusal,
   readsShare = false,
 }: {
@@ -55,6 +61,7 @@ export function createBearerGate({
   label: string;
   kind: TokenKind;
   refusalLimit: RateLimitChecker;
+  refusalSummaries: RefusalSummaries;
   /** The surface's 401; the root error handler adds WWW-Authenticate. */
   refusal: () => HttpError;
   /** /api: a grantee's `?ownerId=` share rides in the token's read (#170). */
@@ -70,17 +77,24 @@ export function createBearerGate({
           })
         : presented;
     if ('refused' in result) {
+      refusalSummaries.flushEnded();
       const exceeded = await countAgainst(refusalLimit, request);
       const known =
         result.refused === 'revoked' || result.refused === 'wrong kind';
-      if (exceeded && !known) {
-        throw limitReached(request, exceeded, {
-          logger,
-          who: `refused credentials from ${request.ip}`,
-        });
+      const reason = refusalReason(result.refused, kind);
+      if (exceeded) {
+        refusalSummaries.suppress(
+          request.ip,
+          known ? reason : `${reason}, 429`,
+          exceeded.ttlMs,
+        );
+        if (!known) {
+          throw tooManyAttempts(exceeded.ttlInSeconds, { quiet: true });
+        }
+        throw refusal();
       }
       logger.warn(
-        `${label} ${request.method} ${loggableUrl(request)} refused: ${refusalReason(result.refused, kind)} from ${request.ip}`,
+        `${label} ${request.method} ${loggableUrl(request)} refused: ${reason} from ${request.ip}`,
       );
       throw refusal();
     }

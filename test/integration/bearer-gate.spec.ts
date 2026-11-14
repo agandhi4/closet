@@ -1,5 +1,5 @@
 import type { LightMyRequestResponse } from 'fastify';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   BEARER_REFUSAL_LIMIT,
   MCP_LIMIT,
@@ -110,12 +110,9 @@ describe('the bearer gate', () => {
     expectProblem(onApi, 429, 'rate_limited');
     expect(Number(onApi.headers['retry-after'])).toBeGreaterThan(0);
 
-    expect(
-      t.logs.messages('warn', 'Api').concat(t.logs.messages('warn', 'Mcp')),
-    ).toContainEqual(
-      expect.stringMatching(
-        `^Rate limit reached: .* for refused credentials from ${client['x-forwarded-for']}$`,
-      ),
+    // The refusals past the budget are counted into a summary, not logged one by one.
+    expect(t.logs.messages('warn').join('\n')).not.toContain(
+      'Rate limit reached',
     );
     // Another address has its own budget.
     expectMcp401(await mcp(uniqueClient()));
@@ -161,6 +158,49 @@ describe('the bearer gate', () => {
       expectMcp401(await mcp(client, minted.token));
     }
     expect((await mcp(client)).statusCode).toBe(429);
+  });
+
+  it('answers refusals past the budget as before but logs them as one summary (#940)', async () => {
+    const client = uniqueClient();
+    const address = client['x-forwarded-for'];
+    const minted = await mintToken(t, t.owner.id, 'Phone', 'device');
+    if (!minted.created) throw new Error('no device token');
+    // Other tests' addresses may have a summary due: only this one's lines count.
+    const lines = () =>
+      t.logs.messages('warn').filter((line) => line.includes(address));
+    t.logs.clear();
+    for (let n = 0; n < 50; n += 1) {
+      expectMcp401(await mcp(client, minted.token));
+    }
+    // The budget's lines, each its own; the rest are counted, not written.
+    expect(lines()).toHaveLength(BEARER_REFUSAL_LIMIT.max);
+
+    // The next window's first refusal writes the last one's summary.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(Date.now() + 2 * BEARER_REFUSAL_LIMIT.timeWindow);
+      expectMcp401(await mcp(client, minted.token));
+    } finally {
+      vi.useRealTimers();
+    }
+    const over = 50 - BEARER_REFUSAL_LIMIT.max;
+    expect(
+      lines().filter((line) => line.includes('further credential')),
+    ).toEqual([
+      `${over} further credential refusals from ${address} past its budget, not logged one by one (wrong kind of token (wants mcp) x${over})`,
+    ]);
+    // The summary, and the new window's first refusal as a line of its own.
+    expect(lines()).toHaveLength(BEARER_REFUSAL_LIMIT.max + 2);
+  });
+
+  it('counts a throttled unknown credential in the summary too, still a 429', async () => {
+    const client = uniqueClient();
+    await exhaust(client);
+    t.logs.clear();
+    for (let n = 0; n < 5; n += 1) {
+      expect((await mcp(client)).statusCode).toBe(429);
+    }
+    expect(t.logs.messages('warn')).toEqual([]);
   });
 
   it('never resets the count on a token that opens', async () => {

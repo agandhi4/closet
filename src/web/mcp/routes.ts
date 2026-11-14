@@ -75,6 +75,7 @@ export const mcpRoutes: FastifyPluginCallback<
     mcpLogger,
     metrics,
     bearerRefusalLimit,
+    refusalSummaries,
   } = options;
   const tools = mcpTools({ weather: weather !== undefined });
   const linkImportLimit = app.createRateLimit(MCP_LINK_IMPORT_LIMIT);
@@ -89,7 +90,9 @@ export const mcpRoutes: FastifyPluginCallback<
       label: 'MCP',
       kind: 'mcp',
       refusalLimit: bearerRefusalLimit,
-      refusal: () => new HttpError(401, 'Unauthorized'),
+      refusalSummaries,
+      // quiet: the gate logs its refusals itself (bearer-gate.ts).
+      refusal: () => new HttpError(401, 'Unauthorized', { quiet: true }),
     }),
   } as const;
 

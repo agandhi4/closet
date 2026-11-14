@@ -47,6 +47,7 @@ import {
   assertStatelessRoute,
   createSameOriginHook,
 } from './web/security/same-origin';
+import { UntrustedProxyWatch } from './web/security/untrusted-proxy';
 import { assignSurface, surfaceOf } from './web/surface';
 import { isWarmRequest } from './warm-request';
 import { createQueuedWriteHook } from './web/offline-writes';
@@ -333,6 +334,15 @@ export async function createApp(
       logger: logger.child({ logger: 'Security' }),
     }),
   );
+  // A proxy missing from TRUSTED_PROXIES: one warning, and /health/ready's
+  // `trusted_proxies` check (src/web/security/untrusted-proxy.ts).
+  const proxyWatch = new UntrustedProxyWatch(
+    logger.child({ logger: 'Security' }),
+  );
+  app.addHook('onRequest', (request, _reply, done) => {
+    proxyWatch.observe(request);
+    done();
+  });
   // Per-route brute-force limits (login, registration, password changes);
   // before the routes so they see the plugin's onRoute hook.
   await registerRateLimit(app, logger.child({ logger: 'RateLimit' }));
@@ -486,6 +496,7 @@ export async function createApp(
     photos,
     cutouts,
     jobs: roster,
+    proxyWatch,
     fetcher,
     weather,
     mcpLogger: logger.child({ logger: 'Mcp' }),
