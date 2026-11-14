@@ -16,12 +16,12 @@
  *   (the lock's field, its attribute and the neighbours), and a strip's
  *   next page is made inert as it lands in a locked row (`snap-strip:watch`).
  *
- * - The preview (#468, shown from lg) has a slot per row; the server draws
- *   it and sends it again with every rows answer, and between them a choice
+ * - The preview (#468; the phone's bar since #664) has a slot per row; the
+ *   server draws it and sends it again with every rows answer, and between them a choice
  *   moves without a request, so each `snap-strip:chosen` copies the chosen
  *   item's look (its plinth's children) into its row's slot. It follows a
  *   swipe offline as choosing does. A changed slot asks the fit line
- *   (#468b, GET /styling/fit) again while that line is shown.
+ *   (#468b, GET /styling/fit) again.
  *
  * Evaluated once per document: the listeners below sit on the document and
  * serve every page's rows.
@@ -30,6 +30,21 @@ import { centre, initSnapStrips, syncSteps } from 'snap-strip';
 
 export function initStyling(root) {
   initSnapStrips(root);
+  syncPreviewToggle();
+}
+
+// From lg the preview is always the whole outfit (each `group-open:` class
+// has its `lg:` twin), so the summary's toggle is a dead stop: make it inert
+// (out of the tab order and the tree). `open` is never touched, so the
+// visitor's own state survives a resize. Evaluated once per document, so the
+// one listener serves every visit.
+const WIDE = matchMedia('(min-width: 64rem)');
+WIDE.addEventListener('change', syncPreviewToggle);
+
+function syncPreviewToggle() {
+  const details = document.querySelector('[data-preview-toggle]');
+  if (!details) return;
+  details.querySelector(':scope > summary').inert = WIDE.matches;
 }
 
 // A locked row keeps its garment whatever moved the strip. Its hidden
@@ -83,14 +98,13 @@ function mirror(row, item) {
 
 /**
  * The fit line (#468b) asks again for the changed outfit (its hx-trigger
- * debounces), only while it is shown: on a phone it is display:none
- * (offsetParent null) and asks nothing.
+ * debounces). Shown at every width since #664; absent without the weather
+ * or over a shared wardrobe.
  */
 function askFit() {
-  const fit = document.getElementById('styling-fit-line');
-  if (fit?.offsetParent) {
-    fit.dispatchEvent(new CustomEvent('styling:outfit-changed'));
-  }
+  document
+    .getElementById('styling-fit-line')
+    ?.dispatchEvent(new CustomEvent('styling:outfit-changed'));
 }
 
 function rowOf(element) {

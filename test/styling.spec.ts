@@ -1,8 +1,9 @@
 import { expect, type Locator, type Page, test } from '@playwright/test';
 import { createGarment } from './support/e2e-data';
-import { signIn } from './support/e2e-session';
+import { SAME_ORIGIN, signIn } from './support/e2e-session';
 import { blockingScrollListeners } from './support/scroll-listeners';
 import { pageErrors } from './support/page-errors';
+import { MIN_TARGET_PX } from './support/touch-targets';
 import { MOBILE_WEBKIT_CANNOT_SWIPE } from './support/webkit-limits';
 
 /**
@@ -197,8 +198,8 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.wheel(box.width / 3, 0);
   await expect(chosen(tops)).toHaveValue(String(g.oldTee));
-  // The preview follows without a request (styling.js, #468; shown from
-  // lg, kept in step at every width): the top row's slot holds its look.
+  // The preview follows without a request (styling.js, #468; the bar's
+  // strip on a phone, #664): the top row's slot holds its look.
   const topSlot = page.locator('#styling-preview [data-preview-slot="0"]');
   await expect(topSlot).toHaveAttribute(
     'data-preview-garment',
@@ -252,6 +253,104 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
     'Jeans',
     'Boots',
   ]);
+
+  await test.step('the bar shows the outfit and how it meets the weather (#664)', async () => {
+    // A parka over a far lighter top is too cold whatever the day
+    // (assessOutfit's layer spread), so the chip never moves with the date.
+    const parka = await createGarment(page, 'Parka', 'outerwear', {
+      props: '1',
+      warmth: '5',
+    });
+    await createGarment(page, 'Thin tee', 'tops', { props: '1', warmth: '1' });
+    const home = await page.request.post('/weather/home', {
+      form: {
+        name: 'Fort Greene, New York, United States',
+        latitude: '40.689167',
+        longitude: '-73.975556',
+      },
+      headers: { ...SAME_ORIGIN, 'HX-Request': 'true' },
+    });
+    expect(home.ok()).toBe(true);
+    // Today reads the forecast into the cache the fit line answers from.
+    await page.goto('/');
+    await page.goto('/styling');
+
+    const bar = page.locator('[data-styling-bar]');
+    const layerSlot = bar.locator('#styling-preview [data-preview-slot="0"]');
+    const fit = bar.locator('#styling-fit-line');
+    await expect(layerSlot).toBeVisible();
+    await expect(layerSlot).toHaveAttribute(
+      'data-preview-garment',
+      String(parka),
+    );
+    await expect(fit).toContainText('May be too cold');
+
+    // Choosing moves the strip and asks the fit line again.
+    const layers = row(page, 'layer');
+    let asked = page.waitForResponse((res) =>
+      res.url().includes('/styling/fit?'),
+    );
+    await tap(page, layers, '');
+    await expect(layerSlot).toHaveAttribute('data-preview-garment', '');
+    await asked;
+    asked = page.waitForResponse((res) => res.url().includes('/styling/fit?'));
+    await tap(page, layers, String(parka));
+    await expect(layerSlot).toHaveAttribute(
+      'data-preview-garment',
+      String(parka),
+    );
+    await asked;
+    await expect(fit).toContainText('May be too cold');
+
+    // The bar rides on the dock, and Save keeps a thumb's target.
+    const dock = (await page.locator('.dock').boundingBox())!;
+    const box = async () => (await bar.boundingBox())!;
+    expect((await box()).y + (await box()).height).toBeLessThanOrEqual(
+      dock.y + 1,
+    );
+    const save = bar.getByRole('button', { name: 'Save', exact: true });
+    expect((await save.boundingBox())!.height).toBeGreaterThanOrEqual(
+      MIN_TARGET_PX,
+    );
+
+    // At the rows' end the bar sits below the last row and "Add a row".
+    await page.evaluate(() =>
+      window.scrollTo(0, document.documentElement.scrollHeight),
+    );
+    const barTop = (await box()).y;
+    for (const last of [
+      page.locator('[data-styling-row]').last(),
+      page.locator('summary', { hasText: 'Add a row' }),
+    ]) {
+      const at = (await last.boundingBox())!;
+      expect(at.y + at.height).toBeLessThanOrEqual(barTop + 1);
+    }
+
+    // A tap opens the strip into the whole outfit.
+    const strip = (await layerSlot.boundingBox())!.height;
+    await bar.locator('summary').click();
+    await expect(bar.locator('details')).toHaveAttribute('open', '');
+    expect((await layerSlot.boundingBox())!.height).toBeGreaterThan(strip);
+
+    // The summary is named by visible text, and the fit line sits outside
+    // it, so its notes are read.
+    await expect(bar.locator('summary')).toContainText('The outfit');
+    await expect(bar.locator('summary #styling-fit-line')).toHaveCount(0);
+    await expect(bar.locator('summary')).not.toHaveAttribute('aria-label');
+
+    // A tall outfit stays reachable: on a short screen (the room five pieces
+    // need) the open bar's heading is under the app bar's edge, not behind it.
+    await page.setViewportSize({ width: 390, height: 480 });
+    const appBar = (await page.locator('.app-bar').boundingBox())!;
+    const heading = page.locator('#styling-preview p').first();
+    await expect(heading).toBeVisible();
+    expect((await heading.boundingBox())!.y).toBeGreaterThanOrEqual(
+      appBar.y + appBar.height - 1,
+    );
+    expect((await bar.boundingBox())!.y).toBeGreaterThanOrEqual(
+      appBar.y + appBar.height - 1,
+    );
+  });
 
   expect(errors, errors.join('\n')).toEqual([]);
 });
