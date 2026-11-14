@@ -26404,6 +26404,24 @@
                                 "enum": [
                                   "watch"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "socks"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "underwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
                               }
                             ]
                           }
@@ -26452,6 +26470,12 @@
                                 "type": "string",
                                 "enum": [
                                   "duffel"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
                                 ]
                               }
                             ]
@@ -26538,6 +26562,12 @@
                                 "enum": [
                                   "fleece"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
                               }
                             ]
                           }
@@ -26574,6 +26604,24 @@
                                 "type": "string",
                                 "enum": [
                                   "jumpsuit"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "swimwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sleepwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
                                 ]
                               }
                             ]
@@ -26660,6 +26708,24 @@
                                 "enum": [
                                   "turtleneck"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sports-top"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "swimwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sleepwear"
+                                ]
                               }
                             ]
                           }
@@ -26727,6 +26793,24 @@
                                 "enum": [
                                   "leggings"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "running-shorts"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "swimwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sleepwear"
+                                ]
                               }
                             ]
                           }
@@ -26793,6 +26877,12 @@
                                 "type": "string",
                                 "enum": [
                                   "heels"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
                                 ]
                               }
                             ]
@@ -27073,6 +27163,24 @@
                                 "enum": [
                                   "watch"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "socks"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "underwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
                               }
                             ]
                           }
@@ -27121,6 +27229,12 @@
                                 "type": "string",
                                 "enum": [
                                   "duffel"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
                                 ]
                               }
                             ]
@@ -27207,6 +27321,12 @@
                                 "enum": [
                                   "fleece"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
+                                ]
                               }
                             ]
                           }
@@ -27243,6 +27363,24 @@
                                 "type": "string",
                                 "enum": [
                                   "jumpsuit"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "swimwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sleepwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
                                 ]
                               }
                             ]
@@ -27329,6 +27467,24 @@
                                 "enum": [
                                   "turtleneck"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sports-top"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "swimwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sleepwear"
+                                ]
                               }
                             ]
                           }
@@ -27396,6 +27552,24 @@
                                 "enum": [
                                   "leggings"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "running-shorts"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "swimwear"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "sleepwear"
+                                ]
                               }
                             ]
                           }
@@ -27462,6 +27636,12 @@
                                 "type": "string",
                                 "enum": [
                                   "heels"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "other"
                                 ]
                               }
                             ]

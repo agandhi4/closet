@@ -19,6 +19,7 @@ import {
   type Formality,
   type GarmentColor,
   type GarmentRole,
+  isDrawnType,
 } from './properties';
 
 /**
@@ -526,7 +527,9 @@ function pageOf<G extends IdeaGarment>(
 }
 
 /**
- * The pool by role: only the roles drawn, and never a locked garment twice.
+ * The pool by role: only the roles drawn, never a type no outfit is drawn
+ * with (socks, swimwear: isDrawnType; one still rides along locked), and
+ * never a locked garment twice.
  * Each role's garments in id order, whatever order the pool came in: the
  * draws pick by position, and a pool is a query's rows, whose order
  * Postgres does not promise without ORDER BY (it follows the heap and the
@@ -541,7 +544,11 @@ function drawableByRole<G extends IdeaGarment>(
   const lockedIds = new Set(locked.map((g) => g.id));
   const byRole = new Map<GarmentRole, G[]>();
   for (const garment of [...pool].sort((a, b) => a.id - b.id)) {
-    if (lockedIds.has(garment.id) || !DRAWN_ROLES.includes(garment.role)) {
+    if (
+      lockedIds.has(garment.id) ||
+      !DRAWN_ROLES.includes(garment.role) ||
+      !isDrawnType(garment.category, garment.type)
+    ) {
       continue;
     }
     const role = byRole.get(garment.role);

@@ -459,6 +459,9 @@
       "hoodie": "Hoodie",
       "sweatshirt": "Sweatshirt",
       "turtleneck": "Turtleneck",
+      "sports-top": "Sports top",
+      "swimwear": "Swimwear",
+      "sleepwear": "Sleepwear",
       "jeans": "Jeans",
       "chinos": "Chinos",
       "trousers": "Trousers",
@@ -467,6 +470,7 @@
       "shorts": "Shorts",
       "skirt": "Skirt",
       "leggings": "Leggings",
+      "running-shorts": "Running shorts",
       "day-dress": "Day dress",
       "evening-dress": "Evening dress",
       "jumpsuit": "Jumpsuit",
@@ -499,11 +503,14 @@
       "tie": "Tie",
       "jewelry": "Jewelry",
       "watch": "Watch",
+      "socks": "Socks",
+      "underwear": "Underwear",
       "backpack": "Backpack",
       "tote": "Tote",
       "crossbody": "Crossbody",
       "handbag": "Handbag",
-      "duffel": "Duffel"
+      "duffel": "Duffel",
+      "other": "Other"
     },
     "warmth": {
       "1": "Very light",

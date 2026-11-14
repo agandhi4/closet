@@ -406,9 +406,9 @@ describe('seed personas', () => {
       ['Travel', 16],
     ]);
     expect(demo.capsules[1].garments).toContain('Old 511s');
-    // Fully tagged but for the socks, which no type fits.
+    // Fully tagged, the socks too (#685): typed, never drawn into an idea.
     const demoId = await userIdOf(t, EMAILS[0]);
-    expect(await countToTag(t.db, demoId)).toBe(1);
+    expect(await countToTag(t.db, demoId)).toBe(0);
 
     // Wears and washes (#7): every worn entry's garments, the laundry
     // Sundays, the bible's multiples, condition and away.
@@ -425,6 +425,7 @@ describe('seed personas', () => {
       lastWashedOn: '2026-09-20',
     });
     expect(byName('Black socks')).toMatchObject({
+      type: 'socks',
       quantity: 6,
       washAfterWears: 1,
     });
@@ -558,6 +559,9 @@ describe('seed personas', () => {
     });
     expect(grid.statusCode).toBe(200);
     expect(grid.body).toContain('Olive chore coat');
+    // Nothing left to tag: no "needs details" prompt (#685).
+    expect(grid.body).not.toContain('need details');
+    expect(grid.body).not.toContain('needs details');
     const thumb = extractImgSrcs(unescapeHtml(grid.body)).find((src) =>
       src.startsWith('/file/'),
     )!;
