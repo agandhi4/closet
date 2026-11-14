@@ -1,13 +1,12 @@
-import { and, eq, ne, notExists, notInArray, type SQL, sql } from 'drizzle-orm';
+import { and, eq, ne, notExists, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { TokenKind } from '../../credential-names';
 import type { Db, Queryable } from '../../db/client';
 import { isLockTimeout, isUniqueViolation } from '../../db/errors';
-import { ownerLockCte, ownersLockCte } from '../../db/owner-lock';
+import { ownerLockCte } from '../../db/owner-lock';
 import { restoreEpochSql } from '../../db/sync-epoch';
 import {
   file,
-  garment,
   pendingPhoto,
   type SharePermission,
   user,
@@ -284,87 +283,51 @@ export async function updateEmail(
 }
 
 /**
- * The owners of the garments showing a photo `id` uploaded: theirs, or
- * another wardrobe's when they uploaded it there as a MANAGE grantee
- * before a file row became its wardrobe owner's (#40; every writer since
- * makes it so). Deleting the account's file rows empties those garments'
- * photo_id, so those owners are locked too.
- */
-function ownersShowingPhotosOf(id: number): SQL {
-  return sql`select ${garment.ownerId} from ${garment} join ${file} on ${file.id} = ${garment.photoId} where ${file.createdById} = ${id}`;
-}
-
-/**
- * What one attempt at deleteUserAndFileRows did: the stored photos the
- * caller unlinks after commit, or, writing nothing, the owners whose
- * garments came to show the account's photos after its lock read them.
- */
-export type DeletedAccount =
-  | { photos: StoredPhoto[] }
-  | { ownersGrew: number[] };
-
-/**
  * Deletes the user, their File rows and their pending photos' rows in one
  * transaction and answers the stored photos, which the caller unlinks
  * after commit: the database cascade drops rows (garments, outfits,
  * calendar entries, shares), never the photo bytes (AGENTS.md Gotchas).
+ * Every file row the account holds is a photo of its own wardrobe (the
+ * photo foreign keys pair photo_id with owner_id, #703), so no other
+ * wardrobe loses a photo here.
  *
- * The locks first, alone (#544): the account's own and the owners of the
- * garments showing its photos (ownersShowingPhotosOf), in one statement in
- * id order, the order every writer of several accounts takes them in
- * (ownersLockCte). The deletes run in the next statement, whose snapshot
- * is taken under the locks: the lock's own statement reads with the
- * snapshot from before its wait, so a save that held a lock and committed
- * meanwhile (a garment's photo, a grantee's save into this wardrobe) was
- * invisible to a delete folded into it, and the user's cascade dropped
- * that `file` row without its bytes. The same statement reads the owners
- * again: one it did not lock means nothing is deleted and the caller
- * locks again (deleteAccount); taking that lock now, after higher ids,
- * would break the order.
+ * The account's lock first, alone (#544), the deletes in the next
+ * statement, whose snapshot is taken under the lock: the lock's own
+ * statement reads with the snapshot from before its wait, so a save that
+ * held the lock and committed meanwhile (a garment's photo, a grantee's
+ * claim of their pending photo) was invisible to a delete folded into it,
+ * and the user's cascade dropped that `file` row without its bytes.
  */
 export async function deleteUserAndFileRows(
   db: Db,
   id: number,
-): Promise<DeletedAccount> {
-  return db.transaction(async (tx): Promise<DeletedAccount> => {
-    const lock = ownersLockCte(
-      tx,
-      sql`select ${id}::int union ${ownersShowingPhotosOf(id)}`,
-    );
-    const locked = (await tx.with(lock).select({ id: lock.id }).from(lock)).map(
-      (row) => row.id,
-    );
+): Promise<StoredPhoto[]> {
+  return db.transaction(async (tx): Promise<StoredPhoto[]> => {
+    const lock = ownerLockCte(tx, id);
+    const [locked] = await tx.with(lock).select({ id: lock.id }).from(lock);
     // Deleted meanwhile: the cascade took their rows, the deleter their bytes.
-    if (!locked.includes(id)) return { photos: [] };
+    if (!locked) return [];
     const { rows } = await tx.execute<{
       files: StoredPhoto[];
       pending: string[];
-      grew: number[];
     }>(sql`
-      with missing as (
-        select owners.owner_id from (${ownersShowingPhotosOf(id)}) as owners
-        where ${notInArray(sql`owners.owner_id`, locked)}
-      ), files as (
-        delete from ${file}
-        where ${file.createdById} = ${id} and not exists (select from missing)
+      with files as (
+        delete from ${file} where ${file.createdById} = ${id}
         returning ${file.fileName} as file_name, ${file.variantKey} as variant_key
       ), pending as (
-        delete from ${pendingPhoto}
-        where ${pendingPhoto.userId} = ${id} and not exists (select from missing)
+        delete from ${pendingPhoto} where ${pendingPhoto.userId} = ${id}
         returning ${pendingPhoto.fileName} as file_name
       )
       select
         (select coalesce(json_agg(json_build_object('fileName', file_name, 'variantKey', variant_key)), '[]') from files) as files,
-        (select coalesce(json_agg(file_name), '[]') from pending) as pending,
-        (select coalesce(json_agg(distinct owner_id), '[]') from missing) as grew
+        (select coalesce(json_agg(file_name), '[]') from pending) as pending
     `);
-    const [{ files, pending, grew }] = rows;
-    if (grew.length > 0) return { ownersGrew: grew };
+    const [{ files, pending }] = rows;
     // Link imports never saved (`pending`): their bytes have no `file`
     // row, and the cascade would drop the rows that explain them to
     // reconciliation.
     await tx.delete(user).where(eq(user.id, id));
-    return { photos: [...files, ...pending.map(unkeyedPhoto)] };
+    return [...files, ...pending.map(unkeyedPhoto)];
   });
 }
 

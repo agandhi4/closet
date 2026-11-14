@@ -498,6 +498,9 @@ export const file = pgTable(
       sql`${table.variantKey} is null or (${table.cutoutStatus} in ('ready', 'edited') and ${table.variantKey} ~ '^[0-9a-f]{12}$')`,
     ),
     uniqueIndex('file_shareable_id_unique').on(table.shareableId),
+    // What the photo foreign keys of garment, selfie and inspiration point
+    // at: a row shows only its owner's photo (#703).
+    unique('file_id_created_by_id_unique').on(table.id, table.createdById),
     foreignKey({
       name: 'file_created_by_id_foreign',
       columns: [table.createdById],
@@ -832,12 +835,18 @@ export const garment = pgTable(
       table.id.desc().nullsFirst(),
     ),
     uniqueIndex('garment_shareable_id_unique').on(table.shareableId),
+    // A garment shows only its owner's photo row (#703): the pair, not the
+    // id alone, so deleting an account (its file rows cascade) can never
+    // empty another wardrobe's garment. The migration (drizzle/0065) holds
+    // the real action, `ON DELETE SET NULL ("photo_id")`: drizzle cannot
+    // write a column list, and a plain SET NULL would null owner_id too.
+    // NO ACTION on update: a file row changing hands never moves a garment.
     foreignKey({
-      name: 'garment_photo_id_foreign',
-      columns: [table.photoId],
-      foreignColumns: [file.id],
+      name: 'garment_photo_id_owner_id_foreign',
+      columns: [table.photoId, table.ownerId],
+      foreignColumns: [file.id, file.createdById],
     })
-      .onUpdate('cascade')
+      .onUpdate('no action')
       .onDelete('set null'),
     foreignKey({
       name: 'garment_owner_id_foreign',
@@ -1425,12 +1434,13 @@ export const selfie = pgTable(
     })
       .onUpdate('cascade')
       .onDelete('set null'),
+    // Only its owner's photo row (#703; garment_photo_id_owner_id_foreign).
     foreignKey({
-      name: 'selfie_photo_id_foreign',
-      columns: [table.photoId],
-      foreignColumns: [file.id],
+      name: 'selfie_photo_id_owner_id_foreign',
+      columns: [table.photoId, table.ownerId],
+      foreignColumns: [file.id, file.createdById],
     })
-      .onUpdate('cascade')
+      .onUpdate('no action')
       .onDelete('cascade'),
   ],
 );
@@ -1485,12 +1495,13 @@ export const inspiration = pgTable(
     })
       .onUpdate('cascade')
       .onDelete('cascade'),
+    // Only its owner's photo row (#703; garment_photo_id_owner_id_foreign).
     foreignKey({
-      name: 'inspiration_photo_id_foreign',
-      columns: [table.photoId],
-      foreignColumns: [file.id],
+      name: 'inspiration_photo_id_owner_id_foreign',
+      columns: [table.photoId, table.ownerId],
+      foreignColumns: [file.id, file.createdById],
     })
-      .onUpdate('cascade')
+      .onUpdate('no action')
       .onDelete('cascade'),
   ],
 );
