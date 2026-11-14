@@ -605,12 +605,16 @@ async function writeHistory(
     }
     wears += 'selfieId' in outcome ? outcome.worn.wears : outcome.wears;
   }
+  // The simulation does the laundry after the Sunday's outfits, so its
+  // washes have no instant (#676): the day rule counts that day's wears
+  // before the wash, as the simulation did.
   for (const wash of life.washes) {
     await markWashed(
       tx,
       userId,
       wash.garmentIds.map((id) => ids.garmentIds.get(id)!),
       wash.day,
+      null,
     );
   }
   return wears;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   dayRefusal,
+  instantOnDay,
   enqueue,
   goesThroughOutbox,
   isChecklist,
@@ -36,6 +37,63 @@ describe('dayRefusal', () => {
   it('refuses a day before the window as too old and one after today as future', () => {
     expect(dayRefusal('2026-02-22', today)).toBe('too-old');
     expect(dayRefusal('2026-03-03', today)).toBe('future');
+  });
+});
+
+describe('instantOnDay', () => {
+  const NY = 'America/New_York';
+  const at = (iso: string) => new Date(iso);
+
+  it('keeps a posted instant on its day, however late the replay', () => {
+    // Sunday 08:00 in New York, replayed on Wednesday.
+    expect(
+      instantOnDay(
+        at('2026-11-08T13:00:00Z'),
+        '2026-11-08',
+        at('2026-11-11T15:00:00Z'),
+        NY,
+      ),
+    ).toEqual(at('2026-11-08T13:00:00Z'));
+  });
+
+  it('is now without a posted instant, and never after now', () => {
+    const now = at('2026-11-08T23:00:00Z');
+    expect(instantOnDay(undefined, '2026-11-08', now, NY)).toEqual(now);
+    expect(
+      instantOnDay(at('2026-11-09T01:00:00Z'), '2026-11-08', now, NY),
+    ).toEqual(now);
+  });
+
+  it('drops an instant outside the day, never clamps it', () => {
+    const now = at('2026-11-10T15:00:00Z');
+    // Monday morning for Sunday: a late mark.
+    expect(
+      instantOnDay(at('2026-11-09T14:00:00Z'), '2026-11-08', now, NY),
+    ).toBeNull();
+    // Saturday evening for Sunday: a wrong clock.
+    expect(
+      instantOnDay(at('2026-11-07T23:00:00Z'), '2026-11-08', now, NY),
+    ).toBeNull();
+    // No instant and now on a later day: the day rule.
+    expect(instantOnDay(undefined, '2026-11-08', now, NY)).toBeNull();
+  });
+
+  it('takes the day from midnight to midnight, on a DST day too', () => {
+    const now = at('2026-11-12T12:00:00Z');
+    // 2026-11-01 is New York's fall back: 00:00 is 04:00Z, the next
+    // midnight 05:00Z (a 25-hour day).
+    expect(
+      instantOnDay(at('2026-11-01T04:00:00Z'), '2026-11-01', now, NY),
+    ).toEqual(at('2026-11-01T04:00:00Z'));
+    expect(
+      instantOnDay(at('2026-11-02T04:59:59.999Z'), '2026-11-01', now, NY),
+    ).toEqual(at('2026-11-02T04:59:59.999Z'));
+    expect(
+      instantOnDay(at('2026-11-02T05:00:00Z'), '2026-11-01', now, NY),
+    ).toBeNull();
+    expect(
+      instantOnDay(at('2026-11-01T03:59:59.999Z'), '2026-11-01', now, NY),
+    ).toBeNull();
   });
 });
 

@@ -590,8 +590,12 @@ function toRecord(
   const id = newId();
   const fields = { ...draft.fields };
   // The tap's day, not the replay's: a Sunday-night wear replayed Monday is
-  // Sunday's (the server takes it back to REPLAY_WINDOW_DAYS).
-  if (takesDay(draft.kind)) fields.day = today;
+  // Sunday's (the server takes it back to REPLAY_WINDOW_DAYS). Its instant
+  // too, so a same-day wear and wash keep the tap's order (#676).
+  if (takesDay(draft.kind)) {
+    fields.day = today;
+    fields.at = new Date(queuedAt).toISOString();
+  }
   if (draft.kind === 'wear' && fields.worn === '1') fields.clientId = id;
   return {
     id,

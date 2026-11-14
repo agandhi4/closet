@@ -7,6 +7,7 @@ import type { IsoDate } from '../calendar-date';
 import type { Logger } from '../logger';
 import {
   dayRefusal,
+  instantOnDay,
   isReplayRequest,
   type QueueableKind,
   REPLAY_HEADER,
@@ -107,6 +108,29 @@ export function requestedDay(
   if (refusal)
     throw replayRefused(reply, refusal, { logDetail: `day ${posted}` });
   return posted;
+}
+
+/**
+ * The instant a wear or wash on `day` is stored with (#676): the posted
+ * tap's `at` (a replay's, an API client's), else now, judged by
+ * instantOnDay against the server's clock. Null is the day rule.
+ */
+export function postedInstant(
+  posted: string | undefined,
+  day: IsoDate,
+  timeZone: string,
+): Date | null {
+  return instantOnDay(
+    posted === undefined ? undefined : new Date(posted),
+    day,
+    new Date(),
+    timeZone,
+  );
+}
+
+/** A wash's log words for its instant: `at <ISO>`, or that it is not known. */
+export function instantNote(at: Date | null): string {
+  return at ? `at ${at.toISOString()}` : 'at an unknown time';
 }
 
 /**

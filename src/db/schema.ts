@@ -581,6 +581,11 @@ export const garment = pgTable(
     // wears after it count toward the next wash. Written only by
     // markWashed (src/web/wears/queries.ts); no history is kept.
     lastWashedOn: date('last_washed_on', { mode: 'string' }),
+    // The instant of that wash, only when known and inside last_washed_on
+    // in APP_TIMEZONE (instantOnDay, src/offline-writes.ts); null is "some
+    // time that day" and the day rule applies (#676). Written only by
+    // markWashed, which never puts it on another day.
+    washedAt: timestamp('washed_at', { withTimezone: true }),
     // Out of the closet for now (lent, at the repair shop), and a word on
     // where; a manual state, never derived. The owner's own record, like
     // wears: setAway (src/web/wears/queries.ts) is its writer.
@@ -1179,6 +1184,10 @@ export const garmentWear = pgTable(
     // The day worn, not an instant ('YYYY-MM-DD', APP_TIMEZONE's date).
     day: date('day', { mode: 'string' }).notNull(),
     outfitCalendarId: integer('outfit_calendar_id'),
+    // The instant worn, only when known and inside `day` (instantOnDay); null
+    // for a wear marked after its day and every row before #676. Not
+    // created_at: that is the insert, a replay's or a late mark's.
+    wornAt: timestamp('worn_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),

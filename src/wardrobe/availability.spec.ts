@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { WASH_CASES, washCaseRows } from '../../test/support/wash-cases';
 import {
   cleanCopies,
   defaultWashAfter,
@@ -52,20 +53,30 @@ describe('wash limits', () => {
 });
 
 describe('wears since the last wash', () => {
+  const on = (...days: string[]) => days.map((day) => ({ day, wornAt: null }));
+
   it('counts distinct days: two entries on one day are one wear', () => {
     expect(
-      wearsSinceWash(['2026-09-21', '2026-09-21', '2026-09-22'], null),
+      wearsSinceWash(on('2026-09-21', '2026-09-21', '2026-09-22'), null),
     ).toBe(2);
   });
 
-  it('counts every wear of a garment never washed', () => {
-    expect(wearsSinceWash(['2026-01-02', '2026-05-09'], null)).toBe(2);
+  it('counts a wear on the wash day without both instants as before the wash', () => {
+    const wash = { day: '2026-09-20', washedAt: null };
+    expect(
+      wearsSinceWash(on('2026-09-20', '2026-09-20', '2026-09-21'), wash),
+    ).toBe(1);
+    expect(wearsSinceWash(on('2026-09-20'), wash)).toBe(0);
   });
 
-  it('counts a wear on the wash day as before the wash', () => {
-    const days = ['2026-09-20', '2026-09-20', '2026-09-21'];
-    expect(wearsSinceWash(days, '2026-09-20')).toBe(1);
-    expect(wearsSinceWash(['2026-09-20'], '2026-09-20')).toBe(0);
+  // The table the SQL twin answers too (test/integration/wears.spec.ts).
+  it.each(WASH_CASES)('$name: $count', (c) => {
+    const { wears, lastWash } = washCaseRows(
+      c,
+      '2026-11-08',
+      'America/New_York',
+    );
+    expect(wearsSinceWash(wears, lastWash)).toBe(c.count);
   });
 });
 

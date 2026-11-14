@@ -5,9 +5,13 @@ import { AWAY_REASONS } from '../../wardrobe/availability';
 import { apiResponses } from '../api/contract';
 import type { ApiOptions } from '../api/plugin';
 import { literals, Nullable, withoutNulls } from '../api/resource';
-import { dayOutsideWindow } from '../offline-writes';
+import {
+  dayOutsideWindow,
+  instantNote,
+  postedInstant,
+} from '../offline-writes';
 import { REPLAY_WINDOW_DAYS } from '../../offline-writes';
-import { IsoDateSchema, RowId } from '../schemas';
+import { IsoDateSchema, RowId, TapInstantSchema } from '../schemas';
 import { actorOf } from '../sharing/access';
 import { garmentAddress } from '../wardrobe/garment-access';
 import { GarmentQuery } from '../wardrobe/garment-api-input';
@@ -22,6 +26,12 @@ const WriteDay = CloneType(IsoDateSchema, {
 
 const WearParams = Type.Object({ id: RowId, day: WriteDay });
 
+/** When it happened (#676): orders a wear and a wash of the same day. */
+const WriteInstant = CloneType(TapInstantSchema, {
+  description:
+    'When it happened, with its offset; default now. Orders a wear and a wash of the same day (worn after the morning wash counts toward the next); one after now is taken as now, one outside `day` is dropped (the day rule: a wear that day counts before its wash)',
+});
+
 const WearBody = Type.Union([
   Type.Object({
     clientId: Type.Optional(
@@ -31,6 +41,7 @@ const WearBody = Type.Union([
           'Your id for this wear, for retrying it offline: accepted, not yet stored (a wear is once a garment a day anyway)',
       }),
     ),
+    at: Type.Optional(WriteInstant),
   }),
   Type.Null(),
 ]);
@@ -45,7 +56,10 @@ const Worn = Type.Object(
   { title: 'GarmentWear', description: "The garment's own wear that day" },
 );
 
-const WashInput = Type.Object({ day: WriteDay }, { title: 'GarmentWash' });
+const WashInput = Type.Object(
+  { day: WriteDay, at: Type.Optional(WriteInstant) },
+  { title: 'GarmentWash' },
+);
 
 const Washed = Type.Object(
   {
@@ -60,6 +74,7 @@ const LaundryInput = Type.Object(
   {
     garmentIds: Type.Array(RowId, { minItems: 1, maxItems: 2000 }),
     day: WriteDay,
+    at: Type.Optional(WriteInstant),
   },
   {
     title: 'LaundryWash',
@@ -146,7 +161,11 @@ export const wearApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         db,
         actorOf(request),
         garmentAddress(request),
-        { day, worn: true },
+        {
+          day,
+          worn: true,
+          wornAt: postedInstant(request.body?.at, day, config.timeZone),
+        },
       );
       const clientId = request.body?.clientId;
       logger.info(
@@ -177,7 +196,7 @@ export const wearApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         db,
         actorOf(request),
         garmentAddress(request),
-        { day, worn: false },
+        { day, worn: false, wornAt: null },
       );
       logger.info(
         `Garment ${id} wear undone on ${day} by user ${ownerId}${changed ? '' : ', already so'} (API)`,
@@ -204,14 +223,15 @@ export const wearApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
     async (request) => {
       const { id } = request.params;
       const day = judgedDay(request.body.day);
+      const at = postedInstant(request.body.at, day, config.timeZone);
       const { ownerId, changed } = await washGarment(
         db,
         actorOf(request),
         garmentAddress(request),
-        day,
+        { day, at },
       );
       logger.info(
-        `Garment ${id} washed on ${day} by user ${ownerId}${changed ? '' : ', already washed then or later'} (API)`,
+        `Garment ${id} washed on ${day} ${instantNote(at)} by user ${ownerId}${changed ? '' : ', already washed then or later'} (API)`,
       );
       return { day, changed };
     },
@@ -234,7 +254,13 @@ export const wearApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       const userId = actorOf(request).userId;
       const { garmentIds } = request.body;
       const day = judgedDay(request.body.day);
-      const washed = await markWashed(db, userId, garmentIds, day);
+      const washed = await markWashed(
+        db,
+        userId,
+        garmentIds,
+        day,
+        postedInstant(request.body.at, day, config.timeZone),
+      );
       logger.info(
         `Laundry by user ${userId} on ${day} (API): ${washed.length} washed of ${garmentIds.length} named`,
       );

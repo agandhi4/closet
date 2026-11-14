@@ -236,6 +236,7 @@ describe('the sync triggers', () => {
         ownerId: t.owner.id,
         day,
         worn: true,
+        wornAt: null,
         clientId,
       }),
     ).toBe('changed');

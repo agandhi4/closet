@@ -168,6 +168,14 @@ const storedCare = {
   /** Absent: the role's default; 0: never washed. */
   washAfterWears: Type.Optional(Type.Integer({ minimum: 0 })),
   lastWashedOn: Type.Optional(IsoDateSchema),
+  /** When on lastWashedOn, if known (#676): a wear that day after it counts toward the next wash. */
+  washedAt: Type.Optional(
+    Type.String({
+      format: 'date-time',
+      description:
+        'When on `lastWashedOn` it was washed, if known: a wear that day after it counts toward the next wash; absent, every wear that day counts before it',
+    }),
+  ),
   away: Type.Optional(literals(AWAY_REASONS)),
   awayNote: Type.Optional(Type.String()),
 };
@@ -337,6 +345,7 @@ export function toSyncedGarment(
         : withoutNulls({
             washAfterWears: garment.washAfterWears,
             lastWashedOn: garment.lastWashedOn,
+            washedAt: garment.washedAt?.toISOString(),
             away: garment.away,
             awayNote: garment.awayNote,
           }),
@@ -355,6 +364,7 @@ function ownerCare(
   return withoutNulls({
     washAfterWears: garment.washAfterWears,
     lastWashedOn: garment.lastWashedOn,
+    washedAt: garment.washedAt?.toISOString(),
     away: garment.away,
     awayNote: garment.awayNote,
     worn: wear.worn,

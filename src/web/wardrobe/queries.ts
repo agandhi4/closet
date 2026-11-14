@@ -472,6 +472,8 @@ export interface GarmentDetail
   // The owner's own records (src/web/wears): the page shows them to the
   // owner alone.
   lastWashedOn: string | null;
+  /** That wash's instant, when known (#676). */
+  washedAt: Date | null;
   away: AwayReason | null;
   awayNote: string | null;
   /**
@@ -519,6 +521,7 @@ const detailColumns = {
   condition: garment.condition,
   conditionNote: garment.conditionNote,
   lastWashedOn: garment.lastWashedOn,
+  washedAt: garment.washedAt,
   away: garment.away,
   awayNote: garment.awayNote,
   suggestedAt: garment.suggestedAt,

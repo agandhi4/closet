@@ -1,7 +1,7 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { RouteOptions } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { addDays, type IsoDate } from '../../src/calendar-date';
+import { addDays, instantAt, type IsoDate } from '../../src/calendar-date';
 import {
   garment,
   garmentWear,
@@ -15,7 +15,7 @@ import {
   queuedTarget,
 } from '../../src/offline-writes';
 import { PAGE_ACCOUNT_HEADER } from '../../src/web/page-cache';
-import { setWoreToday } from '../../src/web/wears/queries';
+import { setWoreToday, wearsSinceWashSql } from '../../src/web/wears/queries';
 import { createGarment } from './garments';
 import { interleave } from './interleave';
 import {
@@ -260,6 +260,7 @@ describe('queued writes', () => {
             ownerId: t.owner.id,
             day,
             worn: false,
+            wornAt: null,
           }),
         () => replay(url, wear),
       );
@@ -299,6 +300,73 @@ describe('queued writes', () => {
     // A tap still washes today, the day it answers the garment page for.
     expect((await post(url, {})).statusCode).toBe(303);
     expect(await lastWashed(jeans)).toBe(t.today());
+  });
+
+  // #676: each record carries its tap's instant, so the order of the
+  // replays no longer decides a same-day wear against its wash.
+  describe('a wear and a wash of one day, by their taps’ instants', () => {
+    const at = (hour: number) =>
+      instantAt(daysAgo(1), hour, t.timeZone).toISOString();
+    // Raw SQL: a single-table Drizzle select writes the rule's columns
+    // unqualified, and its `id` reads garment_wear's (src/db/AGENTS.md).
+    const sinceWash = async (garmentId: number) =>
+      (
+        await t.db.execute<{ since: number }>(
+          sql`select ${wearsSinceWashSql()} as since from ${garment} where ${eq(garment.id, garmentId)}`,
+        )
+      ).rows[0].since;
+
+    it('counts the evening’s wear after the morning’s wash, replayed wear first; a timeless wash keeps the instant', async () => {
+      const tee = await createGarment(t, { name: 'Evening tee' });
+      const wear = `/wardrobe/${tee}/wear`;
+      const wash = `/wardrobe/${tee}/washed`;
+      const day = daysAgo(1);
+      expect(
+        outcome(await replay(wear, { worn: '1', day, at: at(19) })),
+      ).toEqual([204, 'changed']);
+      expect(outcome(await replay(wash, { day, at: at(9) }))).toEqual([
+        204,
+        'changed',
+      ]);
+      expect(await sinceWash(tee)).toBe(1);
+      // A record queued before #676 carries no instant; replayed today it
+      // has none on its day, and never erases the 09:00 one.
+      expect(outcome(await replay(wash, { day }))).toEqual([204, 'unchanged']);
+      expect(outcome(await replay(wash, { day, at: at(8) }))).toEqual([
+        204,
+        'unchanged',
+      ]);
+      expect(await sinceWash(tee)).toBe(1);
+      // A later wash that day moves it past the wear, once.
+      expect(outcome(await replay(wash, { day, at: at(21) }))).toEqual([
+        204,
+        'changed',
+      ]);
+      expect(outcome(await replay(wash, { day, at: at(21) }))).toEqual([
+        204,
+        'unchanged',
+      ]);
+      expect(await sinceWash(tee)).toBe(0);
+    });
+
+    it('counts the morning’s wear before the evening’s wash, replayed wash first', async () => {
+      const tee = await createGarment(t, { name: 'Morning tee' });
+      const day = daysAgo(1);
+      expect(
+        outcome(await replay(`/wardrobe/${tee}/washed`, { day, at: at(21) })),
+      ).toEqual([204, 'changed']);
+      expect(
+        outcome(
+          await replay(`/wardrobe/${tee}/wear`, { worn: '1', day, at: at(8) }),
+        ),
+      ).toEqual([204, 'changed']);
+      expect(await sinceWash(tee)).toBe(0);
+      const [row] = await t.db
+        .select({ washedAt: garment.washedAt })
+        .from(garment)
+        .where(eq(garment.id, tee));
+      expect(row.washedAt?.toISOString()).toBe(at(21));
+    });
   });
 
   it('replays an entry worn, twice as once, and its undo', async () => {

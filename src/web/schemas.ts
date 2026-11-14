@@ -23,6 +23,13 @@ export const RowId = Type.Integer({ minimum: 1, maximum: ROW_ID_MAX });
 export const IsoDateSchema = Type.String({ format: 'date' });
 
 /**
+ * A wear's or wash's instant as its tap posts it (#676: the outbox's `at`,
+ * an API client's): ajv-formats' date-time, with its offset. Judged by
+ * instantOnDay (src/offline-writes.ts) before it is stored.
+ */
+export const TapInstantSchema = Type.String({ format: 'date-time' });
+
+/**
  * `?ownerId=`: the wardrobe a request addresses, the requester's own when
  * absent or empty (the pages only add it for a shared wardrobe). Anything
  * else is a 400: it names whose data to read.

@@ -1,4 +1,4 @@
-import { addDays, type IsoDate } from './calendar-date';
+import { addDays, type IsoDate, todayIn } from './calendar-date';
 
 /**
  * The writes the installed app queues while offline and replays on
@@ -111,9 +111,35 @@ export function isReplayRequest(
   return headers[REPLAY_HEADER.toLowerCase()] !== undefined;
 }
 
-/** The kinds whose record posts the tap's `day` (todayIn APP_TIMEZONE). */
+/**
+ * The kinds whose record posts the tap's `day` (todayIn APP_TIMEZONE) and
+ * its instant (`at`, ISO), so a replay orders a same-day wear and wash by
+ * when they were tapped, not replayed (#676; instantOnDay judges it).
+ */
 export function takesDay(kind: QueueableKind): boolean {
   return kind === 'wear' || kind === 'wash';
+}
+
+/**
+ * The instant a wear or wash is stored with (garment_wear.worn_at,
+ * garment.washed_at; #676): the posted one (the tap's), else now, never
+ * after the server's now (a fast client clock), and null unless it falls
+ * on `day` in `timeZone`. Null is the day rule: a wear that day counts as
+ * before the wash. Outside the day it is dropped, never clamped to the
+ * day's edge: a wrong clock or a mark made after the day (a calendar
+ * "Worn?" for yesterday), and clamping to the day's start would invent a
+ * morning wash that counts every wear of the day. Membership is todayIn's,
+ * so a DST day needs no midnight arithmetic. A slow client clock is not
+ * caught: its instant is earlier than the tap, and can misorder.
+ */
+export function instantOnDay(
+  posted: Date | undefined,
+  day: IsoDate,
+  now: Date,
+  timeZone: string,
+): Date | null {
+  const at = posted === undefined || posted > now ? now : posted;
+  return todayIn(timeZone, at) === day ? at : null;
 }
 
 /** The packing ticks: a record per item, posting `shown` and `packed`. */

@@ -63,19 +63,48 @@ export function washLimit(
   return washAfterWears ?? defaultWashAfter(category);
 }
 
+/** A wear as the wash rule reads it: its day and, when known, its instant. */
+export interface WearInstant {
+  /** 'YYYY-MM-DD', APP_TIMEZONE's date. */
+  day: string;
+  /** garment_wear.worn_at in ms; null when not known on its day. */
+  wornAt: number | null;
+}
+
+/** The last wash: garment.last_washed_on and, when known, washed_at. */
+export interface LastWash {
+  day: string;
+  /** garment.washed_at in ms; null is "some time that day". */
+  washedAt: number | null;
+}
+
 /**
- * Wears since the last wash: distinct days after `lastWashedOn` (every
- * day when it was never washed). Two entries on one day are one wear, and
- * a wear on the wash day counts as before it: you wash what you wore.
- * Days are 'YYYY-MM-DD', which compare as dates.
+ * Wears since the last wash: distinct days after the wash's day (every day
+ * when it was never washed), plus the wash day itself when one of its wears
+ * is known to be after the wash (#676: washed in the morning, worn that
+ * evening). Without both instants a wear on the wash day counts as before
+ * it: you wash what you wore. Two entries on one day are one wear. Days are
+ * 'YYYY-MM-DD', which compare as dates. The SQL twin is wearsSinceWashSql
+ * (src/web/wears/queries.ts); test/support/wash-cases.ts holds both to one
+ * table.
  */
 export function wearsSinceWash(
-  days: readonly string[],
-  lastWashedOn: string | null,
+  wears: readonly WearInstant[],
+  lastWash: LastWash | null,
 ): number {
   return new Set(
-    days.filter((day) => lastWashedOn === null || day > lastWashedOn),
+    wears.filter((wear) => wornSinceWash(wear, lastWash)).map((w) => w.day),
   ).size;
+}
+
+function wornSinceWash(wear: WearInstant, lastWash: LastWash | null): boolean {
+  if (lastWash === null || wear.day > lastWash.day) return true;
+  return (
+    wear.day === lastWash.day &&
+    wear.wornAt !== null &&
+    lastWash.washedAt !== null &&
+    wear.wornAt > lastWash.washedAt
+  );
 }
 
 export interface WashState {
