@@ -5,6 +5,7 @@ import {
   type GarmentColor,
   INSPIRATION_PIECE_ROLES,
   type InspirationPieceRole,
+  OTHER_TYPE,
   PATTERNS,
   pieceCategory,
   typesOf,
@@ -34,10 +35,13 @@ export function pieceKindValue({ role, type }: PieceKind): string {
  * A role's garment types (its category's): what a piece of it may be read
  * as. The JSON surfaces take role and type apart (MCP's
  * set_inspiration_pieces, the API's pieces), so each refuses a type of
- * another role with these named.
+ * another role with these named. Never "Other" (#685): a piece read as no
+ * listed type is the role alone, and two "other"s are not alike.
  */
 export function typesOfRole(role: InspirationPieceRole): string[] {
-  return typesOf(pieceCategory(role)).map(({ value }) => value);
+  return typesOf(pieceCategory(role))
+    .map(({ value }) => value)
+    .filter((value) => value !== OTHER_TYPE);
 }
 
 /** Every kind, in the select's order: each role, its types after it. */

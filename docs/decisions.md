@@ -912,6 +912,12 @@ Consequence: thresholds came from the real days, not from tuning; a new real-wor
 **Decision:** `week_plan_entry.limbs_ceiling` (nullable smallint, migration 0054) keeps it; `replanWeek` counts legs/feet too-warm only when the ceiling now is below the stored one (and the outfit is too warm now), so the cause is always a fallen ceiling ("warmer"). Null (older rows) is never judged on limbs; a kept or swapped entry records the new ceiling. Supersedes the interim rule above (no stored column).
 **Consequence:** a new stored target goes in `PlannedNeeds`, the table and `needsColumns` together.
 
+## 2026-11-13 — Everyday types are never drawn; "no type applies" is the type `other` (#685)
+
+**Why:** the demo's socks could not be typed (no honest choice among the accessories), so "1 garment needs details" never cleared; a real closet's socks, underwear, swimwear and sleepwear were stuck the same way.
+**Decision:** `socks`, `underwear` (accessories), `swimwear`, `sleepwear` (tops, bottoms, dresses) carry `drawn: false` (`GarmentType`, `isDrawnType`): the generator's `drawableByRole` skips them, so no idea, plan or Shuffle draws one; a locked one still rides along. `sports-top` and `running-shorts` are ordinary drawn types until #647's purpose. "No type applies" is a stored type, `OTHER_TYPE` ("Other", no presets), offered only by the categories whose list cannot be complete (accessories, bags, footwear, outerwear, dresses): no column, and tagging's `needsTags` needed no change. Tops and bottoms always have a closest type (it brings the sleeve and length the weather reads). Migration 0055 widens the four type checks.
+**Consequence:** a new undrawn type sets `drawn: false`; a look's piece never takes `other` (`typesOfRole`), and the art draws `other` from the name or category.
+
 ## 2026-11-13 — Rain is the umbrella's in the heat or with a rain accessory (#648)
 
 **Why:** rain demanded a water-resistant layer, footwear or accessory, but accessories are never drawn and the demo's only water-resistant shoes are boots, so at 30 °C every rainy idea wore the one rain shell over the one top light enough for it; on 2025-07-14 (Central Park, ERA5) no idea fit at all.

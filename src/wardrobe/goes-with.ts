@@ -7,7 +7,7 @@ import {
 } from './generator';
 import { brandKey } from './brands';
 import type { OutfitRule } from './outfit-rules';
-import type { GarmentColor, GarmentRole } from './properties';
+import { type GarmentColor, type GarmentRole, isDrawnType } from './properties';
 
 /**
  * "Goes with my closet" (#18b; docs/plans/2026-09-26-wardrobe-features.md,
@@ -80,7 +80,7 @@ interface PartnerRole<G> {
   role: GarmentRole;
   /** Closet garments of the role that make an outfit with the item. */
   goes: number;
-  /** Closet garments of the role. */
+  /** Closet garments of the role an outfit may hold (not swim trunks: isDrawnType). */
   of: number;
   /** The best PARTNERS_PER_ROLE: at the item's formality, in the most outfits. */
   best: Partner<G>[];
@@ -168,7 +168,9 @@ export function goesWith<G extends IdeaGarment>(
   const asksLayers = request.item.role !== 'layer';
   const layers = asksLayers ? layerChecks(request) : [];
   const roles = OUTFIT_ORDER.flatMap((role): PartnerRole<G>[] => {
-    const of = request.closet.filter((g) => g.role === role).length;
+    const of = request.closet.filter(
+      (g) => g.role === role && isDrawnType(g.category, g.type),
+    ).length;
     const layerRole = role === 'layer' && asksLayers;
     const going = layerRole
       ? layers
