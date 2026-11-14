@@ -13,6 +13,7 @@ import {
   MIGRATIONS_FOLDER,
   requireCurrentSchema,
   runMigrations,
+  SchemaAheadError,
   SchemaBehindError,
 } from '../../src/db/migrate';
 import {
@@ -31,7 +32,8 @@ import { silentLogger } from './logger';
 /**
  * src/db/migrate.ts on the three kinds of database it meets: one built by the
  * legacy MikroORM migrations (production's), one that stopped short of them,
- * and a fresh one; plus two runners racing on the same database. The app
+ * and a fresh one; one ahead of the build (a rollback, #651); plus two
+ * runners racing on the same database. The app
  * boots once, on the legacy database (one app per spec file); the other
  * cases call the runner directly, which is all the boot does with it.
  */
@@ -87,6 +89,29 @@ const allRecorded = migrations.map((migration) => ({
   hash: migration.hash,
   createdAt: migration.folderMillis,
 }));
+
+/** A migration no file in drizzle/ is: what a newer build would record. */
+const UNKNOWN_AT = migrations[migrations.length - 1].folderMillis + 1;
+
+async function recordUnknownMigration(env: Record<string, string>) {
+  await withClient(env, (client) =>
+    client.query(
+      'insert into drizzle.__drizzle_migrations (hash, created_at) values ($1, $2)',
+      ['unknown', UNKNOWN_AT],
+    ),
+  );
+}
+
+// The operator's rollback (docs/operations.md#migrations-and-rollback):
+// after the down script, the newer build's rows go.
+async function forgetUnknownMigration(env: Record<string, string>) {
+  await withClient(env, (client) =>
+    client.query(
+      'delete from drizzle.__drizzle_migrations where created_at = $1',
+      [UNKNOWN_AT],
+    ),
+  );
+}
 
 it('knows the newest legacy migration', () => {
   expect(legacyMigrationNames().at(-1)).toBe(LAST_LEGACY_MIGRATION);
@@ -154,6 +179,67 @@ describe('a database built by the legacy MikroORM migrations', () => {
     expect(logs.messages('info')).toEqual([
       `Schema up to date (${migrations.length} Drizzle migrations recorded)`,
     ]);
+  });
+
+  // A newer build migrating the database under this running one.
+  it('is not ready once the database is ahead of it', async () => {
+    await recordUnknownMigration(databaseEnv);
+    try {
+      const res = await t.inject({ method: 'GET', url: '/health/ready' });
+      expect(res.statusCode).toBe(503);
+      expect(res.json().checks.migrations).toEqual({
+        status: 'down',
+        required: true,
+        schema: 'ahead',
+        fix: 'see docs/operations.md#migrations-and-rollback',
+      });
+    } finally {
+      await forgetUnknownMigration(databaseEnv);
+    }
+  });
+});
+
+describe('a database ahead of this build (an older image rolled back onto it)', () => {
+  let database: ScratchDatabase;
+
+  beforeAll(async () => {
+    database = await createScratchDatabase('closet_it', { migrated: true });
+    await recordUnknownMigration(database.env);
+  });
+
+  afterAll(() => database?.drop());
+
+  it('refuses the boot, naming the newest migration', async () => {
+    const boot = createTestApp(
+      {},
+      { migrated: true, beforeBoot: recordUnknownMigration },
+    );
+    await expect(boot).rejects.toBeInstanceOf(SchemaAheadError);
+    await expect(boot).rejects.toThrow(
+      `The database's newest migration (journal when ${UNKNOWN_AT}, generated ${new Date(UNKNOWN_AT).toISOString()}) is not in this build`,
+    );
+  });
+
+  it('writes nothing when it refuses', async () => {
+    const run = runMigrations(configOf(database.env), silentLogger);
+    await expect(run).rejects.toMatchObject({
+      name: 'SchemaAheadError',
+      newestAt: UNKNOWN_AT,
+    });
+    expect(await drizzleRows(database.env)).toEqual([
+      ...allRecorded,
+      { hash: 'unknown', createdAt: UNKNOWN_AT },
+    ]);
+  });
+
+  it('is refused by the CLIs until the rollback forgets the newer rows', async () => {
+    await expect(
+      requireCurrentSchema(configOf(database.env)),
+    ).rejects.toBeInstanceOf(SchemaAheadError);
+    await forgetUnknownMigration(database.env);
+    await expect(
+      requireCurrentSchema(configOf(database.env)),
+    ).resolves.toBeUndefined();
   });
 });
 

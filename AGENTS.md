@@ -164,7 +164,7 @@ In full: `docs/conventions.md`, `docs/web-layer.md#client-behavior`.
 
 ### Changing the schema
 
-`src/db/schema.ts` is the schema; `drizzle/` holds the migrations drizzle-kit generates from it. The server migrates on every boot (`createApp()`, before the pool opens and before anything queries), so a deploy is the migration. The CLIs never migrate: `requireCurrentSchema` refuses a database behind the build (`SchemaBehindError`, exit 1).
+`src/db/schema.ts` is the schema; `drizzle/` holds the migrations drizzle-kit generates from it. The server migrates on every boot (`createApp()`, before the pool opens and before anything queries), so a deploy is the migration. The CLIs never migrate: `requireCurrentSchema` refuses a database behind the build (`SchemaBehindError`, exit 1) or ahead of it (`SchemaAheadError`, which the boot refuses too: `docs/operations.md#migrations-and-rollback`).
 
 1. Edit `src/db/schema.ts`. Names follow the existing ones (`<table>_<column>_index`, `_unique`, `_foreign`; a composite lists its columns in order). Every foreign key column gets an `index()` or leads a composite index or unique constraint: Postgres does not index them on its own.
 2. `npx drizzle-kit generate --name <what-changed>` writes `drizzle/NNNN_<name>.sql` and its snapshot. Read the SQL: a rename makes it prompt (run it in a terminal); data fixes (backfills, deletes before `SET NOT NULL`) are hand-added to the file. Every migration starts with `SET LOCAL lock_timeout = '5s';` and a breakpoint (see 0051); `src/db/migration-lock-timeout.spec.ts` fails without it from 0051 on.

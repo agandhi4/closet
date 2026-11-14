@@ -5,7 +5,11 @@ import {
   dbConfig,
   MAINTENANCE_TIMEOUTS,
 } from '../db/client';
-import { requireCurrentSchema, SchemaBehindError } from '../db/migrate';
+import {
+  requireCurrentSchema,
+  SchemaAheadError,
+  SchemaBehindError,
+} from '../db/migrate';
 import { createBootLogger, createLogger, type Logger } from '../logger';
 import { configurePasswordHashing } from '../web/auth/passwords';
 import { StorageIdentityError } from '../web/files/storage-identity';
@@ -90,6 +94,7 @@ export function runCli(
       if (
         error instanceof ConfigError ||
         error instanceof SchemaBehindError ||
+        error instanceof SchemaAheadError ||
         error instanceof StorageIdentityError
       ) {
         boot.fatal(`${name}: ${error.message}`);

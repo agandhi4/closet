@@ -3,7 +3,7 @@ import type {
   FastifyReply,
   FastifyRequest,
 } from 'fastify';
-import { lastMigrationAt, newestMigrationAt } from '../../db/migrate';
+import { buildMigrationTimes, lastMigrationAt } from '../../db/migrate';
 import { probeWritable, storageFix } from '../../storage-probe';
 import { identityRefusal, STORAGE_MARKER_FIX } from '../files/storage-identity';
 import type { WebOptions } from '../plugin';
@@ -38,7 +38,7 @@ export const healthRoutes: FastifyPluginCallback<WebOptions> = (
 ) => {
   const log = logger.child({ logger: 'Health' });
   // Once: it reads (and hashes) every migration file.
-  const buildSchemaAt = newestMigrationAt();
+  const buildMigrations = buildMigrationTimes();
   const limit = app.createRateLimit(HEALTH_LIMIT);
   const storage = createStorageCheck({
     directories: config.storageDirs,
@@ -64,7 +64,7 @@ export const healthRoutes: FastifyPluginCallback<WebOptions> = (
   const ready = async (request: FastifyRequest, reply: FastifyReply) => {
     await enforceLimit(limit, request, { logger: log, who: request.ip });
     const body = readiness(config.release, {
-      ...(await checkDatabase(() => lastMigrationAt(db), buildSchemaAt, log)),
+      ...(await checkDatabase(() => lastMigrationAt(db), buildMigrations, log)),
       storage: await storage(),
       cron_jobs: checkJobs(jobs.stuck()),
       cutout_queue: checkCutoutQueue(cutouts.state),
