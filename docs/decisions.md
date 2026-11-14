@@ -959,6 +959,7 @@ Consequence: a server-only deploy keeps every `?v=` and the precache. The releas
 **Why:** every page rendered its own empty state with its normal primary action, so a new account's Today, Calendar and Styling led with "Plan my week" and "Include picks" over an empty closet.
 **Decision:** `canProduceOutfit(roles)` (`src/wardrobe/properties.ts`: a top and a bottom, or a dress, the generator's base templates) is the one gate. Today, the calendar week and Styling's strips each fold `closetKindsSql` into the statement they already send (`closetCanDress`); no page counts garments itself, and Styling judges the closet, not the capsule shown. Today's first-run path opens Wardrobe's own `AddSheet` in place rather than linking to `/wardrobe?add=`, so the Wardrobe tab root stays byte-stable. A photoless garment draws its role's silhouette (`GarmentSilhouette`, `parts.tsx`); the hanger is the dock's.
 **Consequence:** an established Today stays at 3 statements (2 dressed); a first-run Today is 2, as no idea is drawn. A new surface that plans or suggests hides behind `canProduceOutfit` too.
+
 ## 2026-11-14 — A bar above the dock that must not cover content is sticky, not fixed (#664)
 
 **Why:** Styling's phone bar grew from Shuffle and Save to the outfit's strip and the fit chips (they wrap, and the strip opens), so a fixed bar's guessed page padding (`pb-40`) could no longer promise the last row stays uncovered.
@@ -982,12 +983,17 @@ Consequence: a server-only deploy keeps every `?v=` and the precache. The releas
 **Why:** `refreshed-at` was written only when no key failed, so one page answering 500 made every `WARM_PAGES` rescan `pages-v2` and refetch it; the per-build precache (#742) stopped matching `/favicon.ico?v=` and answered fonts only from the active build's precache.
 **Decision:** a failed key gets a `RefreshBackoff` record beside it (5 min doubling to a day, reset by any other answer or a later activation, whose `activated-at` it carries); `refreshed-at` is JSON `{ at, retryAt }`, written once every key was asked or is backing off, and due again at `retryAt` (`refreshDue`, `page-cache.ts`). The PrecacheRoute strips `v` only outside the versioned roots (`unversionedPrecacheVariants`); `/vendor/fonts/` without `?v=` is answered from the own precache, then the latest-activated other (`answerContentHashed`).
 **Consequence:** a failing page is asked at most on its backoff, never per load; a versioned root's `?v=X` still never meets another build's bytes. A new content-hashed path joins `isContentHashed`.
-
 ## 2026-11-14 — The keyword is a word-start AND-search, keys resolved from labels (#673)
 
 **Why:** one literal phrase over name, brand and notes found "navy blazer" but not "blazer navy", nothing for "blue shirt" (colour and type are keys) or "jcrew", and a blazer for "tee" through its notes; Muse's `search_garments` inherited it.
 **Decision:** every whitespace word must start a word (punctuation folded on both sides) of the name, brand, notes or category, or of a colour's or type's label; labels resolve to keys in TypeScript before the query (`keyword-search.ts`), so the catalog stays their one source. Word-start, not substring: "shirt" must not find T-shirts or sweatshirts. A notes-only match ranks after the rest (`keywordRank`), newest first within each rank, keyset-paged on `(rank, id)`, the rank carried in the cursor (`grid-cursor.ts`; rank 0 is still the bare id, so unranked cursors and cached pages read as before). The first cut read the cursor's rank from the row its id named, unscoped: any wardrobe's garment, so the page answered whether a stranger's private text held the keyword (#784 review, P1). The fold is one fixed punctuation set (`FOLDED_PUNCTUATION`) and `pg_unicode_fast` lowering, never a locale-dependent class. No index or folded column at household size.
 **Consequence:** the grid, `GET /api/v1/garments` and `search_garments` share `gridWhere` and `gridOrder` (queries.ts); a new searchable field joins `strongMatch`, and a new sort order still needs its own cursor. A substring inside a word ("ford" for "oxford") no longer matches.
+
+## 2026-11-14 — The filter sheet chips are real inputs; Type shows with the category, by CSS (#674)
+
+**Why:** `Choice` was a `display:none` radio under a badge: no tab stop, no role or state for VoiceOver, no way to clear one value, and Type only after Apply.
+**Decision:** `Chips` (`form-field.tsx`, shared with the garment form) is the one chip: radio `input.btn` + `aria-label`, and a "× Clear" radio (value empty) while a value is chosen, so a single choice clears alone and stays a native radio group (a checkbox toggle would change the form semantics and the arrow-key model). Every category type group is rendered and revealed with `group-has-[...:checked]/filter:block`, no script. Guard `@hidden-control` refuses `class="hidden"` on a form control in `src/web`, except the password manager username twin and the share page file input.
+**Consequence:** a new built-in category needs a `TYPE_GROUP_REVEAL` entry (the Record type enforces it). The clear chip appears for an applied value only, not one just picked in the open sheet.
 
 ## 2026-11-14 — Link import says how much it read: `confidence` (#675)
 
