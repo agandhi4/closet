@@ -50,11 +50,11 @@ import {
   removeUnheldOutfits,
   readWindowEntries,
   weekPlanOf,
-  windowEntries,
   windowEntriesSql,
 } from './queries';
+import { type AwayTrip, awayTripsSql, splitAwayDays } from '../trips/away';
 import { BY_PERSON } from '../write-origin';
-import { findWeekTemplate } from './template';
+import { inTemplateOrder, weekTemplateSql } from './template';
 
 /**
  * "Plan my week" (#16; plan section 12): the week planner
@@ -161,6 +161,8 @@ export interface WeekPlanResult {
   planned: PlannedEntry[];
   /** Empty slots nothing could fill (nothing clean left for them). */
   unfilled: Slot[];
+  /** The days asked that a trip covers (#684): nothing is planned at home on them. */
+  away: IsoDate[];
 }
 
 export interface PlanWeekInput {
@@ -202,32 +204,37 @@ export async function planMyWeekNow(
   return { today, forecast, result };
 }
 
-/** Fills the week's empty template slots, once (see the module comment). */
+/**
+ * Fills the week's empty template slots, once (see the module comment),
+ * leaving out the days a trip covers (#684: they are planned on the trip).
+ */
 export function planMyWeek(
   db: Queryable,
   ownerId: number,
   input: PlanWeekInput,
 ): Promise<WeekPlanResult> {
   return ownerTransaction(db, ownerId, 'planMyWeek', async (tx) => {
-    const template = await findWeekTemplate(tx, ownerId);
-    if (template.length === 0) {
-      return {
-        templateSet: false,
-        weekPlanId: null,
-        planned: [],
-        unfilled: [],
-      };
-    }
-    const { today, hour, days } = input;
-    const entries = await windowEntries(tx, ownerId, today, days.at(-1)!);
+    const { today, hour } = input;
+    const asked = { first: input.days[0], last: input.days.at(-1)! };
+    // One statement after the lock: the template, the window's entries and
+    // its trips (the trip writers take the owner lock too, so a trip saved
+    // meanwhile is seen).
+    const row = await selectScalars(tx, {
+      template: weekTemplateSql(ownerId),
+      entries: windowEntriesSql(ownerId, today, asked.last),
+      trips: awayTripsSql(ownerId, asked.first, asked.last),
+    });
+    const template = inTemplateOrder(row.template);
+    const { home: days, away } = splitAwayDays(input.days, row.trips);
+    const nothing = { weekPlanId: null, planned: [], unfilled: [], away };
+    if (template.length === 0) return { templateSet: false, ...nothing };
+    const entries = readWindowEntries(row.entries);
     // Every slot filled already (a double tap, a retried plan_week, a week
-    // planned by hand): nothing to plan, so neither the pool nor the
-    // generator's memory is read (#165: two round trips). planWeek plans
-    // exactly these slots.
+    // planned by hand, a week away): nothing to plan, so neither the pool
+    // nor the generator's memory is read (#165: two round trips). planWeek
+    // plans exactly these slots.
     const empty = emptySlots({ today, hour, days, template, entries });
-    if (empty.length === 0) {
-      return { templateSet: true, weekPlanId: null, planned: [], unfilled: [] };
-    }
+    if (empty.length === 0) return { templateSet: true, ...nothing };
     const plan = planWeek({
       today,
       entries,
@@ -244,6 +251,7 @@ export function planMyWeek(
       weekPlanId: null,
       planned: [],
       unfilled: plan.unfilled,
+      away,
     };
     if (plan.planned.length === 0) return result;
     const weekPlanId = await createWeekPlan(tx, ownerId);
@@ -418,6 +426,8 @@ export interface PlannedBanner {
    * when no empty slot is active.
    */
   activewearGap: ActivewearGap | undefined;
+  /** The next 7 days a trip covers (#684): skipped, not empty. */
+  away: IsoDate[];
 }
 
 /**
@@ -437,14 +447,17 @@ export function plannedBanner(
     window: readonly Pick<WeekEntry, 'day' | 'occasion'>[];
     /** The closet's kinds (closetKindsSql), read for the banner. */
     closetKinds: readonly ClosetKind[];
+    /** The trips with a day in the next 7 (awayTripsSql). */
+    trips: readonly AwayTrip[];
   },
   now: { today: IsoDate; hour: number },
 ): PlannedBanner | undefined {
   if (planned !== 'none' && reads.batch.length === 0) return undefined;
+  const { home, away } = splitAwayDays(planDays(now.today), reads.trips);
   const stillEmpty = emptySlots({
     today: now.today,
     hour: now.hour,
-    days: planDays(now.today),
+    days: home,
     template: reads.template,
     entries: reads.window,
   });
@@ -463,5 +476,6 @@ export function plannedBanner(
       (lacksActivewear(active, reads.closetKinds)
         ? 'no-activewear'
         : 'none-available'),
+    away,
   };
 }

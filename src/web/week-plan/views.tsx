@@ -121,6 +121,13 @@ export function PlannedWeekBanner({
           })}
         </p>
       )}
+      {banner.away.length > 0 && (
+        <p class="text-sm" data-away-skipped>
+          {t('weekPlan.AWAY_SKIPPED', {
+            days: banner.away.map((day) => dayLabel(day)).join(', '),
+          })}
+        </p>
+      )}
       {/* An empty workout may be the closet's: the planner never dresses one
           in everyday wear (#647). */}
       {banner.activewearGap && (

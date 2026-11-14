@@ -184,14 +184,15 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       }
       const shown = weekOf(anchor ?? today);
       const planned = parsePlanned(request.query.planned);
-      const { entries, looks, template, banner, canDress } = await weekContext(
-        db,
-        ownerId,
-        { ...shown, today },
-        planned === undefined
-          ? undefined
-          : { planned, today, hour: hourIn(config.timeZone, new Date()) },
-      );
+      const { entries, looks, template, banner, canDress, trips } =
+        await weekContext(
+          db,
+          ownerId,
+          { ...shown, today },
+          planned === undefined
+            ? undefined
+            : { planned, today, hour: hourIn(config.timeZone, new Date()) },
+        );
       const undone = request.query.undone;
       const view = buildCalendarView({
         weekStart: shown.start,
@@ -199,6 +200,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         entries,
         looks,
         template,
+        trips,
       });
       return renderPage(
         reply,

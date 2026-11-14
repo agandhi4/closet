@@ -10,6 +10,7 @@ import {
 import { type IsoDate, todayIn } from '../../calendar-date';
 import type { CalendarEntry } from '../calendar/calendar-view';
 import { entriesSql } from '../calendar/queries';
+import { type AwayTrip, awayTripsSql } from '../trips/away';
 import { dailySeed, ideasFor, type IdeasWeather } from '../gallery/ideas';
 import {
   closetCanDress,
@@ -105,6 +106,8 @@ export interface TodayModel {
   round?: MuseRound | null;
   /** The first-run path's stage; null once the closet can be dressed; read only when asked (`firstRun`). */
   firstRun?: FirstRun | null;
+  /** The trips today is a day of (#684): the page says "Away". */
+  away: AwayTrip[];
 }
 
 export interface TodayOptions {
@@ -153,6 +156,7 @@ async function readDay(
     needs: needs ? needsToDecideSql(ownerId) : undefined,
     round: needs ? museRoundSql(ownerId) : undefined,
     closet: firstRun ? closetKindsSql(ownerId) : undefined,
+    away: awayTripsSql(ownerId, today, today),
   });
   const weather =
     ownWeather ??
@@ -169,6 +173,7 @@ async function readDay(
     needs: read.needs,
     round: read.round,
     closet: read.closet,
+    away: read.away,
   };
 }
 
@@ -179,7 +184,7 @@ export async function todayFor(
   options: TodayOptions = {},
 ): Promise<TodayModel> {
   const today = todayIn(deps.timeZone, now);
-  const { entries, weather, worn, needs, round, closet } = await readDay(
+  const { entries, weather, worn, needs, round, closet, away } = await readDay(
     deps,
     ownerId,
     today,
@@ -218,6 +223,7 @@ export async function todayFor(
     needs,
     round,
     firstRun,
+    away,
   };
 }
 
