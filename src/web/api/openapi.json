@@ -20099,6 +20099,12 @@
                         {
                           "type": "string",
                           "enum": [
+                            "redirect-not-followed"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
                             "http-status"
                           ]
                         },

@@ -11,6 +11,7 @@ import type { Logger } from '../../../logger';
 import type { RateLimitChecker } from '../../security/rate-limit';
 import {
   type FetchedResource,
+  type FetchRequest,
   type OutboundFetcher,
   OutboundFetchError,
   type OutboundFetchRefusal,
@@ -98,6 +99,12 @@ export const REFUSALS: Readonly<
   'host-not-allowed': { message: 'linkImport.BLOCKED_ADDRESS', status: 400 },
   unresolvable: { message: 'linkImport.UNRESOLVABLE', status: 400 },
   'too-many-redirects': {
+    message: 'linkImport.TOO_MANY_REDIRECTS',
+    status: 502,
+  },
+  // The rule of fetches that pass `mayFollow` (the order mail's poll); a
+  // link import passes none, so it never meets it.
+  'redirect-not-followed': {
     message: 'linkImport.TOO_MANY_REDIRECTS',
     status: 502,
   },
@@ -194,14 +201,16 @@ export async function importLink(
  * the outbound fetcher, extractProduct), with where it ended after
  * redirects; nothing fetched past the page, nothing stored. The order
  * mail's poll (#25, ../order-mail/poll.ts) reads each link of an order
- * email so; "Add to closet" then runs importLink on the one it keeps.
+ * email so, passing `mayFollow` (#698: its product-link rule, every
+ * redirect); "Add to closet" then runs importLink on the one it keeps.
  * Throws OutboundFetchError (logged by the fetcher) for a refusal.
  */
 export async function readProductPage(
   fetcher: OutboundFetcher,
   url: string,
+  mayFollow?: FetchRequest['mayFollow'],
 ): Promise<{ product: ExtractedProduct; url: URL }> {
-  const resource = await fetcher.fetch(url, { accept: ['html'] });
+  const resource = await fetcher.fetch(url, { accept: ['html'], mayFollow });
   return {
     product: extractProduct(pageText(resource), resource.url),
     url: resource.url,

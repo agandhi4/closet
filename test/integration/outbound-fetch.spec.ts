@@ -651,6 +651,51 @@ describe('outbound fetch (SSRF guard)', () => {
       expect(api.hits).toHaveLength(2);
     });
 
+    it("asks a fetch's mayFollow of every hop after the first, before resolving it (#698)", async () => {
+      const elsewhere = await serve(
+        PUBLIC_IP,
+        html('<title>Cancelled</title>'),
+      );
+      const shop = await serve(PUBLIC_IP, (req, res) => {
+        const to =
+          req.url === '/click'
+            ? '/products/tee'
+            : `http://elsewhere.test:${elsewhere.port}/account/cancel`;
+        res.writeHead(302, { location: to });
+        res.end();
+      });
+      const { resolve, calls } = scriptedResolver({
+        'shop.test': PUBLIC_IP,
+        'elsewhere.test': PUBLIC_IP,
+      });
+      const fetcher = createOutboundFetcher({
+        logger: captureLogs().logger,
+        resolve,
+        destinations: TEST_INTERNET,
+      });
+      const asked: string[] = [];
+      const mayFollow = (url: URL) => {
+        asked.push(url.pathname);
+        return url.pathname.startsWith('/products/');
+      };
+
+      const refused = await expectRefused(
+        fetcher.fetch(`http://shop.test:${shop.port}/click`, {
+          accept: ['html'],
+          mayFollow,
+        }),
+        'redirect-not-followed',
+      );
+      expect(refused.status).toBe(302);
+      expect(asked).toEqual(['/products/tee', '/account/cancel']);
+      expect(shop.hits.map((hit) => hit.path)).toEqual([
+        '/click',
+        '/products/tee',
+      ]);
+      expect(calls).not.toContain('elsewhere.test');
+      expect(elsewhere.hits).toEqual([]);
+    });
+
     it('refuses a redirect to another scheme', async () => {
       const shop = await serve(PUBLIC_IP, (_req, res) => {
         res.writeHead(301, { location: 'file:///etc/passwd' });

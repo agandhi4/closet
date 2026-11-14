@@ -38,7 +38,9 @@ import { isPublicAddress } from './public-address';
  *   certificate against the name, which is the SNI, and Host (h2's
  *   `:authority`) is the name. ALPN picks HTTP/2 or HTTP/1.1 on that one
  *   socket (#496b); either way one request per connection, never pooled;
- * - follows at most MAX_REDIRECTS redirects, each checked like the first;
+ * - follows at most MAX_REDIRECTS redirects, each checked like the first
+ *   and, when the request names `mayFollow`, judged by it before it is
+ *   resolved; a meta-refresh or a script's redirect is a body, never followed;
  * - is bounded as a whole by one timeout (DNS, connects, redirects, body);
  * - reads the body only for a content type the caller accepts, and stops
  *   reading the moment the decoded bytes pass the cap for that type: an
@@ -117,6 +119,7 @@ export type OutboundFetchRefusal =
   | 'unresolvable'
   | 'blocked-address'
   | 'too-many-redirects'
+  | 'redirect-not-followed'
   | 'http-status'
   | 'blocked-by-site'
   | 'unexpected-content-type'
@@ -128,7 +131,10 @@ export class OutboundFetchError extends Error {
   constructor(
     readonly reason: OutboundFetchRefusal,
     message: string,
-    /** The final response's status, for `http-status` and `blocked-by-site`. */
+    /**
+     * The final response's status, for `http-status` and `blocked-by-site`;
+     * the refused redirect's, for `redirect-not-followed`.
+     */
     readonly status?: number,
   ) {
     super(message);
@@ -156,6 +162,13 @@ export interface FetchRequest {
    * follows no redirect either (a redirected POST would drop or resend it).
    */
   json?: unknown;
+  /**
+   * Whether a redirect's target may be requested, asked of every hop after
+   * the first before it is resolved; false is a `redirect-not-followed`
+   * refusal, so the target is never dialed. The order mail's poll (#698)
+   * passes its product-link rule; link import passes none.
+   */
+  mayFollow?: (url: URL) => boolean;
 }
 
 export interface FetchedResource {
@@ -399,6 +412,13 @@ export function createOutboundFetcher(
         }
         url = parseUrl(location, url);
         trail.hosts.push(url.hostname);
+        if (request.mayFollow && !request.mayFollow(url)) {
+          throw new OutboundFetchError(
+            'redirect-not-followed',
+            `A redirect (${status}) this fetch does not follow`,
+            status,
+          );
+        }
         continue;
       }
       return {

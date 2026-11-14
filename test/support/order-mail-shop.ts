@@ -62,7 +62,7 @@ const ORDER_TRACKER =
 export async function serveForwardedOrder(
   sites: LinkSites,
 ): Promise<StubEmail> {
-  const shop = sites.url('');
+  const shop = sites.secureUrl('');
   const forwarded = JSON.parse(
     (await readFile(FIXTURE, 'utf8'))
       .replaceAll('{{SHOP_ENCODED}}', encodeURIComponent(shop))
@@ -76,7 +76,7 @@ export async function serveForwardedOrder(
     type: 'text/plain',
     body: '',
     headers: {
-      location: sites.url(
+      location: sites.secureUrl(
         '/products/relaxed-linen-shirt?utm_source=email&utm_medium=order&variant=sage#reviews',
       ),
     },

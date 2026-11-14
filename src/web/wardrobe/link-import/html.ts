@@ -1,9 +1,8 @@
 /**
  * The parts of an HTML document the link import reads: `<title>`, `<meta>`
- * tags, `<base href>` and JSON-LD scripts; and the links (`<a href>`) the
- * order mail reads in an email's body (#25, ../order-mail/links.ts). Not an
- * HTML parser: one linear
- * pass over the tags that skips comments and the bodies of script, style
+ * tags, `<base href>` and JSON-LD scripts; and the links (`<a href>` with
+ * the anchor's text) the order mail reads in an email's body (#25,
+ * ../order-mail/links.ts). Not an HTML parser: one linear pass over the tags that skips comments and the bodies of script, style
  * and textarea, which is all metadata extraction needs. The input is a
  * stranger's page (at most 2 MB, outbound-fetch.ts), so nothing here may
  * backtrack or recurse on it: every search moves forward from where the
@@ -22,12 +21,30 @@ export interface DocumentMetadata {
   metas: ReadonlyMap<string, readonly string[]>;
   /** The text of each `<script type="application/ld+json">`, unparsed. */
   jsonLd: readonly string[];
-  /** Each `<a href>`, decoded and trimmed, in document order, at most MAX_HREFS. */
-  hrefs: readonly string[];
+  /** Each `<a href>` with its text, in document order, at most MAX_ANCHORS. */
+  anchors: readonly Anchor[];
+}
+
+export interface Anchor {
+  /** The href, decoded and trimmed. */
+  href: string;
+  /**
+   * The anchor's text and its images' `alt`, as plainText, read from at
+   * most ANCHOR_WINDOW characters after the tag (to its `</a>`); empty for
+   * none. The order mail judges an opaque tracker by it (#698).
+   */
+  text: string;
 }
 
 const MAX_JSON_LD_BLOCKS = 20;
-const MAX_HREFS = 200;
+const MAX_ANCHORS = 200;
+// Bounded so an anchor never closed costs a window, not the rest of the page.
+const ANCHOR_WINDOW = 2000;
+const ANCHOR_CLOSE = /<\/a[\s>]/i;
+// Linear on any input: the lookahead ends the name where it ends, so the
+// two groups never share letters to backtrack over, and `[^<>]` stops an
+// attempt at the next "<".
+const INNER_TAG = /<([a-zA-Z][a-zA-Z0-9-]*)(?![a-zA-Z0-9-])([^<>]*)>|<[^<>]*>/g;
 const TAG_NAME = /[a-zA-Z][a-zA-Z0-9-]*/y;
 const RAW_TEXT_ELEMENTS = new Set(['script', 'style', 'textarea']);
 
@@ -36,7 +53,7 @@ interface Scan {
   baseHref: string | null;
   metas: Map<string, string[]>;
   jsonLd: string[];
-  hrefs: string[];
+  anchors: Anchor[];
 }
 
 export function scanDocument(html: string): DocumentMetadata {
@@ -45,7 +62,7 @@ export function scanDocument(html: string): DocumentMetadata {
     baseHref: null,
     metas: new Map(),
     jsonLd: [],
-    hrefs: [],
+    anchors: [],
   };
   // Each step returns where the next starts, strictly further on, or -1.
   for (let pos = 0; pos >= 0 && pos < html.length; ) {
@@ -71,7 +88,11 @@ function readNextTag(html: string, pos: number, scan: Scan): number {
   if (name === 'title' || RAW_TEXT_ELEMENTS.has(name)) {
     return readText(html, name, attributes, tagEnd + 1, scan);
   }
-  readEmptyElement(name, attributes, scan);
+  if (name === 'a') {
+    readAnchor(html, attributes, tagEnd + 1, scan);
+  } else {
+    readEmptyElement(name, attributes, scan);
+  }
   return tagEnd + 1;
 }
 
@@ -84,10 +105,34 @@ function readEmptyElement(
     addMeta(scan.metas, attributes);
   } else if (name === 'base') {
     scan.baseHref ??= attributes.get('href')?.trim() ?? null;
-  } else if (name === 'a' && scan.hrefs.length < MAX_HREFS) {
-    const href = attributes.get('href');
-    if (href) scan.hrefs.push(decodeEntities(href).trim());
   }
+}
+
+/**
+ * An `<a href>` and its text. The scan goes on from the tag's end, not the
+ * anchor's, so the tags inside are read as everywhere else.
+ */
+function readAnchor(
+  html: string,
+  attributes: Map<string, string>,
+  pos: number,
+  scan: Scan,
+): void {
+  const href = attributes.get('href');
+  if (!href || scan.anchors.length === MAX_ANCHORS) return;
+  const window = html.slice(pos, pos + ANCHOR_WINDOW);
+  const close = ANCHOR_CLOSE.exec(window)?.index ?? window.length;
+  const inner = window
+    .slice(0, close)
+    .replace(INNER_TAG, (_, tag?: string, rest?: string) =>
+      tag?.toLowerCase() === 'img'
+        ? ` ${parseAttributes(rest ?? '').get('alt') ?? ''} `
+        : ' ',
+    );
+  scan.anchors.push({
+    href: decodeEntities(href).trim(),
+    text: plainText(inner) ?? '',
+  });
 }
 
 /**

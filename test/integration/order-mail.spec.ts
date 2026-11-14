@@ -143,7 +143,7 @@ describe('order email import', () => {
         {
           // Gmail's google.com/url?q= wrapper, unwrapped without a fetch;
           // a product path, so read first.
-          productUrl: sites.url('/products/merino-crew-socks'),
+          productUrl: sites.secureUrl('/products/merino-crew-socks'),
           name: 'Merino Crew Socks (3-pack)',
           brand: null,
           price: '24.00',
@@ -153,7 +153,9 @@ describe('order email import', () => {
         {
           // The tracker's redirect, followed; its campaign tags and the
           // fragment stripped, the variant kept.
-          productUrl: sites.url('/products/relaxed-linen-shirt?variant=sage'),
+          productUrl: sites.secureUrl(
+            '/products/relaxed-linen-shirt?variant=sage',
+          ),
           name: 'Relaxed Linen Shirt',
           brand: 'Northfield',
           price: '49.90',
@@ -330,7 +332,7 @@ describe('order email import', () => {
       expect(body).toContain('Merino Crew Socks (3-pack)');
       expect(body).toContain('$49.90');
       expect(body).toContain(
-        `href="${sites.url('/products/relaxed-linen-shirt?variant=sage')}"`,
+        `href="${sites.secureUrl('/products/relaxed-linen-shirt?variant=sage')}"`,
       );
       // No markup from the email ever reaches the page.
       expect(body).not.toContain('Forwarded message');
@@ -521,7 +523,7 @@ describe('order email import', () => {
         htmlBody: [{ partId: '1', type: 'text/html' }],
         bodyValues: {
           '1': {
-            value: `<p>Your order</p><a href="${sites.url(path)}">${name}</a>`,
+            value: `<p>Your order</p><a href="${sites.secureUrl(path)}">${name}</a>`,
           },
         },
       });
@@ -779,6 +781,101 @@ describe('order email import', () => {
       jmap.failBodyOf('Mshape0001', undefined);
       await whole();
       expect(await emailRow('Mshape0001')).toMatchObject({ status: 'decided' });
+    });
+  });
+
+  // #698: a fetch is a click the retailer acts on, so only product links
+  // and known trackers are requested, and a redirect only to a product link.
+  describe('which links are fetched', () => {
+    const htmlEmail = (id: string, receivedAt: string, value: string) =>
+      variant(id, receivedAt, {
+        htmlBody: [{ partId: '1', type: 'text/html' }],
+        bodyValues: { '1': { value } },
+      });
+    const shop = (path: string) => sites.secureUrl(path);
+    const PRODUCT_DATA = `<script type="application/ld+json">${JSON.stringify({
+      '@type': 'Product',
+      name: 'Bait Tee',
+    })}</script>`;
+
+    it('never requests an action link, and abandons a tracker at a hop that leaves product pages', async () => {
+      sites.serve('/ls/click?upn=to-cancel', {
+        status: 302,
+        type: 'text/plain',
+        body: '',
+        headers: { location: shop('/account/cancel?order=NF-1') },
+      });
+      sites.serve('/account/cancel?order=NF-1', html(PRODUCT_DATA));
+      jmap.deliver(
+        htmlEmail(
+          'Mactions01',
+          '2026-09-29T08:00:00Z',
+          `<a href="${shop('/ls/click?upn=to-cancel')}">Relaxed Tee</a>
+           <a href="${shop(`/ls/click?url=${encodeURIComponent(shop('/account/cancel?order=NF-2'))}`)}">Your order</a>
+           <a href="${shop('/ls/click?upn=view-order')}">View your order</a>
+           <a href="${shop('/orders/12345678/cancel')}">Cancel</a>
+           <a href="${shop('/confirm?token=abc')}">Confirm your email</a>`,
+        ),
+      );
+      sites.hits.length = 0;
+      t.logs.clear();
+
+      await poll();
+
+      // The one tracker whose text names no action is the one request: its
+      // redirect to the cancel page is refused before that page is dialed.
+      expect(sites.hits).toEqual(['/ls/click?upn=to-cancel']);
+      expect(await emailRow('Mactions01')).toMatchObject({
+        outcome: 'no-products',
+      });
+      expect(t.logs.messages('warn', 'OutboundFetch')).toEqual([
+        expect.stringMatching(
+          /^Outbound fetch refused \(redirect-not-followed\): .* answered 302/,
+        ),
+      ]);
+      // The wrapped cancel page, the view-order tracker, the cancel and the
+      // confirm links: judged before any fetch, counted.
+      expect(t.logs.messages('info', 'OrderMail')).toContainEqual(
+        expect.stringMatching(
+          /^Order mail Mactions01: 1 links read, 4 skipped, 0 products found/,
+        ),
+      );
+    });
+
+    it('follows neither a redirect without a Location nor a page that refreshes itself elsewhere', async () => {
+      sites.serve('/ls/click?upn=no-location', {
+        status: 302,
+        type: 'text/plain',
+        body: '',
+      });
+      sites.serve(
+        '/ls/click?upn=meta-refresh',
+        html(
+          `<meta http-equiv="refresh" content="0;url=/cancel">${PRODUCT_DATA}`,
+        ),
+      );
+      jmap.deliver(
+        htmlEmail(
+          'Mrefresh01',
+          '2026-09-29T09:00:00Z',
+          `<a href="${shop('/ls/click?upn=no-location')}">Tee</a>
+           <a href="${shop('/ls/click?upn=meta-refresh')}">Tee</a>`,
+        ),
+      );
+      sites.hits.length = 0;
+
+      await poll();
+
+      expect([...sites.hits].sort()).toEqual([
+        '/ls/click?upn=meta-refresh',
+        '/ls/click?upn=no-location',
+      ]);
+      // The tracker's own page named a product, but a fetch that did not
+      // end on a product link lists nothing.
+      expect(await emailRow('Mrefresh01')).toMatchObject({
+        outcome: 'no-products',
+        items: 0,
+      });
     });
   });
 });
