@@ -4,6 +4,7 @@ import {
   count,
   eq,
   inArray,
+  isNotNull,
   isNull,
   lt,
   min,
@@ -90,9 +91,11 @@ const stateColumns = {
 
 /**
  * The owners of the garments showing these photos: a garment's photo row
- * is synced data (its version and cutout status), so its writers take that
- * owner's lock first (src/db/owner-lock.ts). A selfie's, a look's or an
- * orphan's photo has none, and its writes lock no owner.
+ * is synced data (its version, cutout status and missing mark), so its
+ * writers take that owner's lock first (src/db/owner-lock.ts): the cutout
+ * writers here and reconciliation's missing marks (writeMissingMarks). A
+ * selfie's, a look's or an orphan's photo has none, and its writes lock no
+ * owner. `fileIds` is a subquery or a list of ids.
  *
  * A photo's owner never changes while another transaction can see it: a
  * garment only ever points at a `file` row its own transaction inserted
@@ -100,7 +103,7 @@ const stateColumns = {
  * the transaction that stops pointing at it. So the owner read before the
  * lock is the owner under it; applyCutoutEvent still checks, in its write.
  */
-function garmentOwnersOf(fileIds: SQL): SQL {
+export function garmentOwnersOf(fileIds: SQL): SQL {
   return sql`select ${garment.ownerId} from ${garment} where ${garment.photoId} in (${fileIds})`;
 }
 
@@ -297,6 +300,62 @@ export function recordCutoutEvent(
     const row = await lockCutoutRow(tx, fileName);
     if (!row) return { ok: false, reason: 'gone' } as const;
     return applyCutoutEvent(tx, row, event);
+  });
+}
+
+// A ready or edited cutout keeps its status (rederive); any other is the
+// household's choice from now on (edit). Unwanted refuses both.
+function repointEvent(row: CutoutRow, variantKey: string | null): CutoutEvent {
+  return row.status === 'ready' || row.status === 'edited'
+    ? { type: 'rederive', fromKey: row.variantKey, variantKey }
+    : { type: 'edit', variantKey };
+}
+
+/** What repointCutoutRow did: the row as locked, and the machine's answer. */
+export type RepointedRow =
+  | { gone: true }
+  | {
+      gone: false;
+      row: CutoutRow;
+      /** null: the row already pointed at the key, so no event applied. */
+      next: Transition | null;
+      /** Its missing mark was cleared (#653). */
+      unmarked: boolean;
+    };
+
+/**
+ * The operator's repoint (`maintenance:repoint-cutout`, #653): the row
+ * pointed at a nobg and thumb the caller found stored under `variantKey`,
+ * in one transaction under the garment owner's and the row's locks
+ * (lockCutoutRow). A ready or edited row takes `rederive` (its status
+ * kept), any other `edit`, which no job result then replaces: a running
+ * job's result is refused. Once the row points at the key, its missing
+ * mark is cleared in the same transaction: its files are stored.
+ */
+export function repointCutoutRow(
+  db: Db,
+  fileName: string,
+  variantKey: string | null,
+): Promise<RepointedRow> {
+  return db.transaction(async (tx): Promise<RepointedRow> => {
+    const row = await lockCutoutRow(tx, fileName);
+    if (!row) return { gone: true };
+    // Only a ready or edited row can already point at the key: a none,
+    // pending or failed row has a null key, and `unkeyed` must still take
+    // `edit` there (it clears a running job).
+    const alreadyThere =
+      (row.status === 'ready' || row.status === 'edited') &&
+      row.variantKey === variantKey;
+    const next = alreadyThere
+      ? null
+      : await applyCutoutEvent(tx, row, repointEvent(row, variantKey));
+    if (next && !next.ok) return { gone: false, row, next, unmarked: false };
+    const cleared = await tx
+      .update(file)
+      .set({ originalMissingSince: null })
+      .where(and(eq(file.id, row.id), isNotNull(file.originalMissingSince)))
+      .returning({ id: file.id });
+    return { gone: false, row, next, unmarked: cleared.length > 0 };
   });
 }
 

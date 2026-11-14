@@ -140,6 +140,10 @@ describe('storage reconciliation', () => {
       trashSetsPurged: 0,
       orphanedRowsDeleted: 1,
       missingOriginals: 1,
+      missingOriginalPhotos: [lost],
+      // `lost` keeps its thumb: something of it still shows (#653).
+      photosMarkedMissing: 0,
+      photosNoLongerMissing: 0,
       // Link imports have their own pass (link-import.spec.ts).
       pendingPhotosDeleted: 0,
       pendingRowsWithoutFiles: 0,

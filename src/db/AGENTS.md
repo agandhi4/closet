@@ -57,9 +57,24 @@ How to change the schema is in the root `AGENTS.md` (Changing the schema). This 
 `drizzle/0052_sync-triggers.sql`, hand-written (`drizzle-kit generate --custom`; drizzle-orm splits a file only at `--> statement-breakpoint`, so a `$$` body is one statement). The drift test cannot see functions or triggers: `test/integration/sync-triggers.spec.ts` holds `pg_trigger` to `sync-tables.ts`, so a new synced table changes both, plus a new migration (the shipped one is frozen).
 
 - **One revision per transaction per owner.** `closet_sync_revision(owner, table)` checks the mark, then returns the owner's cached revision or bumps `user.revision` once and caches it in `closet.revision_<id>` (SET LOCAL). A GUC name part may not start with a digit, so the plan's `closet.revision.<id>` is invalid. A savepoint rolled back reverts the bump and the cache together. An account's BEFORE DELETE sets its cache to `gone`: its cascades stamp nothing and write no tombstone (a tombstone for a deleted user would fail its foreign key).
-- **Roots** stamp `revision` (and `updated_at` on update) in a BEFORE row trigger; an AFTER DELETE row trigger writes the `sync_tombstone`, cascades included. **Children** (and a garment's photo: only its version or cutout status) touch each parent row once per statement (`updated_at = now()`, AFTER statement triggers over transition tables, one per event), and the parent's own trigger stamps it. The week template stamps `user.week_template_revision`. A no-op upsert still bumps: a spurious change is harmless, a missed one is not.
+- **Roots** stamp `revision` (and `updated_at` on update) in a BEFORE row trigger; an AFTER DELETE row trigger writes the `sync_tombstone`, cascades included. **Children** (and a garment's photo: only its version, cutout status or missing mark, 0062) touch each parent row once per statement (`updated_at = now()`, AFTER statement triggers over transition tables, one per event), and the parent's own trigger stamps it. The week template stamps `user.week_template_revision`. A no-op upsert still bumps: a spurious change is harmless, a missed one is not.
 - **`client_id` lives only on root tables** (the ones with tombstones). A child table (`trip_item`) gets one only together with a tombstone trigger, or a replayed create could resurrect a deleted row.
 - **A replayed create never resurrects.** An insert whose `client_id` has a tombstone for its owner and table raises SQLSTATE `CL410` (`isDeletedClientId`, `errors.ts`; the route's 410 `gone`). The check is in the trigger, not the writer's statement: a trigger's query takes a fresh snapshot, so it sees a tombstone the owner lock's holder committed while the writer waited, which the writer's own READ COMMITTED snapshot (taken before the wait) does not (`queued-writes.spec.ts` interleaves it). A writer whose create carries a client id names the day's own arbiter in `on conflict (...)`, so a client id taken by another row is a unique violation (409), never a silent no-op (`setWoreToday`).
+
+## Writing by hand (#653)
+
+A data fix no command makes is written in `psql` (`-v owner=<id> -v garment=<id>`) as below: lockOwner's statement shape first, then the write, which names its owner, in one transaction. Without the lock the sync triggers refuse it (`owner lock not held`); through them every device and the API learn of it. Check that the lock's select returned one row before writing. Several owners: one lock statement with `id IN (...)`, never two. Never by hand what a command does: a photo's cutout is `maintenance:repoint-cutout`, a restore `maintenance:after-restore` (Maintenance). `test/integration/after-restore.spec.ts` runs this block as written:
+
+<!-- by-hand-recipe -->
+```sql
+BEGIN;
+SELECT id, set_config('closet.locked_owners',
+    coalesce(current_setting('closet.locked_owners', true), '') || ',' || id || ',', true)
+  FROM (SELECT id, set_config('lock_timeout', '5000ms', true)
+          FROM "user" WHERE id = :owner ORDER BY id FOR NO KEY UPDATE OF "user") AS owner_row;
+UPDATE garment SET name = 'Linen shirt' WHERE id = :garment AND owner_id = :owner;
+COMMIT;
+```
 
 ## Gotchas
 

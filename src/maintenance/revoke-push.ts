@@ -37,8 +37,26 @@ export async function runRevokeAllPush(
     errors.write('Usage: npm run push:revoke-all\n');
     return 2;
   }
-  // One transaction, through the same statement a password change uses
-  // (revokeDevicesStatement).
+  const { devices, accounts } = await revokeAllPushDevices(db, logger);
+  logger.info(
+    `Push subscriptions revoked via CLI: ${devices} devices of ${accounts} users`,
+  );
+  output.write(
+    `Removed ${devices} push subscriptions of ${accounts} accounts; each device turns notifications on again from its profile.\n`,
+  );
+  return 0;
+}
+
+/**
+ * Every account's push subscriptions, in one transaction through the
+ * statement a password change uses (revokeDevicesStatement). Also the
+ * post-restore command's (after-restore.ts): a restore brings back
+ * subscriptions a new password had ended.
+ */
+export async function revokeAllPushDevices(
+  db: Db,
+  logger: Logger,
+): Promise<{ devices: number; accounts: number }> {
   const revoked = await db.transaction(async (tx) => {
     const perUser: { userId: number; devices: number }[] = [];
     for (const userId of await usersWithDevices(tx)) {
@@ -49,12 +67,8 @@ export async function runRevokeAllPush(
   for (const { userId, devices } of revoked) {
     logger.info(`Push devices revoked for user ${userId}: ${devices}`);
   }
-  const total = revoked.reduce((sum, { devices }) => sum + devices, 0);
-  logger.info(
-    `Push subscriptions revoked via CLI: ${total} devices of ${revoked.length} users`,
-  );
-  output.write(
-    `Removed ${total} push subscriptions of ${revoked.length} accounts; each device turns notifications on again from its profile.\n`,
-  );
-  return 0;
+  return {
+    devices: revoked.reduce((sum, { devices }) => sum + devices, 0),
+    accounts: revoked.length,
+  };
 }

@@ -27,12 +27,33 @@ import type {
  */
 
 /**
+ * Whether a left-joined `file` row is a photo to show: there is one, and
+ * something of it is in storage (`original_missing_since` unset, #653).
+ * Every helper below answers no photo otherwise, so each page draws the
+ * placeholder it draws for a garment without one, never a broken image.
+ * Reads only: a write finds its photo by the garment's `photo_id`
+ * (STORED_PHOTO_COLUMNS), never through these, so a marked photo is still
+ * replaced and deleted with its bytes.
+ */
+const photoShown = sql`(${file.id} is not null and ${file.originalMissingSince} is null)`;
+
+/**
+ * The row's name while photoShown, else null: the first photo field of a
+ * positional JSON tuple (the gallery's and Styling's), whose decoders read
+ * a null name as no photo. Never `file.fileName` there
+ * (photo-ref-guard.spec.ts).
+ */
+export const shownPhotoName = sql<
+  string | null
+>`case when ${photoShown} then ${file.fileName} end`;
+
+/**
  * A left-joined `file` row as imageUrl's photo, selected as the row's
  * `photo` or built into a json_agg/json_build_object: the name, the
  * version and the variant key its URL signs; null when the join found no
- * row (a garment without a photo).
+ * row (a garment without a photo) or nothing of it is stored (photoShown).
  */
-export const photoRefJson = sql<SignablePhotoRef | null>`case when ${file.id} is null then null else json_build_object('fileName', ${file.fileName}, 'version', ${file.version}, 'variantKey', ${file.variantKey}) end`;
+export const photoRefJson = sql<SignablePhotoRef | null>`case when not ${photoShown} then null else json_build_object('fileName', ${file.fileName}, 'version', ${file.version}, 'variantKey', ${file.variantKey}) end`;
 
 /** A garment's photo with its cutout state (its page, the export). */
 export type PhotoWithCutout = SignablePhotoRef & {
@@ -41,12 +62,14 @@ export type PhotoWithCutout = SignablePhotoRef & {
 };
 
 /** photoRefJson with the cutout state. */
-export const photoWithCutoutJson = sql<PhotoWithCutout | null>`case when ${file.id} is null then null else json_build_object('fileName', ${file.fileName}, 'version', ${file.version}, 'variantKey', ${file.variantKey}, 'cutoutStatus', ${file.cutoutStatus}) end`;
+export const photoWithCutoutJson = sql<PhotoWithCutout | null>`case when not ${photoShown} then null else json_build_object('fileName', ${file.fileName}, 'version', ${file.version}, 'variantKey', ${file.variantKey}, 'cutoutStatus', ${file.cutoutStatus}) end`;
 
 /**
  * The decoder for a garment photo read some other way: a relational
- * query's `with: { photo: PHOTO_REF_RELATION }`, a JSON array's fields.
- * Its extra fields (a share id) ride along.
+ * query's `with: { photo: PHOTO_REF_RELATION }` (null when nothing of it
+ * is stored: its `originalMissingSince`), a JSON array's fields (their
+ * name read through shownPhotoName). Its extra fields (a share id) ride
+ * along.
  */
 export function readPhotoRef<T extends PhotoRefFields>(
   photo: T,
@@ -57,13 +80,24 @@ export function readPhotoRef<T extends PhotoRefFields>(
 export function readPhotoRef<T extends PhotoRefFields>(
   photo: T | null,
 ): (T & SignablePhotoRef) | null {
-  return photo as (T & SignablePhotoRef) | null;
+  if (!photo || isMissing(photo)) return null;
+  return photo as T & SignablePhotoRef;
 }
 
 /** A relational query's garment `photo` columns, for readPhotoRef. */
 export const PHOTO_REF_RELATION = {
-  columns: { fileName: true, version: true, variantKey: true },
+  columns: {
+    fileName: true,
+    version: true,
+    variantKey: true,
+    originalMissingSince: true,
+  },
 } as const;
+
+// A photo read with its `original_missing_since` that has one (#653).
+function isMissing(photo: object): boolean {
+  return 'originalMissingSince' in photo && photo.originalMissingSince != null;
+}
 
 /** A pending photo's thumb, shown to the user who stored it (no row yet). */
 export function pendingPhotoRef(fileName: string): SignablePhotoRef {
@@ -80,6 +114,7 @@ export const PLINTH_PHOTO_COLUMNS = {
   version: file.version,
   variantKey: file.variantKey,
   cutoutStatus: file.cutoutStatus,
+  originalMissingSince: file.originalMissingSince,
 };
 
 /**
@@ -90,20 +125,22 @@ export const PLINTH_PHOTO_COLUMNS = {
  */
 export const plinthPhotoJson = sql<
   Parameters<typeof plinthPhoto>[0]
->`case when ${file.id} is null then null else json_build_object('fileName', ${file.fileName}, 'version', ${file.version}, 'variantKey', ${file.variantKey}, 'cutoutStatus', ${file.cutoutStatus}) end`;
+>`case when not ${photoShown} then null else json_build_object('fileName', ${file.fileName}, 'version', ${file.version}, 'variantKey', ${file.variantKey}, 'cutoutStatus', ${file.cutoutStatus}) end`;
 
+/** The plinth's photo, or null (no photo, or nothing of it stored). */
 export function plinthPhoto(
   photo: {
     fileName: string;
     version: number;
     variantKey: string | null;
     cutoutStatus: CutoutStatus;
+    originalMissingSince?: Date | null;
   } | null,
 ): PlinthPhoto | null {
-  if (!photo) return null;
-  const { cutoutStatus, ...ref } = photo;
+  if (!photo || photo.originalMissingSince) return null;
+  const { fileName, version, variantKey, cutoutStatus } = photo;
   return {
-    ...(ref as SignablePhotoRef),
+    ...({ fileName, version, variantKey } as SignablePhotoRef),
     cutout: showsCutout(cutoutStatus),
   };
 }

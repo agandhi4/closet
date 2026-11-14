@@ -101,16 +101,23 @@ export type CutoutEvent =
    */
   | { type: 'succeed'; jobVersion: number; variantKey: string }
   | { type: 'fail'; jobVersion: number }
-  /** The user saved a mask in the mask editor, stored under `variantKey`. */
-  | { type: 'edit'; variantKey: string }
+  /**
+   * The user saved a mask in the mask editor, stored under `variantKey`;
+   * or the operator pointed a row with no cutout of its own at a set in
+   * storage (`maintenance:repoint-cutout`, #653; null: the unkeyed set).
+   */
+  | { type: 'edit'; variantKey: string | null }
   /**
    * The cutout under `fromKey`, copied unchanged under `variantKey` with
    * its thumb made again (#373: the retrim-thumbs backfill). A new key, not
    * a rewrite in place: a keyed file is served immutable, so only a new URL
    * reaches browsers and the app's image cache. Refused (stale) once the
-   * row has moved off `fromKey`: a mask saved meanwhile must win.
+   * row has moved off `fromKey`: a mask saved meanwhile must win. Also the
+   * operator pointing a ready or edited row back at a set in storage
+   * (`maintenance:repoint-cutout`, #653: a database restored behind its
+   * storage; null: the unkeyed set an older build wrote), its status kept.
    */
-  | { type: 'rederive'; fromKey: string | null; variantKey: string };
+  | { type: 'rederive'; fromKey: string | null; variantKey: string | null };
 
 type CutoutEventType = CutoutEvent['type'];
 

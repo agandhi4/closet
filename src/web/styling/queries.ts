@@ -11,7 +11,7 @@ import {
 import type { Db } from '../../db/client';
 import { selectScalars } from '../../db/select-scalars';
 import { file, garment, outfit, outfitSlot } from '../../db/schema';
-import { photoRefJson, readPhotoRef } from '../files/queries';
+import { photoRefJson, readPhotoRef, shownPhotoName } from '../files/queries';
 import {
   builtInCategoriesOf,
   categoryRole,
@@ -85,7 +85,7 @@ type RowGarmentJson = [
   variantKey: string | null,
 ];
 
-const rowGarmentJson = sql`json_build_array(${garment.id}, ${garment.name}, ${garment.category}, ${garment.status}, ${file.fileName}, ${file.version}, ${file.variantKey})`;
+const rowGarmentJson = sql`json_build_array(${garment.id}, ${garment.name}, ${garment.category}, ${garment.status}, ${shownPhotoName}, ${file.version}, ${file.variantKey})`;
 
 function readRowGarment([
   id,
@@ -155,7 +155,7 @@ export function roleWindowsSql(
   return sql<WindowJson[]>`(
     select coalesce(json_agg(json_build_array(
       windowed.role, windowed.count, windowed.id, windowed.name,
-      windowed.category, windowed.status, ${file.fileName}, ${file.version},
+      windowed.category, windowed.status, ${shownPhotoName}, ${file.version},
       ${file.variantKey}
     ) order by windowed.rank), '[]')
     from (

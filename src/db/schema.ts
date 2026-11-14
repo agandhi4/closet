@@ -463,6 +463,17 @@ export const file = pgTable(
     // points this at them with the new version (Photos.writeCutout); null
     // for the ones stored with the photo (variantFileName, image-variant.ts).
     variantKey: text('variant_key'),
+    // Since when nothing of the photo is left in storage to show: its
+    // original and the nobg and thumb of its row's variant all gone (#653,
+    // a database restored ahead of its storage). Set and cleared only by
+    // reconciliation (writeMissingMarks, src/maintenance/reconcile.ts)
+    // and repoint-cutout; while set, the photo-ref helpers
+    // (src/web/files/queries.ts) answer no photo, so every page draws its
+    // placeholder, and the API says `photoMissingSince`. The garment's
+    // revision moves with it (closet_sync_touch_photo, drizzle/0062).
+    originalMissingSince: timestamp('original_missing_since', {
+      withTimezone: true,
+    }),
   },
   (table) => [
     index('file_created_by_id_index').on(table.createdById),
