@@ -191,6 +191,7 @@ describe('climate normals', () => {
     const days = [30, 31, 32].map((n) => addDays(TODAY, n));
     expect(typicalDays(html)).toEqual(days);
     expect(html).toContain('not a forecast');
+    expect(html).toContain('Weather data by Open-Meteo.com');
     expect(html).toContain('arrives on');
 
     // One archive request: ten whole years at the rounded location, in the
@@ -343,6 +344,7 @@ describe('climate normals', () => {
     const res = await get(`/outfits/ideas?for=trip:${id}:${day}`);
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain('data-ideas-weather="typical"');
+    expect(res.body).toContain('Weather data by Open-Meteo.com');
     expect(res.body).toMatch(
       /Typically feels -?\d+–-?\d+ °F \(not a forecast\)/,
     );

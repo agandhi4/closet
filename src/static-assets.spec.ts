@@ -26,6 +26,12 @@ describe('variantSource', () => {
 });
 
 describe('staticCacheControl', () => {
+  it('keeps the notices file revalidating: /about links it without a ?v=', () => {
+    expect(staticCacheControl('/p/THIRD-PARTY-NOTICES.txt.br', false)).toBe(
+      'public, max-age=0',
+    );
+  });
+
   it.each(['/p/sw.js', '/p/sw.js.br', '/p/sw.js.gz'])(
     'keeps the service worker revalidating when it is %s',
     (path) => {

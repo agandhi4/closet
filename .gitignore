@@ -72,6 +72,8 @@ public/js/outbox.js
 public/build.json
 public/vendor/
 public/modules/
+# Generated from the lockfile and node_modules (npm run generate:notices)
+public/THIRD-PARTY-NOTICES.txt
 # Precompressed variants (npm run generate:precompress)
 public/**/*.br
 public/**/*.gz

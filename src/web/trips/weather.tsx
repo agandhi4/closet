@@ -13,6 +13,7 @@ import {
   ConditionIcon,
   fetchedLabel,
   hourLabel,
+  OpenMeteoCredit,
   UNIT_SYMBOLS,
 } from '../weather/views';
 import type { TripForecast, TripTypicalDay, TripWeatherDay } from './forecast';
@@ -105,6 +106,7 @@ export function TripWeather(props: {
               </ul>
             </>
           )}
+          <OpenMeteoCredit class="block" />
         </div>
       );
   }

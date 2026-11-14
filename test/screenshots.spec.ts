@@ -333,6 +333,18 @@ test('demo: Theo, weather', async ({ page }) => {
   await page.goto('/wardrobe');
   await expect(page.locator('p#weather-line')).toContainText('°F');
   await shot(page, '35-demo-weather-wardrobe');
+  // Today carries Open-Meteo's credit (CC BY 4.0, #640) on a row of its own:
+  // the credit is one text line at 390 px and the weather line above it is
+  // not pushed onto more rows by it.
+  await page.goto('/');
+  const credit = page.locator('p#weather-line [data-open-meteo]');
+  await expect(credit).toHaveText('Weather data by Open-Meteo.com');
+  const creditHeight = (await credit.boundingBox())?.height ?? 0;
+  const lineHeight = (await page.locator('p#weather-line').boundingBox())
+    ?.height;
+  expect(creditHeight).toBeLessThan(20);
+  expect(lineHeight).toBeLessThan(90);
+  await shot(page, '35b-demo-weather-today');
   await page.goto('/calendar');
   await expect(page.locator('[data-weather-day]')).not.toHaveCount(0);
   await shot(page, '36-demo-weather-calendar');

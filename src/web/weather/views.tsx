@@ -160,6 +160,20 @@ export function fetchedLabel(fetchedAt: Date, timeZone: string, now: Date) {
 }
 
 /**
+ * Open-Meteo's data is CC BY 4.0: every surface that shows a forecast carries
+ * this credit (the line, a trip's days, the month grid, ideas). Plain text,
+ * no link: the app makes no request to another origin, and the full
+ * attribution is in /THIRD-PARTY-NOTICES.txt.
+ */
+export function OpenMeteoCredit(props: { class?: string }) {
+  return (
+    <span class={`text-xs text-muted ${props.class ?? ''}`} data-open-meteo="">
+      {t('weather.CREDIT')}
+    </span>
+  );
+}
+
+/**
  * Today's summary: "⛅ 12–18 °C · rain from 3 pm · take a layer", then
  * where and as of when (the forecast's fetch time, so a copy served from
  * the service worker's cache offline tells its age).
@@ -189,6 +203,7 @@ function WeatherLine(props: { line: TodayLine; timeZone: string; now: Date }) {
       <span class="text-xs text-muted">
         {line.place ?? t('weather.NEAR_YOU')} · {asOf}
       </span>
+      <OpenMeteoCredit class="basis-full" />
     </p>
   );
 }

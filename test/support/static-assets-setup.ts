@@ -1,4 +1,5 @@
 import { precompress, syncClientModules } from '../../scripts/static-assets';
+import { writeNotices } from '../../scripts/third-party-notices';
 
 /**
  * Vitest globalSetup for the integration project: public/ as the build
@@ -9,5 +10,6 @@ import { precompress, syncClientModules } from '../../scripts/static-assets';
  */
 export default function setup(): void {
   syncClientModules();
+  writeNotices();
   precompress();
 }

@@ -34,6 +34,8 @@ const config: InjectManifestOptions = {
     // Neither the LLM corpus files nor the build stamp belong in the app shell.
     'llms*.txt',
     'robots.txt',
+    // ~700 KB of licence text, linked from /about and read online.
+    'THIRD-PARTY-NOTICES.txt',
     'build.json',
     // The fonts' @font-face rules, already inlined into bundle.css.
     'vendor/fonts/fonts.css',

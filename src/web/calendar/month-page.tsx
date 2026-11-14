@@ -7,6 +7,7 @@ import { hiddenBlocking } from './month-cell';
 import { GarmentMark } from '../layout/garment-mark';
 import type { ViewContext } from '../view-context';
 import {
+  OpenMeteoCredit,
   WeatherCellSlot,
   weatherDayId,
   WeatherMonthLoader,
@@ -80,6 +81,11 @@ export function MonthPage(props: { ctx: ViewContext; view: MonthView }) {
             ))}
           </tbody>
         </table>
+        {ctx.weatherEnabled && view.forecast && (
+          <p class="px-2 pt-2">
+            <OpenMeteoCredit />
+          </p>
+        )}
       </PageMain>
       <Dock ctx={ctx} />
     </Layout>
