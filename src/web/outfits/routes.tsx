@@ -24,6 +24,7 @@ import {
   reactToProposal,
   removeOutfit,
   requireOutfitPage,
+  setOutfitPublicShare,
 } from './outfit-actions';
 import { savedContext } from './page-context';
 import {
@@ -38,6 +39,7 @@ import {
 } from './queries';
 import { DECLINE_NOTE_MAX, OutfitParams, SlotCategory } from './schemas';
 import { OutfitPage } from './show-page';
+import { outfitUrl } from './urls';
 import type { OutfitReaction } from './reactions';
 import { OUTFIT_DISMISS_REASONS } from '../../wardrobe/suggestions';
 import { actorOf } from '../sharing/access';
@@ -69,7 +71,7 @@ import { BY_PERSON } from '../write-origin';
  *   unworn entry there picks one more outfit. POST /calendar checks again.
  */
 
-/** One outfit's route: its page, its save and its delete. */
+/** One outfit's route: its page, its save and its delete; Share and Stop sharing are under it. */
 const OUTFIT_ROUTE = '/outfits/:id';
 
 // A date input left empty posts ''.
@@ -397,6 +399,37 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       );
       return reply.redirect(afterSave(request.body, id), 302);
     },
+  );
+
+  /**
+   * Share and Stop sharing the public link (#669; htmx hx-post from the ⋯
+   * menu and the page's "Shared publicly" panel): the owner's. Back to the
+   * outfit page, which shows the link, or no longer does.
+   */
+  async function changePublicShare(
+    request: FastifyRequest & { params: { id: number } },
+    reply: FastifyReply,
+    shared: boolean,
+  ): Promise<FastifyReply> {
+    const actor = actorOf(request);
+    const { id } = request.params;
+    await setOutfitPublicShare(db, actor, id, shared);
+    logger.info(
+      `Outfit ${id} ${shared ? 'shared publicly' : 'no longer shared publicly'} by user ${actor.userId}`,
+    );
+    return navigateTo(reply, outfitUrl(id));
+  }
+
+  app.post(
+    `${OUTFIT_ROUTE}/share`,
+    { schema: { params: OutfitParams } },
+    (request, reply) => changePublicShare(request, reply, true),
+  );
+
+  app.post(
+    `${OUTFIT_ROUTE}/share/stop`,
+    { schema: { params: OutfitParams } },
+    (request, reply) => changePublicShare(request, reply, false),
   );
 
   // htmx only (hx-delete, hx-confirm): the page swaps to the list.

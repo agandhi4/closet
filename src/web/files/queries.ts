@@ -7,7 +7,7 @@ import {
 } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import { ownersLockCte } from '../../db/owner-lock';
-import { file, garment, install } from '../../db/schema';
+import { file, garment, install, outfit, outfitSlot } from '../../db/schema';
 import { currentRequest } from '../../request-context';
 import { unkeyedPhoto } from './image-variant';
 import type {
@@ -307,19 +307,31 @@ export async function photoRowExists(
 }
 
 /**
- * The stored name behind a share link's image (the watermark route): a
- * garment's photo, the only kind a share page shows. Any other row (an
- * outfit selfie, #19, whose share id is never rendered) is not found.
+ * The stored name behind a share link's image (the watermark route), by
+ * the shared item's own share id (#669), so Stop sharing ends the image
+ * with the page and a new Share never revives an old URL: a shared
+ * garment's photo first, else a shared outfit's first garment, in slot
+ * order, with a photo, which is findSharedOutfit's preview rule
+ * (src/web/share/queries.ts; change the two together). Photos come only
+ * through garment.photo_id: an outfit selfie (#19) is never public.
  */
 export async function findPhotoByShareableId(
   db: Db,
   shareableId: string,
 ): Promise<string | undefined> {
-  const [row] = await db
-    .select({ fileName: file.fileName })
-    .from(file)
-    .innerJoin(garment, eq(garment.photoId, file.id))
-    .where(eq(file.shareableId, shareableId))
-    .limit(1);
-  return row?.fileName;
+  const shown = sql`${file.originalMissingSince} is null`;
+  const { rows } = await db.execute<{ fileName: string }>(sql`
+    (select ${file.fileName} as "fileName", 0 as "kind", 0 as "slot"
+      from ${file} join ${garment} on ${garment.photoId} = ${file.id}
+      where ${garment.shareableId} = ${shareableId} and ${shown})
+    union all
+    (select ${file.fileName}, 1, ${outfitSlot.position}
+      from ${outfit}
+      join ${outfitSlot} on ${outfitSlot.outfitId} = ${outfit.id}
+      join ${garment} on ${garment.id} = ${outfitSlot.garmentId}
+      join ${file} on ${file.id} = ${garment.photoId}
+      where ${outfit.shareableId} = ${shareableId} and ${shown})
+    order by "kind", "slot"
+    limit 1`);
+  return rows[0]?.fileName;
 }

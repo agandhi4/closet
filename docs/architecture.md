@@ -52,7 +52,7 @@ src/
                        view-context.ts (the typed reply.locals and its builder), layout/ (JSX shell), and
                        one directory per feature, each in the area index below (sharing/:
                        /wardrobe-share/* and the access resolver; share/: /share, the public
-                       share-link page, its Open Graph preview and the Share button). layout/parts.tsx: pieces the
+                       share-link page, its Open Graph preview, the Share button and `setPublicShare`, #669). layout/parts.tsx: pieces the
                        garment, outfit and share pages share (thumb, back link, empty state).
                        schemas.ts: shared TypeBox pieces (RowId, IsoDateSchema).
                        date-labels.ts: every date a user reads (dayLabel, relativeDay, dateLabel; never ISO).

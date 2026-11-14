@@ -36,7 +36,11 @@ import {
 } from '../layout/parts';
 import { GarmentOutfitsStrip } from '../outfits/garment-outfits';
 import type { GarmentOutfits } from '../outfits/queries';
-import { ShareLinkButton } from '../share/share-button';
+import {
+  type PublicShare,
+  PublicSharePanel,
+  ShareLinkButton,
+} from '../share/share-button';
 import { StyleThisLink } from '../styling/style-this';
 import type { ViewContext } from '../view-context';
 import {
@@ -165,7 +169,8 @@ const GARMENT_PAGE_FLAGS = [
 /**
  * GET /wardrobe/:id (redesign plan, "Garment page"; #84): the hero, the
  * facts, the wear line with the primary actions, the property chips, the
- * capsules row, "In N outfits", then the details and care. Everything
+ * capsules row, "In N outfits", then the details and care; "Shared
+ * publicly" under the summary while it has a public link. Everything
  * else (edit, photo, clone, share, archive, delete) is in the app bar's ⋯
  * menu; the photo is taken or chosen in a sheet.
  */
@@ -193,6 +198,12 @@ export function GarmentPage(props: {
           />
         </div>
         <Summary model={model} />
+        {model.canEdit && (
+          <PublicSharePanel
+            siteUrl={ctx.siteUrl}
+            share={publicShareOf(model)}
+          />
+        )}
         {model.suggestion && (
           <SuggestionSection
             garment={garment}
@@ -470,6 +481,17 @@ function PrimaryActions({ model }: { model: GarmentPageModel }) {
   );
 }
 
+/** The garment's public link and where Share and Stop post (#669). */
+function publicShareOf(model: GarmentPageModel): PublicShare {
+  const { garment, viewOwner } = model;
+  return {
+    type: 'garment',
+    shareableId: garment.shareableId,
+    shareUrl: garmentUrl(garment.id, viewOwner, '/share'),
+    stopUrl: garmentUrl(garment.id, viewOwner, '/share/stop'),
+  };
+}
+
 /**
  * The ⋯ menu in the app bar: what the requester may do, and nothing else.
  * Edit, the photo sheet and Share for the owner and a MANAGE grantee;
@@ -518,8 +540,7 @@ function GarmentMenu({
           <li>
             <ShareLinkButton
               siteUrl={ctx.siteUrl}
-              type="garment"
-              shareableId={garment.shareableId}
+              share={publicShareOf(model)}
               variant="menu"
             />
           </li>

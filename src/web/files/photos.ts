@@ -1016,7 +1016,8 @@ export class Photos {
   /**
    * The share-preview image of the photo behind `shareableId`: the original
    * as a JPEG within 1080px, with the app icon composited when
-   * WATERMARK_ENABLED. NotServed when no garment photo has that share id.
+   * WATERMARK_ENABLED. `shareableId` is a shared garment's or outfit's
+   * (findPhotoByShareableId); NotServed when nothing shared has it.
    */
   async watermarked(shareableId: string): Promise<Readable> {
     const fileName = await findPhotoByShareableId(this.db, shareableId);

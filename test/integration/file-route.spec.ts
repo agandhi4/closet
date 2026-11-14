@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { randomUUID } from 'node:crypto';
-import sharp from 'sharp';
 import {
   createGarment,
   jpegPhoto,
@@ -92,18 +91,9 @@ describe('/file route and request logging', () => {
     );
   });
 
-  it('serves the share preview of a photo by its share id, signed out', async () => {
+  it("serves no share preview by a photo's own share id: only a shared garment's or outfit's is one (#669)", async () => {
     const row = await photoRow(t, photoName);
-    const res = await t.inject({
-      method: 'GET',
-      url: `/file/watermark/${row!.shareableId}`,
-      anonymous: true,
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.headers['content-type']).toBe('image/jpeg');
-    expect(res.headers['cache-control']).toBe('public, max-age=86400');
-    expect((await sharp(res.rawPayload).metadata()).format).toBe('jpeg');
-
+    expect(await status(`/file/watermark/${row!.shareableId}`)).toBe(404);
     expect(await status(`/file/watermark/${randomUUID()}`)).toBe(404);
   });
 

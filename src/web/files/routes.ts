@@ -18,10 +18,11 @@ import { publicPhoto } from './references';
 // or another account signs in over it (src/web/security/AGENTS.md). The one
 // constant for every /file variant, whichever way it was found.
 const PRIVATE_IMMUTABLE_YEAR = 'private, max-age=31536000, immutable';
-// Share previews are addressed by the photo's share id, which never changes
-// with its bytes: a day, so a crawler's copy catches up with a mask edit.
+// Share previews are addressed by the shared item's id, which does not
+// change with the photo's bytes, and Stop sharing ends it (#669): five
+// minutes, so a stopped image leaves a browser's or proxy's cache soon.
 // Public: made for link-preview crawlers, and it carries the watermark.
-const SHARE_PREVIEW_CACHE = 'public, max-age=86400';
+const SHARE_PREVIEW_CACHE = 'public, max-age=300';
 
 // Validated by the handler, not the schema: anything that is not a photo
 // name is a 404 like a missing photo, never a 400 that confirms the route.
@@ -136,7 +137,8 @@ export const fileRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     sendVariant(request.params.fileName, 'thumb', request.query, reply),
   );
 
-  // The Open Graph image of a shared garment or outfit (src/web/share).
+  // The Open Graph image of a shared garment or outfit, by its share id
+  // (src/web/share).
   app.get(
     '/file/watermark/:shareableId',
     { config: { public: true }, schema: { params: ShareParams } },
