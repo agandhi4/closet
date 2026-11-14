@@ -1,7 +1,16 @@
+import { and, eq } from 'drizzle-orm';
 import { PassThrough, Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { garment } from '../../src/db/schema';
 import { runSeed } from '../../src/seed/seed';
-import { createTestApp, OWNER_EMAIL, type TestApp, userIdOf } from './harness';
+import { deviceToken } from './api';
+import {
+  createTestApp,
+  OWNER_EMAIL,
+  type TestApp,
+  unescapeHtml,
+  userIdOf,
+} from './harness';
 import { callTool, createAccessToken, tool } from './mcp';
 
 /**
@@ -9,7 +18,9 @@ import { callTool, createAccessToken, tool } from './mcp';
  * owner runs: Theo (demo) shared with the owner, the owner's Claude
  * searching his wardrobe and comparing it with their own; and the seed's
  * own token (`--token`), with which Theo's Claude reads his closet and
- * compares it with Dana's (sparse), shared with him.
+ * compares it with Dana's (sparse), shared with him. And the keyword
+ * search over Theo's closet (#673): the grid's, the API's and
+ * search_garments' one predicate.
  */
 describe('MCP over the seed personas', () => {
   let t: TestApp;
@@ -232,5 +243,89 @@ describe('MCP over the seed personas', () => {
       tripId: trips[0].id,
     });
     expect(refused.value.error).toBe('Trip not found');
+  });
+
+  // The owner searches Theo's closet through the VIEW share on all three
+  // surfaces; each answer fits one page (the closet is 80 garments).
+  describe('the keyword search over Theo’s closet (#673)', () => {
+    let demoId: number;
+    let apiToken: string;
+    const names = new Map<number, string>();
+
+    beforeAll(async () => {
+      demoId = await userIdOf(t, 'demo@closet.invalid');
+      apiToken = (await deviceToken(t, { email: OWNER_EMAIL })).token;
+      const rows = await t.db
+        .select({ id: garment.id, name: garment.name })
+        .from(garment)
+        .where(eq(garment.ownerId, demoId));
+      for (const row of rows) names.set(row.id, row.name ?? '');
+    });
+
+    /** The grid's names in page order, once the API and MCP give its ids. */
+    const search = async (keyword: string): Promise<string[]> => {
+      const query = `ownerId=${demoId}&keyword=${encodeURIComponent(keyword)}`;
+      const page = await t.inject({ method: 'GET', url: `/wardrobe?${query}` });
+      expect(page.statusCode).toBe(200);
+      const grid = [
+        ...unescapeHtml(page.body).matchAll(
+          /<a href="\/wardrobe\/(\d+)[^"]*"[^>]*data-tile=""/g,
+        ),
+      ].map((m) => Number(m[1]));
+      const api = await t.api(apiToken, {
+        method: 'GET',
+        url: `/api/v1/garments?${query}`,
+      });
+      expect(api.statusCode, api.body).toBe(200);
+      const listed = api.json<{ data: { id: number }[] }>().data;
+      expect(listed.map((g) => g.id)).toEqual(grid);
+      const mcp = await tool<{ garments: { id: number }[] }>(
+        t,
+        ownerToken,
+        'search_garments',
+        { ownerId: demoId, keyword },
+      );
+      expect(mcp.garments.map((g) => g.id)).toEqual(grid);
+      return grid.map((id) => names.get(id)!);
+    };
+
+    it('needs every word, in any order, matched through colour and type labels', async () => {
+      const blueShirts = await search('blue shirt');
+      // Shirt-typed and blue; then the chinos, whose notes name "the linen
+      // shirt": a notes-only match ranks after them.
+      expect(new Set(blueShirts.slice(0, 3))).toEqual(
+        new Set(['Blue oxford', 'Western denim shirt', 'Plaid flannel']),
+      );
+      expect(blueShirts.slice(3)).toEqual(['Navy chinos']);
+      expect(await search('navy blazer')).toEqual(['Navy blazer']);
+      expect(await search('blazer navy')).toEqual(['Navy blazer']);
+    });
+
+    it('folds punctuation on both sides: "jcrew" is "J.Crew"', async () => {
+      const jcrew = await search('jcrew');
+      expect(await search('J.Crew')).toEqual(jcrew);
+      const brand = await t.db
+        .select({ id: garment.id })
+        .from(garment)
+        .where(
+          and(
+            eq(garment.ownerId, demoId),
+            eq(garment.brand, 'J.Crew'),
+            eq(garment.status, 'closet'),
+          ),
+        );
+      expect(brand.length).toBeGreaterThan(0);
+      expect(jcrew).toHaveLength(brand.length);
+    });
+
+    it('ranks a notes-only match below every name or type match', async () => {
+      const tees = await search('tee');
+      // The blazer's notes say "over a tee or oxford".
+      const blazer = tees.indexOf('Navy blazer');
+      expect(blazer).toBeGreaterThan(0);
+      for (const [index, name] of tees.entries()) {
+        if (/\btee\b/i.test(name)) expect(index).toBeLessThan(blazer);
+      }
+    });
   });
 });

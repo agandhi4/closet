@@ -125,7 +125,8 @@ const GarmentListQuery = Type.Object({
   keyword: Type.Optional(
     Type.String({
       maxLength: NAME_MAX,
-      description: 'Matches the name, brand and notes',
+      description:
+        'Words, each matching the name, brand, colour, type, category or notes (punctuation ignored); notes-only matches last',
     }),
   ),
   category: Type.Optional(Type.String({ maxLength: CATEGORY_MAX })),

@@ -262,7 +262,9 @@ const SearchInput = z.object({
     .string()
     .max(NAME_MAX)
     .optional()
-    .describe('Matches the name, brand and notes.'),
+    .describe(
+      'Words, each matching the name, brand, colour, type, category or notes (punctuation ignored: "jcrew" finds J.Crew); notes-only matches come last.',
+    ),
   category: z
     .string()
     .max(CATEGORY_MAX)

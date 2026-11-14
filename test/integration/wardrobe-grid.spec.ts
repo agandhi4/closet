@@ -66,6 +66,8 @@ describe('wardrobe grid', () => {
         shareableId: randomUUID(),
         ownerId: t.owner.id,
         name: i === 3 ? 'Sale 100% wool_coat' : `Garment ${i}`,
+        // Found by "garment" through its notes alone: ranked after the rest.
+        notes: i === 3 ? 'A garment for the sales' : null,
         category: i % 3 === 0 ? 'tops' : 'bottoms',
         photoId,
       });
@@ -116,17 +118,23 @@ describe('wardrobe grid', () => {
   });
 
   it('a filtered or searched fragment starts from the first page', async () => {
+    const notesOnly = ids[TOTAL - 1 - 3];
+    const named = ids.filter((id) => id !== notesOnly);
     const res = await get('/wardrobe?keyword=garment', HX_FRAGMENT);
     expect(res.headers.vary).toContain('HX-Request');
     expect(res.body.trimStart()).toMatch(/^<main id="wardrobe-main"/);
-    expect(tileIds(res.html)).toEqual(
-      ids.filter((id) => id !== ids[TOTAL - 1 - 3]).slice(0, GRID_PAGE_SIZE),
-    );
+    expect(tileIds(res.html)).toEqual(named.slice(0, GRID_PAGE_SIZE));
     expect(sentinelUrl(res.html)).toBe(
-      `/wardrobe/tiles?keyword=garment&before=${
-        ids.filter((id) => id !== ids[TOTAL - 1 - 3])[GRID_PAGE_SIZE - 1]
-      }`,
+      `/wardrobe/tiles?keyword=garment&before=${named[GRID_PAGE_SIZE - 1]}`,
     );
+    // The ranked keyset (#673): the next page ends the named matches, then
+    // the notes-only one, though its id is newer than the cursor's.
+    let next = '';
+    const record = await recordQueries(async () => {
+      next = (await get(sentinelUrl(res.html)!, HX_FRAGMENT)).html;
+    });
+    expect(record.statements).toBe(2);
+    expect(tileIds(next)).toEqual([...named.slice(GRID_PAGE_SIZE), notesOnly]);
   });
 
   it.each([
