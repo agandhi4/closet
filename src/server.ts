@@ -34,7 +34,8 @@ const RECONCILE_HOUR = 3;
  * what can still be worn), the quiet close of Muse's rounds, the
  * background-removal queue started with
  * `runner`,
- * signal handling, listen. main.ts passes the model (ModelRunner);
+ * signal handling, listen. main.ts passes the model (ModelRunner), or none
+ * with CUTOUT_ENABLED=false (no queue start, no nightly retry);
  * test/support/test-server.ts, which Playwright and Lighthouse boot on
  * the build, passes a stub, so no test downloads or runs
  * the 940 MB model. createApp() itself never starts the queue or a timer:
@@ -48,7 +49,7 @@ const RECONCILE_HOUR = 3;
 export async function serve(
   config: Config,
   logger: Logger,
-  runner: CutoutRunner,
+  runner: CutoutRunner | undefined,
   options: AppOptions = {},
 ): Promise<Pick<ClosetApp, 'app' | 'errors'>> {
   const {
@@ -90,7 +91,9 @@ export async function serve(
       'Storage reconciliation disabled (MAINTENANCE_ENABLED=false)',
     );
   }
-  jobs.push(startCutouts(config, logger, metrics, db, cutouts, runner));
+  if (runner) {
+    jobs.push(startCutouts(config, logger, metrics, db, cutouts, runner));
+  }
   // The changes feed's old deletions (src/maintenance/sync-prune.ts):
   // database only, so with or without MAINTENANCE_ENABLED.
   const sync = { db, logger: logger.child({ logger: 'Sync' }) };

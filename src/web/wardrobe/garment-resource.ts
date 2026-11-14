@@ -462,7 +462,7 @@ export const GarmentPhotoSaved = Type.Object(
      * `pending`: queued for its cutout (poll GET /garments/{id}); `edited`:
      * a mask turned with the photo, nothing to wait for.
      */
-    cutoutStatus: literals<SwappedCutout>(['pending', 'edited']),
+    cutoutStatus: literals<SwappedCutout>(['pending', 'edited', 'none']),
   },
   {
     title: 'GarmentPhotoSaved',

@@ -89,6 +89,27 @@ describe('queueTransition', () => {
   });
 });
 
+describe('a disabled queue (CUTOUT_ENABLED=false)', () => {
+  const disabled = queueTransition({ name: 'stopped' }, { type: 'disable' }, 0);
+
+  it('is terminal: nothing leaves it, and start is refused', () => {
+    expect(disabled).toEqual({ state: { name: 'disabled' }, capture: false });
+    for (const event of [
+      { type: 'stop' },
+      { type: 'model-ready' },
+      unavailable('download'),
+    ] as const) {
+      expect(queueTransition(disabled.state, event, 1)).toEqual(disabled);
+    }
+    expect(() => queueTransition(disabled.state, { type: 'start' }, 0)).toThrow(
+      'The cutout queue cannot start while disabled',
+    );
+    expect(() =>
+      queueTransition({ name: 'running' }, { type: 'disable' }, 0),
+    ).toThrow('The cutout queue cannot be disabled while running');
+  });
+});
+
 describe('modelUnavailableKind', () => {
   it.each([
     ['download', new ModelDownloadError('Model download failed: HTTP 403')],

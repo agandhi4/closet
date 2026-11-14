@@ -33,7 +33,7 @@ import type { WriteOrigin } from '../write-origin';
 export interface ToolContext {
   db: Db;
   photos: Photos;
-  cutouts: { wake(): void };
+  cutouts: { wake(): void; readonly enabled: boolean };
   fetcher: OutboundFetcher;
   /** The Web Push sender; undefined without PWA_ENABLED (finish_round then notifies nobody). */
   push: PushSender | undefined;

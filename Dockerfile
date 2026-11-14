@@ -39,11 +39,21 @@ COPY patches ./patches
 # here too (it skips the .dev patches). The cache is cleared in the
 # same layer: npm ci leaves hundreds of MB of tarballs under /root/.npm.
 # onnxruntime-node (server-side background removal) ships binaries for six
-# platforms; the image is linux/amd64 only, so the other five (~170 MB) go.
+# platforms; the image keeps only its own (TARGETARCH, which BuildKit sets from
+# --platform; the fallback below covers a builder that does not), so the rest
+# (~170 MB) go.
+# No default on the ARG: a default would shadow BuildKit's value.
+ARG TARGETARCH
 RUN npm ci --omit=dev && npm cache clean --force \
-  && rm -rf node_modules/onnxruntime-node/bin/napi-v3/darwin \
-    node_modules/onnxruntime-node/bin/napi-v3/win32 \
-    node_modules/onnxruntime-node/bin/napi-v3/linux/arm64
+  && case "${TARGETARCH:-amd64}" in \
+    amd64) keep=x64 ;; \
+    arm64) keep=arm64 ;; \
+    *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+  esac \
+  && ort=node_modules/onnxruntime-node/bin/napi-v3 \
+  && rm -rf "$ort/darwin" "$ort/win32" \
+  && find "$ort/linux" -mindepth 1 -maxdepth 1 ! -name "$keep" -exec rm -rf {} + \
+  && test -d "$ort/linux/$keep"
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist

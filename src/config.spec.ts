@@ -53,6 +53,7 @@ describe('loadConfig', () => {
       DATABASE_SSL: false,
       MAINTENANCE_ENABLED: true,
       MAX_HEIC_BYTES: 40 * 1024 * 1024,
+      CUTOUT_ENABLED: true,
       CUTOUT_THREADS: 4,
       CUTOUT_POLL_SECONDS: 60,
     });
@@ -66,11 +67,13 @@ describe('loadConfig', () => {
       PORT: '8080',
       DISABLE_REGISTRATION: 'TRUE',
       DATABASE_SSL: 'false',
+      CUTOUT_ENABLED: 'false',
       MAX_HEIC_BYTES: '1024',
     });
     expect(config.PORT).toBe(8080);
     expect(config.DISABLE_REGISTRATION).toBe(true);
     expect(config.DATABASE_SSL).toBe(false);
+    expect(config.CUTOUT_ENABLED).toBe(false);
     expect(config.MAX_HEIC_BYTES).toBe(1024);
   });
 

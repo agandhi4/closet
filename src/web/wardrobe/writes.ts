@@ -56,8 +56,20 @@ export interface WardrobeDeps {
   db: Db;
   photos: Photos;
   logger: Logger;
-  /** Told when a photo was queued (src/cutout/queue.ts). */
-  cutouts: { wake(): void };
+  /**
+   * Told when a photo was queued (src/cutout/queue.ts); `enabled` is
+   * CUTOUT_ENABLED, which decides whether a new photo is queued at all.
+   */
+  cutouts: { wake(): void; readonly enabled: boolean };
+}
+
+/**
+ * The `request` event's outcome for a new upload: `pending` (queued), or
+ * `none` with CUTOUT_ENABLED=false: the original with the mask editor's
+ * pencil, and no row left pending for a queue that never runs.
+ */
+function requestedCutout(cutouts: WardrobeDeps['cutouts']): SwappedCutout {
+  return cutouts.enabled ? 'pending' : 'none';
 }
 
 /**
@@ -396,7 +408,7 @@ export async function createGarmentWithPendingPhoto(
       if (!taken) return undefined;
       const photoId = await insertPhotoRow(tx, {
         ...photo,
-        ...initialCutoutState('pending'),
+        ...initialCutoutState(requestedCutout(cutouts)),
       });
       const id = await insertGarment(
         tx,
@@ -418,7 +430,7 @@ export async function createGarmentWithPendingPhoto(
   logger.info(
     `Garment ${claimed.id} photo ${fileName} (a pending photo) queued for background removal`,
   );
-  cutouts.wake();
+  if (cutouts.enabled) cutouts.wake();
   return claimed;
 }
 
@@ -505,7 +517,7 @@ export async function replacePhoto(
   const photo = await deps.photos.storeUploadParts(parts, ownerId);
   if (!photo) throw new HttpError(400, t('refusal.request.noFile'));
   // The `request` event: every new photo is queued for its cutout.
-  return swapPhoto(deps, id, ownerId, photo, 'pending');
+  return swapPhoto(deps, id, ownerId, photo, requestedCutout(deps.cutouts));
 }
 
 /** The rotate buttons' directions, as clockwise degrees. */
@@ -581,7 +593,7 @@ export async function rotateGarmentPhoto(
     id,
     ownerId,
     row,
-    cutoutKept ? 'edited' : 'pending',
+    cutoutKept ? 'edited' : requestedCutout(deps.cutouts),
     async (tx, currentPhotoId) => {
       // After the garment's lock, as every garment write takes them.
       const current = await lockCutoutRow(tx, source.fileName);
@@ -600,10 +612,11 @@ export async function rotateGarmentPhoto(
 }
 
 /**
- * The cutout state a swapped-in photo starts in: queued (`pending`), or a
- * mask turned with it (`edited`). What the API's photo writes answer.
+ * The cutout state a swapped-in photo starts in: queued (`pending`), a
+ * mask turned with it (`edited`), or `none` with background removal off.
+ * What the API's photo writes answer.
  */
-export type SwappedCutout = 'pending' | 'edited';
+export type SwappedCutout = 'pending' | 'edited' | 'none';
 
 /**
  * The one way a garment's photo is replaced (an upload, a rotate): the new
