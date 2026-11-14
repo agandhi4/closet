@@ -33,4 +33,12 @@ describe('keywordTokens', () => {
     ]);
     expect(keywordTokens('   ')).toEqual([]);
   });
+
+  it('keeps letters of any script: the fold drops only FOLDED_PUNCTUATION', () => {
+    expect(keywordTokens('CAFÉ Crème’s naïve')).toMatchObject([
+      { text: 'café', folded: true },
+      { text: 'crèmes', folded: true },
+      { text: 'naïve', folded: true },
+    ]);
+  });
 });

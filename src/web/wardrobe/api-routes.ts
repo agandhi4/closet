@@ -12,12 +12,12 @@ import {
 import { apiResponses } from '../api/contract';
 import type { ApiOptions } from '../api/plugin';
 import {
-  idCursor,
   ListCursor,
   ListLimit,
   ListOf,
   literals,
-  readIdCursor,
+  rankedIdCursor,
+  readRankedIdCursor,
   withoutNulls,
 } from '../api/resource';
 import type { Queryable } from '../../db/client';
@@ -101,6 +101,7 @@ import {
 } from './garment-resource';
 import { searchFilters } from './garment-search';
 import { GRID_PAGE_SIZE } from './grid-page-size';
+import { KEYWORD_RANKS } from './keyword-search';
 import { REFUSALS } from './link-import/import';
 import { linkIn } from './link-import/link-text';
 import { saveGarmentFromLink } from './link-import/save';
@@ -230,14 +231,17 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         {
           ownerId,
           filters: searchFilters(search),
-          before: cursor === undefined ? undefined : readIdCursor(cursor),
+          before:
+            cursor === undefined
+              ? undefined
+              : readRankedIdCursor(cursor, KEYWORD_RANKS),
           limit,
         },
       );
       return {
         data: garments.map(toGarmentListItem),
         pagination: {
-          ...(next !== null && { nextCursor: idCursor(next) }),
+          ...(next !== null && { nextCursor: rankedIdCursor(next) }),
           limit,
         },
         total,

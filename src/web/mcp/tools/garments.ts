@@ -30,6 +30,11 @@ import {
   type GarmentSummary,
   garmentSummaries,
 } from '../../wardrobe/queries';
+import {
+  GRID_CURSOR_PATTERN,
+  gridCursorText,
+  readGridCursor,
+} from '../../wardrobe/grid-cursor';
 import { GRID_PAGE_SIZE } from '../../wardrobe/grid-page-size';
 import { closetLookalikes } from '../../wardrobe/lookalikes';
 import { repairLogSql } from '../../wardrobe/repairs';
@@ -309,7 +314,11 @@ const SearchInput = z.object({
     .describe(
       'Also garments no longer in the closet (archived). The wishlist is list_wishlist.',
     ),
-  before: rowId().optional().describe('The previous page’s `next`.'),
+  before: z
+    .string()
+    .regex(GRID_CURSOR_PATTERN)
+    .optional()
+    .describe('The previous page’s `next`, as it was.'),
 });
 /**
  * get_wardrobe's garment: what it is and, on the caller's own wardrobe,
@@ -350,11 +359,16 @@ export const garmentTools = [
         {
           ownerId: args.ownerId,
           filters: searchFilters(args),
-          before: args.before,
+          before:
+            args.before === undefined ? undefined : readGridCursor(args.before),
           limit: GRID_PAGE_SIZE,
         },
       );
-      return { total, garments: garments.map(summaryOut), next };
+      return {
+        total,
+        garments: garments.map(summaryOut),
+        next: next === null ? null : gridCursorText(next),
+      };
     },
   }),
 

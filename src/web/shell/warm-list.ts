@@ -92,7 +92,8 @@ export async function warmList(
     fragments: gridPageCursors(
       closet.map((row) => row.id),
       warmed.length,
-    ).map((before) => tilesUrl(undefined, EMPTY_SEARCH, before)),
+      // The closet's unranked order: every cursor is rank 0, the bare id.
+    ).map((id) => tilesUrl(undefined, EMPTY_SEARCH, { rank: 0, id })),
     // The garments' thumbs come first (warmed before the outfits'), so a
     // cut falls on outfit pieces the closet pages never show; the inbox's
     // products have their own share of the cap.

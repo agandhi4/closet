@@ -29,7 +29,7 @@ import { valueLabel } from './labels';
  * the labels stay in the catalog, never in SQL. Design: grid.md, Search.
  */
 
-/** `garment`'s searched columns, or an alias's (the page cursor's, queries.ts). */
+/** `garment`'s searched columns. */
 type GarmentTable = Record<
   'name' | 'brand' | 'notes' | 'category' | 'colors' | 'type',
   AnyPgColumn
@@ -37,9 +37,9 @@ type GarmentTable = Record<
 
 export interface KeywordToken {
   /**
-   * The word folded (fold), or, for one with no letter or digit ("100%" has
-   * some, "%" none), the word itself, matched literally: folded it would be
-   * empty and match everything.
+   * The word folded (fold), or, for one that is all FOLDED_PUNCTUATION
+   * ("100%" is not, "%" is), the word itself, matched literally: folded it
+   * would be empty and match everything.
    */
   text: string;
   folded: boolean;
@@ -49,11 +49,22 @@ export interface KeywordToken {
 }
 
 /**
- * Lower case, letters and digits only: "J.Crew" is "jcrew", "T-shirt"
- * "tshirt".
+ * The characters the fold drops, one fixed set for both sides (fold here,
+ * contains' `translate` in Postgres): ASCII punctuation and the typographic
+ * quotes and dashes. A set, not a character class: Postgres' `[:alnum:]`
+ * follows the database's locale (ASCII only under C), so "café" folded to
+ * "caf" there and "café" here, and never matched. Letters in any script stay.
+ */
+export const FOLDED_PUNCTUATION =
+  '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~‘’‚“”„–—…·•';
+const FOLDED = new Set(FOLDED_PUNCTUATION);
+
+/**
+ * Lower case, FOLDED_PUNCTUATION dropped: "J.Crew" is "jcrew", "T-shirt"
+ * "tshirt", "Café" "café".
  */
 function fold(text: string): string {
-  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+  return [...text.toLowerCase()].filter((char) => !FOLDED.has(char)).join('');
 }
 
 /**
@@ -127,17 +138,19 @@ function likeLiteral(text: string): string {
 
 /**
  * A text column matching the token. A folded token starts a word of the
- * column folded the same way, word by word: lower case, punctuation dropped
- * within words, words split on whitespace (startsAWord in Postgres; " " is
- * prepended so the first word starts after one). [:alnum:] is
- * Unicode-aware in a UTF-8 database, as \p{L}\p{N} is. A punctuation-only
- * token is contained as itself ("%" finds a name with a percent sign, not
- * every garment). A filter over one wardrobe's rows (hundreds): no index or
- * stored folded column at household size.
+ * column folded the same way, word by word: lower case, FOLDED_PUNCTUATION
+ * dropped within words, words split on whitespace (startsAWord in Postgres;
+ * " " is prepended so the first word starts after one). Both steps are
+ * independent of the database's locale: `pg_unicode_fast` (Postgres 18's
+ * builtin collation, Unicode case mapping as toLowerCase) and a fixed
+ * `translate` set. A punctuation-only token is contained as itself ("%"
+ * finds a name with a percent sign, not every garment). A filter over one
+ * wardrobe's rows (hundreds): no index or stored folded column at household
+ * size.
  */
 function contains(column: AnyPgColumn, token: KeywordToken): SQL {
   if (!token.folded) return ilike(column, `%${likeLiteral(token.text)}%`);
-  const words = sql`' ' || regexp_replace(regexp_replace(lower(${column}), '[^[:alnum:][:space:]]+', '', 'g'), '[[:space:]]+', ' ', 'g')`;
+  const words = sql`' ' || regexp_replace(translate(lower(${column} collate "pg_unicode_fast"), ${FOLDED_PUNCTUATION}::text, ''), '[[:space:]]+', ' ', 'g')`;
   return sql`${words} like ${`% ${likeLiteral(token.text)}%`}`;
 }
 
@@ -173,6 +186,10 @@ export function keywordMatch(
   )!;
 }
 
+/** keywordRank's values; the page cursor carries one (queries.ts, GridCursor). */
+export const KEYWORD_RANKS = [0, 1] as const;
+export type KeywordRank = (typeof KEYWORD_RANKS)[number];
+
 /**
  * 0 when every token matched something other than the notes, 1 when one
  * matched only them: the page sorts by it first, so a garment the keyword
@@ -182,7 +199,7 @@ export function keywordMatch(
 export function keywordRank(
   table: GarmentTable,
   tokens: readonly KeywordToken[],
-): SQL<number> {
+): SQL<KeywordRank> {
   const strong = and(...tokens.map((token) => strongMatch(table, token)))!;
-  return sql<number>`case when ${strong} then 0 else 1 end`;
+  return sql<KeywordRank>`case when ${strong} then 0 else 1 end`;
 }

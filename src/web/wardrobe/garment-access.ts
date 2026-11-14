@@ -1,4 +1,5 @@
 import type { Logger } from '../../logger';
+import type { GridCursor } from './grid-cursor';
 import { findCapsule } from '../capsules/queries';
 import type { StoredPhoto } from '../files/image-variant';
 import { publicPhoto } from '../files/references';
@@ -192,7 +193,7 @@ export async function garmentPhotoIn(
 export interface GarmentSearch {
   ownerId: number | undefined;
   filters: GridFilters;
-  before?: number;
+  before?: GridCursor;
   limit: number;
 }
 
@@ -207,7 +208,11 @@ export async function searchGarments(
   db: Db,
   actor: Actor,
   search: GarmentSearch,
-): Promise<{ total: number; garments: GarmentSummary[]; next: number | null }> {
+): Promise<{
+  total: number;
+  garments: GarmentSummary[];
+  next: GridCursor | null;
+}> {
   const { access } = await authorizeWardrobe(
     db,
     actor,

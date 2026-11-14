@@ -1,7 +1,16 @@
+import { eq } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { capsule, capsuleGarment, file, garment } from '../../src/db/schema';
+import {
+  capsule,
+  capsuleGarment,
+  file,
+  garment,
+  wardrobeShare,
+} from '../../src/db/schema';
+import { rankedIdCursor } from '../../src/web/api/resource';
 import { GRID_PAGE_SIZE } from '../../src/web/wardrobe/grid-page-size';
+import { deviceToken } from './api';
 import { HX_FRAGMENT } from './pages';
 import {
   createTestApp,
@@ -9,6 +18,7 @@ import {
   type TestApp,
   unescapeHtml,
   asFixture,
+  userIdOf,
 } from './harness';
 
 /**
@@ -135,6 +145,42 @@ describe('wardrobe grid', () => {
     });
     expect(record.statements).toBe(2);
     expect(tileIds(next)).toEqual([...named.slice(GRID_PAGE_SIZE), notesOnly]);
+    // A cursor past rank 0 says its rank: only the notes-only matches older
+    // than its id follow it.
+    const ranked = await get(
+      `/wardrobe/tiles?keyword=garment&before=1.${ids[0]}`,
+      HX_FRAGMENT,
+    );
+    expect(tileIds(ranked.html)).toEqual([notesOnly]);
+  });
+
+  // The rank travels in the cursor (#784): the cursor's garment edited
+  // between pages (now matched by its notes alone) neither moves the keyset
+  // nor makes the next page skip a row; it may show that garment again.
+  it('a keyword page after its cursor garment changed may repeat, never skip', async () => {
+    const notesOnly = ids[TOTAL - 1 - 3];
+    const named = ids.filter((id) => id !== notesOnly);
+    const first = await get('/wardrobe?keyword=garment', HX_FRAGMENT);
+    const cursorId = named[GRID_PAGE_SIZE - 1];
+    const [{ name }] = await t.db
+      .select({ name: garment.name })
+      .from(garment)
+      .where(eq(garment.id, cursorId));
+    const rename = (values: { name: string | null; notes: string | null }) =>
+      asFixture(t.db, (tx) =>
+        tx.update(garment).set(values).where(eq(garment.id, cursorId)),
+      );
+    await rename({ name: 'Renamed', notes: 'Still a garment' });
+    try {
+      const next = await get(sentinelUrl(first.html)!, HX_FRAGMENT);
+      expect(tileIds(next.html)).toEqual([
+        ...named.slice(GRID_PAGE_SIZE),
+        cursorId,
+        notesOnly,
+      ]);
+    } finally {
+      await rename({ name, notes: null });
+    }
   });
 
   it.each([
@@ -227,12 +273,142 @@ describe('wardrobe grid', () => {
     });
   });
 
-  it('a malformed cursor is a 400', async () => {
-    const res = await t.inject({
-      method: 'GET',
-      url: '/wardrobe/tiles?before=abc',
-      headers: HX_FRAGMENT,
+  it.each(['abc', '0', '2.5', '1.', '.5', '1.2147483648'])(
+    'a malformed cursor (%s) is a 400',
+    async (before) => {
+      const res = await t.inject({
+        method: 'GET',
+        url: `/wardrobe/tiles?keyword=garment&before=${before}`,
+        headers: HX_FRAGMENT,
+      });
+      expect(res.statusCode).toBe(400);
+    },
+  );
+
+  // A cursor is compared only against the addressed wardrobe's rows (#784):
+  // the cursor's rank was once read from the garment its id named, any
+  // wardrobe's, so a stranger paging with another user's garment id learnt
+  // from the answer whether that garment's private name, brand or notes held
+  // the keyword. Now any id answers as an unknown one (`ghost`, a deleted
+  // garment's) and a forged rank reorders only the caller's own rows.
+  describe('a cursor reads no other row', () => {
+    let stranger: { id: number; cookie: string; token: string };
+    let probe: number;
+    let probeInNotes: number;
+    let ghost: number;
+
+    /** Tile ids, a shared wardrobe's (`/wardrobe/<id>?ownerId=`) too. */
+    const tilesAs = async (cookie: string, query: string) => {
+      const { html } = await get(`/wardrobe/tiles?${query}`, {
+        ...HX_FRAGMENT,
+        cookie,
+      });
+      return [
+        ...html.matchAll(/<a href="\/wardrobe\/(\d+)[?"][^>]*data-tile=""/g),
+      ].map((m) => Number(m[1]));
+    };
+
+    beforeAll(async () => {
+      const email = 'cursor-stranger@closet.invalid';
+      const cookie = await t.register(email);
+      const id = await userIdOf(t, email);
+      stranger = { id, cookie, token: (await deviceToken(t, { email })).token };
+      [{ id: ghost }] = await asFixture(t.db, (tx) =>
+        tx
+          .insert(garment)
+          .values({ shareableId: randomUUID(), ownerId: id, category: 'tops' })
+          .returning({ id: garment.id }),
+      );
+      await asFixture(t.db, (tx) =>
+        tx.delete(garment).where(eq(garment.id, ghost)),
+      );
+      const rows = await asFixture(t.db, (tx) =>
+        tx
+          .insert(garment)
+          .values(
+            [
+              { name: 'Plain', notes: 'A probe garment, in the notes' },
+              { name: 'Probe garment', notes: null },
+              { name: 'Café crème', brand: 'J.Crew', notes: null },
+            ].map((row) => ({
+              ...row,
+              shareableId: randomUUID(),
+              ownerId: id,
+              category: 'tops',
+            })),
+          )
+          .returning({ id: garment.id }),
+      );
+      [probeInNotes, probe] = rows.map((row) => row.id);
     });
-    expect(res.statusCode).toBe(400);
+
+    it("answers another wardrobe's garment id as an unknown one", async () => {
+      // ids[0], the owner's "Garment 59", is matched by "garment" and not by
+      // "probe": the two ranks the old lookup told apart.
+      for (const keyword of ['garment', 'probe']) {
+        for (const rank of ['', '1.']) {
+          const at = (id: number) =>
+            tilesAs(stranger.cookie, `keyword=${keyword}&before=${rank}${id}`);
+          const answer = await at(ids[0]);
+          expect(answer, `${keyword} ${rank}`).toEqual(await at(ghost));
+          // Every own row is newer than both: rank 0 leaves the notes-only
+          // match, rank 1 nothing.
+          expect(answer).toEqual(rank === '' ? [probeInNotes] : []);
+        }
+        const api = async (id: number) => {
+          const cursor = rankedIdCursor({ rank: 0, id });
+          const res = await t.api(stranger.token, {
+            method: 'GET',
+            url: `/api/v1/garments?keyword=${keyword}&cursor=${cursor}`,
+          });
+          expect(res.statusCode, res.body).toBe(200);
+          return res.json<{ data: { id: number }[] }>().data.map((g) => g.id);
+        };
+        expect(await api(ids[0])).toEqual([probeInNotes]);
+        expect(await api(ghost)).toEqual([probeInNotes]);
+      }
+    });
+
+    it("pages a shared wardrobe against its owner's rows alone", async () => {
+      await asFixture(t.db, (tx) =>
+        tx.insert(wardrobeShare).values({
+          grantorId: t.owner.id,
+          granteeId: stranger.id,
+          permission: 'VIEW',
+          acceptedAt: new Date(),
+          createdAt: new Date(),
+        }),
+      );
+      // The viewer's own garments as the cursor: one named by the keyword,
+      // one only in its notes. Each answers as the ghost does: the owner's
+      // named matches from the newest (all older than the cursor), never a
+      // rank read from the viewer's rows.
+      const owner = `ownerId=${t.owner.id}&keyword=garment`;
+      const fromGhost = await tilesAs(
+        stranger.cookie,
+        `${owner}&before=${ghost}`,
+      );
+      expect(fromGhost).toEqual(
+        ids.filter((id) => id !== ids[TOTAL - 1 - 3]).slice(0, GRID_PAGE_SIZE),
+      );
+      for (const own of [probe, probeInNotes]) {
+        expect(
+          await tilesAs(stranger.cookie, `${owner}&before=${own}`),
+        ).toEqual(fromGhost);
+      }
+    });
+
+    // One fold on both sides, independent of the database's locale (#784):
+    // accented letters stay letters, punctuation drops, case folds.
+    it.each(['café', 'CAFÉ', 'crème', 'jcrew', 'J.Crew', 'j.crew'])(
+      'finds "Café crème" by J.Crew with %s',
+      async (keyword) => {
+        const { html } = await get(
+          `/wardrobe?keyword=${encodeURIComponent(keyword)}`,
+          { ...HX_FRAGMENT, cookie: stranger.cookie },
+        );
+        expect(html).toContain('Café crème');
+      },
+    );
   });
 });

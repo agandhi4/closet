@@ -23,6 +23,7 @@ import {
 } from '../../wardrobe/properties';
 import { CARE_WASH } from '../../wardrobe/care';
 import { choice, OwnerQuery, pick, RowId } from '../schemas';
+import { GridCursorParam } from './grid-cursor';
 import {
   CATEGORY_MAX,
   ConditionValue,
@@ -95,7 +96,7 @@ export type GridQuery = Static<typeof GridQuery>;
 /** The "load more" sentinel's request: the same filters, and where the last page ended. */
 export const TilesQuery = Type.Object({
   ...GridQuery.properties,
-  before: RowId,
+  before: GridCursorParam,
 });
 
 /** The properties bulk edit can set: not type or weight, which are per garment. */

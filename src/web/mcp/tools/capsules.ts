@@ -48,12 +48,16 @@ export const capsuleTools = [
         ctx.db,
         access.ownerId,
         { ...CLOSET_FILTERS, capsule: id },
-        { before, limit: GRID_PAGE_SIZE },
+        // No keyword, so every row is rank 0 and the cursor its bare id.
+        {
+          before: before === undefined ? undefined : { rank: 0, id: before },
+          limit: GRID_PAGE_SIZE,
+        },
       );
       return {
         ...capsule,
         garments: page.garments.map(summaryOut),
-        next: page.before ?? null,
+        next: page.before?.id ?? null,
       };
     },
   }),
