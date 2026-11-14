@@ -252,6 +252,21 @@ describe('photo storage on disk', () => {
       });
     });
 
+    it('reports the marker that won the race as unreadable, by code only, when it is malformed', async () => {
+      const racing = new PhotoStorage(directory, captureLogs().logger, {
+        ...nodeFs,
+        link: async () => {
+          await writeFile(join(directory, STORAGE_MARKER), 'not json');
+          throw errno('EEXIST');
+        },
+      });
+      expect(await racing.createMarker()).toEqual({
+        state: 'unreadable',
+        code: 'MALFORMED',
+      });
+      expect(await incoming()).toEqual([]);
+    });
+
     it('two processes creating it at once end with one install id both claim', async () => {
       // The first is held between its temp file and its link while the
       // second creates the marker whole.
@@ -276,13 +291,15 @@ describe('photo storage on disk', () => {
       });
       const second = new PhotoStorage(directory, captureLogs().logger, nodeFs);
 
-      const firstMarker = first.createMarker();
+      const firstCreated = first.createMarker();
       await tempWritten;
-      const secondMarker = await second.createMarker();
+      const secondCreated = await second.createMarker();
       release();
-      expect(await firstMarker).toEqual(secondMarker);
+      expect(await firstCreated).toEqual(secondCreated);
+      if (secondCreated.state !== 'present') throw new Error('not present');
+      const secondMarker = secondCreated.marker;
 
-      first.claim(await firstMarker);
+      first.claim(secondMarker);
       second.claim(secondMarker);
       expect(await first.identityProblem()).toBeUndefined();
       expect(await second.identityProblem()).toBeUndefined();

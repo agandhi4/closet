@@ -62,7 +62,11 @@ export async function claimStorage(
     throw new StorageIdentityError({ kind: 'absent' });
   }
   // Ours, or the marker a process booting beside this one linked first.
-  const marker = await storage.createMarker();
+  const created = await storage.createMarker();
+  if (created.state === 'unreadable') {
+    throw new StorageIdentityError({ kind: 'unreadable', code: created.code });
+  }
+  const { marker } = created;
   storage.claim(marker);
   if (rows.length === 0) {
     logger.info(

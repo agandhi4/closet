@@ -173,6 +173,38 @@ describe('the photo storage marker', () => {
     }
   });
 
+  it('refuses reconciliation when every file row is gone and only a pending photo remains', async () => {
+    const aside = join(t.dataPath, 'aside');
+    await mkdir(aside);
+    const pending = await pendingNames();
+    const files = (await storedFiles()).filter(
+      (name) => !pending.includes(name),
+    );
+    expect(files.length).toBeGreaterThan(0);
+    for (const name of files) {
+      await rename(join(t.dataPath, name), join(aside, name));
+    }
+    const stored = await storedFiles();
+    expect(stored.filter((name) => pending.includes(name))).toHaveLength(1);
+    try {
+      const report = await reconcile(true);
+      expect(report.refused).toMatch(
+        /file table has 1 rows while storage holds no photo sets/,
+      );
+      expect(report.orphanedRowsDeleted).toBe(0);
+      expect(await storedFiles()).toEqual(stored);
+      expect(await pendingNames()).toEqual(pending);
+      expect(
+        await t.db.select().from(file).where(eq(file.fileName, live)),
+      ).toHaveLength(1);
+    } finally {
+      for (const name of files) {
+        await rename(join(aside, name), join(t.dataPath, name));
+      }
+      await rm(aside, { recursive: true });
+    }
+  });
+
   it('refuses a boot whose DATA_PATH lacks it while the database has photo rows', async () => {
     const empty = await mkdtemp(join(tmpdir(), 'closet-unmounted-'));
     try {

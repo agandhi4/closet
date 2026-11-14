@@ -148,7 +148,10 @@ export async function reconcileStorage(
   const pendingRows = await pendingPhotoRows(deps.db);
   const scan = await scanStorage(deps.photos);
   const rows = await fileRows(deps.db);
-  const mirror = mirrorRefusal(rows.length, scan.photoSets.size);
+  const mirror = mirrorRefusal(
+    rows.length,
+    unpendingSetCount(scan.photoSets, pendingRows),
+  );
   if (mirror) return refuse(deps, dryRun, startedAt, mirror);
   return cleanUp(
     deps,
@@ -229,10 +232,21 @@ function mirrorRefusal(
   );
 }
 
+// The stored sets that are not a pending upload's: what the mirror rule and
+// the guard count as the household's photos (a pending photo is explained
+// by its row, so one on a swapped share must not vouch for the rest).
+function unpendingSetCount(
+  photoSets: ReadonlyMap<string, StoredPhotoSet>,
+  pendingRows: readonly { fileName: string }[],
+): number {
+  const pendingNames = new Set(pendingRows.map((row) => row.fileName));
+  return [...photoSets.keys()].filter((name) => !pendingNames.has(name)).length;
+}
+
 function planRefusal(plan: ReconciliationPlan): string | undefined {
   return guardRefusal({
     rows: plan.rowCount,
-    storedPhotoSets: plan.photoSets.size - plan.pendingSets,
+    storedPhotoSets: plan.unpendingSets,
     // A photo with superseded variants counts as a set: a database
     // restored behind its storage makes every newer cutout look
     // superseded, and the guard is what stops that.
@@ -343,8 +357,8 @@ interface ReconciliationPlan {
   /** Photo sets older than the cutoff with no row, by base name. */
   orphanedSets: [string, StoredPhotoSet][];
   missingOriginals: number;
-  /** Stored photo sets explained by a pending row (never orphans). */
-  pendingSets: number;
+  /** Stored photo sets that no pending row explains. */
+  unpendingSets: number;
   /** Pending rows (read before the scan) whose original is not stored. */
   pendingRowsWithoutFiles: string[];
   /** Live rows' superseded variant files (supersededVariants), by base name. */
@@ -427,7 +441,7 @@ function planReconciliation(
     orphanedRows,
     orphanedSets,
     missingOriginals,
-    pendingSets: [...pendingNames].filter((name) => photoSets.has(name)).length,
+    unpendingSets: unpendingSetCount(photoSets, pendingRows),
     pendingRowsWithoutFiles,
     superseded,
   };

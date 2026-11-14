@@ -139,12 +139,16 @@ export class PhotoStorage {
   /**
    * Creates the marker exclusively and returns the one on disk: ours, or,
    * when another process (the server and a CLI booting together) linked
-   * its own first, that one, so both claim the same install id. The temp
+   * its own first, that one, so both claim the same install id. When the
+   * one that won cannot be read, that is returned as `unreadable` (its
+   * code, never a path) for claimStorage to refuse. The temp
    * file is linked, never renamed: a rename replaces, a link fails with
    * EEXIST. A reader sees no marker or a whole one. Only claimStorage
    * decides that one may be written.
    */
-  async createMarker(now: Date = new Date()): Promise<StorageMarker> {
+  async createMarker(
+    now: Date = new Date(),
+  ): Promise<Exclude<MarkerRead, { state: 'absent' }>> {
     const marker: StorageMarker = {
       installId: randomUUID(),
       createdAt: now.toISOString(),
@@ -153,15 +157,18 @@ export class PhotoStorage {
     try {
       await this.markerFs.writeNew(tempPath, `${JSON.stringify(marker)}\n`);
       await this.markerFs.link(tempPath, this.pathOf(STORAGE_MARKER));
-      return marker;
+      return { state: 'present', marker };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       const existing = await this.readMarker();
-      if (existing.state !== 'present') throw error;
-      this.logger.info(
-        `${STORAGE_MARKER} was written by another process meanwhile; using its install ${existing.marker.installId}`,
-      );
-      return existing.marker;
+      // Gone again between the link and the read: nothing to explain it.
+      if (existing.state === 'absent') throw error;
+      if (existing.state === 'present') {
+        this.logger.info(
+          `${STORAGE_MARKER} was written by another process meanwhile; using its install ${existing.marker.installId}`,
+        );
+      }
+      return existing;
     } finally {
       await this.markerFs.remove(tempPath);
     }
