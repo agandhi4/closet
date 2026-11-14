@@ -67,13 +67,61 @@ export async function probeWritable(
   }
 }
 
+export interface StorageFailure {
+  directory: string;
+  code: string;
+}
+
 /**
- * What the operator runs, with this process's own uid:gid (never a
- * hardcoded one): the directories are named as the container sees them,
- * since only the host knows what is mounted there.
+ * What the operator does about each kind of failed probe, keyed by its code
+ * (the table is the one place a new code gets its words). The directories
+ * are named as the container sees them, since only the host knows what is
+ * mounted there; the chown carries this process's own uid:gid, never a
+ * hardcoded one.
  */
-export function ownershipFix(directories: readonly string[]): string {
-  return `chown -R ${processOwner()} the host directory mounted at ${directories.join(' and ')}; docs/operations.md#permissions`;
+const FIXES: readonly {
+  codes: readonly string[];
+  say: (where: string) => string;
+}[] = [
+  {
+    codes: ['EACCES', 'EPERM'],
+    say: (where) =>
+      `chown -R ${processOwner()} the host directory mounted at ${where}; docs/operations.md#permissions`,
+  },
+  {
+    codes: ['ENOSPC', 'EDQUOT'],
+    say: (where) => `the share mounted at ${where} is full`,
+  },
+  {
+    codes: ['TIMEOUT'],
+    say: (where) =>
+      `the share mounted at ${where} is not answering (NFS stalled?)`,
+  },
+];
+
+/** Used for a code no row claims (EROFS, EIO, ENOTDIR, ...). */
+const GENERIC_FIX = (where: string): string =>
+  `${where} cannot be written; docs/operations.md#permissions`;
+
+/** The fix for each distinct kind of failure, joined; never the path value of an error. */
+export function storageFix(failures: readonly StorageFailure[]): string {
+  const claimed = new Set(FIXES.flatMap((row) => row.codes));
+  const groups = [
+    ...FIXES.map((row) => ({
+      say: row.say,
+      failures: failures.filter((f) => row.codes.includes(f.code)),
+    })),
+    {
+      say: GENERIC_FIX,
+      failures: failures.filter((f) => !claimed.has(f.code)),
+    },
+  ];
+  return groups
+    .filter((group) => group.failures.length > 0)
+    .map((group) =>
+      group.say(group.failures.map((f) => f.directory).join(' and ')),
+    )
+    .join('; ');
 }
 
 function processOwner(): string {

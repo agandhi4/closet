@@ -1,5 +1,5 @@
 import type { Logger } from '../../logger';
-import type { WriteProbe } from '../../storage-probe';
+import type { StorageFailure, WriteProbe } from '../../storage-probe';
 
 /**
  * The /health/ready contract (~/.claude/conventions/observability.md,
@@ -113,8 +113,8 @@ export interface StorageCheckDeps {
   directories: readonly string[];
   /** probeWritable (src/storage-probe.ts); the specs pass it too, on tmp dirs. */
   probe: (directory: string) => Promise<WriteProbe>;
-  /** ownershipFix (src/storage-probe.ts): the chown, with the process's uid:gid. */
-  fix: (unwritable: readonly string[]) => string;
+  /** storageFix (src/storage-probe.ts): the operator's step for each failure code. */
+  fix: (failures: readonly StorageFailure[]) => string;
   /**
    * Why DATA_PATH is not the storage this process claimed at boot, or
    * undefined when it is (PhotoStorage.identityProblem, the marker: #650).
@@ -135,7 +135,7 @@ export interface StorageCheckDeps {
  * mountpoint: uploads would land where the remount hides them). Required because the image runs non-root and its
  * directories are host mounts (docs/operations.md#permissions): with a
  * root-owned one every page would serve and the first upload or the model
- * download would fail, so readiness would lie. The fix names the chown.
+ * download would fail, so readiness would lie. The fix is per failure code (storageFix).
  *
  * One probe per STORAGE_PROBE_TTL_MS whatever the request rate (the
  * HEALTHCHECK, the smoke's poll and anyone within HEALTH_LIMIT share it),
@@ -184,13 +184,14 @@ export function createStorageCheck({
       }),
     ]);
     const messages: string[] = [];
-    const unwritable = directories.filter((directory, i) => {
+    const unwritable: StorageFailure[] = [];
+    directories.forEach((directory, i) => {
       const result = results[i];
-      if (result.writable) return false;
+      if (result.writable) return;
       messages.push(
         `Readiness: ${directory} is not writable by this process (${result.code})`,
       );
-      return true;
+      unwritable.push({ directory, code: result.code });
     });
     if (problem) messages.push(`Readiness: ${problem}`);
     const state = messages.join('\n');

@@ -4,7 +4,7 @@ import { ModelRunner } from './cutout/runner';
 import { createBootLogger, createLogger, type Logger } from './logger';
 import { createCrashHandler } from './metrics/error-tracker';
 import { serve } from './server';
-import { ownershipFix, probeWritable } from './storage-probe';
+import { probeWritable, storageFix } from './storage-probe';
 import {
   identityRefusal,
   StorageIdentityError,
@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   const data = await probeWritable(config.DATA_PATH);
   if (!data.writable) {
     boot.fatal(
-      `DATA_PATH ${config.DATA_PATH} is not writable by this process (${data.code}): ${ownershipFix([config.DATA_PATH])}`,
+      `DATA_PATH ${config.DATA_PATH} is not writable by this process (${data.code}): ${storageFix([{ directory: config.DATA_PATH, code: data.code }])}`,
     );
     process.exit(1);
   }

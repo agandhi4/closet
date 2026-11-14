@@ -13,7 +13,7 @@ import {
 import { captureLogs } from '../../../test/support/log-capture';
 import {
   PROBE_BYTES,
-  ownershipFix,
+  storageFix,
   probeWritable,
   type ProbeFs,
   type WriteProbe,
@@ -111,6 +111,39 @@ describe('checkJobs and checkCutoutQueue', () => {
   });
 });
 
+describe('storageFix', () => {
+  const uid = `${process.getuid?.()}:${process.getgid?.()}`;
+
+  it.each([
+    [
+      'EACCES',
+      `chown -R ${uid} the host directory mounted at /d; docs/operations.md#permissions`,
+    ],
+    [
+      'EPERM',
+      `chown -R ${uid} the host directory mounted at /d; docs/operations.md#permissions`,
+    ],
+    ['ENOSPC', 'the share mounted at /d is full'],
+    ['EDQUOT', 'the share mounted at /d is full'],
+    ['TIMEOUT', 'the share mounted at /d is not answering (NFS stalled?)'],
+    ['EROFS', '/d cannot be written; docs/operations.md#permissions'],
+  ])('%s', (code, fix) => {
+    expect(storageFix([{ directory: '/d', code }])).toBe(fix);
+  });
+
+  it('names each kind once, with the directories it applies to', () => {
+    expect(
+      storageFix([
+        { directory: '/a', code: 'ENOSPC' },
+        { directory: '/b', code: 'TIMEOUT' },
+        { directory: '/c', code: 'EDQUOT' },
+      ]),
+    ).toBe(
+      'the share mounted at /a and /c is full; the share mounted at /b is not answering (NFS stalled?)',
+    );
+  });
+});
+
 describe('createStorageCheck', () => {
   const { logger, logs } = captureLogs();
   let root: string;
@@ -139,7 +172,7 @@ describe('createStorageCheck', () => {
     createStorageCheck({
       directories,
       probe: probeWritable,
-      fix: ownershipFix,
+      fix: storageFix,
       identity,
       identityFix: IDENTITY_FIX,
       logger,
@@ -197,7 +230,7 @@ describe('createStorageCheck', () => {
         probes += 1;
         return Promise.resolve({ writable: true });
       },
-      fix: ownershipFix,
+      fix: storageFix,
       identity: () => Promise.resolve(undefined),
       identityFix: IDENTITY_FIX,
       logger,
@@ -248,7 +281,7 @@ describe('createStorageCheck', () => {
       const storage = createStorageCheck({
         directories: ['/app/data'],
         probe: (directory) => probeWritable(directory, fs),
-        fix: ownershipFix,
+        fix: storageFix,
         identity: () => Promise.resolve(undefined),
         identityFix: IDENTITY_FIX,
         logger,
@@ -272,7 +305,7 @@ describe('createStorageCheck', () => {
             ? new Promise<WriteProbe>(() => undefined)
             : Promise.resolve({ writable: true });
         },
-        fix: ownershipFix,
+        fix: storageFix,
         identity: () => Promise.resolve(undefined),
         identityFix: IDENTITY_FIX,
         logger,

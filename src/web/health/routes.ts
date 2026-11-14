@@ -4,7 +4,7 @@ import type {
   FastifyRequest,
 } from 'fastify';
 import { lastMigrationAt, newestMigrationAt } from '../../db/migrate';
-import { ownershipFix, probeWritable } from '../../storage-probe';
+import { probeWritable, storageFix } from '../../storage-probe';
 import { identityRefusal, STORAGE_MARKER_FIX } from '../files/storage-identity';
 import type { WebOptions } from '../plugin';
 import { enforceLimit, HEALTH_LIMIT } from '../security/rate-limit';
@@ -43,7 +43,7 @@ export const healthRoutes: FastifyPluginCallback<WebOptions> = (
   const storage = createStorageCheck({
     directories: config.storageDirs,
     probe: probeWritable,
-    fix: ownershipFix,
+    fix: storageFix,
     identity: async () => {
       // The marker against the id claimed (and, in production, paired) at
       // boot: no statement, so a slow database never reads as storage (#833).
