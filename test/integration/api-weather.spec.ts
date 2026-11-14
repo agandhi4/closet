@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { addDays, type IsoDate } from '../../src/calendar-date';
-import { trip, userWeather } from '../../src/db/schema';
+import { trip, userWeather, weatherForecast } from '../../src/db/schema';
 import { REFERENCE_ANCHOR } from '../../src/seed/simulate';
 import {
   STUB_WEATHER_NOW,
@@ -130,6 +130,83 @@ describe('the weather', () => {
         await api('GET', `/weather?from=${addDays(REFERENCE_ANCHOR, 20)}`)
       ).json<Weather>().days,
     ).toEqual([]);
+  });
+
+  it('agrees with the ideas on the umbrella: a cool rainy day wants the outfit to keep it off until the closet has a water-resistant hat (#648)', async () => {
+    const [kept] = await t.db.select().from(weatherForecast);
+    const forecast = kept.forecast!;
+    await t.db.update(weatherForecast).set({
+      forecast: {
+        ...forecast,
+        days: forecast.days.map((day) =>
+          day.day === REFERENCE_ANCHOR
+            ? {
+                ...day,
+                hours: day.hours.map((h) => ({
+                  ...h,
+                  feelsLike: 12,
+                  precipitationChance: h.hour >= 8 && h.hour < 22 ? 90 : 0,
+                })),
+              }
+            : day,
+        ),
+      },
+    });
+    const both = async () => {
+      const week = (await api('GET', `/weather?to=${REFERENCE_ANCHOR}`)).json<{
+        days: {
+          outfit: {
+            rain: boolean;
+            needsWaterResistance: boolean;
+            takeUmbrella: boolean;
+          };
+        }[];
+      }>();
+      const ideas = (await api('GET', `/ideas?day=${REFERENCE_ANCHOR}`)).json<{
+        weather: { needsWaterResistance: boolean; takeUmbrella: boolean };
+      }>();
+      return { resource: week.days[0].outfit, ideas: ideas.weather };
+    };
+    try {
+      const bare = await both();
+      expect(bare.resource).toMatchObject({
+        rain: true,
+        needsWaterResistance: true,
+        takeUmbrella: false,
+      });
+      expect(bare.ideas).toMatchObject({
+        needsWaterResistance: true,
+        takeUmbrella: false,
+      });
+
+      const hat = await t.inject({
+        method: 'POST',
+        url: '/wardrobe',
+        payload: {
+          name: 'Rain hat',
+          category: 'accessories',
+          type: 'hat',
+          props: '1',
+          color: ['black'],
+          waterResistant: 'true',
+        },
+      });
+      expect(hat.statusCode).toBe(302);
+      const geared = await both();
+      expect(geared.resource).toMatchObject({
+        rain: true,
+        needsWaterResistance: false,
+        takeUmbrella: true,
+      });
+      expect(geared.ideas).toMatchObject({
+        needsWaterResistance: false,
+        takeUmbrella: true,
+      });
+    } finally {
+      await t.db
+        .update(weatherForecast)
+        .set({ forecast, fetchedAt: kept.fetchedAt });
+    }
   });
 
   it('refuses a backward range, one past 42 days, and any other occasion', async () => {

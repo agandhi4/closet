@@ -151,7 +151,7 @@ export const IdeaWeather = Type.Object(
     }),
     takeUmbrella: Type.Boolean({
       description:
-        'Rain is likely and an umbrella answers it (warm hours, or a water-resistant accessory in the closet): advice for the day, no idea is judged on it',
+        'Rain is likely and is answered beside the outfit: every rain hour is warm (feels-like above 22 °C), or the closet holds a water-resistant hat or cap. Advice for the day, no idea is judged on it; false when there is no rain',
     }),
     typical: Type.Boolean({
       description: "A typical day's, not a forecast",

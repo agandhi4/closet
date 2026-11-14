@@ -9,9 +9,11 @@ import {
   rainFrom,
 } from '../../weather/forecast';
 import {
+  type MatchGarment,
   needsWaterResistance,
   type WeatherNeeds,
   weatherNeeds,
+  withRainGear,
 } from '../../weather/match';
 import { OFFSET_LIMIT, TEMPERATURE_UNITS } from '../../weather/temperature';
 import { literals, withoutNulls } from '../api/resource';
@@ -32,8 +34,14 @@ import type { UserWeather } from './service';
 
 const round1 = (value: number) => Math.round(value * 10) / 10;
 
-/** What a day asks of an outfit for its occasion, in the machines' words. */
-function outfitNeeds(needs: WeatherNeeds) {
+/**
+ * What a day asks of an outfit for its occasion, in the machines' words.
+ * `rainGear` is the owner's (closetRainGear), judged by withRainGear as
+ * the ideas are, so this and the ideas' `takeUmbrella` agree; a caller
+ * without the closet's read passes none and judges by the heat alone.
+ */
+function outfitNeeds(asked: WeatherNeeds, rainGear: readonly MatchGarment[]) {
+  const needs = withRainGear(asked, rainGear);
   return {
     occasion: needs.occasion,
     hours: needs.window,
@@ -45,6 +53,7 @@ function outfitNeeds(needs: WeatherNeeds) {
     torsoWarmthWithoutLayer: needs.torsoWithoutLayer,
     legsAndFeetWarmth: needs.limbs,
     needsLayer: needs.layer,
+    rain: needs.rain,
     needsWaterResistance: needsWaterResistance(needs),
     takeUmbrella: needs.umbrella,
   };
@@ -60,6 +69,7 @@ export function dayWeather(
   day: DayForecast,
   occasion: Occasion,
   offset: number,
+  rainGear: readonly MatchGarment[] = [],
 ) {
   const needs = weatherNeeds(day, occasion, offset);
   return {
@@ -69,7 +79,7 @@ export function dayWeather(
     lowC: round1(day.low),
     precipitationChance: day.precipitationChance,
     rainFromHour: rainFrom(day, 0),
-    outfit: needs && outfitNeeds(needs),
+    outfit: needs && outfitNeeds(needs, rainGear),
   };
 }
 
@@ -89,7 +99,7 @@ export function typicalDayWeather({ day, normals, needs }: TripTypicalDay) {
       max: round1(normals.feelsHigh),
     },
     rainChance: normals.rainChance,
-    outfit: needs && outfitNeeds(needs),
+    outfit: needs && outfitNeeds(needs, []),
   };
 }
 
@@ -131,13 +141,17 @@ const OutfitNeeds = Type.Object(
     needsLayer: Type.Boolean({
       description: 'The hours swing enough to want a layer that comes off',
     }),
+    rain: Type.Boolean({
+      description:
+        "Rain is likely (50% or more) in at least one of the occasion's hours, however it is answered",
+    }),
     needsWaterResistance: Type.Boolean({
       description:
-        'Rain is likely in the hours and too cool to leave to an umbrella: a water-resistant layer, footwear or accessory',
+        'Rain is likely and nothing beside the outfit answers it, so the outfit should include a water-resistant layer, footwear or accessory (not a bag). False when there is no rain, or when takeUmbrella is true',
     }),
     takeUmbrella: Type.Boolean({
       description:
-        'Rain is likely in warm hours: an umbrella answers it, not the outfit',
+        'Rain is likely and is answered beside the outfit: every rain hour is warm (feels-like above 22 °C), or the closet holds a water-resistant hat or cap. Advice for the day, never asked of the outfit. False when there is no rain',
     }),
   },
   {
@@ -200,8 +214,9 @@ export function toDayWeather(
   day: DayForecast,
   occasion: Occasion,
   offset: number,
+  rainGear: readonly MatchGarment[] = [],
 ): Static<typeof DayWeather> {
-  return withoutNulls(dayWeather(day, occasion, offset));
+  return withoutNulls(dayWeather(day, occasion, offset, rainGear));
 }
 
 export function toTypicalDayWeather(
@@ -288,12 +303,15 @@ export function toWeatherResource(
   own: UserWeather,
   days: readonly IsoDate[],
   occasion: Occasion,
+  rainGear: readonly MatchGarment[],
 ): WeatherResource {
   const { settings, active, cached } = own;
   const forecastDays = cached
     ? days.flatMap((day) => {
         const found = forecastDay(cached.forecast, day);
-        return found ? [toDayWeather(found, occasion, settings.offset)] : [];
+        return found
+          ? [toDayWeather(found, occasion, settings.offset, rainGear)]
+          : [];
       })
     : [];
   return {

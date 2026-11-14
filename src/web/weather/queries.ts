@@ -1,7 +1,20 @@
 import { and, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
-import { userWeather, weatherForecast, weatherNormals } from '../../db/schema';
+import {
+  garment,
+  userWeather,
+  weatherForecast,
+  weatherNormals,
+} from '../../db/schema';
 import { selectScalars } from '../../db/select-scalars';
+import type { DayForecast } from '../../weather/forecast';
+import {
+  type MatchGarment,
+  matchGarment,
+  needsWaterResistance,
+  weatherNeeds,
+} from '../../weather/match';
+import type { Occasion } from '../../wardrobe/occasions';
 import type { Forecast } from '../../weather/forecast';
 import type { Location } from '../../weather/location';
 import type { ClimateNormals } from '../../weather/normals';
@@ -12,6 +25,7 @@ import {
   OFFSET_STEP,
   type TemperatureUnit,
 } from '../../weather/temperature';
+import { availableGarment } from '../wears/queries';
 
 /**
  * The weather's rows (#14): a user's settings (user_weather) and the
@@ -591,4 +605,53 @@ export async function recordFailedNormals(
       target: [weatherNormals.latitude, weatherNormals.longitude],
       set: { attemptedAt: at },
     });
+}
+
+/**
+ * What keeps the rain off beside an outfit in the owner's closet right now
+ * (an available water-resistant hat or cap, `MatchGarment.rainGear`), as the
+ * matching reads it: the resources that carry a day's needs without the
+ * ideas' pool pass it to `withRainGear`, as `ideasFor` does over its pool, so
+ * `takeUmbrella` is one answer on every surface.
+ */
+export async function closetRainGear(
+  db: Queryable,
+  ownerId: number,
+): Promise<MatchGarment[]> {
+  const rows = await db
+    .select({
+      category: garment.category,
+      type: garment.type,
+      fabricWeight: garment.fabricWeight,
+      warmth: garment.warmth,
+      waterResistant: garment.waterResistant,
+    })
+    .from(garment)
+    .where(
+      and(
+        eq(garment.ownerId, ownerId),
+        eq(garment.waterResistant, true),
+        availableGarment(),
+      ),
+    );
+  return rows.map(matchGarment).filter((g) => g.rainGear);
+}
+
+/**
+ * closetRainGear, but only when a day of `days` asks the outfit for water
+ * resistance (rain the heat does not answer): a dry week, the common read,
+ * costs no statement (production pays a round trip each).
+ */
+export async function rainGearFor(
+  db: Queryable,
+  ownerId: number,
+  days: readonly DayForecast[],
+  occasion: Occasion,
+  offset: number,
+): Promise<MatchGarment[]> {
+  const asked = days.some((day) => {
+    const needs = weatherNeeds(day, occasion, offset);
+    return needs !== null && needsWaterResistance(needs);
+  });
+  return asked ? closetRainGear(db, ownerId) : [];
 }
