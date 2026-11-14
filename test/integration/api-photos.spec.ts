@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { pendingPhoto } from '../../src/db/schema';
+import { garment, pendingPhoto } from '../../src/db/schema';
 import { t as text } from '../../src/web/i18n';
 import { LINK_IMPORT_LIMIT } from '../../src/web/security/rate-limit';
 import { deviceToken, expectProblem } from './api';
@@ -340,6 +340,10 @@ describe('POST /garments/link-imports', () => {
   beforeAll(() => {
     sites.serve('/api-shirt', html(PAGE));
     sites.serve('/api-shirt.jpg', jpeg(photo));
+    sites.serve(
+      '/api-shell',
+      html('<title>The Worlds Most Comfortable Shoes</title>'),
+    );
   });
 
   it('saves the garment the page describes, with its photo queued, into the wardrobe addressed', async () => {
@@ -349,7 +353,12 @@ describe('POST /garments/link-imports', () => {
       `?ownerId=${t.owner.id}`,
     );
     expect(res.statusCode, res.body).toBe(201);
-    const { id, notices } = res.json<{ id: number; notices: string[] }>();
+    const { id, notices, confidence } = res.json<{
+      id: number;
+      notices: string[];
+      confidence: string;
+    }>();
+    expect(confidence).toBe('product');
     expect(res.headers.location).toBe(
       `/api/v1/garments/${id}?ownerId=${t.owner.id}`,
     );
@@ -365,6 +374,31 @@ describe('POST /garments/link-imports', () => {
       status: 'closet',
       photo: { cutoutStatus: 'pending', createdById: t.owner.id },
     });
+  });
+
+  it('answers a title-only read with its reason and saves nothing, until a name is sent', async () => {
+    const { token } = await signUp('api-photos-shell@example.com');
+    const before = await t.db.$count(garment);
+    const refused = expectProblem(
+      await importLink(token, { url: sites.url('/api-shell') }),
+      422,
+      'validation',
+    );
+    expect(refused.detail).toBe(
+      `title-only: ${text('linkImport.TITLE_ONLY_SEND_NAME')}`,
+    );
+    expect(refused.errors).toEqual([
+      { path: 'body/name', message: text('linkImport.TITLE_ONLY_SEND_NAME') },
+    ]);
+    expect(await t.db.$count(garment)).toBe(before);
+
+    const named = await importLink(token, {
+      url: sites.url('/api-shell'),
+      name: 'Court shoes',
+      category: 'footwear',
+    });
+    expect(named.statusCode, named.body).toBe(201);
+    expect(named.json<{ confidence: string }>().confidence).toBe('title-only');
   });
 
   it('refuses text without a link, a replaced garment off the wishlist, and a form it cannot save', async () => {

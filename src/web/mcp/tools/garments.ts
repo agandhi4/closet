@@ -573,7 +573,7 @@ export const garmentTools = [
     name: 'add_garment_from_link',
     title: 'Add a garment from a product link',
     description:
-      "WRITES: fetches a product page (or an image link), extracts the name, brand, colours, category, type, materials, price and first photo as the app's link import does, and saves the garment (the photo's background removal follows). Lands on the wishlist unless `destination` is `closet`: a product link is usually something being considered, and the owner moves it to the closet with \"Bought it\" in the app. Say `closet` only for something already owned. Give `category` when the page does not make it clear; any field given overrides the extraction. Saved to the closet, the answer's `lookalikes` are closet garments that look like the same product (same category, type and colours, no other brand): if there are any, ask the owner whether it is another copy of one; if so they delete the new garment in the app, and add_garment_copy counts the copy. Needs your own wardrobe or a MANAGE share. Rate limited: 10 imports a minute. A refused fetch names its reason first: `blocked-by-site` is a shop that refuses automated fetches (it will again; take the product from another retailer), `http-status` a page that answered an error. A product you suggest to the owner for a need is suggest_garment's, not this tool's.",
+      "WRITES: fetches a product page (or an image link), extracts the name, brand, colours, category, type, materials, price and first photo as the app's link import does, and saves the garment (the photo's background removal follows). Lands on the wishlist unless `destination` is `closet`: a product link is usually something being considered, and the owner moves it to the closet with \"Bought it\" in the app. Say `closet` only for something already owned. Give `category` when the page does not make it clear; any field given overrides the extraction. Saved to the closet, the answer's `lookalikes` are closet garments that look like the same product (same category, type and colours, no other brand): if there are any, ask the owner whether it is another copy of one; if so they delete the new garment in the app, and add_garment_copy counts the copy. The answer's `confidence` says how much the page gave: `product` (structured product data), `page` (a title and photo only) or `title-only` (nothing readable, so only the link was kept: the name and the rest are yours to give, or take another retailer's link). Needs your own wardrobe or a MANAGE share. Rate limited: 10 imports a minute. A refused fetch names its reason first: `blocked-by-site` is a shop that refuses automated fetches (it will again; take the product from another retailer), `http-status` a page that answered an error. A product you suggest to the owner for a need is suggest_garment's, not this tool's.",
     input: z.object({
       url: z.url({ protocol: /^https?$/ }).max(2048),
       ownerId: ownerIdInput,
@@ -626,6 +626,7 @@ export const garmentTools = [
       return {
         garment: await garmentOut(ctx, garment, access.ownerId, access.isOwner),
         notices: saved.notices,
+        confidence: saved.confidence,
         ...(garment.status === 'closet' && {
           lookalikes: lookalikes.map(({ id, name, category, quantity }) => ({
             id,

@@ -851,7 +851,11 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       return reply
         .status(201)
         .header('Location', apiGarmentUrl(saved.id, viewOwner))
-        .send({ id: saved.id, notices: saved.notices });
+        .send({
+          id: saved.id,
+          notices: saved.notices,
+          confidence: saved.confidence,
+        });
     },
   );
 
