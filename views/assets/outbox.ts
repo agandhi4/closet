@@ -62,8 +62,9 @@ import {
   REPLAY_TIMEOUT_MS,
   type ReplayFailure,
   type ReplayVerdict,
+  type ReplayDriver,
+  replayQueue,
   replayVerdict,
-  retryDelayMs,
   routesThroughOutbox,
   sharedUntilRejected,
   takesDay,
@@ -90,6 +91,9 @@ interface OutboxRecord {
   label: string;
   queuedAt: number;
   attempts: number;
+  /** 5xx answers so far and the first's time: absent on an older client's record. */
+  serverErrors?: number;
+  serverErrorSince?: number;
   state: 'pending' | 'failed';
   reason?: ReplayFailure;
 }
@@ -157,6 +161,7 @@ const REASON_TEXT: Record<ReplayFailure, string> = {
   future: 'textOutboxReasonFuture',
   account: 'textOutboxReasonAccount',
   refused: 'textOutboxReasonRefused',
+  server: 'textOutboxReasonServer',
 };
 
 // ---- The page ---------------------------------------------------------------
@@ -168,7 +173,7 @@ const text = (name: string) => appStatus()[name] ?? '';
 
 /** A string with a count: its `One` or `Many` form, `{count}` filled. */
 function counted(
-  name: 'Waiting' | 'Syncing' | 'Saved' | 'SignIn' | 'Discard',
+  name: 'Waiting' | 'Syncing' | 'Retrying' | 'Saved' | 'SignIn' | 'Discard',
   count: number,
 ): string {
   return text(`textOutbox${name}${count === 1 ? 'One' : 'Many'}`).replace(
@@ -341,7 +346,12 @@ function render(records: OutboxRecord[]): void {
   const waiting = records.filter(isPending).length;
   renderRegions(records);
   renderPackedCounts(records);
-  renderBanner(waiting);
+  // Online with a record that has been tried and not saved: the drain is
+  // waiting out its backoff (a 5xx, a timeout), which nothing else shows.
+  renderBanner(
+    waiting,
+    records.some((record) => isPending(record) && record.attempts > 0),
+  );
   renderNotice(records.filter((record) => record.state === 'failed'));
   guardFull(waiting);
 }
@@ -482,7 +492,7 @@ function flip(region: HTMLElement): void {
     region.querySelector<HTMLElement>(':scope > form button')?.focus();
 }
 
-function renderBanner(count: number): void {
+function renderBanner(count: number, backingOff: boolean): void {
   const banner = document.getElementById('outbox-banner');
   const slot = banner?.querySelector('[data-role="text"]');
   if (!banner || !slot) return;
@@ -492,6 +502,7 @@ function renderBanner(count: number): void {
   else if (offline() && count >= OUTBOX_MAX_PENDING) message = fullText();
   else if (offline()) message = counted('Waiting', count);
   else if (syncing) message = counted('Syncing', count);
+  else if (backingOff) message = counted('Retrying', count);
   slot.textContent = message;
   banner.classList.toggle('hidden', message === '');
 }
@@ -876,13 +887,13 @@ async function send(record: OutboxRecord, url: URL): Promise<ReplayVerdict> {
         `[outbox] ${record.key} (key ${record.id.slice(0, 8)}) had no answer in ${REPLAY_TIMEOUT_MS / 1000} s`,
       );
     }
-    return { verdict: 'retry' };
+    return { verdict: 'retry', cause: 'unreachable' };
   } finally {
     clearTimeout(timeout);
   }
 }
 
-/** Replays the account's pending records in order. */
+/** Replays the account's pending records (replayQueue's rules). */
 async function replayAll(
   account: string,
   reason: string,
@@ -895,25 +906,32 @@ async function replayAll(
     syncing = true;
     void refresh();
   }, SYNCING_QUIET_MS);
-  try {
-    for (const record of queued) {
-      const key = `${record.key} (key ${record.id.slice(0, 8)})`;
-      const url = replayUrl(record.path);
-      if (!url) {
+  const nameOf = (record: OutboxRecord) =>
+    `${record.key} (key ${record.id.slice(0, 8)})`;
+  const driver: ReplayDriver<OutboxRecord> = {
+    now: Date.now,
+    async skip(record) {
+      if (!replayUrl(record.path)) {
         await remove([record]);
         console.warn(
-          `[outbox] ${key} deleted: ${record.path} is not a queued write`,
+          `[outbox] ${nameOf(record)} deleted: ${record.path} is not a queued write`,
         );
-        continue;
+        return true;
       }
       // Replaced by a newer intent since the drain read the store: that one
       // replays instead, this one never.
       if (!(await isQueued(record))) {
-        console.info(`[outbox] ${key} superseded before its replay`);
-        continue;
+        console.info(`[outbox] ${nameOf(record)} superseded before its replay`);
+        return true;
       }
-      const answer = await send(record, url);
-      if (answer.verdict === 'saved') {
+      return false;
+    },
+    send(record) {
+      return send(record, replayUrl(record.path) as URL);
+    },
+    async settle(record, step) {
+      const key = nameOf(record);
+      if (step.step === 'saved') {
         // A replaced one's save is not the user's last word: its successor
         // replays next and is the one counted.
         const current = await settle(record);
@@ -922,36 +940,33 @@ async function replayAll(
           result.savedPaths.push(record.path);
         }
         console.info(
-          `[outbox] ${key} saved (${answer.changed ? 'changed' : 'unchanged'})${current ? '' : ', superseded meanwhile'}`,
+          `[outbox] ${key} saved (${step.changed ? 'changed' : 'unchanged'})${current ? '' : ', superseded meanwhile'}`,
         );
-      } else if (answer.verdict === 'failed') {
-        const failure: OutboxRecord = {
-          ...record,
-          state: 'failed',
-          reason: answer.reason,
-        };
-        if (await settle(record, failure)) {
-          console.warn(`[outbox] ${key} not saved: ${answer.reason}`);
-        } else {
-          console.info(`[outbox] ${key} not saved, superseded meanwhile`);
-        }
-      } else if (answer.verdict === 'retry') {
-        const attempts = record.attempts + 1;
-        await settle(record, { ...record, attempts });
-        result.retryInMs = retryDelayMs(attempts);
-        console.info(
-          `[outbox] ${key} unreachable, retry ${attempts} in ${result.retryInMs / 1000} s`,
-        );
-        return result;
-      } else {
-        signedOut = true;
-        console.info(
-          `[outbox] ${key} needs a sign-in; ${queued.length - result.saved} kept`,
-        );
-        return result;
+        return current;
       }
+      const current = await settle(record, step.record);
+      const meanwhile = current ? '' : ', superseded meanwhile';
+      if (step.step === 'failed') {
+        console.warn(
+          `[outbox] ${key} not saved: ${step.record.reason}${meanwhile}`,
+        );
+      } else {
+        console.info(
+          `[outbox] ${key} ${step.why}, retry ${step.record.attempts}${meanwhile}`,
+        );
+      }
+      return current;
+    },
+  };
+  try {
+    const end = await replayQueue(queued, driver);
+    if (end.end !== 'backoff') signedOut = end.end === 'no-session';
+    if (end.end === 'backoff') {
+      result.retryInMs = end.retryInMs;
+      console.info(`[outbox] retry in ${end.retryInMs / 1000} s`);
+    } else if (end.end === 'no-session') {
+      console.info(`[outbox] needs a sign-in; ${queued.length} kept`);
     }
-    signedOut = false;
     return result;
   } finally {
     clearTimeout(quiet);

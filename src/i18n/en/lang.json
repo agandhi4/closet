@@ -169,6 +169,8 @@
     "WAITING_MANY": "{count} changes waiting to sync",
     "SYNCING_ONE": "Syncing 1 change",
     "SYNCING_MANY": "Syncing {count} changes",
+    "RETRYING_ONE": "1 change not saved yet: the server is not answering, trying again",
+    "RETRYING_MANY": "{count} changes not saved yet: the server is not answering, trying again",
     "SAVED_ONE": "1 change saved",
     "SAVED_MANY": "{count} changes saved",
     "SIGN_IN_ONE": "Sign in to save 1 change",
@@ -192,7 +194,8 @@
       "TOO_OLD": "too long ago: add it from the calendar",
       "FUTURE": "that day has not come yet",
       "ACCOUNT": "it was saved while signed in as someone else",
-      "REFUSED": "it could not be saved"
+      "REFUSED": "it could not be saved",
+      "SERVER": "the server kept answering with an error"
     }
   },
   "NEWER_PAGE_AVAILABLE": "Newer version of this page",

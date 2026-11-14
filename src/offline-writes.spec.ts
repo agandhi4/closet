@@ -17,6 +17,12 @@ import {
   queuedWritesGoneAtClaim,
   REPLAY_WINDOW_DAYS,
   replayVerdict,
+  type ReplayDriver,
+  type ReplayRecord,
+  replayQueue,
+  type ReplayVerdict,
+  SERVER_ERROR_WINDOW_MS,
+  SERVER_ERROR_MAX_ATTEMPTS,
   retryDelayMs,
   routesThroughOutbox,
   sharedUntilRejected,
@@ -309,12 +315,145 @@ describe('replayVerdict', () => {
     // A page: an answer that is not the replay contract's is never taken
     // for saved.
     [200, null, { verdict: 'failed', reason: 'refused' }],
-    [500, null, { verdict: 'retry' }],
-    [503, null, { verdict: 'retry' }],
-    [408, null, { verdict: 'retry' }],
-    [429, null, { verdict: 'retry' }],
+    [500, null, { verdict: 'retry', cause: 'server' }],
+    [502, null, { verdict: 'retry', cause: 'server' }],
+    // The busy page (#643), a timeout and a rate limit say nothing about
+    // the record: they never spend its budget.
+    [503, null, { verdict: 'retry', cause: 'unreachable' }],
+    [408, null, { verdict: 'retry', cause: 'unreachable' }],
+    [429, null, { verdict: 'retry', cause: 'unreachable' }],
   ] as const)('reads %i (%s)', (status, outcome, verdict) => {
     expect(replayVerdict(status, outcome)).toEqual(verdict);
+  });
+});
+
+describe('replayQueue: a 5xx is a record’s fault only if the server answers others', () => {
+  type Row = ReplayRecord & { id: string; reason?: string };
+  const row = (id: string, key = id): Row => ({
+    id,
+    account: '1',
+    key,
+    state: 'pending',
+    attempts: 0,
+  });
+  const OK = { verdict: 'saved', changed: true } as const;
+  const SERVER = { verdict: 'retry', cause: 'server' } as const;
+  const UNREACHABLE = { verdict: 'retry', cause: 'unreachable' } as const;
+
+  /** A store and a server in one: `answers` says what each id gets. */
+  function world(
+    rows: Row[],
+    answers: (id: string) => ReplayVerdict,
+    clock: { now: number } = { now: 0 },
+  ) {
+    const sent: string[] = [];
+    const stored = new Map(rows.map((r) => [r.id, r]));
+    const driver: ReplayDriver<Row> = {
+      now: () => clock.now,
+      skip: () => Promise.resolve(false),
+      send(record) {
+        sent.push(record.id);
+        return Promise.resolve(answers(record.id));
+      },
+      settle(record, step) {
+        if (step.step === 'saved') stored.delete(record.id);
+        else stored.set(record.id, step.record);
+        return Promise.resolve(true);
+      },
+    };
+    const drain = () =>
+      replayQueue(
+        [...stored.values()].filter((r) => r.state === 'pending'),
+        driver,
+      );
+    return { stored, sent, drain, clock };
+  }
+
+  it('fails nothing while the whole server answers 5xx, for ten minutes', async () => {
+    const w = world([row('a'), row('b'), row('c')], () => SERVER);
+    for (let at = 0; at <= 10 * 60_000; at += 30_000) {
+      w.clock.now = at;
+      expect((await w.drain()).end).toBe('backoff');
+    }
+    expect([...w.stored.values()].map((r) => r.state)).toEqual([
+      'pending',
+      'pending',
+      'pending',
+    ]);
+    expect(
+      [...w.stored.values()].every((r) => r.serverErrors === undefined),
+    ).toBe(true);
+  });
+
+  it('fails the record whose neighbours succeed, after N, and sends those behind it', async () => {
+    const w = world([row('bad')], (id) => (id === 'bad' ? SERVER : OK));
+    for (let n = 1; n < SERVER_ERROR_MAX_ATTEMPTS; n += 1) {
+      w.stored.set(`ok${n}`, row(`ok${n}`));
+      expect((await w.drain()).end).toBe('backoff');
+      expect(w.stored.get('bad')).toMatchObject({
+        state: 'pending',
+        serverErrors: n,
+      });
+      expect(w.stored.has(`ok${n}`)).toBe(false);
+    }
+    w.stored.set('last', row('last'));
+    w.stored.set('after', row('after'));
+    expect((await w.drain()).end).toBe('done');
+    expect(w.stored.get('bad')).toMatchObject({
+      state: 'failed',
+      reason: 'server',
+    });
+    expect([...w.stored.keys()]).toEqual(['bad']);
+  });
+
+  it('counts only recent 5xx answers', async () => {
+    const w = world([row('bad')], (id) => (id === 'bad' ? SERVER : OK));
+    w.stored.set('ok1', row('ok1'));
+    await w.drain();
+    expect(w.stored.get('bad')?.serverErrors).toBe(1);
+    w.clock.now = SERVER_ERROR_WINDOW_MS;
+    w.stored.set('ok2', row('ok2'));
+    await w.drain();
+    expect(w.stored.get('bad')).toMatchObject({
+      serverErrors: 1,
+      serverErrorSince: SERVER_ERROR_WINDOW_MS,
+    });
+  });
+
+  it('the network, a timeout or a 503 neither spends nor clears the count', async () => {
+    const w = world(
+      [{ ...row('bad'), serverErrors: 4, serverErrorSince: 0 }],
+      () => UNREACHABLE,
+    );
+    expect((await w.drain()).end).toBe('backoff');
+    expect(w.stored.get('bad')).toMatchObject({
+      state: 'pending',
+      serverErrors: 4,
+    });
+  });
+
+  it('never sends a record past an older one with its key', async () => {
+    const w = world(
+      [row('old', 'wear:1'), row('same', 'wear:1'), row('other')],
+      (id) => (id === 'old' ? SERVER : OK),
+    );
+    await w.drain();
+    expect(w.sent).toEqual(['old', 'other']);
+  });
+
+  it('keeps a lone 5xx record: nothing shows it is the record', async () => {
+    const w = world([row('only')], () => SERVER);
+    expect((await w.drain()).end).toBe('backoff');
+    expect(w.stored.get('only')).toMatchObject({
+      state: 'pending',
+      attempts: 1,
+    });
+    expect(w.stored.get('only')?.serverErrors).toBeUndefined();
+  });
+
+  it('stops for a sign-in', async () => {
+    const w = world([row('a')], () => ({ verdict: 'signed-out' }));
+    expect((await w.drain()).end).toBe('no-session');
   });
 });
 
