@@ -42,8 +42,10 @@ interface StubPlace {
   name: string;
   latitude: number;
   longitude: number;
-  admin1: string;
+  admin1?: string;
   country: string;
+  /** Open-Meteo's `timezone` per result: a trip's days are asked in it (#678). */
+  timezone: string;
 }
 
 /** What the search answers, by the lower-case query. */
@@ -55,6 +57,7 @@ const PLACES: Readonly<Record<string, readonly StubPlace[]>> = {
       longitude: -73.94958,
       admin1: 'New York',
       country: 'United States',
+      timezone: 'America/New_York',
     },
   ],
   'fort greene': [
@@ -64,6 +67,7 @@ const PLACES: Readonly<Record<string, readonly StubPlace[]>> = {
       longitude: -73.97625,
       admin1: 'New York',
       country: 'United States',
+      timezone: 'America/New_York',
     },
   ],
   // A trip's destination (#10: the demo's Austin conference, the specs' trips).
@@ -74,6 +78,7 @@ const PLACES: Readonly<Record<string, readonly StubPlace[]>> = {
       longitude: -97.74306,
       admin1: 'Texas',
       country: 'United States',
+      timezone: 'America/Chicago',
     },
   ],
   springfield: [
@@ -83,6 +88,7 @@ const PLACES: Readonly<Record<string, readonly StubPlace[]>> = {
       longitude: -89.64371,
       admin1: 'Illinois',
       country: 'United States',
+      timezone: 'America/Chicago',
     },
     {
       name: 'Springfield',
@@ -90,6 +96,17 @@ const PLACES: Readonly<Record<string, readonly StubPlace[]>> = {
       longitude: -72.58981,
       admin1: 'Massachusetts',
       country: 'United States',
+      timezone: 'America/New_York',
+    },
+  ],
+  // Across the date line from the household (#678's specs).
+  tokyo: [
+    {
+      name: 'Tokyo',
+      latitude: 35.6895,
+      longitude: 139.69171,
+      country: 'Japan',
+      timezone: 'Asia/Tokyo',
     },
   ],
 };
@@ -142,7 +159,7 @@ function forecastAnswer(days: readonly DayForecast[], timeZone: string) {
  * `last`: the seed's simulated New York days as observations, air highs and
  * lows, the hours' feels-like range, and 5 mm on a rainy day.
  */
-function archiveAnswer(first: string, last: string) {
+function archiveAnswer(first: string, last: string, timeZone: string) {
   const count = daysBetween(first, last) + 1;
   const days = weatherFor(WEATHER_KEY, first, count).map((weather) => ({
     weather,
@@ -150,6 +167,7 @@ function archiveAnswer(first: string, last: string) {
   }));
   const feels = (day: DayForecast) => day.hours.map((h) => h.feelsLike);
   return {
+    timezone: timeZone,
     daily: {
       time: days.map(({ weather }) => weather.day),
       temperature_2m_max: days.map(({ forecast }) => forecast.high),
@@ -186,8 +204,9 @@ export async function startWeatherStub(): Promise<WeatherStub> {
     '/v1/archive': (params) => {
       const first = params.get('start_date') ?? '';
       const last = params.get('end_date') ?? '';
-      const key = `${first}/${last}`;
-      const answer = archives.get(key) ?? archiveAnswer(first, last);
+      const timeZone = params.get('timezone') ?? 'GMT';
+      const key = `${first}/${last}/${timeZone}`;
+      const answer = archives.get(key) ?? archiveAnswer(first, last, timeZone);
       archives.set(key, answer);
       return answer;
     },

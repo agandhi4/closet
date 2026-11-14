@@ -39,6 +39,7 @@ function slowWeather() {
     known: KnownRow<Forecast> | undefined;
   }[] = [];
   const weather: WeatherService = {
+    timeZone: 'America/New_York',
     forecastFor: (location, read, known) => {
       asked.push({ location, read, known });
       return new Promise((resolve) =>
@@ -170,7 +171,7 @@ describe('refreshForecastsFor', () => {
       refreshForecastsFor({ db: {} as Db, weather, logger }, [1], new Date()),
     ).resolves.toEqual(new Map());
     expect(logs.messages('error')).toEqual([
-      'Forecast refresh for 40.01,-73.98 failed',
+      'Forecast refresh for 40.01,-73.98 America/New_York failed',
     ]);
   });
 });

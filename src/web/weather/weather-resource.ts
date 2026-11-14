@@ -345,6 +345,10 @@ const PlaceResource = Type.Object(
         'Its full name, "Brooklyn, New York, United States": send it as the `name` you set',
     }),
     ...Coordinates,
+    timeZone: Type.Union([Type.String(), Type.Null()], {
+      description:
+        'Its IANA time zone ("Asia/Tokyo"); null when the search named none. Send it as the `timeZone` you set: a trip\'s days and hours are asked in it',
+    }),
   },
   { title: 'Place', description: 'A place the search found' },
 );
@@ -359,14 +363,14 @@ export const PlaceList = Type.Object(
 );
 
 export function toPlaceResource(place: Place): Static<typeof PlaceResource> {
-  return { label: place.label, ...place.location };
+  return { label: place.label, ...place.location, timeZone: place.timeZone };
 }
 
 /** PUT /weather/home and a trip's destination: a place from the search. */
 export const PlaceInput = CloneType(PlaceBody, {
   title: 'PlaceInput',
   description:
-    'A place from GET /weather/places: its label as the name, and its coordinates (rounded to ~1 km before they are kept)',
+    "A place from GET /weather/places: its label as the name, its coordinates (rounded to ~1 km before they are kept) and its `timeZone` (a trip reads its days in it; one omitted or unknown is the household's)",
 });
 
 /** PUT /weather/here: the phone's position. */

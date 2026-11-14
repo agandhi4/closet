@@ -8,6 +8,7 @@ import {
   weekPlanEntry,
 } from '../../src/db/schema';
 import { addDays, dateParts, type IsoDate } from '../../src/calendar-date';
+import { setTripDestination } from '../../src/web/trips/queries';
 import { dayColumns } from './calendar-page';
 import { createGarment, createWishlistItem } from './garments';
 import {
@@ -579,7 +580,7 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
       expect(nights).toHaveLength(7);
     });
 
-    it('a trip (#10) that starts today is on: "Wore it" wears today, the day after is refused', async () => {
+    it('a trip (#10) to Tokyo that starts today is on: "Wore it" wears home\'s today, the day after is refused (#678)', async () => {
       const { garmentId, outfitId } = await newOutfit(`Trip ${at}`);
       const created = await post('/trips', {
         name: `Trip ${at}`,
@@ -589,6 +590,18 @@ describe.each(ZONES)('"today" in $zone', ({ zone, instants }) => {
       expect(created.statusCode).toBe(303);
       const tripId = Number(
         /^\/trips\/(\d+)/.exec(String(created.headers.location))![1],
+      );
+      // The destination's zone dresses its days; "today" stays the
+      // household's, whatever the day already is in Tokyo (the known limit).
+      await asFixture(t.db, async (tx) =>
+        setTripDestination(tx, tripId, await userIdOf(t, OWNER_EMAIL), {
+          name: 'Tokyo, Japan',
+          location: {
+            latitude: 35.69,
+            longitude: 139.69,
+            timeZone: 'Asia/Tokyo',
+          },
+        }),
       );
       expect(
         (

@@ -262,9 +262,9 @@ describe('weather', () => {
       // The log names the rounded location, never the user; the fetcher's
       // line names the host, never the query.
       expect(t.logs.messages('info', 'Weather')).toEqual([
-        'Forecast for 40.69,-73.98: refreshing; none kept, the ask waits',
+        'Forecast for 40.69,-73.98 America/New_York: refreshing; none kept, the ask waits',
         expect.stringMatching(
-          /^Forecast for 40\.69,-73\.98: 16 days in \d+ ms$/,
+          /^Forecast for 40\.69,-73\.98 America\/New_York: 16 days in \d+ ms$/,
         ),
       ]);
       expect(t.logs.messages('info', 'OutboundFetch')).toEqual([
@@ -315,9 +315,9 @@ describe('weather', () => {
       await refreshed(t, 61 * MINUTE);
       expect(forecastHits(stub)).toHaveLength(before + 1);
       expect(t.logs.messages('info', 'Weather')).toEqual([
-        'Forecast for 40.69,-73.98: refreshing; the one from 2026-09-27T00:30:00.000Z kept meanwhile',
+        'Forecast for 40.69,-73.98 America/New_York: refreshing; the one from 2026-09-27T00:30:00.000Z kept meanwhile',
         expect.stringMatching(
-          /^Forecast for 40\.69,-73\.98: 16 days in \d+ ms$/,
+          /^Forecast for 40\.69,-73\.98 America\/New_York: 16 days in \d+ ms$/,
         ),
       ]);
 
@@ -339,7 +339,7 @@ describe('weather', () => {
       expect(forecastHits(stub)).toHaveLength(before + 1);
       expect(t.logs.messages('warn', 'Weather')).toEqual([
         expect.stringMatching(
-          /^Forecast for 40\.69,-73\.98 failed \(http-status\) after \d+ ms; serving the one from 2026-09-27T01:31:00\.000Z$/,
+          /^Forecast for 40\.69,-73\.98 America\/New_York failed \(http-status\) after \d+ ms; serving the one from 2026-09-27T01:31:00\.000Z$/,
         ),
       ]);
 

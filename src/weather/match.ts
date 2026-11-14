@@ -123,7 +123,7 @@ function limbCeiling(feelsLike: number): Warmth {
 
 export interface WeatherNeeds {
   occasion: Occasion;
-  /** The occasion's hours, `from` inclusive, `to` exclusive (APP_TIMEZONE). */
+  /** The occasion's hours, `from` inclusive, `to` exclusive, in the forecast's zone (a trip's: the destination's). */
   window: { from: number; to: number };
   /** The window's feels-like range, °C, the personal offset included. */
   feelsLike: { min: number; max: number };

@@ -2081,8 +2081,9 @@ const longitudeColumn = (name: string) =>
 // reach it. Written only by src/web/trips/queries.ts. The destination is a
 // name the owner types and, once picked from the weather's geocoding search
 // (#14), its location rounded to 2 decimals like every stored coordinate
-// (src/weather/location.ts), which gives the trip its forecast. A new name
-// clears the location it no longer describes.
+// (src/weather/location.ts), which gives the trip its forecast, and the
+// destination's IANA zone from the same answer (#678), which its days and
+// hours are asked in. A new name clears the location it no longer describes.
 export const trip = pgTable(
   'trip',
   {
@@ -2093,6 +2094,11 @@ export const trip = pgTable(
     destination: text('destination'),
     latitude: latitudeColumn('latitude'),
     longitude: longitudeColumn('longitude'),
+    // Canonical (canonicalTimeZone); null without a location, for one located
+    // before #678, or when the geocoding answer named no zone Intl knows: the
+    // weather then reads APP_TIMEZONE. Written only with the location
+    // (setTripDestination), so it never outlives the place it describes.
+    timeZone: text('time_zone'),
     // The first and last day away, both included ('YYYY-MM-DD').
     startsOn: date('starts_on', { mode: 'string' }).notNull(),
     endsOn: date('ends_on', { mode: 'string' }).notNull(),
@@ -2114,6 +2120,10 @@ export const trip = pgTable(
     check(
       'trip_location_check',
       sql`(${table.latitude} is null) = (${table.longitude} is null) and (${table.latitude} is null or ${table.destination} is not null)`,
+    ),
+    check(
+      'trip_time_zone_check',
+      sql`${table.timeZone} is null or ${table.latitude} is not null`,
     ),
     check(
       'trip_coordinates_check',
@@ -2412,7 +2422,8 @@ export const userWeather = pgTable(
 );
 
 // The forecast cache (#14, src/web/weather/service.ts): one row per rounded
-// location, refreshed once it is an hour old, keeping the last good answer
+// location and the zone its days and hours are in (#678: the home's are
+// APP_TIMEZONE, a trip destination's its own), refreshed once it is an hour old, keeping the last good answer
 // when a refresh fails. A table rather than process memory: a deploy (the
 // hourly autoupdate) or a restart starts warm instead of asking Open-Meteo
 // again, two servers during an overlapping deploy share it, and the last good
@@ -2423,6 +2434,8 @@ export const weatherForecast = pgTable(
   {
     latitude: latitudeColumn('latitude').notNull(),
     longitude: longitudeColumn('longitude').notNull(),
+    // Canonical (canonicalTimeZone); always the answer's own `timeZone`.
+    timeZone: text('time_zone').notNull(),
     // The last good answer, normalized (src/weather/forecast.ts); null until
     // the location's first fetch succeeds.
     forecast: jsonb('forecast').$type<Forecast>(),
@@ -2434,7 +2447,7 @@ export const weatherForecast = pgTable(
   (table) => [
     primaryKey({
       name: 'weather_forecast_pkey',
-      columns: [table.latitude, table.longitude],
+      columns: [table.latitude, table.longitude, table.timeZone],
     }),
     check(
       'weather_forecast_fetched_check',
@@ -2458,6 +2471,8 @@ export const weatherNormals = pgTable(
   {
     latitude: latitudeColumn('latitude').notNull(),
     longitude: longitudeColumn('longitude').notNull(),
+    // The zone the archive's days were asked in, as weather_forecast's.
+    timeZone: text('time_zone').notNull(),
     // The last good answer; null until the location's first fetch succeeds.
     normals: jsonb('normals').$type<ClimateNormals>(),
     fetchedAt: timestamp('fetched_at', { withTimezone: true }),
@@ -2466,7 +2481,7 @@ export const weatherNormals = pgTable(
   (table) => [
     primaryKey({
       name: 'weather_normals_pkey',
-      columns: [table.latitude, table.longitude],
+      columns: [table.latitude, table.longitude, table.timeZone],
     }),
     check(
       'weather_normals_fetched_check',

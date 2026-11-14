@@ -1011,3 +1011,10 @@ Consequence: a server-only deploy keeps every `?v=` and the precache. The releas
 Why: the calendar shows Sunday to Saturday, the plan covers today and six days, so on a Friday the first planned day was off-screen under a text banner (#683).
 Decision: the POST redirects to `?week=<startOfWeek(first planned day)>&planned=<batch>#day-<first>`; banner rows are links (`#day-D` in the shown week, `dayUrl` otherwise) with a `thumb` collage. Nothing planned keeps `/calendar?planned=none`.
 Consequence: `plannedWeekUrl(planned, firstDay?)` is the one builder; the banner's garments ride `batchEntriesSql`, still the week's one statement.
+
+## 2026-11-14 — A trip is dressed in its destination's zone; "today" stays home's (#678)
+
+**Why:** every forecast was asked in `APP_TIMEZONE`, so a Tokyo trip day's 8-22 window read 22:00 to 12:00 Tokyo time (the night), and its outfits and packing skewed cold for eastward travel.
+**Decision:** a trip carries `time_zone` (0057), the geocoding answer's `timezone`, canonicalised by `canonicalTimeZone` and written only by `setTripDestination` with the coordinates (invalid or missing: null). The weather caches key on `(latitude, longitude, time_zone)`; a trip's forecast and normals are asked in its zone, the home's in `APP_TIMEZONE`. Nothing is learned on a GET.
+**Known 0.1 limits:** "today while travelling is home's": which trip days are left, "Wore it" and the calendar follow `APP_TIMEZONE`, so across the date line a trip day can lack a forecast and shows its typical weather instead. Trips located before 0057 keep APP_TIMEZONE until their destination is re-saved: geocoding has no reverse lookup, and a backfill job probing the forecast per trip was not worth a job for a handful of rows.
+**Consequence:** a new reader of a trip's weather passes `zonedIn(trip.location, weather.timeZone)`; a new writer of a trip's place goes through `setTripDestination`. Rolling back past 0057 needs the down script in `docs/operations.md`.

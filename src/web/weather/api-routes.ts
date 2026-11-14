@@ -13,6 +13,7 @@ import { enforceLimit } from '../security/rate-limit';
 import { actorOf } from '../sharing/access';
 import {
   PlaceQuery,
+  keptPlace,
   pickedPlace,
   placeAnswer,
   postedLocation,
@@ -187,7 +188,7 @@ export const weatherApiRoutes: FastifyPluginCallbackTypebox<
       const home = pickedPlace(request.body);
       await setHome(db, userId, home);
       logger.info(`Weather home set by user ${userId} (API)`);
-      return { name: home.name, ...home.location };
+      return keptPlace(home);
     },
   );
 
