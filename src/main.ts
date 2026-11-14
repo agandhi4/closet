@@ -1,8 +1,7 @@
 import { type Config, ConfigError, loadConfig } from './config';
-import { BIREFNET_512, CutoutModel } from './cutout/model';
-import { ModelRunner } from './cutout/runner';
+import { bootModelRunner } from './cutout/boot';
 import { SchemaAheadError, schemaAheadRefusal } from './db/migrate';
-import { createBootLogger, createLogger, type Logger } from './logger';
+import { createBootLogger, createLogger } from './logger';
 import { createCrashHandler } from './metrics/error-tracker';
 import { serve } from './server';
 import { probeWritable, storageFix } from './storage-probe';
@@ -10,30 +9,6 @@ import {
   identityRefusal,
   StorageIdentityError,
 } from './web/files/storage-identity';
-
-/**
- * The background-removal model's runner. The model file is verified (or
- * downloaded) now, at boot, rather than at the first upload; the process
- * that runs it starts with the first job.
- */
-function modelRunner(config: Config, logger: Logger): ModelRunner {
-  const log = logger.child({ logger: 'Cutout' });
-  log.info(
-    `Background removal: model in ${config.MODELS_PATH}, ${config.CUTOUT_THREADS} threads`,
-  );
-  const model = new CutoutModel(
-    BIREFNET_512,
-    config.MODELS_PATH,
-    logger.child({ logger: 'CutoutModel' }),
-  );
-  // Logged by CutoutModel; the first job tries again if this failed.
-  model.ready().catch(() => undefined);
-  return new ModelRunner({
-    model,
-    threads: config.CUTOUT_THREADS,
-    logger: log,
-  });
-}
 
 // A boot that fails (bad configuration, a refused migration, a taken port)
 // ends the process, whatever still holds the event loop, so the container
@@ -70,7 +45,11 @@ async function main(): Promise<void> {
   }
   const logger = createLogger(config);
   try {
-    const { errors } = await serve(config, logger, modelRunner(config, logger));
+    const { errors } = await serve(
+      config,
+      logger,
+      bootModelRunner(config, logger),
+    );
     const onCrash = createCrashHandler({
       errors,
       logger,

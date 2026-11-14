@@ -47,7 +47,7 @@ export class CutoutTimeoutError extends Error {
 
 /**
  * onnxruntime-node's native binding did not load in the model process (the
- * arm64 image, whose binaries the Dockerfile deletes; a broken install).
+ * image built for another platform, whose binaries the Dockerfile deletes; a broken install).
  */
 export class ModelBindingError extends Error {
   constructor(how: string) {

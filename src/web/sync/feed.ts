@@ -82,6 +82,7 @@ export interface FeedEntry {
     db: Queryable,
     ids: readonly number[],
     viewerId: number,
+    cutoutsEnabled: boolean,
   ): Promise<{ id: number; data: unknown }[]>;
 }
 
@@ -94,6 +95,7 @@ function feedEntry<S extends TSchema>(entry: {
     db: Queryable,
     ids: readonly number[],
     viewerId: number,
+    cutoutsEnabled: boolean,
   ): Promise<{ id: number; data: Static<S> }[]>;
 }): FeedEntry {
   return entry;
@@ -111,10 +113,10 @@ export const FEED: Readonly<Record<SyncResource, FeedEntry>> = {
     name: 'garment',
     shared: true,
     schema: SyncedGarment,
-    read: async (db, ids, viewerId) =>
+    read: async (db, ids, viewerId, cutoutsEnabled) =>
       (await garmentsByIds(db, viewerId, ids)).map((row) => ({
         id: row.id,
-        data: toSyncedGarment(row),
+        data: toSyncedGarment(row, cutoutsEnabled),
       })),
   }),
   garment_wear: feedEntry({
@@ -278,6 +280,7 @@ export async function readChanges(
   actor: Actor,
   cursorText: string | undefined,
   limit: number,
+  cutoutsEnabled: boolean,
 ): Promise<ChangesPage> {
   const cursor =
     cursorText === undefined ? undefined : readChangesCursor(cursorText);
@@ -325,7 +328,7 @@ export async function readChanges(
     });
     const items = await feedItems(tx, reads, limit + 1);
     const page = items.slice(0, limit);
-    const data = await hydrate(tx, actor.userId, page);
+    const data = await hydrate(tx, actor.userId, page, cutoutsEnabled);
     const owners = wardrobes.map((wardrobe) => wardrobe.ownerId);
     const seen = new Set(owners);
     const more = items.length > limit;
@@ -366,6 +369,7 @@ async function hydrate(
   db: Queryable,
   viewerId: number,
   page: readonly FeedItem[],
+  cutoutsEnabled: boolean,
 ): Promise<Map<SyncResource, Map<number, unknown>>> {
   const idsOf = new Map<SyncResource, number[]>();
   for (const item of page) {
@@ -374,7 +378,7 @@ async function hydrate(
   }
   const data = new Map<SyncResource, Map<number, unknown>>();
   for (const [resource, ids] of idsOf) {
-    const rows = await FEED[resource].read(db, ids, viewerId);
+    const rows = await FEED[resource].read(db, ids, viewerId, cutoutsEnabled);
     data.set(resource, new Map(rows.map((row) => [row.id, row.data])));
   }
   return data;

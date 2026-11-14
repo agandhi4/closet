@@ -863,7 +863,7 @@ describe('the owner lock', () => {
         db: t.db,
         photos: t.photos,
         logger: silentLogger,
-        cutouts: { wake: () => undefined },
+        cutouts: { wake: () => undefined, enabled: true },
       });
       const fields = () => {
         const form = readGarmentForm({ category: 'tops' }, { owner: true });

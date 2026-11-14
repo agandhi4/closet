@@ -6574,6 +6574,12 @@
                           "enum": [
                             "edited"
                           ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "none"
+                          ]
                         }
                       ]
                     }
@@ -6695,6 +6701,12 @@
                           "type": "string",
                           "enum": [
                             "edited"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "none"
                           ]
                         }
                       ]

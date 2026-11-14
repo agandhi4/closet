@@ -13,7 +13,11 @@ import { ModelBindingError } from './runner';
  *                                 kind not yet seen in this outage)
  *   waiting-for-model -> running  model-ready (the outage ends; the queue
  *                                 drains what waited, without a restart)
- *   any -> stopped                stop
+ *   any -> stopped                stop (a disabled queue stays disabled)
+ *   stopped -> disabled           disable (CUTOUT_ENABLED=false, from the
+ *                                 constructor: terminal, no event leaves it;
+ *                                 start is refused, so a runner is never
+ *                                 given to a queue that must not run one)
  *
  * A model-ready or model-unavailable landing after stop() leaves `stopped`
  * alone: a loop still ending must not revive the state.
@@ -33,6 +37,7 @@ export type ModelUnavailableKind =
 
 export type CutoutQueueState =
   | { name: 'stopped' }
+  | { name: 'disabled' }
   | { name: 'running' }
   | {
       name: 'waiting-for-model';
@@ -47,6 +52,7 @@ export type CutoutQueueState =
 export type CutoutQueueEvent =
   | { type: 'start' }
   | { type: 'stop' }
+  | { type: 'disable' }
   | { type: 'model-ready' }
   | { type: 'model-unavailable'; kind: ModelUnavailableKind };
 
@@ -64,12 +70,20 @@ export function queueTransition(
   now: number,
 ): QueueTransition {
   switch (event.type) {
+    case 'disable':
+      if (state.name !== 'stopped') {
+        throw new Error(
+          `The cutout queue cannot be disabled while ${state.name}`,
+        );
+      }
+      return { state: { name: 'disabled' }, capture: false };
     case 'start':
       if (state.name !== 'stopped') {
         throw new Error(`The cutout queue cannot start while ${state.name}`);
       }
       return { state: { name: 'running' }, capture: false };
     case 'stop':
+      if (state.name === 'disabled') return { state, capture: false };
       return { state: { name: 'stopped' }, capture: false };
     case 'model-ready':
       if (state.name !== 'waiting-for-model') return { state, capture: false };
@@ -89,7 +103,9 @@ function modelUnavailable(
   kind: ModelUnavailableKind,
   now: number,
 ): QueueTransition {
-  if (state.name === 'stopped') return { state, capture: false };
+  if (state.name === 'stopped' || state.name === 'disabled') {
+    return { state, capture: false };
+  }
   const captured = state.name === 'running' ? [] : state.captured;
   const seen = captured.includes(kind);
   return {

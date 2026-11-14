@@ -129,6 +129,11 @@ const ConfigSchema = Type.Object({
   // HEIC uploads are decoded in memory before sharp sees them; a part larger
   // than this is a 413.
   MAX_HEIC_BYTES: Type.Integer({ minimum: 1, default: 40 * 1024 * 1024 }),
+  // Background removal (src/cutout/). Off: no model runner, no 940 MB
+  // download and no model process (about 3 GB peak, more than a 1-2 GB host
+  // has); uploads start as cutout `none`, the original with the mask
+  // editor's pencil, and /health/ready reports cutout_queue disabled.
+  CUTOUT_ENABLED: Type.Boolean({ default: true }),
   // Where the background-removal model (BiRefNet, 940 MB; src/cutout/) is
   // kept. Downloaded there at boot when missing and checksum-verified; a
   // local disk, not NFS (read whole on every model load). `npm run

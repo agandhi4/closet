@@ -222,6 +222,7 @@ export async function createApp(
     database,
     photos,
     logger: logger.child({ logger: 'Cutout' }),
+    enabled: config.CUTOUT_ENABLED,
     pollMs: config.CUTOUT_POLL_SECONDS * 1000,
     metrics,
   });

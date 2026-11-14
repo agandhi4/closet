@@ -107,7 +107,11 @@ export interface WebOptions {
    * The background-removal queue, woken when a photo is queued; its state
    * (running, or waiting for the model) is /health/ready's cutout_queue check.
    */
-  cutouts: { wake(): void; readonly state: CutoutQueueState };
+  cutouts: {
+    wake(): void;
+    readonly enabled: boolean;
+    readonly state: CutoutQueueState;
+  };
   /**
    * The timers serve() started, adopted after createApp() built this
    * (src/maintenance/scheduled.ts): /health/ready's cron_jobs check.
