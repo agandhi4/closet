@@ -83,6 +83,7 @@ describe('app shell', () => {
       expect(notices.headers['content-type']).toContain('text/plain');
       expect(notices.body).toContain('SIL OPEN FONT LICENSE Version 1.1');
       expect(notices.body).toContain('Open-Meteo.com');
+      expect(notices.body).not.toMatch(/^htmx\.org@/m);
 
       const login = await t.inject({
         method: 'GET',

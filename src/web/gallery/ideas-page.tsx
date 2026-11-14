@@ -232,7 +232,7 @@ function WeatherNote({ weather }: { weather: IdeasWeather }) {
       {notes.map((note) => (
         <span> · {note}</span>
       ))}
-      {!weather.typical && <OpenMeteoCredit class="block" />}
+      <OpenMeteoCredit class="block" />
     </p>
   );
 }

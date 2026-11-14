@@ -170,7 +170,7 @@ notices="$WORK/notices.txt"
 status=$(curl -s -o "$notices" -w '%{http_code}' "$BASE/THIRD-PARTY-NOTICES.txt")
 [ "$status" = 200 ] || fail "GET /THIRD-PARTY-NOTICES.txt answered $status"
 grep -q 'SIL OPEN FONT LICENSE' "$notices" || fail "THIRD-PARTY-NOTICES.txt carries no OFL text"
-grep -q '^htmx.org@' "$notices" || fail "THIRD-PARTY-NOTICES.txt has no entry for htmx.org"
+grep -q '^htmx.org  (' "$notices" || fail "THIRD-PARTY-NOTICES.txt has no entry for htmx.org"
 log "ok: /THIRD-PARTY-NOTICES.txt served with the OFL text"
 
 # The observability contract (observability.md; src/logger.ts, src/request-context.ts,

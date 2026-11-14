@@ -69,8 +69,7 @@ export function TripWeather(props: {
                   props.timeZone,
                   props.now,
                 ),
-              })}{' '}
-              · <OpenMeteoCredit />
+              })}
             </p>
           )}
           {forecast.later && (
@@ -107,6 +106,7 @@ export function TripWeather(props: {
               </ul>
             </>
           )}
+          <OpenMeteoCredit class="block" />
         </div>
       );
   }

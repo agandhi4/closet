@@ -71,11 +71,10 @@ Forecasts and climate normals are provided by Open-Meteo.com
 const HEADER = `THIRD-PARTY NOTICES
 
 This application includes the third-party software, fonts and data below.
-Each package entry gives its version, its declared licence and the licence
+Each package entry gives its declared licence and the licence
 files it ships.`;
 
 interface LockPackage {
-  version?: string;
   license?: string;
   dev?: boolean;
   dependencies?: Record<string, string>;
@@ -151,7 +150,7 @@ function section(key: string, pkg: LockPackage): string | undefined {
     .map((file) => fs.readFileSync(path.join(dir, file), 'utf8').trim());
   return [
     RULE,
-    `${name}@${pkg.version ?? '?'}  (${pkg.license ?? 'licence not declared'})`,
+    `${name}  (${pkg.license ?? 'licence not declared'})`,
     RULE,
     ...(texts.length > 0
       ? texts
