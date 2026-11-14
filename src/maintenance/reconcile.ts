@@ -856,12 +856,14 @@ export interface MissingMarks {
 
 /**
  * Which live rows' `original_missing_since` changes (#653). A row is marked
- * when nothing of its photo is left to show: its original and the nobg and
- * thumb of its row's variant all absent (a thumb alone, or a cutout alone,
- * still shows the garment). Past the cutoff only, like the missing-original
+ * when its photo cannot be shown on its pages: its original and the nobg of
+ * its row's variant both absent, whatever its thumb (#917). The garment
+ * page and the share page load the nobg, which falls back to the original
+ * (Photos.getVariant), so either one shows it there; a thumb alone shows
+ * only in the grid, and those pages drew a broken image. Past the cutoff only, like the missing-original
  * report: a younger row's bytes may be in flight. A marked row is cleared
- * as soon as any of them is stored again (a second restore, a share
- * remounted, --restore-from-trash), whatever its age.
+ * as soon as either is stored again (a second restore, a share remounted,
+ * --restore-from-trash), whatever its age.
  */
 function missingMarks(
   rows: readonly FileRow[],
@@ -870,7 +872,7 @@ function missingMarks(
 ): MissingMarks {
   const marks: MissingMarks = { mark: [], clear: [] };
   for (const row of rows) {
-    const shown = showsSomething(row, photoSets.get(row.fileName)?.objects);
+    const shown = showsOnItsPages(row, photoSets.get(row.fileName)?.objects);
     if (row.marked && shown) marks.clear.push(row.id);
     if (!row.marked && !shown && row.createdOn < cutoffIso) {
       marks.mark.push(row.id);
@@ -879,8 +881,12 @@ function missingMarks(
   return marks;
 }
 
-// Whether storage holds anything a page could show of the row's photo.
-function showsSomething(
+// Whether storage holds the original or the row's nobg: what the garment
+// and share pages load (`imageUrl(photo, 'nobg')`, served as the original
+// without one). The Open Graph image reads the original alone, so a row
+// left with its nobg keeps a broken preview: still not marked, as its
+// pages show it.
+function showsOnItsPages(
   row: StoredPhoto,
   objects: readonly StoredObject[] = [],
 ): boolean {
@@ -888,7 +894,8 @@ function showsSomething(
     const parsed = parseStoredName(object.name);
     return (
       parsed !== undefined &&
-      (parsed.variant === 'original' || parsed.variantKey === row.variantKey)
+      (parsed.variant === 'original' ||
+        (parsed.variant === 'nobg' && parsed.variantKey === row.variantKey))
     );
   });
 }
@@ -960,7 +967,7 @@ export async function writeMissingMarks(
     for (const row of written) {
       logger.info(
         row.missing
-          ? `Photo ${row.fileName} marked missing: nothing of it is in storage`
+          ? `Photo ${row.fileName} marked missing: neither its original nor its cutout is in storage`
           : `Photo ${row.fileName} no longer missing: its bytes are back in storage`,
       );
     }

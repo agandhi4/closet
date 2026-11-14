@@ -1194,8 +1194,20 @@ Why: #912 honoured the abort only inside `sendAll`: aborted while composing, the
 Decision: `sendDueReminders` owns the claims: every step after the claim (readBatch, each morning's compose, the send) is abortable and never starts once aborted; on `ShutdownAbort` it gives back every claim `sendEach` had not reported (`giveBack`) and sets `run.interrupted`; `sendDueRemindersWhole` then throws `JobInterrupted`, which `timeJob` records as `interrupted` (no capture) and the scheduler logs at info. Claiming stays before composing, not after: the winner of the claim is the server whose re-plan's swaps the reminder says, and the loser composes nothing.
 Consequence: this supersedes the #696 entry's "abandons its send" wording: the whole run, not only the send, stops and gives back.
 
+## 2026-11-14 — A restore ends every session through the sync epoch, and revokes every token (#908)
+
+Why: a session dies only when its `pwf` stops matching the hash, and a restore brings the old hashes back with the sessions, tokens and subscriptions revoked after the dump; nothing in the dump can say what was revoked since.
+Decision: the session cookie carries the restore epoch as `sep` (`restoreEpochSql`: `sync_epoch.epoch` once bumped, null before the first bump, so pre-#908 cookies stay valid until a restore), read in the account statements sign-in, registration and a password change already send, and compared by the resolver in its one lookup. `maintenance:after-restore`'s existing bump is therefore the session revocation; tokens go per user through `revokeAllTokensStatement`, push as before. Rejected: an `iat` floor (second granularity, and DB time against the JS clock) and a session table (more machinery than a rare restore justifies).
+Consequence: one epoch now owns both cursors and sessions: anything else that ever bumps it signs the household out too, and a per-user "sign out everywhere" needs its own column beside `pwf`.
+
 ## 2026-11-14 — A reminder run's abort cancels its compose and re-plan, never abandons them (#920)
 
 Why: #918 stopped *waiting* on an aborted compose (`guard`), but the compose ran on: `replanToday` could commit swaps and send the swap notice after its claim was given back, use the pool while shutdown closed it, and `markFailed` a run already logged; a give-back that threw still ended `interrupted`, losing reminders with no alert. Third round on this path, so the structure changed, not an edge.
 Decision: the run's `AbortSignal` is threaded into `readBatch`, `morningPayload`, `replanToday` and the forecast reads (`ReadOptions.signal`: an ask stops waiting on the cache's refresh, which `settled()` still awaits); each checks it at its step boundaries, the re-plan before its commit too, so an abort throws and rolls back. The run awaits every step it started, then gives back; `interrupted` only when every unsent claim was released, else `lost` makes a `PartialFailure`. The send alone is still not awaited after the abort: web-push takes no signal and a device's socket timeout (10 s) exceeds the grace.
 Consequence: a step the signal cannot cut (a statement in flight, the owner lock's 5 s wait, a swap notice already started) holds the run past the 500 ms grace; stop() then gives up on it as for any job, and its give-back may meet the ended pool, which is now a captured failure, not a silent loss.
+
+## 2026-11-14 — A photo is marked missing when its original and its nobg are both gone (#917), superseding the thumb rule of the #653 entry
+
+Why: the #653 rule marked a photo missing only when original, nobg and thumb were all absent, so a row left with a lone thumb drew a tile its pages cannot show (they render the original or nobg, never the thumb).
+Decision: `file.original_missing_since` means "its pages cannot show it": the original AND the row's nobg are absent, whatever the thumb. Everything else in the #653 entry stands (set and cleared by reconciliation's plan, cleared by repoint, dry runs never mark).
+Consequence: a lone thumb no longer keeps a photo unmarked; the photo-ref helpers and the API's `photoMissingSince` follow the new rule.

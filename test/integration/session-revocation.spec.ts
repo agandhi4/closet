@@ -244,7 +244,7 @@ describe('a revoked session clears the device', () => {
     await t.register(email);
     const signedBefore = createSessionTokens(
       'the-secret-before-rotation-0123456789abcdef',
-    ).issue(await accountRow(email));
+    ).issue({ ...(await accountRow(email)), sessionEpoch: null });
 
     await expectEndedOnEveryRequest(`access_token=${signedBefore}`);
   });

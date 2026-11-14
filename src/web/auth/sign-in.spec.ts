@@ -14,7 +14,12 @@ vi.mock('./queries', async (importOriginal) => ({
 }));
 
 const db = {} as Db;
-const account = { id: 7, email: 'ada@example.com', password: '$2b$hash' };
+const account = {
+  id: 7,
+  email: 'ada@example.com',
+  password: '$2b$hash',
+  sessionEpoch: null,
+};
 
 beforeEach(() => {
   vi.mocked(findUserByEmail).mockReset();

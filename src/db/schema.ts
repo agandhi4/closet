@@ -406,7 +406,8 @@ export const install = pgTable(
 // src/db/sync-epoch.ts) and every device re-syncs in full. One row, written
 // by migration 0061, never by a claim: not `install`, whose row exists
 // only once photo storage is paired. Random, never a counter: two restores
-// of one dump must not mint the same epoch. Not synced (no owner).
+// of one dump must not mint the same epoch. Not synced (no owner). Session
+// cookies carry it too (restoreEpochSql, #908): the bump ends them all.
 export const syncEpoch = pgTable(
   'sync_epoch',
   {

@@ -4,6 +4,7 @@ import type { TokenKind } from '../../credential-names';
 import type { Db, Queryable } from '../../db/client';
 import { isLockTimeout, isUniqueViolation } from '../../db/errors';
 import { ownerLockCte, ownersLockCte } from '../../db/owner-lock';
+import { restoreEpochSql } from '../../db/sync-epoch';
 import {
   file,
   garment,
@@ -35,12 +36,18 @@ export interface AccountRow {
   id: number;
   email: string | null;
   password: string;
+  /**
+   * The restore epoch a session issued now carries (restoreEpochSql, #908),
+   * read in the same statement as the row, so signing in costs no second.
+   */
+  sessionEpoch: string | null;
 }
 
 const accountColumns = {
   id: user.id,
   email: user.email,
   password: user.password,
+  sessionEpoch: restoreEpochSql,
 };
 
 export function normalizeEmail(email: string): string {
@@ -56,12 +63,14 @@ export function normalizeEmail(email: string): string {
  * well, which then saves that route a second read of the same row; and a
  * request addressing another user's wardrobe (`?ownerId=`) reads its share
  * as `share` (null for none), which saves the access check its round trip
- * (shareToReadAhead, src/web/sharing/access.ts).
+ * (shareToReadAhead, src/web/sharing/access.ts). `sessionEpoch` is what a
+ * token's `sep` must equal (restoreEpochSql: a restore ends every session).
  */
 export interface SessionAccount {
   id: number;
   email: string | null;
   fingerprint: string;
+  sessionEpoch: string | null;
   password?: string;
   share?: SharePermission | null;
 }
@@ -70,6 +79,7 @@ const sessionColumns = {
   id: user.id,
   email: user.email,
   fingerprint: passwordFingerprintSql,
+  sessionEpoch: restoreEpochSql,
 };
 
 export async function findSessionAccount(
@@ -127,13 +137,14 @@ export async function insertUser(
       id: number;
       email: string | null;
       password: string;
+      sessionEpoch: string | null;
     }>(sql`
       insert into ${user} (email, password, first_name, last_name)
       select ${email}, ${passwordHash}, ${name.firstName ?? null}, ${name.lastName ?? null}
       where not exists (
         select 1 from ${user} where lower(${user.email}) = lower(${email})
       )
-      returning id, email, password`);
+      returning id, email, password, ${restoreEpochSql} as "sessionEpoch"`);
     return rows[0];
   } catch (error) {
     if (isUniqueViolation(error, USER_EMAIL_UNIQUE)) return undefined;

@@ -10,10 +10,14 @@ import {
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { eq, sql } from 'drizzle-orm';
+import jwt from 'jsonwebtoken';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { recordCutoutEvent } from '../../src/cutout/queries';
 import { file, syncEpoch, userDevice } from '../../src/db/schema';
-import { afterRestore } from '../../src/maintenance/after-restore';
+import {
+  afterRestore,
+  garmentsShowingStatement,
+} from '../../src/maintenance/after-restore';
 import {
   missingMarksStatement,
   reconcileStorage,
@@ -32,8 +36,15 @@ import {
   pngCutout,
   uploadPhoto,
 } from './garments';
-import { asFixture, createTestApp, subscribeAs, type TestApp } from './harness';
+import {
+  asFixture,
+  createTestApp,
+  subscribeAs,
+  TEST_PASSWORD,
+  type TestApp,
+} from './harness';
 import { silentLogger } from './logger';
+import { createAccessToken, mcpRequest } from './mcp';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -96,6 +107,11 @@ describe('after a database restore', () => {
     return { ...garment, lost };
   };
 
+  /** after-restore ends the owner's session too: t.inject() needs a new one. */
+  const signOwnerInAgain = async () => {
+    t.owner.cookie = await t.login(t.owner.email);
+  };
+
   const revisionOf = async (id: number) => (await garmentRow(t, id))!.revision;
   const currentEpoch = async () => {
     const [row] = await t.db.select({ epoch: syncEpoch.epoch }).from(syncEpoch);
@@ -108,10 +124,41 @@ describe('after a database restore', () => {
 
   afterAll(() => t?.cleanup());
 
+  // Must stay the first spec: it needs a database never restored, so the
+  // cookies signed in now carry no `sep` (the shape issued before #908).
+  it('a cookie without `sep`, valid until the first restore, is refused after it (#908)', async () => {
+    const cookie = await t.login(t.owner.email);
+    expect(
+      jwt.decode(cookie.replace(/^access_token=/, '')),
+      'a never-restored database issues no sep',
+    ).not.toHaveProperty('sep');
+    const get = (headers: Record<string, string>) =>
+      t.inject({
+        method: 'GET',
+        url: '/wardrobe',
+        headers: { cookie, ...headers },
+      });
+    expect((await get({})).statusCode).toBe(200);
+
+    await afterRestore(deps());
+
+    const page = await get({});
+    expect(page.statusCode).toBe(302);
+    expect(page.headers.location).toMatch(/^\/auth\/login/);
+    const fragment = await get({
+      'hx-request': 'true',
+      'sec-fetch-mode': 'cors',
+    });
+    expect(fragment.statusCode).toBe(401);
+    expect(fragment.headers['hx-redirect']).toBe('/auth/login');
+    await signOwnerInAgain();
+  });
+
   it('after-restore bumps the epoch, revokes push, frees dead leases and lists missing originals, deleting and marking nothing', async () => {
     const gone = await garmentWithPhoto('Gone tee');
     await loseSet(gone.fileName);
-    // Only its original lost: listed, but its thumb still shows it.
+    // Only its original lost: listed, and marked though its thumb is
+    // stored: its pages load the nobg or the original (#917).
     const thumbOnly = await garmentWithPhoto('Thumb only');
     await rm(join(t.dataPath, thumbOnly.fileName));
     // A photo added after the dump: bytes with no row, two days old.
@@ -177,7 +224,7 @@ describe('after a database restore', () => {
     expect(report.reconciliation).toMatchObject({
       dryRun: true,
       orphanedSetsQuarantined: 1,
-      photosMarkedMissing: 1,
+      photosMarkedMissing: 2,
     });
     expect(await storedFiles()).toEqual(filesBefore);
     expect(await t.photos.storage.trash()).toEqual([]);
@@ -190,11 +237,61 @@ describe('after a database restore', () => {
     const again = await afterRestore(deps());
     expect(again.syncEpoch).not.toBe(report.syncEpoch);
     expect(again).toMatchObject({
+      accessTokensRevoked: { mcp: 0, device: 0 },
       pushDevicesRevoked: 0,
       cutoutLeasesReleased: 0,
     });
     expect(again.missingOriginals).toEqual(report.missingOriginals);
     expect(await storedFiles()).toEqual(filesBefore);
+    await signOwnerInAgain();
+  });
+
+  it('after-restore ends every session and revokes every agent and device token (#908)', async () => {
+    const otherCookie = await t.register('restored@example.com');
+    const agent = await createAccessToken(t);
+    const { token: device } = await deviceToken(t);
+    const me = (token: string) =>
+      t.api(token, { method: 'GET', url: '/api/v1/me' });
+    expect((await mcpRequest(t, agent, 'tools/list')).statusCode).toBe(200);
+    expect((await me(device)).statusCode).toBe(200);
+
+    const report = await afterRestore(deps());
+    expect(report.accessTokensRevoked).toEqual({ mcp: 1, device: 1 });
+
+    for (const cookie of [t.owner.cookie, otherCookie]) {
+      const page = await t.inject({
+        method: 'GET',
+        url: '/wardrobe',
+        headers: { cookie },
+      });
+      expect(page.statusCode).toBe(302);
+      expect(page.headers.location).toMatch(/^\/auth\/login/);
+    }
+    expect((await mcpRequest(t, agent, 'tools/list')).statusCode).toBe(401);
+    expect((await me(device)).statusCode).toBe(401);
+
+    // Every cookie issued after the restore carries the new epoch and stays
+    // open: a sign-in, a registration, a new password's reissue.
+    const opens = async (cookie: string) =>
+      (await t.inject({ method: 'GET', url: '/wardrobe', headers: { cookie } }))
+        .statusCode === 200;
+    await signOwnerInAgain();
+    expect(await opens(t.owner.cookie)).toBe(true);
+    const registered = await t.register('joined-after@example.com');
+    expect(await opens(registered)).toBe(true);
+    const changed = await t.inject({
+      method: 'POST',
+      url: '/auth/change-password',
+      payload: {
+        currentPassword: TEST_PASSWORD,
+        newPassword: 'Another-pass-2',
+        confirmPassword: 'Another-pass-2',
+      },
+      headers: { cookie: registered },
+    });
+    const reissued = changed.cookies.find((c) => c.name === 'access_token');
+    expect(reissued?.value).toEqual(expect.any(String));
+    expect(await opens(`access_token=${reissued?.value}`)).toBe(true);
   });
 
   it('reconciliation marks a photo with nothing left, every surface shows the placeholder, and the mark clears when its bytes are back', async () => {
@@ -414,6 +511,39 @@ describe('after a database restore', () => {
     ).toMatchObject({ ok: false });
   });
 
+  it('a lone thumb is no photo to its pages: marked without the original and the nobg, not with the nobg (#917)', async () => {
+    const thumbOnly = await garmentWithPhoto('Thumb alone');
+    const withCutout = await garmentWithPhoto('Cutout kept');
+    // The row's own (unkeyed) nobg, which its pages load without the original.
+    await copyFile(
+      join(t.dataPath, withCutout.fileName),
+      join(t.dataPath, variantFileName(withCutout.fileName, 'nobg')),
+    );
+    for (const { fileName } of [thumbOnly, withCutout]) {
+      expect(await setFiles(fileName)).toContain(
+        variantFileName(fileName, 'thumb'),
+      );
+      await rm(join(t.dataPath, fileName));
+    }
+
+    await reconcile();
+    expect(
+      (await photoRow(t, thumbOnly.fileName))?.originalMissingSince,
+    ).toBeInstanceOf(Date);
+    expect(
+      (await photoRow(t, withCutout.fileName))?.originalMissingSince,
+    ).toBeNull();
+  });
+
+  it('the missing-originals statement binds the names once, so its parameter count does not grow with them (#916)', () => {
+    const names = (n: number) =>
+      Array.from({ length: n }, () => `${randomUUID()}.webp`);
+    const small = garmentsShowingStatement(t.db, names(2)).toSQL();
+    const large = garmentsShowingStatement(t.db, names(30_000)).toSQL();
+    expect(large.params.length).toBe(small.params.length);
+    expect(large.params.length).toBeLessThan(5);
+  });
+
   it('the marks statement binds each id set once, so its parameter count does not grow with the ids', () => {
     const marks = (n: number) => ({
       mark: Array.from({ length: n }, (_, i) => i + 1),
@@ -479,5 +609,33 @@ describe('after a database restore', () => {
     const row = await garmentRow(t, id);
     expect(row?.name).toBe('Linen shirt');
     expect(row!.revision).toBeGreaterThan(before);
+  });
+
+  it('a missing sync_epoch row is corruption, not "never restored": every session is refused and logged', async () => {
+    const cookie = await t.login(t.owner.email);
+    await t.db.delete(syncEpoch);
+    try {
+      const page = await t.inject({
+        method: 'GET',
+        url: '/wardrobe',
+        headers: { cookie },
+      });
+      expect(page.statusCode).toBe(302);
+      expect(page.headers.location).toMatch(/^\/auth\/login/);
+      const fragment = await t.inject({
+        method: 'GET',
+        url: '/wardrobe',
+        headers: {
+          cookie,
+          'hx-request': 'true',
+          'sec-fetch-mode': 'cors',
+        },
+      });
+      expect(fragment.statusCode).toBe(401);
+      expect(t.logs.messages('error', 'Session').length).toBeGreaterThan(0);
+    } finally {
+      await t.db.insert(syncEpoch).values({});
+    }
+    await signOwnerInAgain();
   });
 });

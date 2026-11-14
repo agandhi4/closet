@@ -141,8 +141,8 @@ describe('storage reconciliation', () => {
       orphanedRowsDeleted: 1,
       missingOriginals: 1,
       missingOriginalPhotos: [lost],
-      // `lost` keeps its thumb: something of it still shows (#653).
-      photosMarkedMissing: 0,
+      // `lost` keeps only its thumb: its pages cannot show it (#917).
+      photosMarkedMissing: 1,
       photosNoLongerMissing: 0,
       // Link imports have their own pass (link-import.spec.ts).
       pendingPhotosDeleted: 0,
