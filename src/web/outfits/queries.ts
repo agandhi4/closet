@@ -5,6 +5,7 @@ import {
   inArray,
   isNotNull,
   lt,
+  not,
   or,
   type SQL,
   sql,
@@ -28,6 +29,7 @@ import type { Occasion } from '../../wardrobe/occasions';
 import type { LookReaction } from '../../wardrobe/look-reaction';
 import type { GarmentStatus } from '../../wardrobe/status';
 import type { OutfitDismissReason } from '../../wardrobe/suggestions';
+import type { OutfitOrigin } from '../../wardrobe/outfit-origin';
 import type { PlannedBy } from '../../wardrobe/week';
 import { ownerTransaction } from '../auth/queries';
 import type { SignablePhotoRef } from '../files/image-url';
@@ -37,7 +39,8 @@ import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
 import { entrySelfieSql, type SelfieRef } from '../selfies/queries';
 import { prunePacked, tripsOfOutfit } from '../trips/packed';
 import { detachOutfitWears } from '../wears/queries';
-import { adoptPlannerOutfit } from '../week-plan/adopt';
+import { adoptOutfit } from '../week-plan/adopt';
+import type { OutfitList } from './outfit-list';
 import { adoptProposal } from './reactions';
 import {
   offeredIntoSql,
@@ -45,7 +48,12 @@ import {
   slotMayNameSql,
   slotRefusals,
 } from './gone-garments';
-import { museOutfitWaiting, outfitIsHeld, ownersOutfit } from './references';
+import {
+  keptOutfit,
+  museOutfitWaiting,
+  outfitIsHeld,
+  ownersOutfit,
+} from './references';
 
 /**
  * Outfits' reads and writes. Outfits are private: every query is scoped to
@@ -72,6 +80,8 @@ export interface OutfitSummary {
   id: number;
   name: string | null;
   notes: string | null;
+  /** Who made it (#659): the API's and MCP's `origin`. */
+  origin: OutfitOrigin;
   /** The chosen garments in the order the outfit was built. */
   garments: OutfitGarment[];
 }
@@ -103,13 +113,21 @@ export interface OutfitInput {
   slots: SlotInput[];
   /** "Add to calendar": plan the outfit on this day, for this occasion, in the same transaction. */
   plan?: { day: IsoDate; occasion: Occasion; plannedBy?: PlannedBy };
+  /**
+   * Who is saving (#659): a new outfit's origin, and how far a reuse
+   * takes the existing one over (adoptOutfit). Every caller says it.
+   */
+  origin: OutfitOrigin;
 }
 
 /**
  * An edit (updateOutfit): what is absent is left as it is. The outfit form
- * and Styling post every row; the API may send only a name.
+ * and Styling post every row; the API may send only a name. Always a
+ * person's (the outfit becomes `person`, lockForEdit).
  */
-export type OutfitEdit = Omit<OutfitInput, 'slots'> & { slots?: SlotInput[] };
+export type OutfitEdit = Omit<OutfitInput, 'slots' | 'origin'> & {
+  slots?: SlotInput[];
+};
 
 /** A name or notes as stored: trimmed, null when blank; undefined (not sent) stays so. */
 export function outfitText(
@@ -161,6 +179,7 @@ function toolOutfitsSql(where: SQL, limit?: number): SQL<ToolOutfit[]> {
       'id', ${outfit.id},
       'name', ${outfit.name},
       'notes', ${outfit.notes},
+      'origin', ${outfit.origin},
       'shareableId', ${outfit.shareableId},
       'garments', ${outfitGarmentsSql()},
       'proposal', ${proposalSql({ agent: false })}
@@ -204,7 +223,13 @@ export function listOutfits(db: Db, ownerId: number): Promise<ToolOutfit[]> {
 export async function listOutfitsPage(
   db: Db,
   ownerId: number,
-  page: { before: number | undefined; limit: number; proposed: boolean },
+  page: {
+    before: number | undefined;
+    limit: number;
+    proposed: boolean;
+    /** One of the Saved tab's lists (#659, savedOutfitsSql's rule); absent, every outfit. */
+    list?: OutfitList;
+  },
 ): Promise<{ outfits: ToolOutfit[]; next: number | null }> {
   const { outfits } = await selectScalars(db, {
     outfits: toolOutfitsSql(
@@ -212,6 +237,7 @@ export async function listOutfitsPage(
         eq(outfit.ownerId, ownerId),
         page.proposed ? museOutfitWaiting() : ownersOutfit(),
         page.before === undefined ? undefined : lt(outfit.id, page.before),
+        page.list && listFilter(page.list),
       )!,
       // One more than the page: whether there is a next.
       page.limit + 1,
@@ -222,6 +248,11 @@ export async function listOutfitsPage(
     outfits: shown,
     next: outfits.length > page.limit ? shown[shown.length - 1].id : null,
   };
+}
+
+/** The one rule of a Saved list (#659): savedOutfitsSql's, and GET /api/v1/outfits' `show`. */
+function listFilter(list: OutfitList): SQL {
+  return list === 'kept' ? keptOutfit() : not(keptOutfit());
 }
 
 /**
@@ -272,13 +303,18 @@ export function outfitGarmentsSql({
 }
 
 /**
- * Every outfit of the owner's, newest first, as a tile or a saved-outfit
- * button shows it (listOutfits' notes and shareable id feed nothing
- * there), as one scalar subquery: the Saved tab reads it with the
- * outfits' activity (savedContext, page-context.ts, #164), a trip's add
- * page with the trip.
+ * The owner's outfits of `list` (#659: the kept ones, keptOutfit, or the
+ * one-offs), newest first, as a tile or a saved-outfit button shows it
+ * (listOutfits' notes and shareable id feed nothing there), as one scalar
+ * subquery: the Saved tab reads it with the outfits' activity
+ * (savedContext, page-context.ts, #164), the calendar's plan page alone
+ * and a trip's add page with the trip. The one list rule of the three:
+ * none filters on its own.
  */
-export function savedOutfitsSql(ownerId: number): SQL<GarmentOutfit[]> {
+export function savedOutfitsSql(
+  ownerId: number,
+  list: OutfitList,
+): SQL<GarmentOutfit[]> {
   return sql<GarmentOutfit[]>`(
     select coalesce(
       json_agg(
@@ -292,7 +328,7 @@ export function savedOutfitsSql(ownerId: number): SQL<GarmentOutfit[]> {
       '[]'
     )
     from ${outfit}
-    where ${and(eq(outfit.ownerId, ownerId), ownersOutfit())}
+    where ${and(eq(outfit.ownerId, ownerId), ownersOutfit(), listFilter(list))}
   )`;
 }
 
@@ -362,6 +398,7 @@ export function outfitDetailSql(
       'id', ${outfit.id},
       'name', ${outfit.name},
       'notes', ${outfit.notes},
+      'origin', ${outfit.origin},
       'shareableId', ${outfit.shareableId},
       'garments', ${outfitGarmentsSql({ away: true })},
       'proposal', ${proposalSql({ agent: true })}
@@ -393,6 +430,7 @@ export interface SyncedOutfitRow {
   id: number;
   name: string | null;
   notes: string | null;
+  origin: OutfitOrigin;
   /** Every row top to toe, an empty one with a null garment. */
   slots: SlotInput[];
   proposal: Omit<OutfitProposal, 'agent'> | null;
@@ -415,6 +453,7 @@ export function outfitsByIds(
       id: outfit.id,
       name: outfit.name,
       notes: outfit.notes,
+      origin: outfit.origin,
       slots: sql<SlotInput[]>`(
         select coalesce(json_agg(json_build_object(
           'category', ${outfitSlot.category},
@@ -752,7 +791,7 @@ type OutfitOnce = {
 async function insertOutfitOnce(
   tx: Queryable,
   ownerId: number,
-  fields: { name: string | null; notes: string | null },
+  fields: { name: string | null; notes: string | null; origin: OutfitOrigin },
   garmentIds: readonly number[],
   proposal?: OutfitProposalInput,
 ): Promise<OutfitOnce> {
@@ -772,8 +811,8 @@ async function insertOutfitOnce(
   const { rows } = await tx.execute<OutfitOnce>(sql`
     with existing as (${sameGarmentsOutfit(tx, ownerId, garmentIds)}),
     created as (
-      insert into ${outfit} (shareable_id, owner_id, name, notes, proposed_at, proposed_by_token_id, proposal_note, reaction)
-      select ${shareableId}::varchar, ${ownerId}::int, ${fields.name}::text, ${fields.notes}::text, ${marked}
+      insert into ${outfit} (shareable_id, owner_id, name, notes, origin, proposed_at, proposed_by_token_id, proposal_note, reaction)
+      select ${shareableId}::varchar, ${ownerId}::int, ${fields.name}::text, ${fields.notes}::text, ${fields.origin}::text, ${marked}
       where not exists (select from existing)
       returning id, name
     )
@@ -788,9 +827,9 @@ async function insertOutfitOnce(
  * an outfit of the owner's already has exactly these garments (empty slots
  * aside) it is the answer (`alreadySaved`: nothing is created, its name
  * and notes stay), planned on `input.plan`'s day when given (an outfit is
- * on a day once, so a second plan changes nothing), and a person's save
- * (not `plannedBy: 'auto'`) of an outfit "Plan my week" created takes it
- * over (adoptPlannerOutfit, #77). Otherwise the outfit, its slots and the
+ * on a day once, so a second plan changes nothing), and a save that is
+ * not the planner's takes it over as far as its `origin` reaches
+ * (adoptOutfit: #77's planner rows, #659's origin). Otherwise the outfit, its slots and the
  * optional calendar entry commit together or not at all. A slot naming a
  * garment the owner does not own refuses the save whole
  * (OutfitGarmentsGone, insertSlots).
@@ -820,10 +859,16 @@ export function createOutfit(
     const saved = await insertOutfitOnce(
       tx,
       ownerId,
-      { name: input.name ?? null, notes: input.notes ?? null },
+      {
+        name: input.name ?? null,
+        notes: input.notes ?? null,
+        origin: input.origin,
+      },
       garmentIds,
     );
-    if (saved.existing) return reuseOutfit(tx, ownerId, saved, input.plan);
+    if (saved.existing) {
+      return reuseOutfit(tx, ownerId, saved, input.plan, input.origin);
+    }
     await insertSlots(tx, saved.id, ownerId, input.slots);
     const schedule = input.plan
       ? (
@@ -883,7 +928,7 @@ export function proposeOutfit(
     const saved = await insertOutfitOnce(
       tx,
       ownerId,
-      { name: input.name, notes: null },
+      { name: input.name, notes: null, origin: 'agent' },
       garmentIds,
       proposal,
     );
@@ -912,8 +957,9 @@ export function proposeOutfit(
 
 /**
  * A save's answer when its garments already are an outfit of the owner's:
- * planned on the plan's day when given, and, for a person's save, taken
- * over from the week planner (the outfit and that day's entry, #77).
+ * planned on the plan's day when given, and, for any save but the
+ * planner's, taken over (the outfit's origin and planner rows,
+ * adoptOutfit; that day's entry, #77).
  * createOutfit's, and pickIdea's, which found the outfit with its garments
  * (pickedGarments) and so skips the insert. Under the owner lock.
  */
@@ -922,21 +968,22 @@ export async function reuseOutfit(
   ownerId: number,
   existing: { id: number; name: string | null; pending: boolean },
   plan: OutfitInput['plan'],
+  origin: OutfitOrigin,
 ): Promise<CreateResult> {
+  const byPlanner = origin === 'planner';
   // A person's save of a proposal's garments makes it theirs (#335), before
   // any plan: a proposal not theirs may not be held (outfitMayBeHeld). The
   // week planner never adopts one (its ideas never equal a saved set:
   // savedSlotsSql counts proposals).
   const adoptedProposal =
     existing.pending &&
-    plan?.plannedBy !== 'auto' &&
+    !byPlanner &&
     (await adoptProposal(tx, ownerId, existing.id));
   const scheduled =
     plan &&
     (await insertEntry(tx, { ownerId, outfitId: existing.id, ...plan }));
   const outfitAdopted =
-    plan?.plannedBy !== 'auto' &&
-    (await adoptPlannerOutfit(tx, ownerId, existing.id)) > 0;
+    !byPlanner && (await adoptOutfit(tx, ownerId, existing.id, origin)) > 0;
   const entryAdopted =
     scheduled?.outcome === 'already-scheduled' && scheduled.adopted;
   return {
@@ -1007,7 +1054,7 @@ export function updateOutfit(
  * updateOutfit's first statement: the owner's outfit locked FOR UPDATE
  * (two saves of one outfit take turns; without the lock both replace the
  * slots and collide on the (outfit_id, position) key), then, only once it
- * is, its `fields` written and the week planner's entries of it made the
+ * is, its `fields` written with origin `person` and the week planner's entries of it made the
  * person's (the claim). Undefined when the outfit is not the owner's:
  * nothing written. One statement (#164; three before): each write reads
  * the locked row, so neither runs ahead of the lock, and no writer of
@@ -1027,9 +1074,12 @@ async function lockForEdit(
     .for('update');
   const isLocked = (column: AnyPgColumn) =>
     sql`${column} in (select id from locked)`;
-  const renamed =
-    Object.keys(fields).length > 0 &&
-    tx.update(outfit).set(fields).where(isLocked(outfit.id));
+  // An edit is a person's choice (#659): a one-off they rename or change
+  // is theirs to keep, on Saved.
+  const edited = tx
+    .update(outfit)
+    .set({ ...fields, origin: 'person' })
+    .where(isLocked(outfit.id));
   const claimed = tx
     .update(outfitCalendar)
     .set({ plannedBy: 'user' })
@@ -1044,7 +1094,7 @@ async function lockForEdit(
   // Postgres takes around a select but not around an update.
   const { rows } = await tx.execute<{ found: number; claimed: number }>(sql`
     with locked as materialized (${locked}),
-    ${renamed ? sql`renamed as (${renamed.getSQL()}),` : sql``}
+    edited as (${edited.getSQL()}),
     claimed as (${claimed.getSQL()})
     select
       (select count(*)::int from locked) as found,

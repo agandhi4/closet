@@ -17,6 +17,7 @@ import {
   parseDestination,
 } from '../outfits/destination';
 import { selectScalars } from '../../db/select-scalars';
+import { OutfitListQuery, parseOutfitList } from '../outfits/outfit-list';
 import { savedOutfitsSql } from '../outfits/queries';
 import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
 import { safeReturnTo } from '../security/return-to';
@@ -240,12 +241,13 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     CALENDAR_PLAN_PATH,
     {
       schema: {
-        querystring: Type.Object(DestinationQuery),
+        querystring: Type.Object({ ...DestinationQuery, ...OutfitListQuery }),
       },
     },
     async (request, reply) => {
       const ownerId = sessionUserId(request);
       const parsed = parseDestination(request.query);
+      const list = parseOutfitList(request.query.show);
       const destination: DayDestination =
         parsed.kind === 'day'
           ? parsed
@@ -260,9 +262,10 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         );
       }
       const [outfits, choice] = await Promise.all([
-        // The owner's own outfits, as every picker lists them (ownersOutfit):
-        // Muse's proposals are the Outfits tab's own section (#335).
-        selectScalars(db, { outfits: savedOutfitsSql(ownerId) }).then(
+        // The owner's own outfits of the list, as every picker lists them
+        // (ownersOutfit, keptOutfit): Muse's proposals are the Outfits
+        // tab's own section (#335), one-offs behind the segment (#659).
+        selectScalars(db, { outfits: savedOutfitsSql(ownerId, list) }).then(
           (row) => row.outfits,
         ),
         dayChoice(db, ownerId, destination),
@@ -280,6 +283,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             day: destination.day,
             occasion: destination.occasion,
             outfits,
+            list,
             ...choice,
           }}
         />,

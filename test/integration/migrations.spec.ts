@@ -1,9 +1,21 @@
-import { sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { asc, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { GARMENT_WEAR_CLIENT_ID_UNIQUE } from '../../src/db/schema';
+import { MIGRATIONS_FOLDER } from '../../src/db/migrate';
+import {
+  GARMENT_WEAR_CLIENT_ID_UNIQUE,
+  outfit,
+  outfitCalendar,
+  outfitSlot,
+  weekPlan,
+  weekPlanEntry,
+} from '../../src/db/schema';
 import { SYNC_ROOTS } from '../../src/db/sync-tables';
 import { schemaDrift } from '../support/schema-drift';
-import { createTestApp, TestApp } from './harness';
+import { createGarment } from './garments';
+import { asFixture, createTestApp, TestApp, userIdOf } from './harness';
 
 /**
  * Booting the app runs the Drizzle migrations (src/db/migrate.ts) on a fresh
@@ -229,5 +241,138 @@ describe('migrations', () => {
       where: (user, { eq }) => eq(user.id, t.owner.id),
     });
     expect(owner?.email).toBe(t.owner.email);
+  });
+
+  // 0053's backfill is a synced write in the boot's migration transaction:
+  // a lock statement whose mark the sync triggers do not read would refuse
+  // it and abort production's boot. So the file itself runs here, on rows
+  // as they were before it (the column dropped), in a transaction holding
+  // no mark of its own.
+  it('backfills outfit origin (0053) under the owner lock the sync triggers read', async () => {
+    const otherEmail = 'origin-backfill-other@example.com';
+    await t.register(otherEmail);
+    const otherId = await userIdOf(t, otherEmail);
+    const shirt = await createGarment(t, { name: 'Oxford shirt' });
+    const jeans = await createGarment(t, { name: 'Jeans', category: 'jeans' });
+    const plannerName = 'Oxford shirt, Jeans';
+    const ids = await asFixture(t.db, async (tx) => {
+      const insertOutfit = async (
+        values: Partial<typeof outfit.$inferInsert> & { ownerId: number },
+        plan?: { outfitCreated: boolean },
+      ) => {
+        const [row] = await tx
+          .insert(outfit)
+          .values({ shareableId: randomUUID(), ...values })
+          .returning({ id: outfit.id });
+        if (values.ownerId === t.owner.id) {
+          await tx.insert(outfitSlot).values([
+            {
+              outfitId: row.id,
+              position: 0,
+              category: 'shirt',
+              garmentId: shirt,
+            },
+            {
+              outfitId: row.id,
+              position: 1,
+              category: 'jeans',
+              garmentId: jeans,
+            },
+          ]);
+        }
+        if (plan) {
+          const [entry] = await tx
+            .insert(outfitCalendar)
+            .values({
+              day: t.today(),
+              outfitId: row.id,
+              ownerId: values.ownerId,
+              plannedBy: 'auto',
+            })
+            .returning({ id: outfitCalendar.id });
+          const [batch] = await tx
+            .insert(weekPlan)
+            .values({ ownerId: values.ownerId })
+            .returning({ id: weekPlan.id });
+          await tx.insert(weekPlanEntry).values({
+            entryId: entry.id,
+            weekPlanId: batch.id,
+            outfitCreated: plan.outfitCreated,
+          });
+        }
+        return row.id;
+      };
+      const owner = t.owner.id;
+      return {
+        proposal: await insertOutfit({
+          ownerId: otherId,
+          name: 'Muse pick',
+          proposedAt: new Date(),
+          reaction: 'proposed',
+        }),
+        planner: await insertOutfit(
+          { ownerId: owner, name: plannerName },
+          { outfitCreated: true },
+        ),
+        adopted: await insertOutfit(
+          { ownerId: owner, name: plannerName },
+          { outfitCreated: false },
+        ),
+        withNotes: await insertOutfit(
+          { ownerId: owner, name: plannerName, notes: 'Mine now' },
+          { outfitCreated: true },
+        ),
+        person: await insertOutfit({ ownerId: owner, name: 'Weekend' }),
+      };
+    });
+    const revisions = () =>
+      t.db
+        .select({ id: outfit.id, revision: outfit.revision })
+        .from(outfit)
+        .where(inArray(outfit.id, Object.values(ids)))
+        .orderBy(asc(outfit.id));
+    const before = new Map(
+      (await revisions()).map((row) => [row.id, row.revision]),
+    );
+
+    await t.db.execute(sql`alter table outfit drop column origin`);
+    const file = await readFile(
+      join(MIGRATIONS_FOLDER, '0053_outfit-origin.sql'),
+      'utf8',
+    );
+    // As drizzle's migrator runs it: each breakpoint's statement in turn,
+    // in one transaction.
+    await t.db.transaction(async (tx) => {
+      for (const statement of file.split('--> statement-breakpoint')) {
+        await tx.execute(sql.raw(statement));
+      }
+    });
+
+    const rows = await t.db
+      .select({
+        id: outfit.id,
+        origin: outfit.origin,
+        revision: outfit.revision,
+      })
+      .from(outfit)
+      .where(inArray(outfit.id, Object.values(ids)));
+    const after = new Map(rows.map((row) => [row.id, row]));
+    expect(
+      Object.fromEntries(
+        Object.entries(ids).map(([key, id]) => [key, after.get(id)?.origin]),
+      ),
+    ).toEqual({
+      proposal: 'agent',
+      planner: 'planner',
+      adopted: 'person',
+      withNotes: 'person',
+      person: 'person',
+    });
+    // Only the rows whose origin moved got a new revision (the feed re-sends them).
+    const moved = Object.entries(ids)
+      .filter(([, id]) => after.get(id)?.revision !== before.get(id))
+      .map(([key]) => key)
+      .sort();
+    expect(moved).toEqual(['planner', 'proposal']);
   });
 });

@@ -974,18 +974,23 @@ describe('the MCP endpoint', () => {
       });
       outfitId = created.id;
       const listed = await tool<{
-        outfits: { id: number; garments: Garment[] }[];
+        outfits: { id: number; origin: string; garments: Garment[] }[];
       }>(t, token, 'list_outfits');
       expect(listed.outfits[0].id).toBe(outfitId);
+      // The agent made it (#659): kept, on Saved.
+      expect(listed.outfits[0].origin).toBe('agent');
       expect(listed.outfits[0].garments.map((g) => g.name)).toEqual([
         'White Tee',
         'Raw Denim',
         'Chelsea Boots',
       ]);
-      const one = await tool<{ name: string }>(t, token, 'get_outfit', {
-        id: outfitId,
-      });
-      expect(one.name).toBe('Friday');
+      const one = await tool<{ name: string; origin: string }>(
+        t,
+        token,
+        'get_outfit',
+        { id: outfitId },
+      );
+      expect(one).toMatchObject({ name: 'Friday', origin: 'agent' });
     });
 
     it('create_outfit refuses a garment that is not the caller’s', async () => {

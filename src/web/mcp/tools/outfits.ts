@@ -22,6 +22,8 @@ function outfitOut(outfit: ToolOutfit) {
     id: outfit.id,
     name: outfit.name,
     notes: outfit.notes,
+    // Who made it (#659): person, agent, or a one-off (idea, planner).
+    origin: outfit.origin,
     // One of Muse's proposals (#335): its note and the owner's reaction.
     proposal: outfit.proposal,
     garments: outfit.garments.map(({ id, name }) => ({ id, name })),
@@ -115,6 +117,7 @@ export const outfitTools = [
         notes: notes?.trim() ? notes : null,
         slots,
         plan,
+        origin: 'agent',
       });
       ctx.webLogger.info(createdMessage(ctx.userId, saved, plan));
       return {

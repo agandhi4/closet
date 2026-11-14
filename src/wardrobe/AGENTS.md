@@ -31,6 +31,8 @@
                        garments (matchPlan, the wardrobe plans' gap analysis kept for
                        get_closet_coverage, #337), pure. See MCP server
                        style.ts: the style profile's value sets. See Style profile
+                       outfit-origin.ts: who made an outfit (person, agent, idea, planner)
+                       and which origins Saved keeps (#659). See Outfits
                        look-reaction.ts: a Muse outfit's reaction machine
                        (lookReactionTransition, pure; first the plans' looks, #290). See Outfits
                        money.ts: prices in cents (toCents, fromCents): insights' costs and

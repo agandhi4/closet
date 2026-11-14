@@ -100,6 +100,7 @@ import {
   WEEKDAYS,
   type Weekday,
 } from '../wardrobe/week';
+import { OUTFIT_ORIGINS, type OutfitOrigin } from '../wardrobe/outfit-origin';
 import {
   OUTFIT_RULE_KINDS,
   type OutfitRuleKind,
@@ -979,6 +980,10 @@ export const outfit = pgTable(
     ownerNote: text('owner_note'),
     dismissedReason: text('dismissed_reason').$type<OutfitDismissReason>(),
     reactedAt: timestamp('reacted_at', { withTimezone: true }),
+    // Who made it (#659, src/wardrobe/outfit-origin.ts): the Saved tab and
+    // the pickers list the kept ones (keptOutfit). Written by createOutfit,
+    // raised by adoptOutfit, made 'person' by an edit (lockForEdit).
+    origin: text('origin').$type<OutfitOrigin>().notNull().default('person'),
     revision: syncRevision(),
     updatedAt: syncUpdatedAt(),
     clientId: clientId(),
@@ -1015,6 +1020,10 @@ export const outfit = pgTable(
     check(
       'outfit_proposal_check',
       sql`(${table.proposedAt} is null) = (${table.reaction} is null) and (${table.proposedAt} is not null or (${table.proposedByTokenId} is null and ${table.proposalNote} is null and ${table.ownerNote} is null and ${table.reactedAt} is null))`,
+    ),
+    check(
+      'outfit_origin_check',
+      sql`${table.origin} in (${sqlList(OUTFIT_ORIGINS)})`,
     ),
     check(
       'outfit_reaction_check',
@@ -1782,12 +1791,19 @@ export const weekPlanEntry = pgTable(
     limbs: smallint('limbs'),
     layer: boolean('layer'),
     rain: boolean('rain'),
+    // The too-warm bound for legs and feet it was planned against (uncapped,
+    // unlike `limbs`). Null: planned before it was kept, never judged on it.
+    limbsCeiling: smallint('limbs_ceiling'),
   },
   (table) => [
     index('week_plan_entry_week_plan_id_index').on(table.weekPlanId),
     check(
       'week_plan_entry_needs_check',
       sql`num_nulls(${table.torso}, ${table.limbs}, ${table.layer}, ${table.rain}) in (0, 4)`,
+    ),
+    check(
+      'week_plan_entry_limbs_ceiling_check',
+      sql`${table.limbsCeiling} between 1 and 5`,
     ),
     foreignKey({
       name: 'week_plan_entry_entry_id_foreign',

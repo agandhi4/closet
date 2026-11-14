@@ -7856,6 +7856,28 @@
             "name": "proposed",
             "required": false,
             "description": "`true`: your agent's proposals waiting on you (the Outfits tab's From Muse cards) instead of your own outfits; each carries its `proposal`"
+          },
+          {
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "kept"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "one-offs"
+                  ]
+                }
+              ]
+            },
+            "in": "query",
+            "name": "show",
+            "required": false,
+            "description": "The Saved tab's lists: `kept` (origin `person` or `agent`, what Saved shows) or `one-offs` (`idea`, `planner`: Worn and planned). Absent: every outfit"
           }
         ],
         "responses": {
@@ -7880,6 +7902,7 @@
                         "type": "object",
                         "required": [
                           "id",
+                          "origin",
                           "garments",
                           "toBuy"
                         ],
@@ -7892,6 +7915,35 @@
                           },
                           "notes": {
                             "type": "string"
+                          },
+                          "origin": {
+                            "description": "Who made it: `person` and `agent` (your agent) are outfits kept on purpose, the Saved list; `idea` (an idea picked for a day, a trip or an entry) and `planner` (Plan my week) are one-offs, shown apart until a save or an edit keeps them. A copy synced before this field existed lacks it: read that as `person`",
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "person"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "agent"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "idea"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "planner"
+                                ]
+                              }
+                            ]
                           },
                           "garments": {
                             "type": "array",
@@ -8398,6 +8450,7 @@
                   "type": "object",
                   "required": [
                     "id",
+                    "origin",
                     "garments",
                     "toBuy",
                     "planned",
@@ -8412,6 +8465,35 @@
                     },
                     "notes": {
                       "type": "string"
+                    },
+                    "origin": {
+                      "description": "Who made it: `person` and `agent` (your agent) are outfits kept on purpose, the Saved list; `idea` (an idea picked for a day, a trip or an entry) and `planner` (Plan my week) are one-offs, shown apart until a save or an edit keeps them. A copy synced before this field existed lacks it: read that as `person`",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "person"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "agent"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "idea"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "planner"
+                          ]
+                        }
+                      ]
                     },
                     "garments": {
                       "type": "array",
@@ -28931,6 +29013,7 @@
                                 "type": "object",
                                 "required": [
                                   "id",
+                                  "origin",
                                   "slots"
                                 ],
                                 "properties": {
@@ -28942,6 +29025,35 @@
                                   },
                                   "notes": {
                                     "type": "string"
+                                  },
+                                  "origin": {
+                                    "description": "Who made it: `person` and `agent` (your agent) are outfits kept on purpose, the Saved list; `idea` (an idea picked for a day, a trip or an entry) and `planner` (Plan my week) are one-offs, shown apart until a save or an edit keeps them. A copy synced before this field existed lacks it: read that as `person`",
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "person"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "agent"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "idea"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "planner"
+                                        ]
+                                      }
+                                    ]
                                   },
                                   "slots": {
                                     "description": "Its rows top to toe, as built",

@@ -92,6 +92,7 @@ export const galleryApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
           source: 'idea',
           name: outfitText(name) ?? undefined,
           via: ` (API${client})`,
+          by: 'person',
         },
       );
       const { outfit } = picked;

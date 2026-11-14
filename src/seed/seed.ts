@@ -182,6 +182,9 @@ export async function seedPersona(
         const saved = await createOutfit(tx, userId, {
           name: outfit.name,
           notes: null,
+          // The bible's outfits are the persona's own; the planned week's
+          // are the planner's (planMyWeek), so a seeded Saved is clean.
+          origin: 'person',
           slots: garments.map((g) => ({
             category: g.fields.category,
             garmentId: ids.get(g.id)!,

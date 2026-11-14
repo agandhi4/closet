@@ -211,7 +211,7 @@ export const galleryTools = [
         actorOf(ctx),
         plan ? { kind: 'day', ...plan } : { kind: 'none' },
         garmentIds,
-        { source: 'idea', name, via: ' (MCP)' },
+        { source: 'idea', name, via: ' (MCP)', by: 'agent' },
       );
       return {
         id: picked.id,

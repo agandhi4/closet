@@ -164,7 +164,11 @@ const paths: [string, (actor: Actor) => Promise<unknown>][] = [
     'pickIdeaForTrip',
     (actor) => {
       vi.mocked(pickForTrip).mockResolvedValue('no-trip');
-      return pickIdeaForTrip(db, actor, { tripId: TRIP, garmentIds: [10] });
+      return pickIdeaForTrip(db, actor, {
+        tripId: TRIP,
+        garmentIds: [10],
+        origin: 'idea',
+      });
     },
   ],
   [
@@ -274,6 +278,7 @@ describe("another user's trip is not found, whatever they share", () => {
     expect(pickForTrip).toHaveBeenCalledWith(db, OTHER, {
       tripId: TRIP,
       garmentIds: [10],
+      origin: 'idea',
     });
     expect(removeTripOutfit).toHaveBeenCalledWith(db, {
       tripId: TRIP,
@@ -327,6 +332,7 @@ describe('the trip path for its owner', () => {
         tripId: TRIP,
         garmentIds: [10],
         day: '2026-11-20',
+        origin: 'idea',
       }),
     ).rejects.toMatchObject(refusal);
   });
@@ -340,7 +346,11 @@ describe('the trip path for its owner', () => {
     vi.mocked(pickForTrip).mockResolvedValue('not-found');
     vi.mocked(garmentsGoneError).mockResolvedValue(gone);
     await expect(
-      pickIdeaForTrip(db, owner, { tripId: TRIP, garmentIds: [10, 11] }),
+      pickIdeaForTrip(db, owner, {
+        tripId: TRIP,
+        garmentIds: [10, 11],
+        origin: 'idea',
+      }),
     ).rejects.toBe(gone);
     expect(garmentsGoneError).toHaveBeenCalledWith(
       db,

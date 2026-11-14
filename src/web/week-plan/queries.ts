@@ -24,7 +24,7 @@ import {
 } from '../../db/schema';
 import { washLimit } from '../../wardrobe/availability';
 import type { Occasion } from '../../wardrobe/occasions';
-import { categoryRole } from '../../wardrobe/properties';
+import { categoryRole, isWarmth } from '../../wardrobe/properties';
 import type { PlannedBy } from '../../wardrobe/week';
 import type {
   OutfitGarmentState,
@@ -41,7 +41,7 @@ import { wearsSinceWashSql } from '../wears/queries';
  * the batches ("Plan my week" taps) and what each auto entry was planned
  * for, and the daily re-plan's claims. The signed-in owner's own, like the
  * calendar. The writes here run inside plan.ts's and replan.ts's
- * transactions (under lockOwner), and createOutfit's (adoptPlannerOutfit,
+ * transactions (under lockOwner), and createOutfit's (adoptOutfit,
  * adopt.ts); calendar entries themselves are only ever written through
  * insertEntry (pickIdea) and removed by removeAutoEntries.
  */
@@ -139,10 +139,13 @@ type EntryRow = Omit<AutoEntryRow, 'plannedFor'> & {
   limbs: number | null;
   layer: boolean | null;
   rain: boolean | null;
+  limbsCeiling: number | null;
 };
 
 function autoEntryOf(row: EntryRow): AutoEntryRow {
   const { torso, limbs, layer, rain } = row;
+  // A column check keeps it 1-5; the guard narrows it for the type.
+  const limbsCeiling = isWarmth(row.limbsCeiling) ? row.limbsCeiling : null;
   return {
     entryId: row.entryId,
     day: row.day,
@@ -153,7 +156,7 @@ function autoEntryOf(row: EntryRow): AutoEntryRow {
     plannedFor:
       torso === null || limbs === null || layer === null || rain === null
         ? null
-        : { torso, limbs, layer, rain },
+        : { torso, limbs, layer, rain, limbsCeiling },
   };
 }
 
@@ -187,7 +190,8 @@ export async function claimAutoEntries(
         ${weekPlanEntry.torso} as "torso",
         ${weekPlanEntry.limbs} as "limbs",
         ${weekPlanEntry.layer} as "layer",
-        ${weekPlanEntry.rain} as "rain"
+        ${weekPlanEntry.rain} as "rain",
+        ${weekPlanEntry.limbsCeiling} as "limbsCeiling"
       from ${weekPlanEntry}
       inner join ${outfitCalendar} on ${outfitCalendar.id} = ${weekPlanEntry.entryId}
       where ${outfitCalendar.ownerId} = ${ownerId}
@@ -264,7 +268,15 @@ export async function updatePlannedNeeds(
 }
 
 function needsColumns(needs: PlannedNeeds | null) {
-  return needs ?? { torso: null, limbs: null, layer: null, rain: null };
+  return (
+    needs ?? {
+      torso: null,
+      limbs: null,
+      layer: null,
+      rain: null,
+      limbsCeiling: null,
+    }
+  );
 }
 
 /**

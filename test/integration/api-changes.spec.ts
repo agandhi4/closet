@@ -434,6 +434,7 @@ describe("the owner's own resources (#196b-2)", () => {
       {
         id: outfitId,
         name: 'Office',
+        origin: 'person',
         slots: [
           { category: 'shirt', garmentId: top },
           { category: 'shirt', garmentId: bottom },

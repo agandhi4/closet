@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, type SQL, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
   garment,
@@ -7,6 +7,7 @@ import {
   outfitSlot,
   tripOutfit,
 } from '../../db/schema';
+import { KEPT_ORIGINS } from '../../wardrobe/outfit-origin';
 import type { GarmentStatus } from '../../wardrobe/status';
 import { onWishlist } from '../wardrobe/status';
 
@@ -119,6 +120,17 @@ export function ownersOutfit(
   outfitId: SQL | AnyPgColumn = outfit.id,
 ): SQL<boolean> {
   return sql<boolean>`(${outfit.proposedAt} is null or (${outfit.reaction} = 'loved' and ${outfitIsComplete(outfitId)}))`;
+}
+
+/**
+ * An outfit someone chose to keep (#659, src/wardrobe/outfit-origin.ts):
+ * the one rule of what the Saved tab and the pickers (a day's, a trip's)
+ * list by default; `not` it is their "Worn and planned" one-offs. Read
+ * only by savedOutfitsSql and listOutfitsPage, so the surfaces never
+ * disagree.
+ */
+export function keptOutfit(): SQL {
+  return inArray(outfit.origin, KEPT_ORIGINS);
 }
 
 /** Muse's proposals still waiting on the owner, and those set aside: not the owner's. */

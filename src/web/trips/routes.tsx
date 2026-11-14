@@ -45,6 +45,7 @@ import {
   takeOffTrip,
   wearTripOutfit,
 } from './trip-actions';
+import { parseOutfitList } from '../outfits/outfit-list';
 import { ItemsSummary, PackedSummary, TripPage } from './trip-page';
 import { dayAnchor, TRIPS_PATH, tripUrl } from './urls';
 import {
@@ -249,10 +250,12 @@ export const tripRoutes: FastifyPluginCallbackTypebox<
     `${TRIPS_PATH}/:id/outfits/new`,
     { schema: { params: TripParams, querystring: AddOutfitQuery } },
     async (request, reply) => {
+      const list = parseOutfitList(request.query.show);
       const found = await requireAddOutfitPage(
         db,
         actorOf(request),
         request.params.id,
+        list,
       );
       const { trip } = found;
       const days = tripDays(trip);
@@ -272,6 +275,7 @@ export const tripRoutes: FastifyPluginCallbackTypebox<
             days,
             day,
             occasion,
+            list,
             outfits: found.outfits,
             onTrip: outfitsOnDay(found.onTrip, day ?? null),
           }}

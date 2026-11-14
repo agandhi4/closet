@@ -18,6 +18,7 @@ import {
   parseDestination,
 } from './destination';
 import { OutfitsPage } from './list-page';
+import { OutfitListQuery, parseOutfitList } from './outfit-list';
 import {
   editOutfit,
   reactToProposal,
@@ -85,10 +86,12 @@ const BuilderLinkQuery = Type.Object({
 });
 
 // The Saved tab picking for a day (`?for=day:D&occasion=O[&replace=E]`,
-// R5): navigation state, read by parseDestination (anything malformed is
-// the plain grid, a trip too: trips add outfits on their own page).
+// R5) and its list (`?show=one-offs`, #659): navigation state, read by
+// parseDestination and parseOutfitList (anything malformed is the plain
+// kept grid, a trip too: trips add outfits on their own page).
 const SavedQuery = Type.Object({
   ...DestinationQuery,
+  ...OutfitListQuery,
   [DECISION_FLAG]: Type.Optional(Type.String({ maxLength: 16 })),
 });
 
@@ -139,7 +142,8 @@ const OutfitBody = Type.Object({
 
 type OutfitForm = Static<typeof OutfitBody>;
 
-function outfitInput(body: OutfitForm): OutfitInput {
+/** The form's rows and fields: an edit as posted, a create once its origin is said. */
+function outfitInput(body: OutfitForm): Omit<OutfitInput, 'origin'> {
   const categories = body.category ?? [];
   const garmentIds = body.garmentId ?? [];
   if (categories.length !== garmentIds.length) {
@@ -267,11 +271,13 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         );
       }
       const day = destination.kind === 'day' ? destination : undefined;
+      const list = parseOutfitList(request.query.show);
       const { outfits, activity, choice, muse } = await savedContext(
         db,
         ownerId,
         today,
         day,
+        list,
       );
       if (day?.replace !== undefined && !choice?.replacing) {
         logger.debug(
@@ -284,6 +290,7 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           ctx={viewContext(reply)}
           model={{
             outfits,
+            list,
             activity,
             muse,
             toast: decisionToastOf(request.query[DECISION_FLAG]),
@@ -366,7 +373,10 @@ export const outfitRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const ownerId = sessionUserId(request);
       const input = outfitInput(request.body);
-      const result = await createOutfit(db, ownerId, input);
+      const result = await createOutfit(db, ownerId, {
+        ...input,
+        origin: 'person',
+      });
       logger.info(createMessage(ownerId, result, input.plan));
       return reply.redirect(afterSave(request.body, result.id, result), 302);
     },
