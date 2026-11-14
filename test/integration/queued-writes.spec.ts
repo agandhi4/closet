@@ -431,6 +431,35 @@ describe('queued writes', () => {
       expect(await wornAtOf(live)).toEqual([expect.any(String)]);
     });
 
+    it('gives a timeless day-level wear the instant a later Wore today knows', async () => {
+      const tee = await createGarment(t, { name: 'Timed-later tee' });
+      const day = daysAgo(1);
+      const wear = `/wardrobe/${tee}/wear`;
+      // An older outbox's Wore today (no instant), a 09:00 wash, then the
+      // same wear with its 19:00 instant: the wear counts after the wash.
+      expect(outcome(await replay(wear, { worn: '1', day }))).toEqual([
+        204,
+        'changed',
+      ]);
+      expect(
+        outcome(await replay(`/wardrobe/${tee}/washed`, { day, at: at(9) })),
+      ).toEqual([204, 'changed']);
+      expect(await sinceWash(tee)).toBe(0);
+      expect(
+        outcome(await replay(wear, { worn: '1', day, at: at(19) })),
+      ).toEqual([204, 'changed']);
+      expect(await sinceWash(tee)).toBe(1);
+      // An earlier or unknown instant moves nothing.
+      const movesNothing: Fields[] = [
+        { worn: '1', day, at: at(12) },
+        { worn: '1', day },
+      ];
+      for (const fields of movesNothing) {
+        expect(outcome(await replay(wear, fields))).toEqual([204, 'unchanged']);
+      }
+      expect(await wornAtOf(tee)).toEqual([at(19)]);
+    });
+
     it('keeps the later known instant where a deleted outfit’s wear meets a day-level one', async () => {
       const tee = await createGarment(t, { name: 'Detached tee' });
       const day = daysAgo(1);

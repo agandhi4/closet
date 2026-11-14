@@ -450,6 +450,19 @@ async function unmarkWorn(tx: Queryable, entryId: number): Promise<number> {
 }
 
 /**
+ * An insert's conflict with the garment's day-level wear of that day
+ * (garment_wear_garment_id_day_single_unique): the wear stays, with the
+ * later known instant of the two (#676: a known one beats null, so a wear
+ * after the day's wash is never dropped to the day rule), and is updated
+ * only when that moves, so a repeat bumps no revision and answers no row.
+ * Used by setWoreToday and detachOutfitWears.
+ */
+const ON_DAY_WEAR_KEEP_LATER_INSTANT = sql`on conflict (garment_id, day) where outfit_calendar_id is null do update
+  set worn_at = excluded.worn_at
+  where excluded.worn_at is not null
+    and (${garmentWear.wornAt} is null or excluded.worn_at > ${garmentWear.wornAt})`;
+
+/**
  * Keeps the wears of an outfit's calendar entries when the outfit is about
  * to be deleted (its entries cascade with it, and their wears would with
  * them): each becomes a day-level wear, the shape "Wore today" writes
@@ -489,11 +502,9 @@ export async function detachOutfitWears(
     )
     .for('update');
   const ofEntries = sql`${garmentWear.outfitCalendarId} in (select id from entries)`;
-  // The partial unique index on (garment_id, day) for day-level wears keeps
-  // an existing one, but with the later known instant of the two (#676: a
-  // known one beats null), so the day's wears since its wash stay as they
-  // were; it is updated only when that moves, so no revision is bumped for
-  // nothing. An outfit has one entry a day at most, so the select itself
+  // An existing day-level wear stays, with the later known instant
+  // (ON_DAY_WEAR_KEEP_LATER_INSTANT), so the day's wears since its wash
+  // stay as they were. An outfit has one entry a day at most, so the select itself
   // holds no two rows for one key. `kept` counts the inserted copies alone
   // (xmax = 0). The final select counts the entries so they are locked even
   // when no wear needs them read.
@@ -504,10 +515,7 @@ export async function detachOutfitWears(
       select ${garmentWear.garmentId}, ${garmentWear.ownerId}, ${garmentWear.day}, null, ${garmentWear.wornAt}, ${garmentWear.createdAt}
       from ${garmentWear}
       where ${ofEntries}
-      on conflict (garment_id, day) where outfit_calendar_id is null do update
-        set worn_at = excluded.worn_at
-        where excluded.worn_at is not null
-          and (${garmentWear.wornAt} is null or excluded.worn_at > ${garmentWear.wornAt})
+      ${ON_DAY_WEAR_KEEP_LATER_INSTANT}
       returning xmax = 0 as inserted
     ),
     moved as (delete from ${garmentWear} where ${ofEntries})
@@ -553,12 +561,14 @@ export async function setWoreToday(
   | 'client-id-taken'
 > {
   // The conflict target is the day's single wear alone: a client id taken
-  // by another wear is a unique violation, never a silent no-op.
+  // by another wear is a unique violation, never a silent no-op. A wear
+  // already there keeps its id and takes this one's instant when later
+  // (an older outbox's timeless replay, then the tap that knows it).
   const write = input.worn
     ? sql`insert into ${garmentWear} (garment_id, owner_id, day, worn_at, client_id)
         select id, owner_id, ${input.day}::date, ${input.wornAt}::timestamptz, ${input.clientId ?? null}::uuid
         from owned where not wishlist
-        on conflict (garment_id, day) where outfit_calendar_id is null do nothing
+        ${ON_DAY_WEAR_KEEP_LATER_INSTANT}
         returning 1`
     : sql`delete from ${garmentWear}
         where ${and(
