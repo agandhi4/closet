@@ -1011,3 +1011,9 @@ Consequence: a server-only deploy keeps every `?v=` and the precache. The releas
 Why: the calendar shows Sunday to Saturday, the plan covers today and six days, so on a Friday the first planned day was off-screen under a text banner (#683).
 Decision: the POST redirects to `?week=<startOfWeek(first planned day)>&planned=<batch>#day-<first>`; banner rows are links (`#day-D` in the shown week, `dayUrl` otherwise) with a `thumb` collage. Nothing planned keeps `/calendar?planned=none`.
 Consequence: `plannedWeekUrl(planned, firstDay?)` is the one builder; the banner's garments ride `batchEntriesSql`, still the week's one statement.
+
+## 2026-11-13 — One status region for every write's result (#679)
+
+**Why:** "Wore today", the worn pill, Washed, Mark washed and Wear this dropped focus to `<body>` and announced nothing; `SavedToast` inserted its own `aria-live` container with the page, which screen readers do not reliably read.
+**Decision:** `#toast-host` is the one polite region (`role="status"`); htmx writes fill it with `announce()` (`HX-Trigger` `closet:status`, the encoding shared with #642's failures, `src/htmx/trigger.ts`), native posts' landing pages with `SavedToast`'s inert template, both read by `public/js/toast.js`. Toasts carry no role of their own. In-place write buttons keep one id across states (htmx refocuses by id); a vanished control or a landing page sets `autofocus` on where focus goes.
+**Consequence:** saved toasts now show at the bottom above the dock, not under the app bar, and need script. `SavedToast`'s props are unchanged. A new in-place queued write needs a stable button id (`expectInPlaceWritesKeepFocus`, in `expectFullPage`); other `hx-post` forms are not yet held to it.

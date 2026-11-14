@@ -26,6 +26,19 @@ import type { WearGarment, WearSummary } from './queries';
 /** What Wore today and Washed answer: the wear line and the buttons. */
 const WEAR_STATUS_ID = 'garment-wear-status';
 
+/** The tap a wear status answers: Wore today (or its undo), or Washed. */
+export type WearTap = 'wear' | 'wash';
+
+/**
+ * Each tap's button keeps one id in every state (Wore today and its undo
+ * share theirs), so htmx gives focus back to the replacement after the swap
+ * (#679): it refocuses the element with the focused one's id.
+ */
+const TAP_BUTTON_ID: Record<WearTap, (garmentId: number) => string> = {
+  wear: (garmentId) => `garment-${garmentId}-wore-today`,
+  wash: (garmentId) => `garment-${garmentId}-washed`,
+};
+
 /** What the section shows: the garment's wash state and away, and its wears. */
 export interface WearPanel {
   summary: WearSummary;
@@ -61,8 +74,17 @@ export function WearSection(props: { garment: WearGarment; panel: WearPanel }) {
   );
 }
 
-/** The wear line, the wash state and the row of primary actions. */
-export function WearStatus(props: { garment: WearGarment; panel: WearPanel }) {
+/**
+ * The wear line, the wash state and the row of primary actions. `after` is
+ * the tap this answers: when its button is gone from the answer (Washed,
+ * once nothing is worn since), focus moves to the wear line, which then
+ * says what changed, rather than dropping to the page's start.
+ */
+export function WearStatus(props: {
+  garment: WearGarment;
+  panel: WearPanel;
+  after?: WearTap;
+}) {
   const { garment, panel } = props;
   const { summary } = panel;
   const limit = washLimit(garment.category, garment.washAfterWears);
@@ -72,8 +94,15 @@ export function WearStatus(props: { garment: WearGarment; panel: WearPanel }) {
     wearsSinceWash: summary.sinceWash,
   });
   const needsWash = limit !== null && dirty > 0;
+  const shows = tapsShown(summary, limit);
+  const lostFocus = props.after !== undefined && !shows[props.after];
   return (
-    <div id={WEAR_STATUS_ID} class="flex flex-col gap-3">
+    <div
+      id={WEAR_STATUS_ID}
+      class="flex flex-col gap-3"
+      tabindex={lostFocus ? -1 : undefined}
+      autofocus={lostFocus}
+    >
       <div class="flex flex-col gap-1">
         <p class="text-sm">{wornLine(garment, summary, panel.today)}</p>
         {(needsWash || garment.lastWashedOn) && (
@@ -94,12 +123,24 @@ export function WearStatus(props: { garment: WearGarment; panel: WearPanel }) {
           <StyleThisLink garmentId={garment.id} viewOwner={undefined} />
         )}
         <WoreToday garment={garment} panel={panel} />
-        {summary.sinceWash > 0 && limit !== null && (
-          <Washed garment={garment} />
-        )}
+        {shows.wash && <Washed garment={garment} />}
       </div>
     </div>
   );
+}
+
+/**
+ * Which taps the row offers: Wore today unless a worn calendar entry today
+ * already wore it, Washed once something is worn since a wash that is due.
+ */
+function tapsShown(
+  summary: WearSummary,
+  limit: number | null,
+): Record<WearTap, boolean> {
+  return {
+    wear: summary.today !== 'entry',
+    wash: summary.sinceWash > 0 && limit !== null,
+  };
 }
 
 /**
@@ -199,6 +240,7 @@ function WoreTodayForm(props: { garmentId: number; worn: boolean }) {
       <input type="hidden" name="worn" value={props.worn ? '0' : '1'} />
       <button
         type="submit"
+        id={TAP_BUTTON_ID.wear(props.garmentId)}
         class={`btn flex-1 whitespace-nowrap ${props.worn ? 'btn-ghost' : 'btn-outline'}`}
       >
         {props.worn ? t('wear.UNDO_WORE_TODAY') : t('wear.WORE_TODAY')}
@@ -227,7 +269,11 @@ function Washed(props: { garment: WearGarment }) {
         {...SWAP}
         {...queueForm('wash')}
       >
-        <button type="submit" class="btn btn-outline flex-1">
+        <button
+          type="submit"
+          id={TAP_BUTTON_ID.wash(garment.id)}
+          class="btn btn-outline flex-1"
+        >
           {t('wear.WASHED')}
         </button>
       </form>

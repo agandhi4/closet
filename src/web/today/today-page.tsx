@@ -16,7 +16,7 @@ import { Dock } from '../layout/dock';
 import { PAIR_GRID } from '../layout/columns';
 import { PageMain } from '../layout/page-main';
 import { Layout } from '../layout/layout';
-import { HangerIcon } from '../layout/parts';
+import { HangerIcon, SavedToast, StripFlags } from '../layout/parts';
 import { OutfitCollage, outfitLabel } from '../outfits/collage';
 import type { NeedsToDecide } from '../wishlist/inbox';
 import { roundReviewPath, roundWhat } from '../wishlist/round-text';
@@ -30,7 +30,7 @@ import type { ViewContext } from '../view-context';
 import { UserWeatherLine } from '../weather/views';
 import { PlanWeekForm } from '../week-plan/views';
 import type { FirstRun, IdeasRow, PlannedRow, TodayModel } from './today';
-import { TODAY_PATH, todayIdeasUrl, WEAR_THIS_PATH } from './urls';
+import { TODAY_PATH, todayIdeasUrl, WEAR_THIS_PATH, WORE_FLAG } from './urls';
 
 /**
  * Today (#15; docs/plans/2026-09-26-redesign.md, "Today"): the day's date,
@@ -60,9 +60,19 @@ export function TodayPage(props: {
   model: TodayModel;
   timeZone: string;
   now: Date;
+  /** After "Wear this" (WORE_FLAG): the entry it wore. */
+  wore?: number;
 }) {
   const { ctx, model } = props;
   const firstRun = model.firstRun ?? null;
+  // Only an entry the page shows worn: a stale or edited flag says nothing.
+  const wore = model.rows.some(
+    (row) =>
+      row.kind === 'planned' &&
+      row.entries.some((entry) => entry.id === props.wore && entry.worn),
+  )
+    ? props.wore
+    : undefined;
   return (
     <Layout ctx={ctx} title={t('today.TITLE')}>
       <AppBar ctx={ctx} title={dayLabel(model.today)} />
@@ -87,7 +97,7 @@ export function TodayPage(props: {
           <div class={PAIR_GRID}>
             {model.rows.map((row) =>
               row.kind === 'planned' ? (
-                <PlannedRowView row={row} today={model.today} />
+                <PlannedRowView row={row} today={model.today} wore={wore} />
               ) : (
                 <IdeasRowView row={row} today={model.today} />
               ),
@@ -116,6 +126,10 @@ export function TodayPage(props: {
           newCapsule={false}
         />
       )}
+      {wore !== undefined && (
+        <SavedToast id="wore-toast" text={t('wear.status.WORN')} />
+      )}
+      <StripFlags names={[WORE_FLAG]} />
       <Dock ctx={ctx} />
     </Layout>
   );
@@ -240,7 +254,11 @@ function RowHeading(props: { occasion: Occasion; children?: Child }) {
   );
 }
 
-function PlannedRowView(props: { row: PlannedRow; today: IsoDate }) {
+function PlannedRowView(props: {
+  row: PlannedRow;
+  today: IsoDate;
+  wore: number | undefined;
+}) {
   const { row, today } = props;
   return (
     <section
@@ -250,7 +268,12 @@ function PlannedRowView(props: { row: PlannedRow; today: IsoDate }) {
     >
       <RowHeading occasion={row.occasion} />
       {row.entries.map((entry, index) => (
-        <PlannedCard entry={entry} today={today} eager={index === 0} />
+        <PlannedCard
+          entry={entry}
+          today={today}
+          eager={index === 0}
+          focused={entry.id === props.wore}
+        />
       ))}
     </section>
   );
@@ -260,6 +283,8 @@ function PlannedCard(props: {
   entry: CalendarEntry;
   today: IsoDate;
   eager: boolean;
+  /** The entry "Wear this" just wore: its Undo takes focus. */
+  focused: boolean;
 }) {
   const { entry, today } = props;
   const name = entry.outfit.name || t('UNTITLED_OUTFIT');
@@ -293,6 +318,7 @@ function PlannedCard(props: {
             label={name}
             size="button"
             returnTo={TODAY_PATH}
+            autofocus={props.focused}
           />
           {/* The gallery for this entry's place: a pick changes its outfit
               rather than adding one (#69). Not once worn: a worn entry is

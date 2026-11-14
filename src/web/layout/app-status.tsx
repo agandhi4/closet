@@ -5,9 +5,9 @@ import { ClockIcon } from './parts';
 /**
  * Connectivity banner, the outbox's status and notice, and the toast host,
  * owned by public/js/connectivity.js, public/js/outbox.js, public/js/pwa.js,
- * public/js/freshness.js and public/js/request-failures.js. Lives inside <body>, so every hx-boost swap
- * replaces it with this empty copy; the scripts re-apply their state on
- * htmx:afterSettle. The strings travel as data attributes so the scripts
+ * public/js/freshness.js, public/js/request-failures.js and public/js/toast.js.
+ * Lives inside <body>, so every hx-boost swap replaces it with this empty
+ * copy; the scripts re-apply their state on htmx:afterSettle. The strings travel as data attributes so the scripts
  * stay free of i18n.
  *
  * Signed in, it also names the account and the household's time zone for
@@ -54,9 +54,15 @@ export function AppStatus({ ctx }: { ctx: ViewContext }) {
         </div>
         {signedIn && <OutboxStatus />}
       </div>
-      {/* Above the dock (4rem) so toasts never cover the primary navigation. */}
+      {/* Above the dock (4rem) so toasts never cover the primary navigation.
+          The page's one polite status region (#679): every toast lands
+          here (public/js/toast.js), and none has a role of its own, since a
+          region inserted with its message is not reliably read. No
+          fragment swap may target it or anything around it. */}
       <div
         id="toast-host"
+        role="status"
+        aria-live="polite"
         class="toast toast-bottom toast-center mb-20 lg:mb-4 ml-[calc(var(--rail-width)/2)] z-[999]"
       ></div>
     </div>

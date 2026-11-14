@@ -191,6 +191,9 @@ export function Layout({
         {/* Save-on-change forms drop answers a newer edit overtook
             (src/web/autosave.tsx). */}
         <script type="module" src={`/js/autosave.js${v}`}></script>
+        {/* The status region's writer: a write's result and every other
+            toast, in #toast-host (AppStatus). */}
+        <script type="module" src={`/js/toast.js${v}`}></script>
         {/* A failed or timed-out htmx request says so: the error page
             for a boosted tap, a toast otherwise (src/web/errors.tsx). */}
         <script type="module" src={`/js/request-failures.js${v}`}></script>

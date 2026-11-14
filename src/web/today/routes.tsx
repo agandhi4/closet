@@ -15,7 +15,12 @@ import { viewContext } from '../view-context';
 import { MAX_WORN_GARMENTS, wearIdea } from './queries';
 import { MAX_TODAY_PAGE, todayFor, todayIdeas } from './today';
 import { IdeasRowView, TodayPage } from './today-page';
-import { TODAY_IDEAS_PATH, TODAY_PATH, WEAR_THIS_PATH } from './urls';
+import {
+  TODAY_IDEAS_PATH,
+  TODAY_PATH,
+  todayAfterWear,
+  WEAR_THIS_PATH,
+} from './urls';
 
 /**
  * Today (#15): the home screen and its writes. The signed-in user's own
@@ -35,6 +40,15 @@ const IdeasQuery = Type.Object({
   occasion: Type.Optional(Type.String()),
   page: Type.Optional(Type.String()),
 });
+
+// URL state, so lenient: a malformed `wore` is no flag, never a 400.
+const TodayQuery = Type.Object({ wore: Type.Optional(Type.String()) });
+
+function parseEntryId(value: string | undefined): number | undefined {
+  return value !== undefined && /^\d{1,9}$/.test(value)
+    ? Number(value)
+    : undefined;
+}
 
 const WearBody = Type.Object({
   garmentId: Type.Array(RowId, { minItems: 1, maxItems: MAX_WORN_GARMENTS }),
@@ -59,27 +73,32 @@ export const todayRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   const deps = { db, weather, timeZone: config.timeZone };
 
   // Signed out, the session gate sends it to the login page like any page.
-  app.get(TODAY_PATH, async (request, reply) => {
-    const ownerId = sessionUserId(request);
-    const started = performance.now();
-    const now = new Date();
-    const model = await todayFor(deps, ownerId, now, {
-      needs: true,
-      firstRun: true,
-    });
-    logger.debug(
-      `Today for user ${ownerId} (${model.today}): ${model.rows.map((row) => `${row.occasion} ${row.kind === 'planned' ? `planned ${row.entries.length}` : `${row.ideas.length} ideas`}`).join(', ')}${model.needs ? `, ${model.needs.count} Muse needs waiting` : ''}${model.firstRun ? `, first run (${model.firstRun})` : ''} in ${Math.round(performance.now() - started)} ms`,
-    );
-    return renderPage(
-      reply,
-      <TodayPage
-        ctx={viewContext(reply)}
-        model={model}
-        timeZone={config.timeZone}
-        now={now}
-      />,
-    );
-  });
+  app.get(
+    TODAY_PATH,
+    { schema: { querystring: TodayQuery } },
+    async (request, reply) => {
+      const ownerId = sessionUserId(request);
+      const started = performance.now();
+      const now = new Date();
+      const model = await todayFor(deps, ownerId, now, {
+        needs: true,
+        firstRun: true,
+      });
+      logger.debug(
+        `Today for user ${ownerId} (${model.today}): ${model.rows.map((row) => `${row.occasion} ${row.kind === 'planned' ? `planned ${row.entries.length}` : `${row.ideas.length} ideas`}`).join(', ')}${model.needs ? `, ${model.needs.count} Muse needs waiting` : ''}${model.firstRun ? `, first run (${model.firstRun})` : ''} in ${Math.round(performance.now() - started)} ms`,
+      );
+      return renderPage(
+        reply,
+        <TodayPage
+          ctx={viewContext(reply)}
+          model={model}
+          timeZone={config.timeZone}
+          now={now}
+          wore={parseEntryId(request.query.wore)}
+        />,
+      );
+    },
+  );
 
   // Refresh: the row's next page of ideas, in place (always a fragment).
   app.get(
@@ -104,7 +123,8 @@ export const todayRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // "Wear this" (a native post): the idea becomes an outfit planned today
   // and worn, in one transaction; a double tap lands on the same outfit and
-  // entry (wearIdea). Back to Today, which then shows it planned and worn.
+  // entry (wearIdea). Back to Today, which then shows it planned and worn,
+  // focus on its Undo and the result said (WORE_FLAG, #679).
   app.post(
     WEAR_THIS_PATH,
     { schema: { body: WearBody } },
@@ -127,7 +147,7 @@ export const todayRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       logger.info(
         `Idea worn by user ${ownerId} on ${today} (${occasion}): ${outfit.alreadySaved ? 'existing ' : ''}outfit ${outfit.id} of garments ${garmentId.join(', ')}, entry ${entryId} ${worn.changed ? `marked worn (${worn.wears} wears logged)` : 'already worn'}`,
       );
-      return reply.redirect(TODAY_PATH, 303);
+      return reply.redirect(todayAfterWear(entryId), 303);
     },
   );
 

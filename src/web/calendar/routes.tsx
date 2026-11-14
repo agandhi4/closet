@@ -10,6 +10,8 @@ import {
   replayRefused,
   requestTap,
 } from '../offline-writes';
+import { announce } from '../announce';
+import { t } from '../i18n';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
 import {
@@ -412,6 +414,11 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         // `data-occasion`, and the control sits inside it.
         reply.header('HX-Retarget', 'closest [data-occasion]');
         reply.header('HX-Reswap', 'outerHTML');
+        // The row's button keeps its id, so htmx refocuses it (#679).
+        announce(
+          reply,
+          outcome.worn ? t('wear.status.WORN') : t('wear.status.UNDO_WORN'),
+        );
         return renderFragment(
           reply,
           <OccasionRow

@@ -198,7 +198,7 @@ test.describe('service worker update', () => {
 });
 
 function updateToast(page: Page) {
-  return page.locator('#toast-host [role="status"]', {
+  return page.locator('#toast-host .alert', {
     hasText: 'Update available',
   });
 }
