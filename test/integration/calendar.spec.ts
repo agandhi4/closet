@@ -134,6 +134,9 @@ describe('calendar', () => {
 
   beforeAll(async () => {
     t = await createTestApp();
+    // An outfit's worth of closet: an empty one hides the plan controls (#666).
+    await createGarment(t, { name: 'Tee', category: 'tops' });
+    await createGarment(t, { name: 'Jeans', category: 'bottoms' });
   });
 
   afterAll(() => t?.cleanup());

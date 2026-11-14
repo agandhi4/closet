@@ -53,6 +53,11 @@ const form = (fields: Fields) => {
   };
 };
 
+const formWith = (cookie: string, fields: Fields) => {
+  const { payload, headers } = form(fields);
+  return { payload, headers: { ...headers, cookie } };
+};
+
 /** The rows of a Today page: [kind, occasion], in page order. */
 function rowsOf(html: string): [string, string][] {
   return [
@@ -336,6 +341,39 @@ describe('Today', () => {
       await asFixture(t.db, (tx) =>
         tx.delete(garment).where(inArray(garment.id, picks)),
       );
+    });
+  });
+
+  describe('A closet that can be dressed but has nothing available', () => {
+    it('says what ideas need: no card, no refresh', async () => {
+      const cookie = await t.register('nothing-available@example.com');
+      const add = async (name: string, category: string) => {
+        const res = await t.inject({
+          method: 'POST',
+          url: '/wardrobe',
+          payload: { name, category },
+          headers: { cookie },
+        });
+        return Number(
+          /^\/wardrobe\/(\d+)\?/.exec(String(res.headers.location))![1],
+        );
+      };
+      await add('Tee', 'tops');
+      const jeans = await add('Jeans', 'bottoms');
+      const away = await t.inject({
+        method: 'POST',
+        url: `/wardrobe/${jeans}/away`,
+        ...formWith(cookie, { away: 'lent', awayNote: 'Dana' }),
+      });
+      expect(away.statusCode).toBe(303);
+      const res = await get('/', { cookie });
+      expect(res.statusCode).toBe(200);
+      const html = unescapeHtml(res.body);
+      expect(html).not.toContain('data-first-run');
+      expect(rowsOf(html)).toEqual([['ideas', 'all-day']]);
+      expect(cardsOf(html)).toEqual([]);
+      expect(html).toContain('No ideas yet');
+      expect(refreshUrl(html)).toBeUndefined();
     });
   });
 

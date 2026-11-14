@@ -561,7 +561,11 @@ describe('weather', () => {
       expect((await recordQueries(() => summary())).statements).toBe(2);
       expect(stub.hits).toHaveLength(hits);
       for (const id of outfit) {
-        await t.inject({ method: 'DELETE', url: `/wardrobe/${id}` });
+        const removed = await t.inject({
+          method: 'DELETE',
+          url: `/wardrobe/${id}`,
+        });
+        expect(removed.statusCode).toBeLessThan(400);
       }
     });
 

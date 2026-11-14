@@ -63,7 +63,9 @@ describe('First run', () => {
   });
 
   it('hides Plan my week on the calendar and Include picks in Styling', async () => {
-    expect((await get('/calendar')).body).not.toContain('Plan my week');
+    const calendar = (await get('/calendar')).body;
+    expect(calendar).not.toContain('Plan my week');
+    expect(calendar).not.toContain('data-day-plan');
     const styling = (await get('/styling')).body;
     expect(styling).not.toContain('data-styling-picks');
   });
@@ -82,7 +84,9 @@ describe('First run', () => {
     expect(ready).not.toContain('id="add-sheet"');
     expect(ready).toContain('Plan my week');
     expect(ready).toContain('data-today-row="ideas"');
-    expect((await get('/calendar')).body).toContain('Plan my week');
+    const calendar = (await get('/calendar')).body;
+    expect(calendar).toContain('Plan my week');
+    expect(calendar).toContain('data-day-plan');
     expect((await get('/styling')).body).toContain('data-styling-picks');
   });
 
@@ -95,5 +99,9 @@ describe('First run', () => {
     const trips = (await get('/trips')).body;
     const main = trips.slice(0, trips.indexOf('class="dock"'));
     expect(main).toContain('d="M10 6.40476');
+    // The dock's hanger draws at its siblings' weight.
+    expect(trips).toMatch(
+      /<path stroke-width="1\.5"[^>]*d="M4\.12572|<path d="M4\.12572[^>]*stroke-width="1\.5"/,
+    );
   });
 });
