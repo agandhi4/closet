@@ -56,8 +56,17 @@ export interface JmapStub {
   calls: string[];
   /** Answers every request with this status until reset (undefined). */
   failWith(status: number | undefined): void;
+  /**
+   * Fails the body read of email `id` until reset (undefined): an HTTP
+   * status, or `shape`, an answer of the wrong shape (#693).
+   */
+  failBodyOf(id: string, failure: BodyFailure | undefined): void;
+  /** Takes an email out of the inbox (deleted or moved). */
+  remove(id: string): void;
   close(): Promise<void>;
 }
+
+export type BodyFailure = number | 'shape';
 
 const TEST_INTERNET: DestinationPolicy = {
   allowsAddress: (address) => address === STUB_IP || isPublicAddress(address),
@@ -80,6 +89,7 @@ export async function startJmapStub(token: string): Promise<JmapStub> {
   const inbox: StubEmail[] = [];
   const calls: string[] = [];
   let failure: number | undefined;
+  const bodyFailures = new Map<string, BodyFailure>();
   let origin = '';
 
   const methods: Record<
@@ -140,12 +150,23 @@ export async function startJmapStub(token: string): Promise<JmapStub> {
       const request = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
         methodCalls: Invocation[];
       };
+      const bodyFailure = request.methodCalls
+        .filter(
+          ([name, args]) => name === 'Email/get' && args.fetchHTMLBodyValues,
+        )
+        .flatMap(([, args]) => args.ids as string[])
+        .map((id) => bodyFailures.get(id))
+        .find((found) => found !== undefined);
+      if (typeof bodyFailure === 'number') {
+        calls.push('Email/get body');
+        return answer(bodyFailure, { type: 'failure' });
+      }
       const methodResponses = request.methodCalls.map(([name, args, tag]) => {
-        calls.push(
-          name === 'Email/get' && args.fetchHTMLBodyValues
-            ? 'Email/get body'
-            : name,
-        );
+        const isBody = name === 'Email/get' && args.fetchHTMLBodyValues;
+        calls.push(isBody ? 'Email/get body' : name);
+        if (isBody && bodyFailure === 'shape') {
+          return [name, { accountId: ACCOUNT_ID, list: [{ id: 1 }] }, tag];
+        }
         const method = methods[name];
         return method
           ? [name, method(args), tag]
@@ -177,6 +198,14 @@ export async function startJmapStub(token: string): Promise<JmapStub> {
     calls,
     failWith: (status) => {
       failure = status;
+    },
+    failBodyOf: (id, bodyFailure) => {
+      if (bodyFailure === undefined) bodyFailures.delete(id);
+      else bodyFailures.set(id, bodyFailure);
+    },
+    remove: (id) => {
+      const index = inbox.findIndex((email) => email.id === id);
+      if (index >= 0) inbox.splice(index, 1);
     },
     close: () =>
       new Promise((done) => {

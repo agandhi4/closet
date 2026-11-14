@@ -545,4 +545,83 @@ describe('parsePrice', () => {
       expect(parsePrice(value)).toBeNull();
     },
   );
+
+  // #693: what numeric(10, 2) holds once Postgres rounds it to cents (half
+  // away from zero), judged on the digits, never a float.
+  it.each([
+    ['99999999.99', '99999999.99'],
+    ['99999999.994', '99999999.994'],
+    ['0.005', '0.005'],
+    ['0.01', '0.01'],
+  ])('keeps %j, which the column holds', (value, expected) => {
+    expect(parsePrice(value)).toBe(expected);
+  });
+
+  it.each([
+    '123456789',
+    123456789,
+    '100000000',
+    '99999999.995',
+    '99999999.9999',
+    '0.004',
+    '0.0001',
+  ])('refuses %j, which the column would refuse or store as 0.00', (value) => {
+    expect(parsePrice(value)).toBeNull();
+  });
+});
+
+// #693: what the extractor hands on is what order_item and the garment form
+// store (the order mail's poll reads every product page through
+// readProductPage, which is extractProduct), so no page text can carry a
+// control character Postgres refuses, nor a price overflow its column.
+describe('the stored-value boundary', () => {
+  const url = new URL('https://acme-supply.test/products/tee');
+  const jsonLd = (product: object) =>
+    page(
+      `<script type="application/ld+json">${JSON.stringify({ '@type': 'Product', ...product })}</script>`,
+    );
+  // eslint-disable-next-line no-control-regex -- the characters that must be gone
+  const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+
+  it('strips control characters, NUL included, from every JSON-LD text field', () => {
+    const product = extractProduct(
+      jsonLd({
+        name: 'Pocket\u0000 Tee\u0007',
+        brand: { '@type': 'Brand', name: '\u0000Acme\u001f Supply\u007f' },
+        offers: { price: '28.00', priceCurrency: 'USD' },
+      }),
+      url,
+    );
+    expect(product.name).toBe('Pocket Tee');
+    expect(product.brand).toBe('Acme Supply');
+  });
+
+  it('strips them after decoding entities, in the meta tags and the title', () => {
+    const product = extractProduct(
+      page(
+        '<meta property="og:title" content="Linen&#x7f; Shirt&#1;"><meta property="product:brand" content="&#2;Acme"><meta property="product:price:amount" content="40">',
+      ),
+      url,
+    );
+    expect(product.name).toBe('Linen Shirt');
+    expect(product.brand).toBe('Acme');
+    const titled = extractProduct(
+      page('<title>Tee&#1; &#x1F;Navy&#0;&#x0;</title>'),
+      url,
+    );
+    expect(titled.name).not.toMatch(CONTROL);
+    expect(titled.name).toMatch(/^Tee Navy/);
+  });
+
+  it('drops a price the column cannot hold, keeping the rest', () => {
+    const product = extractProduct(
+      jsonLd({
+        name: 'Tee',
+        offers: { price: 123456789, priceCurrency: 'USD' },
+      }),
+      url,
+    );
+    expect(product.name).toBe('Tee');
+    expect(product.price).toBeNull();
+  });
 });

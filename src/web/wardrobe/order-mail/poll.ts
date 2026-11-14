@@ -1,19 +1,34 @@
 import type { Db } from '../../../db/client';
 import type { Logger } from '../../../logger';
 import { todayIn } from '../../../calendar-date';
+import { driverError } from '../../../driver-error';
+import { endWhole } from '../../../metrics/partial-failure';
+import {
+  ORDER_MAIL_ATTEMPTS,
+  ORDER_MAIL_MAILBOX_STRIKES,
+  type OrderEmailFailureScope,
+} from '../../../wardrobe/order-items';
 import {
   type OutboundFetcher,
   OutboundFetchError,
 } from '../../security/outbound-fetch';
 import type { ExtractedProduct } from '../link-import/extract';
 import { readProductPage } from '../link-import/import';
-import type { EmailEnvelope, JmapClient, JmapMailbox } from './jmap';
+import {
+  type EmailEnvelope,
+  type JmapClient,
+  JmapError,
+  type JmapMailbox,
+} from './jmap';
 import { normalizedLink, productLinkCandidates } from './links';
 import {
   type FoundProduct,
+  type MailboxEmail,
+  parkGoneEmails,
   pollStart,
   processedEmailIds,
   recordOrderEmail,
+  recordOrderEmailFailure,
 } from './queries';
 import { judgeSender } from './trust';
 
@@ -23,14 +38,21 @@ import { judgeSender } from './trust';
  * each judged by its sender (trust.ts), its links read (links.ts) and each
  * link's page through the link import's reader (readProductPage: the user
  * URL fetcher, SSRF-safe, bounded), and the products it names listed for
- * ORDER_MAIL_OWNER's account to review. Run by server.ts's timer inside
- * metrics.timeJob('order_mail'), so a failure (JMAP unreachable or
- * refusing, an unknown owner) counts as the job's and reaches Bugsink.
+ * ORDER_MAIL_OWNER's account to review. Run by server.ts's timer through
+ * pollOrderMailWhole inside metrics.timeJob('order_mail'), so a failure
+ * (JMAP unreachable or refusing, an unknown owner, a failing email) counts
+ * as the job's.
  *
- * An email is recorded only once its links were read, in one transaction
- * with its items (recordOrderEmail), so a run that fails or is stopped
- * part-way reads the rest again next time. A link that fails to fetch is
- * skipped (the fetcher logs its host and reason).
+ * Each email gets its own outcome (#693). A decided one is recorded once
+ * its links were read, in one transaction with its items
+ * (recordOrderEmail). One whose read fails is a `failed` row, read again
+ * by the next poll (the watermark starts at it) and parked after
+ * ORDER_MAIL_ATTEMPTS; the poll goes on to the next email. A failure of the
+ * mailbox, not the email (JMAP unreachable, a 5xx: JmapError's `scope`),
+ * still fails the run and spends no attempt, but for its backstop: a
+ * mailbox failure ORDER_MAIL_MAILBOX_STRIKES times in a row on the same
+ * email spends one. A link that fails to fetch is skipped (the fetcher logs
+ * its host and reason).
  */
 
 /** At most this many emails are read a poll; the rest wait for the next. */
@@ -39,6 +61,8 @@ export const MAX_EMAILS_PER_POLL = 5;
 export const MAX_ITEMS_PER_EMAIL = 10;
 /** An email's links are fetched this many at a time. */
 const LINK_CONCURRENCY = 3;
+/** An error kind is a SQLSTATE or a name; anything longer is clipped. */
+const ERROR_KIND_MAX = 64;
 
 export interface OrderMailDeps {
   db: Db;
@@ -58,6 +82,12 @@ export interface PollSummary {
   queried: number;
   read: number;
   listed: number;
+  /** The account's emails still failing after the run. */
+  failing: number;
+  /** Emails whose first attempt this run spent: each is captured once, here. */
+  firstFailures: number;
+  /** Emails this run parked: out of attempts, or gone from the inbox. */
+  parked: number;
 }
 
 /** The configured owner names no closet account: the poll cannot list anything. */
@@ -68,6 +98,22 @@ export class OrderMailOwnerError extends Error {
   }
 }
 
+/**
+ * The scheduled run (server.ts): pollOrderMail, then a PartialFailure while
+ * any email is failing, so the job is `failure` on every poll until the
+ * email is decided or parked (#693). It is captured only by the run that
+ * spent an email's first attempt, so one email is one event, not one a
+ * poll (`reported`).
+ */
+export async function pollOrderMailWhole(
+  deps: OrderMailDeps,
+): Promise<PollSummary> {
+  const run = await pollOrderMail(deps);
+  return endWhole('order_mail', { failing: run.failing }, run, {
+    reported: run.firstFailures === 0,
+  });
+}
+
 export async function pollOrderMail(deps: OrderMailDeps): Promise<PollSummary> {
   const { db, logger } = deps;
   const started = performance.now();
@@ -75,25 +121,126 @@ export async function pollOrderMail(deps: OrderMailDeps): Promise<PollSummary> {
   // The owner and the watermark in one statement, so the JMAP session comes
   // first (#173: the watermark needs its account id). An unknown owner still
   // fails the run before anything is read or written.
-  const { ownerId, watermark } = await pollStart(
-    db,
-    deps.ownerEmail,
-    mailbox.accountId,
-  );
+  const start = await pollStart(db, deps.ownerEmail, mailbox.accountId);
+  const { ownerId, watermark } = start;
   if (ownerId === undefined) throw new OrderMailOwnerError();
   const ids = await mailbox.inboxIds(watermark);
+  const failing = new Set(start.failing.map(({ emailId }) => emailId));
+  // A failing email at the watermark is the query's first (its `after` is
+  // inclusive): absent, it left the inbox, and would pin the watermark for
+  // good. A newer one absent may only be past the query's limit.
+  const inbox = new Set(ids);
+  const gone = start.failing
+    .filter(
+      ({ emailId, receivedAt }) =>
+        receivedAt.getTime() === watermark?.getTime() && !inbox.has(emailId),
+    )
+    .map(({ emailId }) => emailId);
+  let parked = await parkGoneEmails(db, mailbox.accountId, gone);
+  for (const id of gone) {
+    failing.delete(id);
+    logger.warn(`Order mail ${id} parked: no longer in the inbox`);
+  }
   const processed = await processedEmailIds(db, mailbox.accountId, ids);
   const fresh = ids
     .filter((id) => !processed.has(id))
     .slice(0, MAX_EMAILS_PER_POLL);
   let listed = 0;
+  let firstFailures = 0;
   for (const envelope of await mailbox.envelopes(fresh)) {
-    listed += await readEmail(deps, mailbox, envelope, ownerId);
+    try {
+      listed += await readEmail(deps, mailbox, envelope, ownerId);
+      failing.delete(envelope.id);
+    } catch (error) {
+      const failure = await recordFailure(deps, mailbox, envelope, error);
+      if (failure.first) firstFailures += 1;
+      if (failure.status === 'parked') {
+        parked += 1;
+        failing.delete(envelope.id);
+      } else if (failure.status === 'failed') {
+        failing.add(envelope.id);
+      }
+    }
   }
   logger.info(
-    `Order mail poll: ${ids.length} queried, ${fresh.length} new read, ${listed} products listed for user ${ownerId} in ${Math.round(performance.now() - started)} ms`,
+    `Order mail poll: ${ids.length} queried, ${fresh.length} new read, ${listed} products listed for user ${ownerId}, ${failing.size} failing, ${parked} parked in ${Math.round(performance.now() - started)} ms`,
   );
-  return { queried: ids.length, read: fresh.length, listed };
+  return {
+    queried: ids.length,
+    read: fresh.length,
+    listed,
+    failing: failing.size,
+    firstFailures,
+    parked,
+  };
+}
+
+/**
+ * Records `error`, a failed read of `envelope`, on its row and says what it
+ * came to; rethrows a mailbox failure that spent no attempt, which ends the
+ * run (the strike is on the row first). `first`: this read took the
+ * email's attempts from 0 to 1.
+ */
+async function recordFailure(
+  deps: OrderMailDeps,
+  mailbox: JmapMailbox,
+  envelope: EmailEnvelope,
+  error: unknown,
+): Promise<{ status: 'failed' | 'parked' | 'settled'; first: boolean }> {
+  const { logger } = deps;
+  const scope = failureScope(error);
+  const kind = errorKind(error);
+  const email: MailboxEmail = {
+    accountId: mailbox.accountId,
+    emailId: envelope.id,
+    receivedAt: envelope.receivedAt,
+  };
+  const read = await recordOrderEmailFailure(deps.db, email, scope, kind);
+  // A strike resets to 0 when it spends an attempt; an email failure
+  // always spends one.
+  const spent = read !== undefined && read.mailboxFailures === 0;
+  if (scope === 'mailbox' && !spent) {
+    if (read) {
+      logger.warn(
+        `Order mail ${envelope.id}: mailbox failure ${read.mailboxFailures} of ${ORDER_MAIL_MAILBOX_STRIKES} while reading it (${kind})`,
+      );
+    }
+    throw error;
+  }
+  if (read === undefined) {
+    logger.info(
+      `Order mail ${envelope.id} failed (${kind}) after another run settled it`,
+    );
+    return { status: 'settled', first: false };
+  }
+  if (read.status === 'parked') {
+    logger.error(
+      { err: error },
+      `Order mail ${envelope.id} parked after ${read.attempts} failed attempts (${kind})`,
+    );
+  } else {
+    logger.error(
+      { err: error },
+      `Order mail ${envelope.id} failed (${kind}): attempt ${read.attempts} of ${ORDER_MAIL_ATTEMPTS}, read again next poll`,
+    );
+  }
+  return { status: read.status, first: read.attempts === 1 };
+}
+
+/** A JMAP failure says whose it was; anything else came of the email's content. */
+function failureScope(error: unknown): OrderEmailFailureScope {
+  return error instanceof JmapError ? error.scope : 'email';
+}
+
+/**
+ * What `order_email.error_kind` keeps of a failure: the driver's code (a
+ * SQLSTATE such as 22003, numeric overflow) or the error's name, never its
+ * message, which can quote the page's or the email's text.
+ */
+function errorKind(error: unknown): string {
+  const code = driverError(error)?.code;
+  const kind = code ?? (error instanceof Error ? error.name : 'unknown');
+  return kind.slice(0, ERROR_KIND_MAX);
 }
 
 /** Reads and records one email; how many products it listed. */
@@ -132,6 +279,9 @@ async function readEmail(
   const body = await mailbox.body(envelope.id);
   if (body.kind === 'gone') {
     logger.info(`Order mail ${envelope.id} was removed before it was read`);
+    // A failing email that left the inbox is parked, or it pins the
+    // watermark; a new one has no row to park.
+    await parkGoneEmails(db, mailbox.accountId, [envelope.id]);
     return 0;
   }
   if (body.kind === 'too-large') {
@@ -196,7 +346,8 @@ async function readProduct(
       currency: product.price?.currency ?? null,
     };
   } catch (error) {
-    // The fetcher logged the refusal with its hosts.
+    // The fetcher logged the refusal with its hosts. Anything else fails
+    // the email (pollOrderMail records it), never the run.
     if (error instanceof OutboundFetchError) return undefined;
     throw error;
   }

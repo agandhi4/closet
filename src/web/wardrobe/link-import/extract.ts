@@ -12,7 +12,7 @@ import {
   guessMaterials,
   guessWeightWarmth,
 } from './guess';
-import { decodeEntities, type DocumentMetadata, scanDocument } from './html';
+import { type DocumentMetadata, plainText, scanDocument } from './html';
 
 /**
  * What a product page says about the garment on it, as garment form
@@ -456,11 +456,7 @@ function scalarText(value: Json | undefined): string | null {
 }
 
 function cleanText(value: string): string | null {
-  return (
-    decodeEntities(value.replace(/<[^>]*>/g, ' '))
-      .replace(/\s+/g, ' ')
-      .trim() || null
-  );
+  return plainText(value.replace(/<[^>]*>/g, ' '));
 }
 
 /** A string (or a list, or an ImageObject's url/contentUrl) as URLs. */
@@ -502,10 +498,15 @@ function priceText(value: Json | undefined): string {
   return '';
 }
 
+/** The largest price in cents a `numeric(10, 2)` column holds. */
+const MAX_PRICE_CENTS = 10n ** 10n - 1n;
+
 /**
  * A positive amount as a plain decimal string: 29, "29.00", "$1,299.00",
  * "USD 120", "29,99" (a decimal comma). Null for anything else: 0 (a page's
- * "no price"), negatives, ranges ("10 - 20"), exponents, two numbers.
+ * "no price"), negatives, ranges ("10 - 20"), exponents, two numbers, and
+ * what `numeric(10, 2)` (order_item.price, garment.price) would refuse or
+ * store as 0.00 once Postgres rounds it to cents (#693).
  */
 export function parsePrice(value: Json | undefined): string | null {
   const raw = priceText(value);
@@ -517,10 +518,21 @@ export function parsePrice(value: Json | undefined): string | null {
   } else if (/^\d+,\d{1,2}$/.test(digits)) {
     digits = digits.replace(',', '.');
   }
-  if (!/^\d{1,9}(\.\d{1,4})?$/.test(digits) || Number(digits) <= 0) {
-    return null;
-  }
-  return digits;
+  const decimal = /^(\d{1,9})(?:\.(\d{1,4}))?$/.exec(digits);
+  if (!decimal) return null;
+  const cents = roundedCents(decimal[1], decimal[2] ?? '');
+  return cents > 0n && cents <= MAX_PRICE_CENTS ? digits : null;
+}
+
+/**
+ * A decimal's value in cents as Postgres rounds it into a scale of 2: half
+ * away from zero (99999999.995 is 10000000000 cents, past the column), on
+ * the digits themselves, never a float.
+ */
+function roundedCents(whole: string, fraction: string): bigint {
+  const cents =
+    BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0').slice(0, 2));
+  return fraction.length > 2 && fraction[2] >= '5' ? cents + 1n : cents;
 }
 
 function parseCurrency(value: Json | undefined): string | null {

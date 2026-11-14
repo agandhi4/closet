@@ -240,6 +240,25 @@ describe('Metrics', () => {
     },
   );
 
+  // #693: the order mail fails on every poll while an email is failing, but
+  // only the run that spent its first attempt captures it.
+  it('counts a partial failure already reported without capturing it again', async () => {
+    const { metrics, errors } = newMetrics();
+    const run = (reported: boolean) =>
+      metrics.timeJob('order_mail', () =>
+        Promise.resolve(
+          endWhole('order_mail', { failing: 1 }, 'done', { reported }),
+        ),
+      )();
+    for (const reported of [false, true, true]) {
+      await expect(run(reported)).rejects.toBeInstanceOf(PartialFailure);
+    }
+    expect(errors.exceptions).toHaveLength(1);
+    expect((await metrics.exposition()).body).toContain(
+      'job_duration_seconds_count{name="order_mail",outcome="failure"} 3',
+    );
+  });
+
   it('ends a whole run as success', async () => {
     const { metrics, errors } = newMetrics();
     await metrics.timeJob('replan', () =>

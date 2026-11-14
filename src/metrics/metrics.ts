@@ -7,7 +7,7 @@ import {
 } from '@prometheus-io/client';
 import type { Logger } from '../logger';
 import type { ErrorContext, ErrorTracker } from './error-tracker';
-import { JobInterrupted } from './partial-failure';
+import { JobInterrupted, PartialFailure } from './partial-failure';
 
 /**
  * The process's Prometheus metrics (#115), read by the homelab's vmagent
@@ -269,7 +269,13 @@ export class Metrics {
 
   observeJob(name: JobName, ending: JobEnding, seconds: number): void {
     this.jobDuration.observe({ name, outcome: ending.outcome }, seconds);
-    this.capture(ending, { source: 'job', tags: { job: name } });
+    // A PartialFailure whose causes an earlier run captured is counted, not
+    // captured again (PartialFailure.reported).
+    const reported =
+      'error' in ending &&
+      ending.error instanceof PartialFailure &&
+      ending.error.reported;
+    if (!reported) this.capture(ending, { source: 'job', tags: { job: name } });
   }
 
   /**
