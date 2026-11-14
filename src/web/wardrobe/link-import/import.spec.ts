@@ -6,6 +6,7 @@ import { HttpError } from '../../errors';
 import { MAX_INPUT_PIXELS } from '../../files/photos';
 import {
   type FetchedResource,
+  type FetchRequest,
   OutboundFetchError,
 } from '../../security/outbound-fetch';
 import {
@@ -13,6 +14,7 @@ import {
   CHOICE_PIXEL_BUDGET,
   type ChoiceDeps,
   previewChoices,
+  readProductPage,
 } from './import';
 
 /** What a candidate is to the fakes: its pixels, or why it fails. */
@@ -171,5 +173,34 @@ describe('previewChoices', () => {
       choices: [],
       first: undefined,
     });
+  });
+});
+
+describe('readProductPage', () => {
+  const page = (requests: FetchRequest[]) => ({
+    fetch(url: string, request: FetchRequest) {
+      requests.push(request);
+      return Promise.resolve<FetchedResource>({
+        kind: 'html',
+        mediaType: 'text/html',
+        charset: 'utf-8',
+        body: Buffer.from('<title>Tee</title>'),
+        truncated: false,
+        url: new URL(url),
+        redirects: 0,
+      });
+    },
+  });
+
+  // #698: the order mail's poll passes its product-link rule; link import's
+  // own fetches and a caller passing nothing follow every redirect as before.
+  it('asks for HTML and follows every redirect unless a caller judges them', async () => {
+    const requests: FetchRequest[] = [];
+    await readProductPage(page(requests), 'https://shop.test/p/1');
+    const mayFollow = (url: URL) => url.pathname.startsWith('/p/');
+    await readProductPage(page(requests), 'https://shop.test/p/1', mayFollow);
+    expect(requests[0]).toEqual({ accept: ['html'] });
+    expect(requests[0].mayFollow).toBeUndefined();
+    expect(requests[1]).toEqual({ accept: ['html'], mayFollow });
   });
 });

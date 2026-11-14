@@ -21,7 +21,7 @@ import {
   JmapError,
   type JmapMailbox,
 } from './jmap';
-import { normalizedLink, productLinkCandidates } from './links';
+import { emailLinks, isProductLink, normalizedLink } from './links';
 import {
   type FoundProduct,
   type MailboxEmail,
@@ -36,9 +36,11 @@ import { judgeSender } from './trust';
 /**
  * One poll of the order mail account (#25; plan
  * docs/plans/2026-09-28-order-email-import.md): the inbox's new emails,
- * each judged by its sender (trust.ts), its links read (links.ts) and each
- * link's page through the link import's reader (readProductPage: the user
- * URL fetcher, SSRF-safe, bounded), and the products it names listed for
+ * each judged by its sender (trust.ts), its links judged before any fetch
+ * (links.ts: product paths and known trackers only, #698) and each one's
+ * page through the link import's reader (readProductPage: the user URL
+ * fetcher, SSRF-safe, bounded, every redirect a product link), and the
+ * products it names listed for
  * ORDER_MAIL_OWNER's account to review. Run by server.ts's timer through
  * pollOrderMailWhole inside metrics.timeJob('order_mail'), so a failure
  * (JMAP unreachable or refusing, an unknown owner, a failing email) counts
@@ -321,14 +323,14 @@ async function readEmail(
     await record('too-large');
     return 0;
   }
-  const links = productLinkCandidates(body.parts);
+  const { links, skipped } = emailLinks(body.parts);
   const products = await readProducts(deps.fetcher, links);
   const listed = await record(
     products.length > 0 ? 'imported' : 'no-products',
     products,
   );
   logger.info(
-    `Order mail ${envelope.id}: ${links.length} links read, ${products.length} products found, ${listed} listed for user ${ownerId}`,
+    `Order mail ${envelope.id}: ${links.length} links read, ${skipped} skipped, ${products.length} products found, ${listed} listed for user ${ownerId}`,
   );
   return listed;
 }
@@ -368,8 +370,14 @@ async function readProduct(
   link: string,
 ): Promise<FoundProduct | undefined> {
   try {
-    const { product, url } = await readProductPage(fetcher, link);
-    if (!isProduct(product)) return undefined;
+    // Every redirect must be a product link before it is requested (#698),
+    // and a tracker that answered itself (no redirect) names no product.
+    const { product, url } = await readProductPage(
+      fetcher,
+      link,
+      isProductLink,
+    );
+    if (!isProductLink(url) || !isProduct(product)) return undefined;
     return {
       productUrl: normalizedLink(url),
       name: product.name,

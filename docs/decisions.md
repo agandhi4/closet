@@ -1233,3 +1233,13 @@ Consequence: revisit when Sentry drops bundler-plugins from node's runtime deps 
 Why: #923 counted every mailbox-level failure as a strike on the email being read, so a 10-poll session 503, a 429 or a database blip parked healthy emails.
 Decision: `failureScope` returns `email` (spends an attempt), `message` (that id's own body fetch: 5xx or wrong shape; a strike, 3 in a row spend one) or `outage` (everything else, every database error that is not a refusal of the email's values: no row written). Strikes left by the old rule are harmless: the next strike or outcome resets them.
 Consequence: a new failure path picks one of the three in `failureScope` or `JmapError.scope`, nowhere else.
+
+## 2026-11-14 — Old order-mail strikes are not reset by the next one (#938; supersedes the entry above's "harmless" sentence)
+Why: `recordOrderEmailFailure` adds a strike to the stored `mailbox_failures`; it resets only when strikes spend an attempt, on an `email` failure or a decided outcome.
+Decision: no data fix; an email left at 2 by the old rule spends one attempt on its first `message` strike, at most one early attempt of three.
+Consequence: `src/web/wardrobe/order-mail.md` says so; a future counter change states what it does to stored values.
+
+## 2026-11-14 — The order-mail poll fetches by allowlist, every redirect judged (#698)
+Why: link selection was a deny list applied once to the unwrapped href, and redirects were followed unjudged, so a tracker in front of "Cancel this order" or a single-use sign-in link was requested from the home IP.
+Decision: `judgeLink` fetches only https product paths (`isProductLink`) and at most 2 opaque trackers of a known shape whose anchor text names no action; the fetcher's `mayFollow` asks `isProductLink` of every redirect before it is resolved (`redirect-not-followed`). Fail closed: unknown product shapes, `?code=` and the "host that already yielded a product" bypass are refused.
+Consequence: a shop whose product URLs fit no shape lists nothing; widen `PRODUCT_PATH` or the tracker shapes with a spec, never the deny words alone. `src/web/wardrobe/order-mail.md`, Gotchas.
