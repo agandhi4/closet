@@ -1,5 +1,6 @@
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
+import { endWhole } from '../../metrics/partial-failure';
 import { dueReminders, type ReminderKind } from '../../push/reminders';
 import { hourIn, todayIn } from '../../calendar-date';
 import { occasionLabel } from '../date-labels';
@@ -13,6 +14,7 @@ import { TODAY_PATH } from '../today/urls';
 import {
   refreshForecastsFor,
   type UserWeather,
+  userWeatherOrNone,
   type WeatherService,
 } from '../weather/service';
 import { todayLine } from '../weather/summary';
@@ -140,7 +142,7 @@ interface ReminderBatch {
   evenings: ReadonlyMap<number, EveningDay>;
 }
 
-/** One minute's reminders. Never throws for a person: each failure is logged. */
+/** One minute's reminders. Never throws for a person: each failure is logged and counted (sendDueRemindersWhole throws for them). */
 export async function sendDueReminders(
   deps: ReminderDeps,
   now: Date,
@@ -223,6 +225,20 @@ export async function sendDueReminders(
 }
 
 /**
+ * The scheduled run: sendDueReminders, then a PartialFailure when a person
+ * or the batch failed (the others were sent first), for `timeJob` to record
+ * as `failure` (#687). server.ts only; a spec asserting who was sent calls
+ * sendDueReminders.
+ */
+export async function sendDueRemindersWhole(
+  deps: ReminderDeps,
+  now: Date,
+): Promise<ReminderRun> {
+  const run = await sendDueReminders(deps, now);
+  return endWhole('reminders', { failed: run.failed }, run);
+}
+
+/**
  * What the run's people need beside their own model, read once for all of
  * them and at once (independent reads, so their round trips overlap): the
  * mornings' forecasts, refreshed together before anyone's re-plan or
@@ -272,8 +288,20 @@ async function sendAll(
 ): Promise<void> {
   if (composed.length === 0) return;
   try {
-    await deps.sender.sendEach(composed.map((c) => c.message));
-    run.sent += composed.length;
+    const reports = await deps.sender.sendEach(composed.map((c) => c.message));
+    reports.forEach((report, index) => {
+      // A device the push service refused (not a gone one: those are
+      // pruned) fails that person alone; the others' reminders went out
+      // (the sender isolates per device, and has counted and logged it).
+      if (report.failed === 0) {
+        run.sent += 1;
+        return;
+      }
+      run.failed += 1;
+      deps.logger.error(
+        `The ${composed[index].message.payload.tag ?? 'reminder'} for user ${composed[index].message.userId} reached ${report.delivered} of ${report.devices} device(s)`,
+      );
+    });
   } catch (error) {
     run.failed += composed.length;
     const users = composed.map((c) => c.message.userId).join(', ');
@@ -348,9 +376,16 @@ async function morningPayload(
 ): Promise<PushPayload> {
   const swapped = await swappedToday(deps, userId, now, batch);
   // The line and Today's ideas share the batch's weather (refreshed first).
-  const model = await todayFor(deps, userId, now, {
-    ownWeather: batch.weather.get(userId),
-  });
+  const ownWeather =
+    batch.weather.get(userId) ??
+    (deps.weather
+      ? await userWeatherOrNone(
+          { db: deps.db, weather: deps.weather, logger: deps.logger },
+          userId,
+          now,
+        )
+      : undefined);
+  const model = await todayFor(deps, userId, now, { ownWeather });
   const outfits = [...morningIdea(model), ...plannedOutfits(model)];
   return {
     title: t('today.push.MORNING_TITLE'),

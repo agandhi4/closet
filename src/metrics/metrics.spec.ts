@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { captureLogs } from '../../test/support/log-capture';
 import { recordErrors } from '../../test/support/sentry-stub';
-import { JOB_OUTCOMES, Metrics } from './metrics';
+import { JOB_OUTCOMES, type JobName, Metrics } from './metrics';
+import { endWhole, PartialFailure } from './partial-failure';
 
 function newMetrics(enabled = false) {
   const { logger, logs } = captureLogs();
@@ -196,6 +197,46 @@ describe('Metrics', () => {
     );
     expect(body).toContain(
       'http_request_duration_seconds_count{route="/calendar",method="GET",status_class="2xx"} 1',
+    );
+  });
+
+  // #687: a run that finished the others and still left someone out is one
+  // failure, captured once, naming the job and counts only.
+  it.each([
+    ['reminders', { failed: 1 }, 'reminders ended partially: 1 failed'],
+    ['replan', { failed: 2 }, 'replan ended partially: 2 failed'],
+    [
+      'reconciliation',
+      { refused: 1, 'rows missing their original': 3 },
+      'reconciliation ended partially: 1 refused, 3 rows missing their original',
+    ],
+  ] as [JobName, Record<string, number>, string][])(
+    'ends %s as one failure when it ended partially',
+    async (job, counts, message) => {
+      const { metrics, errors } = newMetrics();
+      const ran = metrics.timeJob(job, () =>
+        Promise.resolve(endWhole(job, { ...counts, none: 0 }, 'done')),
+      );
+      const failure = await ran().catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(PartialFailure);
+      expect((failure as Error).message).toBe(message);
+      expect(errors.exceptions).toHaveLength(1);
+      const { body } = await metrics.exposition();
+      expect(body).toContain(
+        `job_duration_seconds_count{name="${job}",outcome="failure"} 1`,
+      );
+      expect(body).not.toContain('outcome="success"');
+    },
+  );
+
+  it('ends a whole run as success', async () => {
+    const { metrics, errors } = newMetrics();
+    await metrics.timeJob('replan', () =>
+      Promise.resolve(endWhole('replan', { failed: 0 }, 'done')),
+    )();
+    expect(errors.exceptions).toEqual([]);
+    expect((await metrics.exposition()).body).toContain(
+      'job_duration_seconds_count{name="replan",outcome="success"} 1',
     );
   });
 
