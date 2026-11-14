@@ -392,8 +392,13 @@ export const GARMENT_TYPES: Record<GarmentCategory, readonly GarmentType[]> = {
       presets: { warmth: 3, formality: 3, sleeve: 'long' },
     },
     // Tank or tee, made for a run or the gym: drawn like any top until
-    // #647 gives it its purpose.
-    { value: 'sports-top', presets: { warmth: 1, formality: 1 } },
+    // #647 gives it its purpose. Short like a t-shirt, its commonest form:
+    // a top tagged from the tagging card must not reach ideas and plans with
+    // no sleeve (the tank and long-sleeve forms are one edit away).
+    {
+      value: 'sports-top',
+      presets: { warmth: 1, formality: 1, sleeve: 'short' },
+    },
     { ...SWIMWEAR, presets: { warmth: 1, formality: 1 } },
     { ...SLEEPWEAR, presets: { warmth: 2, formality: 1 } },
   ],
