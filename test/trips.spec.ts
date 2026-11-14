@@ -236,6 +236,22 @@ test.describe('Trips', () => {
         await expect(device.locator('#outbox-banner')).toHaveText(
           '1 change waiting to sync',
         );
+        // The notice says what still works here (#658): ticks queue, and
+        // nothing says packing needs a connection.
+        const note = device.locator('[data-offline-note]');
+        await expect(note).toContainText('Ticks are saved on this phone');
+        await expect(note).not.toContainText('Packing');
+        // Two queued ticks: the counter follows them, and no status line
+        // still says "Saved".
+        await device.getByRole('checkbox', { name: /Travel tee/ }).uncheck();
+        await expect(device.locator('#trip-packed-summary')).toContainText(
+          '2 of 3 packed',
+        );
+        await expect(
+          device.locator(
+            'section[aria-labelledby="trip-packing-heading"] [data-autosave-status]',
+          ),
+        ).not.toContainText('Saved');
       } finally {
         await context.close();
       }

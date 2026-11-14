@@ -2,7 +2,7 @@ import { expect, type Page } from '@playwright/test';
 import sharp from 'sharp';
 import { test } from './support/cutout-hold';
 import { createGarment } from './support/e2e-data';
-import { signIn } from './support/e2e-session';
+import { SAME_ORIGIN, signIn } from './support/e2e-session';
 
 /**
  * Adding a garment from a photo (#97) at phone width: a fresh account's
@@ -13,7 +13,8 @@ import { signIn } from './support/e2e-session';
  * and saving lands on the garment with its cutout under way (held pending
  * until the page has shown it, test/support/cutout-stub.ts); then the
  * search box finds it by two of its words in any order (#673). The filter
- * sheet (#674) rides along at the same width.
+ * sheet (#674) and select mode's kept selection (#677) ride along at the
+ * same width.
  */
 
 test.use({ viewport: { width: 390, height: 844 } });
@@ -111,7 +112,53 @@ test('the camera row takes a photo, the form opens with it, and saving lands on 
   await expect(page.locator('[data-tile]')).toHaveCount(1);
 
   await checkFilterSheet(page);
+  await checkSelectMode(page);
 });
+
+/**
+ * Select mode keeps its selection (#677): two tiles tapped once take a
+ * warmth, then a formality, then join a capsule, never selected again. Run
+ * after the filter sheet (its blue tops are the two), not a scenario of its
+ * own.
+ */
+async function checkSelectMode(page: Page) {
+  const made = await page.request.post('/capsules', {
+    form: { name: 'Office' },
+    headers: SAME_ORIGIN,
+  });
+  expect(made.ok()).toBe(true);
+  await page.goto('/wardrobe?select=1&color=blue&category=tops');
+  const grid = page.locator('#wardrobe-grid');
+  const count = page.locator('#selected-count');
+  await grid.getByRole('checkbox', { name: 'Blue shirt' }).click();
+  await grid.getByRole('checkbox', { name: 'Blue tee' }).click();
+  await expect(count).toHaveText('2');
+
+  const setOne = async (property: string, value: string, toast: string) => {
+    await page.getByRole('button', { name: 'Set…' }).click();
+    const dialog = page.locator('#bulk-dialog');
+    await dialog.getByRole('tab', { name: property }).click();
+    await dialog.getByRole('radio', { name: value, exact: true }).click();
+    await dialog.getByRole('button', { name: 'Apply' }).click();
+    await expect(page.getByText(toast)).toBeVisible();
+    // Back in select mode with the same two checked.
+    await expect(count).toHaveText('2');
+    await expect(grid.getByRole('checkbox', { checked: true })).toHaveCount(2);
+  };
+  await setOne('Warmth', 'Warm', 'Set on 2 garments');
+  await setOne('Formality', 'Smart casual', 'Set on 2 garments');
+
+  await page.getByRole('button', { name: 'Actions', exact: true }).click();
+  await page
+    .locator('#bulk-actions')
+    .getByRole('button', { name: 'Add to capsule' })
+    .click();
+  await expect(page.getByText('2 garments added to the capsule')).toBeVisible();
+  await expect(grid.getByRole('checkbox', { checked: true })).toHaveCount(2);
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+  ).toBeLessThanOrEqual(390);
+}
 
 /**
  * The filter sheet (#674): blue shirts in five taps, and by keyboard one

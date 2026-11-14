@@ -202,9 +202,10 @@ describe('property filters, select mode and bulk edit', () => {
         sleeve: 'long',
       });
       expect(res.statusCode).toBe(303);
-      // Back to the same filters, with the toast's flags.
+      // Back to select mode on the same filters, the selection kept
+      // (#677), with the toast's flags.
       expect(res.headers.location).toBe(
-        '/wardrobe?warmth=3&bulkUpdated=1&bulkSkipped=2',
+        `/wardrobe?warmth=3&select=1&selected=${ids.tee}%2C${ids.jeans}%2C${ids.boots}&bulkUpdated=1&bulkSkipped=2`,
       );
       const [tee, jeans, boots] = await rows([ids.tee, ids.jeans, ids.boots]);
       expect(tee.sleeve).toBe('long');

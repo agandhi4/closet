@@ -259,7 +259,8 @@ jobs:
 
   # A red run opens or updates the one tracking issue with the failing specs
   # and the run's link; a green one closes it (scripts/webkit-nightly-issue.sh).
-  # Its own job so the token that writes issues never runs the suite.
+  # Its own job so the token that writes issues never runs the suite. It needs
+  # only the script (gh and jq), so the checkout is sparse and has no devkit.
   webkit-issue:
     name: webkit tracking issue
     needs: webkit
@@ -271,16 +272,6 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Materialize devkit (private repo, read token)
-        env:
-          DEVKIT_READ_TOKEN: ${{ secrets.DEVKIT_READ_TOKEN }}
-        run: |
-          if [ -z "$DEVKIT_READ_TOKEN" ]; then
-            echo "DEVKIT_READ_TOKEN is not set: devkit is private (owner decision pending, devkit plan Q1)" >&2
-            exit 1
-          fi
-          git config --global url."https://x-access-token:${DEVKIT_READ_TOKEN}@github.com/kashhq/devkit".insteadOf "https://github.com/kashhq/devkit"
-          ./.devkit-bootstrap.sh
         with:
           sparse-checkout: scripts/webkit-nightly-issue.sh
           sparse-checkout-cone-mode: false

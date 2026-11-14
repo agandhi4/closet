@@ -383,6 +383,25 @@ export async function garmentSummaries(
   return { garments: page.rows, before: page.before };
 }
 
+/**
+ * Every garment the filters match, by id: select mode's "Select all N"
+ * (#677), which posts the grid's filters rather than its ids, resolved
+ * through gridWhere, the grid's own predicate, so "all" is exactly what
+ * the grid and its count show.
+ */
+export async function gridIds(
+  db: Db,
+  ownerId: number,
+  filters: GridFilters,
+): Promise<number[]> {
+  const rows = await db
+    .select({ id: garment.id })
+    .from(garment)
+    .where(gridWhere(ownerId, filters))
+    .orderBy(garment.id);
+  return rows.map((row) => row.id);
+}
+
 /** How many garments match the filters (the grid's result count). */
 export function gridCount(
   db: Db,

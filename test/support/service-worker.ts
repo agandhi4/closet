@@ -1,7 +1,5 @@
 import { type BrowserContext, expect, type Page } from '@playwright/test';
-
-/** The worker's page cache (views/assets/src-sw.ts, PAGES_CACHE). */
-const PAGES_CACHE = 'pages-v2';
+import { PAGES_CACHE } from '../../src/web/page-cache';
 
 /** Where withoutWarming keeps the real postMessage for warmOnce. */
 const ORIGINAL_POST_MESSAGE = '__closetPostMessage';

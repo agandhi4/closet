@@ -308,6 +308,57 @@ export const ROUTES: Route[] = [
       }),
     },
   },
+  // Select mode's other verbs (#677), as POST /wardrobe/bulk: only
+  // ?ownerId. Archive and Mark washed are the owner's alone (the status and
+  // the washes), MANAGE included; Add to capsule is MANAGE's too.
+  ...(['archive', 'washed'] as const).map(
+    (verb): Route => ({
+      name: `POST /wardrobe/bulk/${verb}`,
+      kind: 'write',
+      ok: 303,
+      secret: garmentName,
+      vias: ['ownerId'],
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/wardrobe/bulk/${verb}${q}`,
+        payload: { ids: [f.garmentId] },
+      }),
+      expect: {
+        owner: 'ok',
+        manager: 'forbidden',
+        viewer: 'forbidden',
+        stranger: 'notFound',
+      },
+    }),
+  ),
+  {
+    // The inspiration tee: a closet garment outside the fixture's capsule,
+    // so a success adds a row (the fixture's garment is already a member).
+    name: 'POST /wardrobe/bulk/capsule',
+    kind: 'write',
+    ok: 303,
+    secret: garmentName,
+    vias: ['ownerId'],
+    request: (f, q) => ({
+      method: 'POST',
+      url: `/wardrobe/bulk/capsule${q}`,
+      payload: { ids: [f.inspirationTeeId], capsuleId: f.capsuleId },
+    }),
+    expect: {
+      owner: 'ok',
+      manager: 'ok',
+      viewer: 'forbidden',
+      stranger: 'notFound',
+    },
+    api: {
+      ok: 200,
+      request: (f, q) => ({
+        method: 'PATCH',
+        url: `/api/v1/capsules/${f.capsuleId}/members${q}`,
+        payload: { add: [f.inspirationTeeId] },
+      }),
+    },
+  },
 
   // Garment routes. Without ?ownerId a grantee addresses their own wardrobe,
   // which does not hold the owner's garment.

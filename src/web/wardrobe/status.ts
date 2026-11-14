@@ -1,4 +1,4 @@
-import { and, type Column, eq, ne, type SQL, sql } from 'drizzle-orm';
+import { and, type Column, eq, inArray, ne, type SQL, sql } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
 import { ownerLockCte, ownerLocked } from '../../db/owner-lock';
 import { garment, optionGroup } from '../../db/schema';
@@ -13,7 +13,8 @@ import type { IsoDate } from '../../calendar-date';
  * garment.status in queries: the predicates every read uses, and the one
  * writer of a status change (the machine itself is pure,
  * src/wardrobe/status.ts). The status is written at insert (insertGarment,
- * an entry status) and changed only by setGarmentStatus below.
+ * an entry status) and changed only by setGarmentsStatus below (or its
+ * one-garment form, setGarmentStatus).
  */
 
 /**
@@ -110,50 +111,84 @@ export type StatusOutcome =
   | { ok: false; reason: 'not-allowed'; status: GarmentStatus };
 
 /**
- * The one writer of a garment's status after its insert: locks the row,
- * asks the machine (garmentStatusTransition) and writes its answer, with
- * what a purchase records. Every archive, restore and "Bought it" (the
- * routes, the seed, buyGarment) comes through here. A savepoint inside a
- * caller's transaction.
+ * The one writer of a garment's status after its insert, for one garment:
+ * setGarmentsStatus's answer for `id`. Every archive, restore and "Bought
+ * it" (the routes, the seed, buyGarment) comes through here or through the
+ * list form below. A savepoint inside a caller's transaction.
  */
-export function setGarmentStatus(
+export async function setGarmentStatus(
   db: Queryable,
   id: number,
   ownerId: number,
   change: StatusChange,
 ): Promise<StatusOutcome> {
+  const outcomes = await setGarmentsStatus(db, [id], ownerId, change);
+  return outcomes.get(id) ?? { ok: false, reason: 'not-found' };
+}
+
+/**
+ * The status writer itself: locks the listed garments of `ownerId` (the
+ * owner lock first, in the same statement; then id order, as every
+ * multi-row locker takes them), asks the machine (garmentStatusTransition)
+ * for each and writes the moves in one update, with what a purchase
+ * records. Answers each garment found; an id outside the wardrobe is
+ * absent (a 404 like an unknown id to a caller that named one). Select
+ * mode's Archive (#677) and setGarmentStatus. A savepoint inside a
+ * caller's transaction.
+ */
+export function setGarmentsStatus(
+  db: Queryable,
+  ids: readonly number[],
+  ownerId: number,
+  change: StatusChange,
+): Promise<Map<number, StatusOutcome>> {
   return db.transaction(async (tx) => {
-    // The owner lock first, in the garment's own locking statement.
     const lock = ownerLockCte(tx, ownerId);
-    const [row] = await tx
+    const rows = await tx
       .with(lock)
-      .select({ status: garment.status })
+      .select({ id: garment.id, status: garment.status })
       .from(garment)
       .where(
         and(
-          eq(garment.id, id),
+          inArray(garment.id, [...ids]),
           eq(garment.ownerId, ownerId),
           ownerLocked(tx, lock),
         ),
       )
+      .orderBy(garment.id)
       .for('update', { of: garment });
-    if (!row) return { ok: false, reason: 'not-found' };
-    const move = garmentStatusTransition(row.status, change.event);
-    if (!move.ok) {
-      return { ok: false, reason: 'not-allowed', status: move.status };
+    const outcomes = new Map<number, StatusOutcome>();
+    const moved: number[] = [];
+    let to: GarmentStatus | undefined;
+    for (const row of rows) {
+      const move = garmentStatusTransition(row.status, change.event);
+      if (move.ok) {
+        moved.push(row.id);
+        to = move.to;
+        outcomes.set(row.id, move);
+      } else {
+        outcomes.set(row.id, {
+          ok: false,
+          reason: 'not-allowed',
+          status: move.status,
+        });
+      }
     }
-    await tx
-      .update(garment)
-      .set({
-        status: move.to,
-        ...(change.event === 'buy' && {
-          acquiredOn: change.acquiredOn,
-          price: change.price,
-          boughtAt: sql`now()`,
-        }),
-      })
-      .where(eq(garment.id, id));
-    return move;
+    // One event has one edge, so every move lands in the same status.
+    if (to !== undefined) {
+      await tx
+        .update(garment)
+        .set({
+          status: to,
+          ...(change.event === 'buy' && {
+            acquiredOn: change.acquiredOn,
+            price: change.price,
+            boughtAt: sql`now()`,
+          }),
+        })
+        .where(inArray(garment.id, moved));
+    }
+    return outcomes;
   });
 }
 

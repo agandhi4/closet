@@ -1025,6 +1025,23 @@ Consequence: `plannedWeekUrl(planned, firstDay?)` is the one builder; the banner
 **Known 0.1 limits:** "today while travelling is home's": which trip days are left, "Wore it" and the calendar follow `APP_TIMEZONE`, so across the date line a trip day can lack a forecast and shows its typical weather instead. Trips located before 0057 keep APP_TIMEZONE until their destination is re-saved: geocoding has no reverse lookup, and a backfill job probing the forecast per trip was not worth a job for a handful of rows.
 **Consequence:** a new reader of a trip's weather passes `zonedIn(trip.location, weather.timeZone)`; a new writer of a trip's place goes through `setTripDestination`. Rolling back past 0057 needs the down script in `docs/operations.md`.
 
+## 2026-11-14 — Select mode is one selection several verbs act on (#677)
+
+**Why:** select mode was wired to one verb (Set…) and returned to the plain grid, so a second property, a capsule or a wash meant selecting again, and only loaded tiles could be selected.
+**Decision:** every verb (`/wardrobe/bulk`, `/bulk/capsule`, `/bulk/washed`, `/bulk/archive`) posts the same form and answers 303 to `?select=1` with `selected=<ids>` (or `all=1`) checked again. "Select all N" posts `all=1` and the filters, never ids; the server resolves them through the grid's own `gridWhere` (`gridIds`), one predicate. Archive needed a list form of the status writer: `setGarmentsStatus` (rows locked in id order, one update) is now the writer and `setGarmentStatus` its one-garment answer, so there is still one writer. The verbs are online only (`data-needs-network`): "all" is resolved server-side, so nothing is queued.
+**Consequence:** Archive and Mark washed are `webOnly` (a client keeps its own selection and calls the per-garment writes or `POST /garments/washes`); Add to capsule twins `changeCapsuleMembers`. Select mode's context now reads `count` and `capsules` (3 statements, was 2).
+
+## 2026-11-14 — Offline notices derive from the queue kinds (#658)
+
+**Why:** the trip's offline note said packing needs a connection while ticks queue, the fallback page sat under a "showing saved data" banner, and a queued tick left the counter and the "Saved" line as they were.
+**Decision:** `offlineNotice(kinds)` (`src/offline-writes.ts`, pure) maps a page's `data-offline-queue` kinds to none / wears / washes / ticks / changes, and the page renders the matching `offlineNotice.*` string (the trip page derives its kinds from the controls it draws). The global banner says dimmed controls need a connection, once. `/offline.html` carries `data-offline-fallback`, which makes connectivity.js hide the banner, and links `OPENS_STALE`'s tab roots. The outbox sets `[data-packed-count]` from the checked ticks and empties the autosave status when it queues.
+**Consequence:** a page that gains a queueable control joins its kinds list; no string may say a queueable write needs a connection.
+
+## 2026-11-14 — A workflow file that does not parse cannot merge, and a silent nightly is reported (#635)
+**Why:** #532 put a bootstrap step between `uses: actions/checkout` and its `with:`; GitHub refused nightly.yml, so no scheduled run existed for two days and nothing said so (no PR job parses workflows; a nightly that never starts opens no issue).
+**Decision:** `make actionlint-check` (in `ci-guards`, so both hooks and ci-quick) runs `scripts/ci/actionlint.sh`: the upstream release, pinned by version and sha256, cached under `~/.cache/closet`, never vendored. The npm `actionlint` wasm is 1.6.x (rejects `ubuntu-24.04`) and was refused. `nightly-watchdog.yml`, a file of its own, runs `scripts/nightly-staleness.sh` daily: no completed scheduled nightly in 48 h opens or updates one issue.
+**Consequence:** the first run on a machine needs curl and network (or `ACTIONLINT_BIN`); a version bump needs the four checksums from the release's checksums.txt.
+
 ## 2026-11-14 — A warm whose list a drop overtook runs again (#812)
 
 **Why:** the first signed-in page claims the cache from the sign-in page's empty owner, which is a drop (generation +1). A warm already fetching its list then found the claim stale, returned with nothing stored, and nothing re-queued it: the device stayed unwarmed until its next load or visibility event (the trips spec's offline step failed first try, and sometimes never saw the trip).
