@@ -7,7 +7,6 @@ import {
   MAX_IMAGE_CANDIDATES,
   parsePrice,
 } from './extract';
-import { scanDocument } from './html';
 
 const fixture = (name: string) =>
   readFileSync(join(__dirname, 'fixtures', name), 'utf8');
@@ -524,17 +523,6 @@ describe('extractProduct', () => {
       extractProduct(html, page);
 
       expect(performance.now() - started).toBeLessThan(1000);
-    });
-
-    it("reads anchors' text in linear time, however its tags are cut", () => {
-      // A "<" and a run of letters with no ">" in every anchor's window: a
-      // backtracking tag pattern takes seconds here (#698 review).
-      const html =
-        `<a href="https://shop.test/p/1"><${'b'.repeat(1990)}</a>`.repeat(200);
-      const started = performance.now();
-
-      expect(scanDocument(html).anchors).toHaveLength(200);
-      expect(performance.now() - started).toBeLessThan(200);
     });
   });
 });

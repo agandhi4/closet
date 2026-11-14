@@ -51,12 +51,9 @@ const SOCKS_PAGE = `<!doctype html>
 const COLLECTION_PAGE = `<!doctype html><html><head><title>New arrivals</title>
 <meta property="og:title" content="New arrivals"></head><body></body></html>`;
 
-const ORDER_TRACKER =
-  '/ls/click?upn=u001.Qp9x7-2FbT0kL3rN8vYh-2BsE4eZ1aJ6cG5mW-3D&utm_campaign=order';
-
 /**
  * Serves the order's pages on `sites` and returns the email, its links
- * pointing there: a tracker that redirects to the linen shirt, Gmail's
+ * pointing there: a tracker that carries the linen shirt in its query, Gmail's
  * wrapped link to the socks, and collection pages that list nothing.
  */
 export async function serveForwardedOrder(
@@ -69,20 +66,8 @@ export async function serveForwardedOrder(
       .replaceAll('{{SHOP}}', shop),
   ) as StubEmail;
 
-  // The tracker redirects to the product page with its campaign tags,
-  // as a retailer's click tracking does.
-  sites.serve(ORDER_TRACKER, {
-    status: 302,
-    type: 'text/plain',
-    body: '',
-    headers: {
-      location: sites.secureUrl(
-        '/products/relaxed-linen-shirt?utm_source=email&utm_medium=order&variant=sage#reviews',
-      ),
-    },
-  });
   const image = sites.url('/img/linen-shirt.jpg');
-  // Where the tracker lands, and the stored link "Add to closet" reads.
+  // Where the tracker's target lands, and the stored link "Add to closet" reads.
   for (const path of [
     '/products/relaxed-linen-shirt?utm_source=email&utm_medium=order&variant=sage',
     '/products/relaxed-linen-shirt?variant=sage',
