@@ -1217,6 +1217,18 @@ Why: the poll recorded an email only on success, so one that threw (a 9-digit JS
 Decision: `order_email` gets `status` (decided, failed, parked), `attempts`, `mailbox_failures` and `error_kind` (a SQLSTATE or name, never text; 0063). A read is caught per email; an email-level failure spends an attempt, 3 park it; a mailbox-level one (`JmapError.scope`: transport, auth, 5xx) fails the run and spends none, but 3 in a row on one email spend one. The watermark is the oldest failing email's arrival; every outcome upserts over a `failed` row only. The job fails while any email is failing, captured once per email (`PartialFailure.reported`). `parsePrice` and `plainText` bound what the extractor hands on to what the columns hold.
 Consequence: a new failure path in the poll is classified by scope; a parked email is never retried (no UI yet: the row says why).
 
+## 2026-11-14 — web-push and onnxruntime-node stay pinned; @sentry/node moves to 11 (#697)
+
+Why: the runtime dependencies are brought current before the tag, except two whose newest release does not fit. web-push 4.0.0 is ESM-only (no CJS build, no types) and the build is CommonJS; onnxruntime-node 1.31.1 drops `bin/napi-v3` (binaries move to `napi-v6`, which the Dockerfile's per-arch pruning names) and only the real-model nightly can prove the model still cuts.
+Decision: web-push stays `^3.6.7` (the range blocks 4; revisit with an ESM migration, not `require(esm)`); onnxruntime-node stays exactly 1.21.0 until a change that bumps it, fixes the Dockerfile path and passes the nightly. `@sentry/node` 11 ships a CJS build; `sendDefaultPii` is gone, so the tracker sets every `dataCollection` category off and `attachStacktrace: false`, keeping v10's events.
+Consequence: `npm audit --omit=dev` is 0, so the pins cost no advisory; the reasons are in `src/push/AGENTS.md` and `src/cutout/AGENTS.md`.
+
+## 2026-11-14 — @sentry/node returns to 10 (#934; supersedes the Sentry-11 part of the entry above)
+
+Why: `@sentry/node` 11 hard-depends on `@sentry/bundler-plugins`, which pulls the `sentry` CLI (FSL-1.1-Apache-2.0, not OSI) into the AGPL production image; 11 fixed no advisory.
+Decision: `@sentry/node` stays `^10` (the range blocks 11); the tracker sets `sendDefaultPii: false` again and leaves `attachStacktrace` at v10's default. The lockfile has no non-dev `sentry`, `@sentry/bundler-plugins`, `@sentry/cli` or FSL package.
+Consequence: revisit when Sentry drops bundler-plugins from node's runtime deps or the owner settles licences (#638, #639); the reason is in `src/metrics/AGENTS.md`.
+
 ## 2026-11-14 — Order mail strikes count only an email's own fetch (#932, #933)
 Why: #923 counted every mailbox-level failure as a strike on the email being read, so a 10-poll session 503, a 429 or a database blip parked healthy emails.
 Decision: `failureScope` returns `email` (spends an attempt), `message` (that id's own body fetch: 5xx or wrong shape; a strike, 3 in a row spend one) or `outage` (everything else, every database error that is not a refusal of the email's values: no row written). Strikes left by the old rule are harmless: the next strike or outcome resets them.

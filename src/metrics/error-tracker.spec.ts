@@ -1,4 +1,4 @@
-import type { ErrorEvent } from '@sentry/node';
+import type { ErrorEvent, NodeClient } from '@sentry/node';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -115,6 +115,8 @@ describe('scrubEvent', () => {
   });
 });
 
+type SdkClient = typeof NodeClient;
+
 describe('createErrorTracker', () => {
   const options = {
     release: 'dev',
@@ -139,6 +141,29 @@ describe('createErrorTracker', () => {
     expect(tracker.enabled).toBe(true);
     expect(loadSdk).toHaveBeenCalledTimes(1);
     await tracker.close(0);
+  });
+
+  // The options handed to the client are the privacy net: dropping one fails.
+  it('hands the client sendDefaultPii false and no stack on non-errors', async () => {
+    let seen: ConstructorParameters<SdkClient>[0] | undefined;
+    const loadSdk = async () => {
+      const sdk = await import('@sentry/node');
+      class RecordingClient extends sdk.NodeClient {
+        constructor(clientOptions: ConstructorParameters<SdkClient>[0]) {
+          super(clientOptions);
+          seen = clientOptions;
+        }
+      }
+      return { ...sdk, NodeClient: RecordingClient };
+    };
+    const tracker = await createErrorTracker({
+      ...options,
+      dsn: 'http://key@127.0.0.1:9/1',
+      loadSdk,
+    });
+    await tracker.close(0);
+    expect(seen).toMatchObject({ sendDefaultPii: false });
+    expect(seen?.attachStacktrace ?? false).toBe(false);
   });
 
   // What keeps the loader the only way in: a value import anywhere in
