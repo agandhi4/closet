@@ -1,5 +1,6 @@
 import type { Logger } from '../../logger';
 import { type ZonedLocation, zonedLabel } from '../../weather/location';
+import { waitUnlessAborted } from '../abort';
 import { OutboundFetchError } from '../security/outbound-fetch';
 import type { CacheRow } from './queries';
 
@@ -75,6 +76,12 @@ export interface ReadOptions {
    * started, so the stale answer is served then too.
    */
   fresh?: boolean;
+  /**
+   * A scheduled run's signal (src/web/abort.ts): an ask waiting on a
+   * refresh stops waiting when it aborts, rejecting with its reason. The
+   * refresh goes on: it is this cache's, and settled() awaits it.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -177,8 +184,9 @@ export function createLocationCache<T>(
   function served(
     { kept, refresh }: Decision<T>,
     fresh: boolean,
+    signal: AbortSignal | undefined,
   ): Promise<Cached<T> | null> {
-    if (refresh && (fresh || !kept)) return refresh;
+    if (refresh && (fresh || !kept)) return waitUnlessAborted(refresh, signal);
     return Promise.resolve(kept);
   }
 
@@ -261,17 +269,21 @@ export function createLocationCache<T>(
       const key = zonedLabel(location);
       const running = refreshing.get(key);
       if (running) {
-        return served({ kept: running.kept, refresh: running.done }, fresh);
+        return served(
+          { kept: running.kept, refresh: running.done },
+          fresh,
+          read.signal,
+        );
       }
       let looking = reading.get(key);
       if (!looking && known && !outdated(key, known.row)) {
-        return served(decide(location, known.row), fresh);
+        return served(decide(location, known.row), fresh, read.signal);
       }
       if (!looking) {
         looking = lookup(location).finally(() => reading.delete(key));
         reading.set(key, looking);
       }
-      return served(await looking, fresh);
+      return served(await looking, fresh, read.signal);
     },
 
     async settled() {

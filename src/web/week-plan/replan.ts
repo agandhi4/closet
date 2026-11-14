@@ -13,6 +13,7 @@ import {
   type Unwearable,
   unwearableOn,
 } from '../../wardrobe/week-planner';
+import { abortedBy } from '../abort';
 import { ownerTransaction } from '../auth/queries';
 import { OwnerLockTimeout } from '../errors';
 import { dayOfWeek, hourIn, type IsoDate, todayIn } from '../../calendar-date';
@@ -336,7 +337,11 @@ async function candidatesWeather(
  * again; a failing person ends the minutely run as a PartialFailure
  * (#687). The morning reminders pass what their
  * batch already knows (`listed`, `weather`), so a person's re-plan reads
- * neither again (#173).
+ * neither again (#173), and their run's `signal`: an abort is the one
+ * thing this throws (its reason), at the next step boundary, the
+ * transaction rolled back with its claim when it lands before the commit,
+ * so the reminder's run gives its claim back with nothing half done
+ * (#920). One after the commit keeps the swaps and skips their notice.
  */
 export async function replanToday(
   deps: ReplanDeps,
@@ -347,6 +352,7 @@ export async function replanToday(
     job,
     listed = false,
     weather,
+    signal,
   }: Pick<ReplanOptions, 'job'> & Partial<ReplanOptions>,
 ): Promise<ReplanOutcome> {
   const result = await replanOnce(deps, userId, now, {
@@ -354,9 +360,20 @@ export async function replanToday(
     job,
     listed,
     weather,
+    signal,
   });
   if (result.kind !== 'replanned') return result;
   const { notice, ...replanned } = result;
+  // A send once started is awaited (web-push takes no signal): never one
+  // started after the abort.
+  if (signal?.aborted) {
+    if (notice.length > 0) {
+      deps.logger.warn(
+        `Week re-plan for user ${userId}: ${notice.length} swap(s) committed, their notice not sent: shutdown`,
+      );
+    }
+    return { ...replanned, pushed: false };
+  }
   const told = await pushSwaps(deps, [{ userId, swaps: notice }]);
   return { ...replanned, pushed: told.has(userId) };
 }
@@ -373,13 +390,15 @@ interface ReplanOptions {
   listed: boolean;
   /** The caller's batch refresh answered the user's weather (refreshForecastsFor). */
   weather?: UserWeather;
+  /** The morning reminder run's (replanToday): checked at each step boundary. */
+  signal?: AbortSignal;
 }
 
 async function replanOnce(
   deps: ReplanDeps,
   userId: number,
   now: Date,
-  { announcesToday, job, listed, weather }: ReplanOptions,
+  { announcesToday, job, listed, weather, signal }: ReplanOptions,
 ): Promise<ReplanResult> {
   const today = todayIn(deps.timeZone, now);
   const started = performance.now();
@@ -388,6 +407,7 @@ async function replanOnce(
     return { kind: 'skipped' };
   }
   try {
+    signal?.throwIfAborted();
     // A cheap look first: the forecast read below is for users with
     // something to judge. The claim decides.
     if (
@@ -396,7 +416,7 @@ async function replanOnce(
     ) {
       return { kind: 'skipped' };
     }
-    const result = await replanUser(deps, userId, now, weather);
+    const result = await replanUser(deps, userId, now, weather, signal);
     deps.retries?.succeeded(userId, today);
     if (!result) return { kind: 'skipped' };
     const { swaps, kept, away } = result;
@@ -412,6 +432,8 @@ async function replanOnce(
       : swaps;
     return { kind: 'replanned', swaps, kept, away, notice };
   } catch (error) {
+    // Shutdown, not this person's failure: nothing to retry or claim.
+    if (abortedBy(signal, error)) throw error;
     // Another of the owner's writes held the lock past its timeout: nothing
     // was judged, so the day stays unclaimed and the next minute tries again
     // (claiming it would wait on the same lock).
@@ -465,12 +487,14 @@ async function jobForecast(
   deps: Pick<ReplanDeps, 'db' | 'weather' | 'logger'>,
   userId: number,
   now: Date,
+  signal: AbortSignal | undefined,
 ): Promise<WeekForecast> {
   if (!deps.weather) return NO_FORECAST;
   const weather = await userWeatherOrNone(
     { db: deps.db, weather: deps.weather, logger: deps.logger },
     userId,
     now,
+    signal,
   );
   return forecastOf(weather);
 }
@@ -491,96 +515,119 @@ async function jobForecast(
  * outside the lock. Under the lock, two statements read everything: the
  * auto entries with the claim (claimAutoEntries), then the week, the pool,
  * the generator's memory, the auto outfits' garment states (#173) and the
- * trips over those days.
+ * trips over those days. `signal` is checked after the forecast, after the
+ * lock and before the commit: an abort throws, rolling it all back.
  */
 async function replanUser(
   deps: Pick<ReplanDeps, 'db' | 'weather' | 'timeZone' | 'logger'>,
   userId: number,
   now: Date,
   weather: UserWeather | undefined,
-): Promise<{ swaps: Swap[]; kept: number; away: number } | undefined> {
-  const today = todayIn(deps.timeZone, now);
+  signal: AbortSignal | undefined,
+): Promise<ReplannedUser | undefined> {
   // The batch's answer, else read here, not `fresh`: its callers (the
   // minutely run, the morning reminder) refreshed their batch's forecasts
   // together first (refreshForecastsFor). Before the owner lock: a network
   // wait must never hold it.
   const forecast = weather
     ? forecastOf(weather)
-    : await jobForecast(deps, userId, now);
+    : await jobForecast(deps, userId, now, signal);
+  signal?.throwIfAborted();
   return ownerTransaction(deps.db, userId, 'replanUser', async (tx) => {
-    const claimed = await claimAutoEntries(tx, userId, today, now);
-    if (!claimed) return undefined;
-    const last = claimed[claimed.length - 1].day;
-    const row = await selectScalars(tx, {
-      ...weekSql(userId, today, last),
-      states: outfitGarmentStatesSql(
-        claimed.map((a) => a.outfitId),
-        today,
-      ),
-      trips: awayTripsSql(userId, today, last),
-    });
-    const onTrip = (a: AutoEntryRow) => tripsOn(row.trips, a.day).length > 0;
-    const removed = await removeAutoEntries(tx, userId, {
-      entryIds: claimed.filter(onTrip).map((a) => a.entryId),
-    });
-    const auto = claimed.filter((a) => !onTrip(a));
-    const away = removed.entries;
-    if (auto.length === 0) return { swaps: [], kept: 0, away };
-    const week = readWeekColumns(today, row);
-    const outfits = readOutfitGarmentStates(row.states);
-    const judged = auto.map((a) => {
-      const slots = outfits.get(a.outfitId) ?? [];
-      const { day, outfitCreated } = a;
-      const unwearable = unwearableOn({ day, outfitCreated, slots }, today);
-      return { ...a, slots, unwearable };
-    });
-    const entryById = new Map(week.entries.map((e) => [e.id, e]));
-    const replans = replanWeek({
-      ...week,
-      forecast: forecast.days,
-      offset: forecast.offset,
-      rainGear: await weekRainGear(
-        tx,
-        userId,
-        forecast,
-        judged.flatMap((a) => entryById.get(a.entryId) ?? []),
-      ),
-      auto: judged.map(({ entryId, plannedFor, unwearable }) => ({
-        entryId,
-        plannedFor,
-        unwearable,
-      })),
-    });
-    const autoById = new Map(judged.map((a) => [a.entryId, a]));
-    const swaps: Swap[] = [];
-    let kept = 0;
-    for (const replan of replans) {
-      const old = autoById.get(replan.entryId)!;
-      if (replan.kind !== 'swap' && old.unwearable) {
-        deps.logger.info(
-          `Week re-plan for user ${userId}: entry ${old.entryId} on ${old.day} cannot be worn (${unwearableText(old.unwearable)}) and nothing else dresses its slot; kept`,
-        );
-      }
-      if (replan.kind === 'unchanged') continue;
-      const swap =
-        replan.kind === 'swap' &&
-        (await applySwap(tx, userId, replan, {
-          ...old,
-          garments: entryById.get(old.entryId)!.garments,
-        }));
-      if (swap) {
-        swaps.push(swap);
-        continue;
-      }
-      // Kept (or a swap that could not be written): its new targets are
-      // what it is judged against next.
-      if (replan.needs) {
-        await updatePlannedNeeds(tx, replan.entryId, replan.needs);
-      }
-      kept += 1;
-    }
-    return { swaps, kept, away };
+    signal?.throwIfAborted();
+    const replanned = await judgeAndWrite(deps, tx, userId, now, forecast);
+    signal?.throwIfAborted();
+    return replanned;
   });
+}
+
+interface ReplannedUser {
+  swaps: Swap[];
+  kept: number;
+  away: number;
+}
+
+/** replanUser's work under the owner lock: the claim, the judgement, the writes. */
+async function judgeAndWrite(
+  deps: Pick<ReplanDeps, 'timeZone' | 'logger'>,
+  tx: Queryable,
+  userId: number,
+  now: Date,
+  forecast: WeekForecast,
+): Promise<ReplannedUser | undefined> {
+  const today = todayIn(deps.timeZone, now);
+  const claimed = await claimAutoEntries(tx, userId, today, now);
+  if (!claimed) return undefined;
+  const last = claimed[claimed.length - 1].day;
+  const row = await selectScalars(tx, {
+    ...weekSql(userId, today, last),
+    states: outfitGarmentStatesSql(
+      claimed.map((a) => a.outfitId),
+      today,
+    ),
+    trips: awayTripsSql(userId, today, last),
+  });
+  const onTrip = (a: AutoEntryRow) => tripsOn(row.trips, a.day).length > 0;
+  const removed = await removeAutoEntries(tx, userId, {
+    entryIds: claimed.filter(onTrip).map((a) => a.entryId),
+  });
+  const auto = claimed.filter((a) => !onTrip(a));
+  const away = removed.entries;
+  if (auto.length === 0) return { swaps: [], kept: 0, away };
+  const week = readWeekColumns(today, row);
+  const outfits = readOutfitGarmentStates(row.states);
+  const judged = auto.map((a) => {
+    const slots = outfits.get(a.outfitId) ?? [];
+    const { day, outfitCreated } = a;
+    const unwearable = unwearableOn({ day, outfitCreated, slots }, today);
+    return { ...a, slots, unwearable };
+  });
+  const entryById = new Map(week.entries.map((e) => [e.id, e]));
+  const replans = replanWeek({
+    ...week,
+    forecast: forecast.days,
+    offset: forecast.offset,
+    rainGear: await weekRainGear(
+      tx,
+      userId,
+      forecast,
+      judged.flatMap((a) => entryById.get(a.entryId) ?? []),
+    ),
+    auto: judged.map(({ entryId, plannedFor, unwearable }) => ({
+      entryId,
+      plannedFor,
+      unwearable,
+    })),
+  });
+  const autoById = new Map(judged.map((a) => [a.entryId, a]));
+  const swaps: Swap[] = [];
+  let kept = 0;
+  for (const replan of replans) {
+    const old = autoById.get(replan.entryId)!;
+    if (replan.kind !== 'swap' && old.unwearable) {
+      deps.logger.info(
+        `Week re-plan for user ${userId}: entry ${old.entryId} on ${old.day} cannot be worn (${unwearableText(old.unwearable)}) and nothing else dresses its slot; kept`,
+      );
+    }
+    if (replan.kind === 'unchanged') continue;
+    const swap =
+      replan.kind === 'swap' &&
+      (await applySwap(tx, userId, replan, {
+        ...old,
+        garments: entryById.get(old.entryId)!.garments,
+      }));
+    if (swap) {
+      swaps.push(swap);
+      continue;
+    }
+    // Kept (or a swap that could not be written): its new targets are
+    // what it is judged against next.
+    if (replan.needs) {
+      await updatePlannedNeeds(tx, replan.entryId, replan.needs);
+    }
+    kept += 1;
+  }
+  return { swaps, kept, away };
 }
 
 /**

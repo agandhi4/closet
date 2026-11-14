@@ -3,6 +3,7 @@ import type { Logger } from '../../logger';
 import { endWhole, JobInterrupted } from '../../metrics/partial-failure';
 import { dueReminders, type ReminderKind } from '../../push/reminders';
 import { hourIn, todayIn } from '../../calendar-date';
+import { abortedBy, waitUnlessAborted } from '../abort';
 import { occasionLabel } from '../date-labels';
 import type { DayEntry } from '../calendar/queries';
 import { ideaName } from '../gallery/ideas';
@@ -75,15 +76,21 @@ import type { DeviceMessage, PushSender, SendReport } from './sender';
  * other days' swaps still get the re-plan's notice.
  *
  * **A run is abortable** (`signal`, from the timer's stop(), ScheduledJob),
- * and sendDueReminders owns its claims through it: whenever the signal
- * aborts (composing, between composing and the send, or mid-send) the run
- * stops at that step, never starts sendEach, and gives back every claim
- * not reported sent (giveBack), so the next server sends them. A send
- * already reported is never given back. The run is then `interrupted`
- * (sendDueRemindersWhole throws JobInterrupted: no failure, no capture).
- * Claiming stays before composing: the server that wins the claim is the
- * one whose re-plan's swaps the reminder says, and the loser composes
- * nothing.
+ * and sendDueReminders owns its claims through it. The abort cancels, it
+ * never abandons (#920): the signal reaches every step (the batch's
+ * forecast refresh, each morning's re-plan, src/web/abort.ts, its forecast
+ * read and Today's), each stops at its next boundary (a re-plan's
+ * transaction rolls back, so no swap or notice outlives its given-back
+ * claim), and the run awaits the step to its end before it gives back
+ * every claim not reported sent (giveBack), so the next server sends them.
+ * The one step it stops waiting on is the send itself (web-push takes no
+ * signal; sendAll). A send already reported is never given back. The run
+ * is `interrupted` (sendDueRemindersWhole throws JobInterrupted: no
+ * failure, no capture) only when every unsent claim was given back; a
+ * give-back that failed or fell short lost reminders, so it is a failure
+ * (`lost`). Claiming stays before composing: the server that wins the
+ * claim is the one whose re-plan's swaps the reminder says, and the loser
+ * composes nothing.
  */
 
 /**
@@ -111,6 +118,8 @@ export interface ReminderDeps {
   logger: Logger;
   /** The week's re-plan, run for a person before their morning reminder. */
   replan: ReplanDeps;
+  /** releaseReminderClaims; a spec stands in one that fails. */
+  releaseClaims?: typeof releaseReminderClaims;
 }
 
 export interface ReminderRun {
@@ -126,7 +135,9 @@ export interface ReminderRun {
   failedUsers: Set<number>;
   /** Claims given back unsent, for the next run (giveBack). */
   released: number;
-  /** Shutdown stopped the run: its unsent claims were given back. */
+  /** Unsent claims a give-back could not release: those reminders are lost (a failure). */
+  lost: number;
+  /** Shutdown stopped the run and every unsent claim was given back. */
   interrupted: boolean;
 }
 
@@ -179,6 +190,7 @@ export async function sendDueReminders(
     failed: 0,
     failedUsers: new Set(),
     released: 0,
+    lost: 0,
     interrupted: false,
   };
   if (due.length === 0) return run;
@@ -190,25 +202,26 @@ export async function sendDueReminders(
   try {
     await composeAndSend(deps, due, claimed, now, run, answered, signal);
   } catch (error) {
-    if (!(error instanceof ShutdownAbort)) throw error;
-    run.interrupted = true;
+    if (!abortedBy(signal, error)) throw error;
+    // Every step has settled here: nothing of this run runs on.
     const unsent = claimed.filter((claim) => !answered.has(claim));
     logger.warn(
       `Shutdown stopped the reminder run; giving back ${unsent.length} of ${claimed.length} claim(s)`,
     );
     await giveBack(deps, unsent, run);
+    run.interrupted = run.lost === 0;
   }
   logger.info(
-    `Reminders at ${now.toISOString()}: ${run.claimed} claimed of ${run.due} due, ${run.sent} sent, ${run.skipped} skipped, ${run.failed} failed${run.interrupted ? ', interrupted' : ''}`,
+    `Reminders at ${now.toISOString()}: ${run.claimed} claimed of ${run.due} due, ${run.sent} sent, ${run.skipped} skipped, ${run.failed} failed${run.lost > 0 ? `, ${run.lost} lost` : ''}${run.interrupted ? ', interrupted' : ''}`,
   );
   return run;
 }
 
 /**
  * Everything after the claim: group, read the batch, compose, send. Throws
- * ShutdownAbort at the first step boundary after `signal` aborts (a step
- * in flight is abandoned, `guard`); `answered` collects the claims whose
- * send was reported, which sendDueReminders never gives back.
+ * `signal`'s reason at the first step boundary after it aborts, each step
+ * it started awaited to its end; `answered` collects the claims whose send
+ * was reported, which sendDueReminders never gives back.
  */
 async function composeAndSend(
   deps: ReminderDeps,
@@ -220,8 +233,6 @@ async function composeAndSend(
   signal: AbortSignal | undefined,
 ): Promise<void> {
   const { logger } = deps;
-  const guard = <T>(step: () => Promise<T>) =>
-    signal ? abortable(step, signal) : step();
   // One notification per person and kind, to the devices that claimed it.
   const userOf = new Map(due.map((d) => [d.deviceId, d.userId]));
   const groups = new Map<string, ReminderGroup>();
@@ -239,7 +250,8 @@ async function composeAndSend(
     group.claims.push(claim);
     groups.set(key, group);
   }
-  const batch = await guard(() => readBatch(deps, [...groups.values()], now));
+  signal?.throwIfAborted();
+  const batch = await readBatch(deps, [...groups.values()], now, signal);
   const composed: ComposedReminder[] = [];
   for (const { userId, kind, deviceIds, claims } of groups.values()) {
     // Logged before sending: a claim is never retried (claim before send, so
@@ -249,9 +261,10 @@ async function composeAndSend(
       `Claimed the ${kind} reminder for user ${userId}, devices ${deviceIds.join(', ')}`,
     );
     try {
+      signal?.throwIfAborted();
       const payload =
         kind === 'morning'
-          ? await guard(() => morningPayload(deps, userId, now, batch, run))
+          ? await morningPayload(deps, userId, now, batch, run, signal)
           : eveningPayload(batch.evenings.get(userId));
       if (!payload) {
         run.skipped += 1;
@@ -270,7 +283,7 @@ async function composeAndSend(
         claims,
       });
     } catch (error) {
-      if (error instanceof ShutdownAbort) throw error;
+      if (abortedBy(signal, error)) throw error;
       markFailed(run, userId);
       logger.error(
         { err: error },
@@ -293,9 +306,10 @@ export async function sendDueRemindersWhole(
   signal?: AbortSignal,
 ): Promise<ReminderRun> {
   const run = await sendDueReminders(deps, now, signal);
-  // A person's real failure (a refused send, a failed compose) still alerts
-  // when shutdown cut the run short: only the interruption is not one.
-  endWhole('reminders', { failed: run.failed }, run);
+  // A person's real failure (a refused send, a failed compose) and a
+  // give-back that lost reminders still alert when shutdown cut the run
+  // short: only the interruption is not one.
+  endWhole('reminders', { failed: run.failed, lost: run.lost }, run);
   if (run.interrupted) throw new JobInterrupted('reminders');
   return run;
 }
@@ -312,24 +326,32 @@ async function readBatch(
   deps: ReminderDeps,
   groups: readonly ReminderGroup[],
   now: Date,
+  signal: AbortSignal | undefined,
 ): Promise<ReminderBatch> {
   const today = todayIn(deps.timeZone, now);
   const of = (kind: ReminderKind) =>
     groups.filter((group) => group.kind === kind).map((group) => group.userId);
   const mornings = of('morning');
   const evenings = of('evening');
-  const [weather, replans, days] = await Promise.all([
+  const weather =
     deps.weather && mornings.length > 0
       ? refreshForecastsFor(
           { db: deps.db, weather: deps.weather, logger: deps.logger },
           mornings,
           now,
+          signal,
         )
-      : new Map<number, UserWeather>(),
-    replanCandidates(deps.db, today, mornings),
-    eveningDays(deps.db, evenings, today),
-  ]);
-  return { weather, replans: new Set(replans), evenings: days };
+      : Promise.resolve(new Map<number, UserWeather>());
+  const replans = replanCandidates(deps.db, today, mornings);
+  const days = eveningDays(deps.db, evenings, today);
+  // All settled before any rejection is passed on: an aborted refresh must
+  // not leave the reads running past the run.
+  await Promise.allSettled([weather, replans, days]);
+  return {
+    weather: await weather,
+    replans: new Set(await replans),
+    evenings: await days,
+  };
 }
 
 /**
@@ -342,12 +364,15 @@ async function readBatch(
  * connection) would lose the whole minute's reminders. Counted as failed
  * for this run either way.
  *
- * Aborted (`signal`) before the send, nothing goes out; mid-send the batch
- * is abandoned. Either way it throws ShutdownAbort for sendDueReminders to
- * give back what `answered` (the claims of messages `sendEach` reported,
- * `onReport`) does not hold. A send that is out but unreported is given
- * back too, so the rare device may get a repeat, which the notification's
- * tag replaces.
+ * Aborted (`signal`) before the send, nothing goes out; mid-send the run
+ * stops waiting on the batch, the one step it does not await to its end:
+ * web-push takes no signal, and a device's request is bounded only by its
+ * 10 s socket timeout, past the abort's grace. The batch touches only its
+ * own reports after that, never `run`. Either way it throws the signal's
+ * reason for sendDueReminders to give back what `answered` (the claims of
+ * messages `sendEach` reported, `onReport`) does not hold. A send that is
+ * out but unreported is given back too, so the rare device may get a
+ * repeat, which the notification's tag replaces.
  */
 async function sendAll(
   deps: ReminderDeps,
@@ -390,9 +415,11 @@ async function sendAll(
   };
   let reports: SendReport[];
   try {
-    reports = await (signal ? abortable(send, signal) : send());
+    // Never started after the abort.
+    signal?.throwIfAborted();
+    reports = await waitUnlessAborted(send(), signal);
   } catch (error) {
-    if (error instanceof ShutdownAbort) {
+    if (abortedBy(signal, error)) {
       countReports(reported);
       throw error;
     }
@@ -413,46 +440,32 @@ async function sendAll(
   countReports(reports.entries());
 }
 
-/** The run's signal aborted (abortable). */
-class ShutdownAbort extends Error {
-  constructor() {
-    super('The reminder run was aborted by shutdown');
-  }
-}
-
-/**
- * `step`'s result, or a ShutdownAbort rejection the moment `signal` aborts.
- * An already aborted signal never starts the step.
- */
-function abortable<T>(step: () => Promise<T>, signal: AbortSignal): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    if (signal.aborted) return reject(new ShutdownAbort());
-    const onAbort = () => reject(new ShutdownAbort());
-    signal.addEventListener('abort', onAbort, { once: true });
-    step()
-      .then(resolve, reject)
-      .finally(() => {
-        signal.removeEventListener('abort', onAbort);
-      });
-  });
-}
-
 /**
  * Gives `claims` back (releaseReminderClaims) so the next run finds them
- * due again while they are within LATE_LIMIT_MINUTES. Never throws: a
- * failed release is logged as lost reminders.
+ * due again while they are within LATE_LIMIT_MINUTES. Never throws: what a
+ * failed or short release kept is counted in `run.lost`, a failure.
  */
 async function giveBack(
   deps: ReminderDeps,
   claims: readonly ClaimedReminder[],
   run: ReminderRun,
 ): Promise<void> {
+  const release = deps.releaseClaims ?? releaseReminderClaims;
   try {
-    run.released = await releaseReminderClaims(deps.db, claims);
+    const released = await release(deps.db, claims);
+    run.released += released;
     deps.logger.warn(
-      `Released ${run.released} reminder claim(s): the next run sends them while they are due`,
+      `Released ${released} reminder claim(s): the next run sends them while they are due`,
     );
+    const short = claims.length - released;
+    if (short > 0) {
+      run.lost += short;
+      deps.logger.error(
+        `${short} of ${claims.length} reminder claim(s) were not released: those reminders are lost`,
+      );
+    }
   } catch (error) {
+    run.lost += claims.length;
     deps.logger.error(
       { err: error },
       `${claims.length} reminder claim(s) could not be released: those reminders are lost`,
@@ -478,8 +491,9 @@ export async function pruneReminders(
  * The person's re-plan for today, if the batch found it due (else nothing
  * has anything to judge, or someone ran it already: the same answer the
  * re-plan's own look gives), announcing today's swaps itself: what it
- * swapped on today's entries, for the reminder to say. Never throws: a
- * failed re-plan is logged, and the reminder names the plan as it stands.
+ * swapped on today's entries, for the reminder to say. Throws only the
+ * run's abort (replanToday): a failed re-plan is logged, and the reminder
+ * names the plan as it stands.
  */
 async function swappedToday(
   deps: ReminderDeps,
@@ -487,6 +501,7 @@ async function swappedToday(
   now: Date,
   batch: ReminderBatch,
   run: ReminderRun,
+  signal: AbortSignal | undefined,
 ): Promise<Swap[]> {
   if (!batch.replans.has(userId)) return [];
   const outcome = await replanToday(deps.replan, userId, now, {
@@ -494,6 +509,7 @@ async function swappedToday(
     job: 'reminders',
     listed: true,
     weather: batch.weather.get(userId),
+    signal,
   });
   // The reminder reports the re-plan failures it saw first itself: the
   // minutely run's own first failure of the day is a separate one (#858).
@@ -505,7 +521,8 @@ async function swappedToday(
 
 /**
  * The morning reminder, from Today as the page shows it after the
- * person's re-plan, saying first what that re-plan swapped today.
+ * person's re-plan, saying first what that re-plan swapped today. Checks
+ * `signal` between its steps (the re-plan, the weather, Today's model).
  */
 async function morningPayload(
   deps: ReminderDeps,
@@ -513,8 +530,10 @@ async function morningPayload(
   now: Date,
   batch: ReminderBatch,
   run: ReminderRun,
+  signal: AbortSignal | undefined,
 ): Promise<PushPayload> {
-  const swapped = await swappedToday(deps, userId, now, batch, run);
+  const swapped = await swappedToday(deps, userId, now, batch, run, signal);
+  signal?.throwIfAborted();
   // The line and Today's ideas share the batch's weather (refreshed first).
   const ownWeather =
     batch.weather.get(userId) ??
@@ -523,8 +542,10 @@ async function morningPayload(
           { db: deps.db, weather: deps.weather, logger: deps.logger },
           userId,
           now,
+          signal,
         )
       : undefined);
+  signal?.throwIfAborted();
   const model = await todayFor(deps, userId, now, { ownWeather });
   const outfits = [...morningIdea(model), ...plannedOutfits(model)];
   return {
