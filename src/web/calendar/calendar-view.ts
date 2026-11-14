@@ -68,6 +68,11 @@ export interface CalendarEntry {
      * row shows the collage and the occasion only.
      */
     kept: boolean;
+    /**
+     * The entry created this one-off outfit (outfit_created), so removing
+     * the entry prunes it too: part of removalAsksFirst's input.
+     */
+    createdOneOff: boolean;
     /** In slot order, for its OutfitCollage (entryPieces). */
     garments: EntryGarment[];
   };

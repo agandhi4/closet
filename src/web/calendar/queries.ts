@@ -10,6 +10,7 @@ import {
 } from '../../db/schema';
 import { selectScalars } from '../../db/select-scalars';
 import { ONE_OFF_ORIGINS } from '../../wardrobe/outfit-origin';
+import { removalAsksFirst } from './removal';
 import type { Occasion } from '../../wardrobe/occasions';
 import type { PlannedBy } from '../../wardrobe/week';
 import {
@@ -111,6 +112,11 @@ export function entriesSql(
         'id', ${outfit.id},
         'name', ${outfit.name},
         'kept', ${keptOutfit()},
+        'createdOneOff', coalesce(${outfitCalendar.outfitCreated}, false)
+          and ${outfit.origin} in (${sql.join(
+            ONE_OFF_ORIGINS.map((o) => sql`${o}`),
+            sql`, `,
+          )}),
         'garments', (
           select coalesce(json_agg(json_build_object(
             'id', ${garment.id},
@@ -738,17 +744,19 @@ function deleteEntryAsking(
     // The server, not the page the tap came from, decides whether this goes
     // without asking (#686): the row may have been worn or become a one-off
     // since. Rolled back, so nothing (not even the selfie row) is gone.
+    const takesOutfit = deleted.created && deleted.one_off;
     if (
       asksFirst &&
-      (deleted.worn ||
-        deleted.planned_by === 'agent' ||
-        (deleted.created && deleted.one_off))
+      removalAsksFirst({
+        worn: deleted.worn,
+        plannedBy: deleted.planned_by,
+        takesOutfit,
+      })
     ) {
       throw new NeedsConfirmation();
     }
     const removed =
-      deleted.created &&
-      deleted.one_off &&
+      takesOutfit &&
       (await removeUnheldOutfits(tx, ownerId, [deleted.outfit_id])) > 0;
     return {
       selfies,
