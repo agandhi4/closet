@@ -293,8 +293,11 @@ export async function sendDueRemindersWhole(
   signal?: AbortSignal,
 ): Promise<ReminderRun> {
   const run = await sendDueReminders(deps, now, signal);
+  // A person's real failure (a refused send, a failed compose) still alerts
+  // when shutdown cut the run short: only the interruption is not one.
+  endWhole('reminders', { failed: run.failed }, run);
   if (run.interrupted) throw new JobInterrupted('reminders');
-  return endWhole('reminders', { failed: run.failed }, run);
+  return run;
 }
 
 /**
