@@ -144,7 +144,7 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         {
           day,
           worn,
-          wornAt: postedInstant(request.body.at, day, config.timeZone),
+          wornAt: postedInstant(request, request.body.at, day, config.timeZone),
           clientId: worn ? clientId : undefined,
         },
       ).catch((error: unknown) => {
@@ -177,7 +177,7 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     async (request, reply) => {
       const { id } = request.params;
       const day = requestedDay(reply, request.body?.day, today());
-      const at = postedInstant(request.body?.at, day, config.timeZone);
+      const at = postedInstant(request, request.body?.at, day, config.timeZone);
       const { ownerId, changed } = await washGarment(
         db,
         actorOf(request),
@@ -258,7 +258,7 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         userId,
         ids,
         day,
-        postedInstant(undefined, day, config.timeZone),
+        postedInstant(request, undefined, day, config.timeZone),
       );
       logger.info(
         `Laundry by user ${userId} on ${day}: ${washed.length} washed of ${ids.length} checked`,

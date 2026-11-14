@@ -25,7 +25,7 @@ export const IsoDateSchema = Type.String({ format: 'date' });
 /**
  * A wear's or wash's instant as its tap posts it (#676: the outbox's `at`,
  * an API client's): ajv-formats' date-time, with its offset. Judged by
- * instantOnDay (src/offline-writes.ts) before it is stored.
+ * tapInstant (src/offline-writes.ts) before it is stored.
  */
 export const TapInstantSchema = Type.String({ format: 'date-time' });
 

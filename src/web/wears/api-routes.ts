@@ -164,7 +164,12 @@ export const wearApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         {
           day,
           worn: true,
-          wornAt: postedInstant(request.body?.at, day, config.timeZone),
+          wornAt: postedInstant(
+            request,
+            request.body?.at,
+            day,
+            config.timeZone,
+          ),
         },
       );
       const clientId = request.body?.clientId;
@@ -223,7 +228,7 @@ export const wearApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
     async (request) => {
       const { id } = request.params;
       const day = judgedDay(request.body.day);
-      const at = postedInstant(request.body.at, day, config.timeZone);
+      const at = postedInstant(request, request.body.at, day, config.timeZone);
       const { ownerId, changed } = await washGarment(
         db,
         actorOf(request),
@@ -259,7 +264,7 @@ export const wearApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         userId,
         garmentIds,
         day,
-        postedInstant(request.body.at, day, config.timeZone),
+        postedInstant(request, request.body.at, day, config.timeZone),
       );
       logger.info(
         `Laundry by user ${userId} on ${day} (API): ${washed.length} washed of ${garmentIds.length} named`,

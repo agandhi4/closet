@@ -329,8 +329,8 @@ describe('queued writes', () => {
         'changed',
       ]);
       expect(await sinceWash(tee)).toBe(1);
-      // A record queued before #676 carries no instant; replayed today it
-      // has none on its day, and never erases the 09:00 one.
+      // A record queued before #676 carries no instant, so its replay has
+      // none (tapInstant), and never erases the 09:00 one.
       expect(outcome(await replay(wash, { day }))).toEqual([204, 'unchanged']);
       expect(outcome(await replay(wash, { day, at: at(8) }))).toEqual([
         204,
@@ -366,6 +366,99 @@ describe('queued writes', () => {
         .from(garment)
         .where(eq(garment.id, tee));
       expect(row.washedAt?.toISOString()).toBe(at(21));
+    });
+
+    const wornAtOf = async (garmentId: number) =>
+      (
+        await t.db
+          .select({ wornAt: garmentWear.wornAt })
+          .from(garmentWear)
+          .where(eq(garmentWear.garmentId, garmentId))
+      ).map((row) => row.wornAt?.toISOString() ?? null);
+
+    it('orders an entry marked worn by its tap’s instant too, whenever it replays', async () => {
+      // Tapped worn at 15:00; one tee washed that morning, one that night.
+      const morning = await createGarment(t, { name: 'Washed-at-nine tee' });
+      const night = await createGarment(t, { name: 'Washed-at-nine-pm tee' });
+      const day = daysAgo(1);
+      const entry = await newEntry(await newOutfit([morning, night]), day);
+      for (const [tee, hour] of [
+        [morning, 9],
+        [night, 21],
+      ]) {
+        expect(
+          outcome(
+            await replay(`/wardrobe/${tee}/washed`, { day, at: at(hour) }),
+          ),
+        ).toEqual([204, 'changed']);
+      }
+      expect(
+        outcome(
+          await replay(`/calendar/${entry}/worn`, { worn: '1', at: at(15) }),
+        ),
+      ).toEqual([204, 'changed']);
+      expect(await wornAtOf(morning)).toEqual([at(15)]);
+      expect(await sinceWash(morning)).toBe(1);
+      expect(await sinceWash(night)).toBe(0);
+    });
+
+    it('knows no instant for a replay that posted none, on its own day too; a live tap is now', async () => {
+      const tee = await createGarment(t, { name: 'Old-outbox tee' });
+      const day = t.today();
+      const entry = await newEntry(await newOutfit([tee]), day);
+      // Records queued before #676: the replay's time is not the tap's.
+      expect(outcome(await replay(`/wardrobe/${tee}/washed`, { day }))).toEqual(
+        [204, 'changed'],
+      );
+      expect(
+        outcome(await replay(`/wardrobe/${tee}/wear`, { worn: '1', day })),
+      ).toEqual([204, 'changed']);
+      expect(
+        outcome(await replay(`/calendar/${entry}/worn`, { worn: '1' })),
+      ).toEqual([204, 'changed']);
+      const [row] = await t.db
+        .select({ washedAt: garment.washedAt })
+        .from(garment)
+        .where(eq(garment.id, tee));
+      expect(row.washedAt).toBeNull();
+      expect(await wornAtOf(tee)).toEqual([null, null]);
+
+      const live = await createGarment(t, { name: 'Live-tap tee' });
+      const liveEntry = await newEntry(await newOutfit([live]), day);
+      expect(
+        (await post(`/calendar/${liveEntry}/worn`, { worn: '1' })).statusCode,
+      ).toBe(303);
+      expect(await wornAtOf(live)).toEqual([expect.any(String)]);
+    });
+
+    it('keeps the later known instant where a deleted outfit’s wear meets a day-level one', async () => {
+      const tee = await createGarment(t, { name: 'Detached tee' });
+      const day = daysAgo(1);
+      const outfit = await newOutfit([tee]);
+      const entry = await newEntry(outfit, day);
+      expect(
+        outcome(await replay(`/wardrobe/${tee}/washed`, { day, at: at(9) })),
+      ).toEqual([204, 'changed']);
+      // An older outbox's Wore today (no instant), and the entry at 19:00.
+      expect(
+        outcome(await replay(`/wardrobe/${tee}/wear`, { worn: '1', day })),
+      ).toEqual([204, 'changed']);
+      expect(
+        outcome(
+          await replay(`/calendar/${entry}/worn`, { worn: '1', at: at(19) }),
+        ),
+      ).toEqual([204, 'changed']);
+      expect(await sinceWash(tee)).toBe(1);
+
+      const res = await t.inject({
+        method: 'DELETE',
+        url: `/outfits/${outfit}`,
+        headers: { 'hx-request': 'true' },
+      });
+      expect(res.statusCode).toBe(200);
+
+      expect(await wornAtOf(tee)).toEqual([at(19)]);
+      expect(await sinceWash(tee)).toBe(1);
     });
   });
 

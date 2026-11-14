@@ -112,34 +112,65 @@ export function isReplayRequest(
 }
 
 /**
- * The kinds whose record posts the tap's `day` (todayIn APP_TIMEZONE) and
- * its instant (`at`, ISO), so a replay orders a same-day wear and wash by
- * when they were tapped, not replayed (#676; instantOnDay judges it).
+ * The kinds whose record posts the tap's `day` (todayIn APP_TIMEZONE): a
+ * Sunday-night wear replayed Monday is Sunday's. An entry's day is its own.
  */
 export function takesDay(kind: QueueableKind): boolean {
   return kind === 'wear' || kind === 'wash';
 }
 
 /**
- * The instant a wear or wash is stored with (garment_wear.worn_at,
- * garment.washed_at; #676): the posted one (the tap's), else now, never
- * after the server's now (a fast client clock), and null unless it falls
- * on `day` in `timeZone`. Null is the day rule: a wear that day counts as
- * before the wash. Outside the day it is dropped, never clamped to the
- * day's edge: a wrong clock or a mark made after the day (a calendar
- * "Worn?" for yesterday), and clamping to the day's start would invent a
- * morning wash that counts every wear of the day. Membership is todayIn's,
- * so a DST day needs no midnight arithmetic. A slow client clock is not
- * caught: its instant is earlier than the tap, and can misorder.
+ * The kinds whose record posts the tap's instant (`at`, ISO), so a replay
+ * orders a same-day wear (Wore today, an entry marked worn) and wash by when
+ * they were tapped, not replayed (#676; tapInstant judges it).
  */
-export function instantOnDay(
+export function takesInstant(kind: QueueableKind): boolean {
+  return takesDay(kind) || kind === 'entry';
+}
+
+/** When a tap happened as far as the server can tell, and its day in APP_TIMEZONE. */
+export interface TapInstant {
+  at: Date;
+  day: IsoDate;
+}
+
+/**
+ * The instant of a wear, a wash or an entry's mark (#676), the one rule
+ * every writer of garment_wear.worn_at and garment.washed_at goes through:
+ * the posted one (the tap's: the outbox's, an API client's), never after
+ * the server's now (a fast client clock); without one, a live tap is now,
+ * but a replay (`replayed`: REPLAY_HEADER) is unknown, null: a record queued
+ * before its kind carried `at` (an older outbox) was tapped some time
+ * before the replay, and stamping the replay's time could put a morning
+ * wash after an evening wear. A slow client clock is not caught: its
+ * instant is earlier than the tap, and can misorder.
+ */
+export function tapInstant(
   posted: Date | undefined,
-  day: IsoDate,
+  replayed: boolean,
   now: Date,
   timeZone: string,
-): Date | null {
+): TapInstant | null {
+  if (posted === undefined && replayed) return null;
   const at = posted === undefined || posted > now ? now : posted;
-  return todayIn(timeZone, at) === day ? at : null;
+  return { at, day: todayIn(timeZone, at) };
+}
+
+/**
+ * The instant a wear or wash on `day` is stored with (garment_wear.worn_at,
+ * garment.washed_at): the tap's, only when it falls on `day`; else null,
+ * the day rule (a wear that day counts as before the wash). Outside the
+ * day it is dropped, never clamped to the day's edge: a wrong clock or a
+ * mark made after the day (a calendar "Worn?" for yesterday), and clamping
+ * to the day's start would invent a morning wash that counts every wear of
+ * the day. Membership is todayIn's, so a DST day needs no midnight
+ * arithmetic.
+ */
+export function instantOnDay(
+  tap: TapInstant | null,
+  day: IsoDate,
+): Date | null {
+  return tap?.day === day ? tap.at : null;
 }
 
 /** The packing ticks: a record per item, posting `shown` and `packed`. */

@@ -23,6 +23,7 @@ import {
 } from '../../wardrobe/availability';
 import { ownerTransaction } from '../auth/queries';
 import type { IsoDate } from '../../calendar-date';
+import { instantOnDay, type TapInstant } from '../../offline-writes';
 import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson } from '../files/queries';
 import type { GarmentDetail } from '../wardrobe/queries';
@@ -320,6 +321,7 @@ export function setEntryWorn(
     worn: boolean | undefined;
     at: Date;
     today: IsoDate;
+    tap?: TapInstant | null;
   },
 ): Promise<EntryWornOutcome> {
   return ownerTransaction(db, input.ownerId, 'setEntryWorn', async (tx) => {
@@ -364,8 +366,15 @@ export async function changeEntryWorn(
   input: {
     ownerId: number;
     worn: boolean | undefined;
+    /** When the mark is made: the entry's `worn_at` and the wears' `created_at`. */
     at: Date;
     today: IsoDate;
+    /**
+     * When the outfit was worn, for its wears' `worn_at` (#676): the tap's
+     * (requestTap: a replay's posted instant, null for a replay without
+     * one). Undefined is the mark itself, `at` on `today`.
+     */
+    tap?: TapInstant | null;
   },
 ): Promise<Exclude<EntryWornOutcome, 'not-found'>> {
   const { day } = entry;
@@ -377,13 +386,15 @@ export async function changeEntryWorn(
     return { worn, changed: true, wears, day };
   }
   if (day > input.today) return 'future';
-  // The mark's instant is the wear's only on the entry's own day (#676): a
+  // The tap's instant is the wear's only on the entry's own day (#676): a
   // past day's "Worn?" is a backfill, and the day rule judges it.
+  const tap =
+    input.tap === undefined ? { at: input.at, day: input.today } : input.tap;
   const wears = await markWorn(
     tx,
     { ...entry, ownerId: input.ownerId },
     input.at,
-    day === input.today ? input.at : null,
+    instantOnDay(tap, day),
   );
   return { worn, changed: true, wears, day };
 }
@@ -442,8 +453,9 @@ async function unmarkWorn(tx: Queryable, entryId: number): Promise<number> {
  * Keeps the wears of an outfit's calendar entries when the outfit is about
  * to be deleted (its entries cascade with it, and their wears would with
  * them): each becomes a day-level wear, the shape "Wore today" writes
- * (outfit_calendar_id null, the garment, owner, day and created_at kept).
- * Where the garment already has a day-level wear that day, that one stays
+ * (outfit_calendar_id null, the garment, owner, day, worn_at and created_at
+ * kept). Where the garment already has a day-level wear that day, that one
+ * stays, taking the entry wear's instant when it is the later known one,
  * and the entry's row goes with the entry (distinct days count once
  * anyway). Run inside the deleting transaction, before the delete; the
  * entries are locked first, so a worn pill tapped meanwhile waits and then
@@ -477,11 +489,14 @@ export async function detachOutfitWears(
     )
     .for('update');
   const ofEntries = sql`${garmentWear.outfitCalendarId} in (select id from entries)`;
-  // ON CONFLICT DO NOTHING: the partial unique index on (garment_id, day)
-  // for day-level wears keeps an existing one. An outfit has one entry a
-  // day at most, so the select itself holds no two rows for one key. The
-  // final select counts the entries so they are locked even when no wear
-  // needs them read.
+  // The partial unique index on (garment_id, day) for day-level wears keeps
+  // an existing one, but with the later known instant of the two (#676: a
+  // known one beats null), so the day's wears since its wash stay as they
+  // were; it is updated only when that moves, so no revision is bumped for
+  // nothing. An outfit has one entry a day at most, so the select itself
+  // holds no two rows for one key. `kept` counts the inserted copies alone
+  // (xmax = 0). The final select counts the entries so they are locked even
+  // when no wear needs them read.
   const { rows } = await tx.execute<{ kept: number }>(sql`
     with entries as materialized (${entries}),
     kept as (
@@ -489,11 +504,14 @@ export async function detachOutfitWears(
       select ${garmentWear.garmentId}, ${garmentWear.ownerId}, ${garmentWear.day}, null, ${garmentWear.wornAt}, ${garmentWear.createdAt}
       from ${garmentWear}
       where ${ofEntries}
-      on conflict do nothing
-      returning 1
+      on conflict (garment_id, day) where outfit_calendar_id is null do update
+        set worn_at = excluded.worn_at
+        where excluded.worn_at is not null
+          and (${garmentWear.wornAt} is null or excluded.worn_at > ${garmentWear.wornAt})
+      returning xmax = 0 as inserted
     ),
     moved as (delete from ${garmentWear} where ${ofEntries})
-    select (select count(*)::int from kept) as kept, (select count(*) from entries) as entries`);
+    select (select count(*)::int from kept where inserted) as kept, (select count(*) from entries) as entries`);
   return rows[0].kept;
 }
 

@@ -22,6 +22,8 @@ import {
   type StoredRecord,
   syncedWritePaths,
   takesDay,
+  takesInstant,
+  tapInstant,
 } from './offline-writes';
 
 describe('dayRefusal', () => {
@@ -40,14 +42,34 @@ describe('dayRefusal', () => {
   });
 });
 
-describe('instantOnDay', () => {
+describe('tapInstant and instantOnDay', () => {
   const NY = 'America/New_York';
   const at = (iso: string) => new Date(iso);
+  // A live tap's instant on `day`; replays are their own case below.
+  const live = (
+    posted: Date | undefined,
+    day: string,
+    now: Date,
+    timeZone: string,
+  ) => instantOnDay(tapInstant(posted, false, now, timeZone), day);
+
+  it('knows no instant for a replay that posted none (#676: an older outbox)', () => {
+    const now = at('2026-11-08T22:00:00Z');
+    expect(tapInstant(undefined, true, now, NY)).toBeNull();
+    expect(
+      instantOnDay(tapInstant(undefined, true, now, NY), '2026-11-08'),
+    ).toBeNull();
+    // A replay with its tap's instant keeps it.
+    expect(tapInstant(at('2026-11-08T13:00:00Z'), true, now, NY)).toEqual({
+      at: at('2026-11-08T13:00:00Z'),
+      day: '2026-11-08',
+    });
+  });
 
   it('keeps a posted instant on its day, however late the replay', () => {
     // Sunday 08:00 in New York, replayed on Wednesday.
     expect(
-      instantOnDay(
+      live(
         at('2026-11-08T13:00:00Z'),
         '2026-11-08',
         at('2026-11-11T15:00:00Z'),
@@ -58,41 +80,35 @@ describe('instantOnDay', () => {
 
   it('is now without a posted instant, and never after now', () => {
     const now = at('2026-11-08T23:00:00Z');
-    expect(instantOnDay(undefined, '2026-11-08', now, NY)).toEqual(now);
-    expect(
-      instantOnDay(at('2026-11-09T01:00:00Z'), '2026-11-08', now, NY),
-    ).toEqual(now);
+    expect(live(undefined, '2026-11-08', now, NY)).toEqual(now);
+    expect(live(at('2026-11-09T01:00:00Z'), '2026-11-08', now, NY)).toEqual(
+      now,
+    );
   });
 
   it('drops an instant outside the day, never clamps it', () => {
     const now = at('2026-11-10T15:00:00Z');
     // Monday morning for Sunday: a late mark.
-    expect(
-      instantOnDay(at('2026-11-09T14:00:00Z'), '2026-11-08', now, NY),
-    ).toBeNull();
+    expect(live(at('2026-11-09T14:00:00Z'), '2026-11-08', now, NY)).toBeNull();
     // Saturday evening for Sunday: a wrong clock.
-    expect(
-      instantOnDay(at('2026-11-07T23:00:00Z'), '2026-11-08', now, NY),
-    ).toBeNull();
+    expect(live(at('2026-11-07T23:00:00Z'), '2026-11-08', now, NY)).toBeNull();
     // No instant and now on a later day: the day rule.
-    expect(instantOnDay(undefined, '2026-11-08', now, NY)).toBeNull();
+    expect(live(undefined, '2026-11-08', now, NY)).toBeNull();
   });
 
   it('takes the day from midnight to midnight, on a DST day too', () => {
     const now = at('2026-11-12T12:00:00Z');
     // 2026-11-01 is New York's fall back: 00:00 is 04:00Z, the next
     // midnight 05:00Z (a 25-hour day).
+    expect(live(at('2026-11-01T04:00:00Z'), '2026-11-01', now, NY)).toEqual(
+      at('2026-11-01T04:00:00Z'),
+    );
+    expect(live(at('2026-11-02T04:59:59.999Z'), '2026-11-01', now, NY)).toEqual(
+      at('2026-11-02T04:59:59.999Z'),
+    );
+    expect(live(at('2026-11-02T05:00:00Z'), '2026-11-01', now, NY)).toBeNull();
     expect(
-      instantOnDay(at('2026-11-01T04:00:00Z'), '2026-11-01', now, NY),
-    ).toEqual(at('2026-11-01T04:00:00Z'));
-    expect(
-      instantOnDay(at('2026-11-02T04:59:59.999Z'), '2026-11-01', now, NY),
-    ).toEqual(at('2026-11-02T04:59:59.999Z'));
-    expect(
-      instantOnDay(at('2026-11-02T05:00:00Z'), '2026-11-01', now, NY),
-    ).toBeNull();
-    expect(
-      instantOnDay(at('2026-11-01T03:59:59.999Z'), '2026-11-01', now, NY),
+      live(at('2026-11-01T03:59:59.999Z'), '2026-11-01', now, NY),
     ).toBeNull();
   });
 });
@@ -148,9 +164,10 @@ describe('queueableKindOf', () => {
 });
 
 describe('the kinds', () => {
-  it('dates the wear and the wash with the tap’s day, and ticks per item', () => {
+  it('dates the wear and the wash with the tap’s day, times the entry too, and ticks per item', () => {
     const kinds = Object.keys(QUEUEABLE_ROUTES) as QueueableKind[];
     expect(kinds.filter(takesDay)).toEqual(['wear', 'wash']);
+    expect(kinds.filter(takesInstant)).toEqual(['wear', 'wash', 'entry']);
     expect(kinds.filter(isChecklist)).toEqual(['packed', 'item']);
   });
 });
