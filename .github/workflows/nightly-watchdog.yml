@@ -1,0 +1,34 @@
+name: Nightly watchdog
+
+# A nightly that never starts is silent: a red one opens an issue
+# (scripts/webkit-nightly-issue.sh), an invalid nightly.yml opens nothing (#635).
+# This file is small and separate so the check survives a broken nightly.yml. It opens or
+# updates one issue when no scheduled nightly has completed in 48 hours, and closes it
+# when one has (scripts/nightly-staleness.sh). Nothing here gates a deploy.
+on:
+  schedule:
+    - cron: "15 14 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  staleness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: scripts/nightly-staleness.sh
+          sparse-checkout-cone-mode: false
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: scripts/nightly-staleness.sh

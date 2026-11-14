@@ -9,8 +9,12 @@ import {
 } from './support/e2e-session';
 import {
   cachedPaths,
+  dropSessionCaches,
+  holdWarmList,
   networkSwitch,
   waitForServiceWorker,
+  warmOnce,
+  withoutWarming,
 } from './support/service-worker';
 import { householdToday } from './support/household-today';
 import {
@@ -202,13 +206,25 @@ test.describe('Trips', () => {
         serviceWorkers: 'allow',
       });
       try {
+        await withoutWarming(context);
         const network = await networkSwitch(context);
         const device = await context.newPage();
         await device.goto('/auth/login');
         await submitLogin(device, email);
         await device.waitForURL((url) => url.pathname === '/');
         await waitForServiceWorker(device);
-        // The warm's own product: the trip's page in the cache.
+        // The warm list is held until a drop has overtaken it: the first
+        // signed-in page claiming the cache from the sign-in page's empty
+        // owner is one in practice (#812); SESSION_ENDING makes it at a
+        // moment the spec chooses.
+        const list = await holdWarmList(device);
+        await warmOnce(device);
+        await expect
+          .poll(list.asked, { message: 'warm hold lost (worker restarted?)' })
+          .toBe(true);
+        await dropSessionCaches(device);
+        await list.release();
+        // The warm that the drop overtook runs again and stores the trip.
         const tripPath = new URL(tripUrl).pathname;
         await expect.poll(() => cachedPaths(device)).toContain(tripPath);
 

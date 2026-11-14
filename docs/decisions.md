@@ -1043,3 +1043,14 @@ Consequence: `plannedWeekUrl(planned, firstDay?)` is the one builder; the banner
 **Decision:** `claimStorage` (`src/web/files/storage-identity.ts`, run by `createPhotos` in every process) writes `.closet-storage` (`installId`, `createdAt`; temp + rename) only on an empty `file` table or when rows and stored photos both exist (adopting the pre-marker share); rows and no photos refuses (`StorageIdentityError`). Readiness and each reconciliation run re-read it against the claimed id; reconciliation also refuses rows with zero stored sets. Neither refusal yields to `--force`.
 **Not done:** the install id is not copied into the database, so a share swapped with another install's before a boot passes. That needs a one-row table (a migration); proposed for a follow-up rather than built here.
 **Consequence:** a backup of the photos must include the marker; recovery and re-adoption are in `docs/operations.md#photo-storage-marker`.
+
+## 2026-11-14 — A workflow file that does not parse cannot merge, and a silent nightly is reported (#635)
+**Why:** #532 put a bootstrap step between `uses: actions/checkout` and its `with:`; GitHub refused nightly.yml, so no scheduled run existed for two days and nothing said so (no PR job parses workflows; a nightly that never starts opens no issue).
+**Decision:** `make actionlint-check` (in `ci-guards`, so both hooks and ci-quick) runs `scripts/ci/actionlint.sh`: the upstream release, pinned by version and sha256, cached under `~/.cache/closet`, never vendored. The npm `actionlint` wasm is 1.6.x (rejects `ubuntu-24.04`) and was refused. `nightly-watchdog.yml`, a file of its own, runs `scripts/nightly-staleness.sh` daily: no completed scheduled nightly in 48 h opens or updates one issue.
+**Consequence:** the first run on a machine needs curl and network (or `ACTIONLINT_BIN`); a version bump needs the four checksums from the release's checksums.txt.
+
+## 2026-11-14 — A warm whose list a drop overtook runs again (#812)
+
+**Why:** the first signed-in page claims the cache from the sign-in page's empty owner, which is a drop (generation +1). A warm already fetching its list then found the claim stale, returned with nothing stored, and nothing re-queued it: the device stayed unwarmed until its next load or visibility event (the trips spec's offline step failed first try, and sometimes never saw the trip).
+**Decision:** `fetchWarmList` sets `warmAgain` when its claim is refused for a moved generation, so `warmPages` runs once more in the new generation; no second queue. A spec cannot hold a worker's request with `context.route` or wait on its console reliably (Playwright attaches to a service worker after it has started): it holds a worker request by wrapping `fetch` inside it (`holdWarmList`).
+**Consequence:** a drop mid-warm costs one more run, never a lost one. A spec asserting the warm calls `withoutWarming(context)` and `warmOnce(page)` so it alone decides when the single WARM_PAGES goes.
