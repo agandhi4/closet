@@ -7,6 +7,7 @@ import {
 } from '@prometheus-io/client';
 import type { Logger } from '../logger';
 import type { ErrorContext, ErrorTracker } from './error-tracker';
+import { JobInterrupted } from './partial-failure';
 
 /**
  * The process's Prometheus metrics (#115), read by the homelab's vmagent
@@ -274,7 +275,8 @@ export class Metrics {
   /**
    * A scheduled job's `run`, timed under `name` (server.ts wraps every timer
    * it starts): `success`, or `failure` when it throws (captured, and
-   * rethrown for the scheduler to log).
+   * rethrown for the scheduler to log); a JobInterrupted is `interrupted`,
+   * rethrown too but never captured.
    */
   timeJob<A extends unknown[], T>(
     name: JobName,
@@ -287,7 +289,11 @@ export class Metrics {
       try {
         result = await run(...args);
       } catch (error) {
-        this.observeJob(name, { outcome: 'failure', error }, seconds());
+        const ending: JobEnding =
+          error instanceof JobInterrupted
+            ? { outcome: 'interrupted' }
+            : { outcome: 'failure', error };
+        this.observeJob(name, ending, seconds());
         throw error;
       }
       this.observeJob(name, { outcome: 'success' }, seconds());

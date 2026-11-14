@@ -40,3 +40,16 @@ export function endWhole<T>(
     throw new PartialFailure(job, Object.fromEntries(nonzero));
   return run;
 }
+
+/**
+ * A run that shutdown cut off after it put its work back (the reminders
+ * give back their claims): `metrics.timeJob` records `interrupted`, which
+ * alerts no one and captures nothing, and the scheduler logs it at info.
+ * Never a failure: the next server finds the work and does it.
+ */
+export class JobInterrupted extends Error {
+  constructor(readonly job: JobName) {
+    super(`${job} was interrupted by shutdown`);
+    this.name = 'JobInterrupted';
+  }
+}

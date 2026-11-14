@@ -7,7 +7,7 @@ import {
   Metrics,
   type PendingCutouts,
 } from './metrics';
-import { endWhole, PartialFailure } from './partial-failure';
+import { endWhole, JobInterrupted, PartialFailure } from './partial-failure';
 
 /** A count of pending cutouts none of which is dated. */
 const depthOnly = (depth: number): PendingCutouts => ({
@@ -248,6 +248,19 @@ describe('Metrics', () => {
     expect(errors.exceptions).toEqual([]);
     expect((await metrics.exposition()).body).toContain(
       'job_duration_seconds_count{name="replan",outcome="success"} 1',
+    );
+  });
+
+  it('records a job shutdown interrupted as interrupted, never captured (#914)', async () => {
+    const { metrics, errors } = newMetrics();
+    await expect(
+      metrics.timeJob('reminders', () =>
+        Promise.reject(new JobInterrupted('reminders')),
+      )(),
+    ).rejects.toBeInstanceOf(JobInterrupted);
+    expect(errors.exceptions).toEqual([]);
+    expect((await metrics.exposition()).body).toContain(
+      'job_duration_seconds_count{name="reminders",outcome="interrupted"} 1',
     );
   });
 
