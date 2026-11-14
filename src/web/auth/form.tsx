@@ -196,24 +196,30 @@ export interface FieldsetProps {
    * itself swaps nothing).
    */
   validateUrl?: string;
+  /**
+   * No frame of its own: the caller's card is the frame (the sign-in
+   * pages' `SignedOutFrame`), since a browser draws a legend straddling a
+   * fieldset's border, over the card's edge.
+   */
+  bare?: boolean;
   children: Child;
 }
 
 export function Fieldset(props: FieldsetProps) {
   return (
-    // The card is the frame, not the fieldset's own border: a browser draws
-    // a legend straddling that border, over the card's edge.
-    <div class="card card-border bg-base-200 w-xs">
-      <fieldset
-        class="fieldset card-body p-4"
-        hx-post={props.validateUrl}
-        hx-trigger={props.validateUrl ? 'change' : undefined}
-        hx-swap={props.validateUrl ? 'none' : undefined}
-      >
-        <legend class="fieldset-legend">{props.legend}</legend>
-        {props.children}
-      </fieldset>
-    </div>
+    <fieldset
+      class={
+        props.bare
+          ? 'fieldset'
+          : 'fieldset bg-base-200 border-base-300 rounded-box w-xs border p-4'
+      }
+      hx-post={props.validateUrl}
+      hx-trigger={props.validateUrl ? 'change' : undefined}
+      hx-swap={props.validateUrl ? 'none' : undefined}
+    >
+      <legend class="fieldset-legend">{props.legend}</legend>
+      {props.children}
+    </fieldset>
   );
 }
 

@@ -59,6 +59,23 @@ describe('the signed-out shell', () => {
     expect(missing.body).not.toContain('class="dock"');
   });
 
+  it('the sign-in card frames a bare fieldset; a signed-in form keeps the bordered one', async () => {
+    const login = await signedOut('/auth/login');
+    expect(login.body).toContain(
+      'class="card card-border bg-base-200 w-xs p-4"',
+    );
+    expect(login.body).toContain('<fieldset class="fieldset"');
+
+    const account = await t.inject({
+      method: 'GET',
+      url: '/auth/change-password',
+    });
+    expect(account.body).toContain(
+      '<fieldset class="fieldset bg-base-200 border-base-300 rounded-box w-xs border p-4"',
+    );
+    expect(account.body).not.toContain('card-body');
+  });
+
   it('a signed-in page still has its dock', async () => {
     const res = await t.inject({ method: 'GET', url: '/wardrobe' });
     expect(res.body).toContain('<nav class="dock"');

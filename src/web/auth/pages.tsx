@@ -153,24 +153,33 @@ export function LoginPage(props: {
       {props.failed && <ErrorAlert message={t('LOGIN_FAILED')} />}
       <PostForm action="/auth/login" endsSession>
         <ReturnToField returnTo={props.returnTo} />
-        <Fieldset legend={t('LOGIN')}>
-          <Field
-            id="email"
-            label={t('EMAIL')}
-            type="email"
-            autocomplete="username"
-            value={props.failed?.email}
-          />
-          <Field
-            id="password"
-            label={t('PASSWORD')}
-            type="password"
-            autocomplete="current-password"
-          />
-          <SubmitButton label={t('LOGIN')} />
-        </Fieldset>
+        <SignedOutFrame>
+          <Fieldset legend={t('LOGIN')} bare>
+            <Field
+              id="email"
+              label={t('EMAIL')}
+              type="email"
+              autocomplete="username"
+              value={props.failed?.email}
+            />
+            <Field
+              id="password"
+              label={t('PASSWORD')}
+              type="password"
+              autocomplete="current-password"
+            />
+            <SubmitButton label={t('LOGIN')} />
+          </Fieldset>
+        </SignedOutFrame>
       </PostForm>
     </AccountShell>
+  );
+}
+
+/** The sign-in forms' card: the frame their `bare` Fieldset leaves to it. */
+function SignedOutFrame(props: { children: Child }) {
+  return (
+    <div class="card card-border bg-base-200 w-xs p-4">{props.children}</div>
   );
 }
 
@@ -212,7 +221,7 @@ export const REGISTER_FIELDS = [
 /** The registration fieldset; POST /auth/validate/register refills its messages. */
 function RegisterFields({ input = {}, errors = {} }: RegisterFormState) {
   return (
-    <Fieldset legend={t('REGISTER')} validateUrl="/auth/validate/register">
+    <Fieldset legend={t('REGISTER')} validateUrl="/auth/validate/register" bare>
       <Field
         id="email"
         label={t('EMAIL')}
@@ -257,7 +266,9 @@ export function RegisterPage(
     >
       <PostForm action="/auth/register" endsSession>
         <ReturnToField returnTo={props.returnTo} />
-        <RegisterFields input={props.input} errors={props.errors} />
+        <SignedOutFrame>
+          <RegisterFields input={props.input} errors={props.errors} />
+        </SignedOutFrame>
       </PostForm>
     </AccountShell>
   );
