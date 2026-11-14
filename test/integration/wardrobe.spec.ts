@@ -210,6 +210,33 @@ describe('wardrobe', () => {
       expect(await names('?type=shirt')).toEqual(both);
     });
 
+    it('checks the applied type only inside the applied category (a shared type name stays unchecked elsewhere)', async () => {
+      for (const category of ['accessories', 'bags']) {
+        const post = await t.inject({
+          method: 'POST',
+          url: '/wardrobe',
+          payload: {
+            name: `Other ${category}`,
+            category,
+            props: '1',
+            type: 'other',
+          },
+        });
+        expect(post.statusCode).toBe(302);
+      }
+      const html = await sheet('?category=accessories&type=other');
+      const checked = [
+        ...html.matchAll(
+          /<input[^>]*name="type"[^>]*value="other"[^>]*checked[^>]*>/g,
+        ),
+      ];
+      expect(checked).toHaveLength(1);
+      const group = html
+        .split('role="group"')
+        .find((chunk) => chunk.includes(checked[0][0]))!;
+      expect(group).toContain('filter-type-accessories-title');
+    });
+
     it('offers a clear chip only beside a chosen value, and keeps the chosen one checked', async () => {
       const plain = await sheet();
       expect(plain).not.toContain('value=""');
