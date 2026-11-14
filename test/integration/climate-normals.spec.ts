@@ -228,8 +228,6 @@ describe('climate normals', () => {
       expect(html).toContain(`/outfits/ideas?for=trip:${id}:${day}`);
     }
     expect(t.logs.messages('info', 'Weather')).toEqual([
-      // The create's lookup of the typed destination (#684): a label, no place.
-      expect.stringMatching(/^Place search: 0 result\(s\) in \d+ ms$/),
       'Climate normals for 30.27,-97.74 America/New_York: refreshing; none kept, the ask waits',
       expect.stringMatching(
         /^Climate normals for 30\.27,-97\.74 America\/New_York: 366 days from 2016-2025 in \d+ ms$/,

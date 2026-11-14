@@ -39,8 +39,8 @@ import { type AgentLabel, agentLabelSql, OWNER_READS } from '../write-origin';
  * the `ownerId` it is given, and another user's trip is a miss like a
  * missing one. They trust that id: a surface reaches them through
  * trip-actions.ts, which takes the Actor and throws the refusals. One writer per piece of state:
- * the trip (createTrip, updateTrip, setTripDestination, deleteTrip), its
- * outfits (addTripOutfit, pickForTrip, removeTripOutfit), its extras
+ * the trip (createTrip, createTripAt, updateTrip, setTripDestination,
+ * deleteTrip), its outfits (addTripOutfit, pickForTrip, removeTripOutfit), its extras
  * (addTripItems, copyTripItems, setItemsPacked, removeTripItem); the
  * garments' packed marks are packed.ts's. Every write to a trip takes the
  * trip's row lock first (lockTrip), so they take turns.
@@ -242,6 +242,29 @@ export async function createTrip(
 }
 
 /**
+ * A new trip and, when the form's picker or the API's `place` chose one
+ * (#684), its destination located through setTripDestination in the same
+ * transaction, so the trip page shows the forecast on first view and a
+ * failed create leaves nothing a retry could duplicate. The place's name
+ * replaces the typed destination, as the trip page's Find does. The page's
+ * POST /trips and the API's.
+ */
+export function createTripAt(
+  db: Db,
+  ownerId: number,
+  fields: TripFields,
+  place: { name: string; location: PickedLocation } | null,
+): Promise<number> {
+  if (!place) return createTrip(db, ownerId, fields);
+  return db.transaction(async (tx) => {
+    const id = await createTrip(tx, ownerId, fields);
+    // Just inserted under the owner's lock this transaction holds: never false.
+    await setTripDestination(tx, id, ownerId, place);
+    return id;
+  });
+}
+
+/**
  * The trip form's save. A new destination name clears the location, which
  * described the old one (the trip page offers the search again). The trip's
  * outfits on days the new dates leave out lose their day and stay on the
@@ -313,16 +336,13 @@ export function updateTrip(
  * The destination picked from the geocoding search: its name, rounded
  * location and zone together, the one writer of all three (updateTrip only
  * clears them), so a zone never outlives its place (#678;
- * trip-location-writers.spec.ts). False when the trip is not the owner's,
- * or, with `unless`, when the trip is no longer named for what was searched
- * (the create's lookup, #684: an edit landed while the search ran).
+ * trip-location-writers.spec.ts). False when the trip is not the owner's.
  */
 export async function setTripDestination(
   db: Queryable,
   id: number,
   ownerId: number,
   place: { name: string; location: PickedLocation },
-  unless?: { renamedFrom: string },
 ): Promise<boolean> {
   const lock = ownerLockCte(db, ownerId);
   const updated = await db
@@ -334,13 +354,7 @@ export async function setTripDestination(
       longitude: place.location.longitude,
       timeZone: place.location.timeZone,
     })
-    .where(
-      and(
-        ownsTripWhere(id, ownerId),
-        ownerLocked(db, lock),
-        unless && eq(trip.destination, unless.renamedFrom),
-      ),
-    )
+    .where(and(ownsTripWhere(id, ownerId), ownerLocked(db, lock)))
     .returning({ id: trip.id });
   return updated.length > 0;
 }

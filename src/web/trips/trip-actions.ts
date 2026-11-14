@@ -3,7 +3,6 @@ import { selectScalars } from '../../db/select-scalars';
 import type { IsoDate } from '../../calendar-date';
 import { DEFAULT_OCCASION, type Occasion } from '../../wardrobe/occasions';
 import { tripPhase, wearableToday } from '../../wardrobe/packing';
-import type { Logger } from '../../logger';
 import type { PickedLocation } from '../../weather/location';
 import { type WornOutfit, wearOutfitOn } from '../calendar/queries';
 import { HttpError } from '../errors';
@@ -22,7 +21,6 @@ import {
   addTripItems,
   addTripOutfit,
   copyTripItems,
-  createTrip,
   deleteTrip,
   findTrip,
   findTripOutfit,
@@ -45,7 +43,6 @@ import {
   type TripSlot,
   updateTrip,
 } from './queries';
-import type { WeatherService } from '../weather/service';
 import type { WriteOrigin } from '../write-origin';
 
 /**
@@ -140,60 +137,6 @@ export async function requireAddOutfitPage(
     outfits: found.outfits,
     onTrip: found.onTrip,
   };
-}
-
-/**
- * How a new trip's typed destination was looked up (#684): `located` (the
- * search found exactly one place), `ambiguous` (several or none: the trip
- * page offers Find), `failed` (the search did not answer), `skipped` (no
- * destination, or no WEATHER_ENABLED).
- */
-export type DestinationLookup = 'located' | 'ambiguous' | 'failed' | 'skipped';
-
-/**
- * A new trip (createTrip; it refuses nothing, so it takes the owner's id),
- * then its typed destination looked up in the weather's geocoding search
- * (the outbound fetcher's) and stored through setTripDestination when it
- * names exactly one place, so the trip page shows the forecast on first
- * view. The person's own wording is kept as the name. The search runs after
- * the insert, outside any transaction (no lock waits on the network), and
- * the location is set only while the trip still has that destination. The
- * page's POST /trips and the API's POST /trips.
- */
-export async function createTripLocated(
-  deps: { db: Db; weather: WeatherService | undefined; logger: Logger },
-  ownerId: number,
-  fields: TripFields,
-): Promise<{ id: number; lookup: DestinationLookup }> {
-  const id = await createTrip(deps.db, ownerId, fields);
-  const { destination } = fields;
-  if (!deps.weather || destination === null) return { id, lookup: 'skipped' };
-  let places;
-  try {
-    places = await deps.weather.searchPlaces(destination);
-  } catch {
-    // The service logged why; the trip page offers Find.
-    return { id, lookup: 'failed' };
-  }
-  if (places.length !== 1) return { id, lookup: 'ambiguous' };
-  const [place] = places;
-  const located = await setTripDestination(
-    deps.db,
-    id,
-    ownerId,
-    {
-      name: destination,
-      location: { ...place.location, timeZone: place.timeZone },
-    },
-    { renamedFrom: destination },
-  );
-  if (!located) {
-    deps.logger.info(
-      `Trip ${id} of user ${ownerId} changed while its destination was looked up; not located`,
-    );
-    return { id, lookup: 'ambiguous' };
-  }
-  return { id, lookup: 'located' };
 }
 
 /** The trip form's save of the actor's trip (updateTrip). */

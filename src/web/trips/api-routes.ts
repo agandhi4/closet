@@ -19,11 +19,10 @@ import { API_PREFIX } from '../surface';
 import { keptDestination, pickedPlace } from '../weather/place-picker';
 import { KeptDestination, PlaceInput } from '../weather/weather-resource';
 import { tripForecast } from './forecast';
-import { listTrips } from './queries';
+import { createTripAt, listTrips } from './queries';
 import {
   addTripItem,
   copyTripExtras,
-  createTripLocated,
   editTrip,
   locateTrip,
   pickIdeaForTrip,
@@ -94,7 +93,7 @@ const deleted = { 204: Type.Null({ description: 'Deleted' }) };
 /**
  * Trips and packing on /api/v1 (#194a; plan section 6), registered by
  * apiPlugin, each calling what its page twin calls (operations.ts names the
- * twin): trip-actions.ts for one trip, listTrips and createTrip for the
+ * twin): trip-actions.ts for one trip, listTrips and createTripAt for the
  * list and a new one. Trips are private (src/web/trips/AGENTS.md): only the
  * token's user's own are reached, there is no `?ownerId=`, and another's
  * trip, trip outfit or extra is the 404 of an unknown id. The ticks are
@@ -209,23 +208,31 @@ export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         tags: ['trips'],
         summary: 'Creates a trip',
         description:
-          'Judged as the trip form is: a blank name, an end before the start or more than 60 days is a 400 naming the field. 201 with its `Location`.',
+          "Judged as the trip form is: a blank name, an end before the start or more than 60 days is a 400 naming the field. With `place` (from GET /weather/places) the trip is created located, the place's label its destination, so its weather answers at once. 201 with its `Location`.",
         body: NewTrip,
         response: apiResponses({ 201: TripCreated }),
       },
     },
     async (request, reply) => {
       const userId = actorOf(request).userId;
-      const { clientId, ...fields } = request.body;
+      const { clientId, place, ...fields } = request.body;
       const form = readTripForm(fields);
       if (!form.ok) throw refusedBody(form.errors, POINTER_OF_TRIP_FIELD);
-      const { id, lookup } = await createTripLocated(
-        { db, weather, logger },
+      // A located trip costs what a set destination does (the page's rule).
+      if (place) {
+        await enforceLimit(weatherLimits.destination, request, {
+          logger,
+          who: `user ${userId}`,
+        });
+      }
+      const id = await createTripAt(
+        db,
         userId,
         form.fields,
+        place ? pickedPlace(place) : null,
       );
       logger.info(
-        `Trip ${id} created by user ${userId} (API): ${form.fields.startsOn} to ${form.fields.endsOn}, destination ${lookup}${clientId ? `, client id ${clientId.slice(0, 8)}` : ''}`,
+        `Trip ${id} created by user ${userId} (API): ${form.fields.startsOn} to ${form.fields.endsOn}${place ? ', destination located' : ''}${clientId ? `, client id ${clientId.slice(0, 8)}` : ''}`,
       );
       return reply
         .status(201)

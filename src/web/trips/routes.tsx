@@ -16,23 +16,33 @@ import {
 import { type Actor, actorOf } from '../sharing/access';
 import { viewContext } from '../view-context';
 import {
+  PLACE_QUERY_MAX,
+  PLACE_QUERY_MIN,
   PlaceBody,
   PlaceQuery,
+  type PickedPlace,
   pickedPlace,
   placeAnswer,
 } from '../weather/place-picker';
 import { AddOutfitPage } from './add-page';
 import { tripForecast } from './forecast';
-import { TripFormPage, type TripFormModel } from './form-page';
+import {
+  DestinationPicker,
+  NEW_TRIP_DESTINATION_PATH,
+  NEW_TRIP_PLACE_PATH,
+  NEW_TRIP_PLACES_PATH,
+  NewTripPlaceResults,
+  TripFormPage,
+  type TripFormModel,
+} from './form-page';
 import { TripsPage } from './list-page';
 import { tripModel } from './model';
 import type { PackedChange } from './packed';
-import { listTrips, outfitsOnDay, tripDays } from './queries';
+import { createTripAt, listTrips, outfitsOnDay, tripDays } from './queries';
 import {
   addTripItem,
   type ChecklistTicks,
   copyTripExtras,
-  createTripLocated,
   editTrip,
   locateTrip,
   packTrip,
@@ -54,7 +64,11 @@ import {
   AddOutfitQuery,
   ChecklistBody,
   CopyItemsBody,
+  formPlace,
   ItemBody,
+  NewTripBody,
+  NewTripDestinationQuery,
+  NewTripPlacesQuery,
   readTripForm,
   type TripBody,
   TripBody as TripBodySchema,
@@ -85,7 +99,8 @@ import { BY_PERSON } from '../write-origin';
  *   400, a day outside the trip a 400 too (planTripOutfit's refusal),
  *   anything not the owner's a 404 with nothing written.
  * - The weather routes (the forecast fragment, the place search, setting
- *   the located destination) exist only with WEATHER_ENABLED, like
+ *   the located destination, the new-trip form's picker) exist only with
+ *   WEATHER_ENABLED, like
  *   /weather/*; the search is rate limited and its query never logged.
  */
 export const tripRoutes: FastifyPluginCallbackTypebox<
@@ -105,17 +120,21 @@ export const tripRoutes: FastifyPluginCallbackTypebox<
     );
   }
 
+  /** A new trip's destination picker: only with WEATHER_ENABLED, whose search it asks. */
+  const picker = (place: PickedPlace | null) =>
+    weather ? { place } : undefined;
+
   function refuseForm(
     reply: FastifyReply,
     refused: TripForm & { ok: false },
-    tripId?: number,
+    form: Pick<TripFormModel, 'tripId' | 'picker'>,
   ): Promise<FastifyReply> {
     logger.warn(
-      `Trip form refused (${tripId === undefined ? 'new' : `trip ${tripId}`}): ${Object.keys(refused.errors).join(', ')}`,
+      `Trip form refused (${form.tripId === undefined ? 'new' : `trip ${form.tripId}`}): ${Object.keys(refused.errors).join(', ')}`,
     );
     return renderForm(
       reply,
-      { tripId, values: formValues(refused.values), errors: refused.errors },
+      { ...form, values: formValues(refused.values), errors: refused.errors },
       400,
     );
   }
@@ -142,6 +161,7 @@ export const tripRoutes: FastifyPluginCallbackTypebox<
     // A week from tomorrow, a common first guess the date inputs then move.
     const starts = addDays(today(), 1);
     return renderForm(reply, {
+      picker: picker(null),
       values: {
         name: '',
         destination: '',
@@ -154,19 +174,23 @@ export const tripRoutes: FastifyPluginCallbackTypebox<
 
   app.post(
     TRIPS_PATH,
-    { schema: { body: TripBodySchema } },
+    { schema: { body: NewTripBody } },
     async (request, reply) => {
       const ownerId = sessionUserId(request);
+      const place = formPlace(request.body);
       const form = readTripForm(request.body);
-      if (!form.ok) return refuseForm(reply, form);
-      const { id, lookup } = await createTripLocated(
-        { db, weather, logger },
-        ownerId,
-        form.fields,
-      );
-      // The lookup's outcome, never the place: where someone travels is theirs.
+      if (!form.ok) return refuseForm(reply, form, { picker: picker(place) });
+      // A located trip costs what a set destination does (its forecast's fetch and cached row).
+      if (place) {
+        await enforceLimit(weatherLimits.destination, request, {
+          logger,
+          who: `user ${ownerId}`,
+        });
+      }
+      const id = await createTripAt(db, ownerId, form.fields, place);
+      // Whether it was located, never the place: where someone travels is theirs.
       logger.info(
-        `Trip ${id} created by user ${ownerId}: ${form.fields.startsOn} to ${form.fields.endsOn}, destination ${lookup}`,
+        `Trip ${id} created by user ${ownerId}: ${form.fields.startsOn} to ${form.fields.endsOn}${place ? ', destination located' : ''}`,
       );
       return reply.redirect(tripUrl(id, '?created=1'), 303);
     },
@@ -228,7 +252,7 @@ export const tripRoutes: FastifyPluginCallbackTypebox<
         // The form again only for the owner's trip; anyone else's is a 404
         // whatever was posted. A valid post asks editTrip instead.
         await requireTrip(db, actor, id);
-        return refuseForm(reply, form, id);
+        return refuseForm(reply, form, { tripId: id });
       }
       const saved = await editTrip(db, actor, id, form.fields);
       logger.info(
@@ -488,6 +512,59 @@ export const tripRoutes: FastifyPluginCallbackTypebox<
   // ---- The destination's weather (WEATHER_ENABLED only) ---------------------------
 
   if (weather) {
+    // The new-trip form's destination picker (#684, DestinationPicker):
+    // fragments swapped into the form, writing nothing. Each carries a place
+    // in its query, so none is logged (secretPath). A destination the
+    // search does not take (PlaceQuery's bounds) is URL state: no places,
+    // never a 400 htmx would not show.
+    app.get(
+      NEW_TRIP_PLACES_PATH,
+      {
+        schema: { querystring: NewTripPlacesQuery },
+        config: { rateLimit: WEATHER_SEARCH_LIMIT, secretPath: true },
+      },
+      async (request, reply) => {
+        const q = request.query.destination.trim();
+        const answer =
+          q.length < PLACE_QUERY_MIN || q.length > PLACE_QUERY_MAX
+            ? { places: [] }
+            : await placeAnswer(weather, { q });
+        return renderFragment(reply, <NewTripPlaceResults answer={answer} />);
+      },
+    );
+
+    app.get(
+      NEW_TRIP_PLACE_PATH,
+      {
+        schema: { querystring: PlaceBody },
+        config: { secretPath: true },
+      },
+      (request, reply) =>
+        renderFragment(
+          reply,
+          <DestinationPicker
+            destination=""
+            place={pickedPlace(request.query)}
+          />,
+        ),
+    );
+
+    app.get(
+      NEW_TRIP_DESTINATION_PATH,
+      {
+        schema: { querystring: NewTripDestinationQuery },
+        config: { secretPath: true },
+      },
+      (request, reply) =>
+        renderFragment(
+          reply,
+          <DestinationPicker
+            destination={request.query.destination ?? ''}
+            place={null}
+          />,
+        ),
+    );
+
     // Always a fragment: the trip page loads it in place.
     app.get(
       `${TRIPS_PATH}/:id/weather`,
