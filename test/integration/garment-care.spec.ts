@@ -8,6 +8,7 @@ import {
   type TestApp,
   unescapeHtml,
   asFixture,
+  TEST_PASSWORD,
 } from './harness';
 import { createAccessToken, tool } from './mcp';
 import {
@@ -354,7 +355,7 @@ describe('the care label and the repair log', () => {
       const invite = await t.inject({
         method: 'POST',
         url: '/wardrobe-share/create-invite-link',
-        payload: { permission: 'MANAGE' },
+        payload: { permission: 'MANAGE', currentPassword: TEST_PASSWORD },
         headers: { 'hx-request': 'true' },
       });
       const token = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(

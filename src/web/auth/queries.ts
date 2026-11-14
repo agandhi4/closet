@@ -15,6 +15,7 @@ import {
 } from '../../db/schema';
 import { OwnerLockTimeout } from '../errors';
 import { sharePermissionSql } from '../sharing/access';
+import { revokeOpenInvitesStatement } from '../sharing/queries';
 import { type StoredPhoto, unkeyedPhoto } from '../files/image-variant';
 import { revokeDevicesStatement } from '../push/queries';
 import { NotFound } from '../refusals';
@@ -158,6 +159,8 @@ export interface PasswordChange {
   /** Tokens revoked, by kind: the log lines name both. */
   revokedTokens: Record<TokenKind, number>;
   revokedDevices: number;
+  /** Invites the user sent that nobody accepted, deleted (#668). */
+  revokedInvites: number;
 }
 
 /** What the device making the change keeps. */
@@ -174,11 +177,13 @@ export interface PasswordChangeKeeps {
 /**
  * The one writer of a password. The new hash ends every session issued
  * before it (the fingerprint), and the same transaction revokes every
- * personal access token of both kinds and every push subscription, but
- * what `keep` names (the device making the change, if it has one): a new
- * password is how an account is taken back, and a device signed out by it
- * must stop receiving the account's notifications at once
- * (revokeDevicesStatement).
+ * personal access token of both kinds, every push subscription but what
+ * `keep` names (the device making the change, if it has one) and every
+ * invite the user sent that nobody accepted: a new password is how an
+ * account is taken back, a device signed out by it must stop receiving the
+ * account's notifications at once (revokeDevicesStatement), and a link a
+ * stolen session minted must not outlive it (revokeOpenInvitesStatement,
+ * #668). Accepted shares stay; the confirmation lists them.
  *
  * Two statements in a transaction, in this order, and never one statement
  * again (#189): the update takes the user's row lock, which createToken
@@ -211,9 +216,12 @@ export function updatePasswordHash(
     const devices = tx
       .$with('revoked_devices')
       .as(revokeDevicesStatement(tx, id, keep.endpoint));
+    const invites = tx
+      .$with('revoked_invites')
+      .as(revokeOpenInvitesStatement(tx, id));
     // An aggregate over the revoked tokens: one row even when there are none.
     const [revoked] = await tx
-      .with(tokens, devices)
+      .with(tokens, devices, invites)
       .select({
         mcp: sql`count(*) filter (where ${tokens.kind} = 'mcp')`.mapWith(
           Number,
@@ -222,12 +230,14 @@ export function updatePasswordHash(
           Number,
         ),
         devices: sql`(select count(*) from ${devices})`.mapWith(Number),
+        invites: sql`(select count(*) from ${invites})`.mapWith(Number),
       })
       .from(tokens);
     return {
       account,
       revokedTokens: { mcp: revoked.mcp, device: revoked.device },
       revokedDevices: revoked.devices,
+      revokedInvites: revoked.invites,
     };
   });
 }

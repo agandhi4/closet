@@ -171,7 +171,7 @@ describe('push subscriptions revoked with the sessions (PWA_ENABLED=true)', () =
       });
       expect(await deviceAt(bystander)).toBeDefined();
       expect(t.logs.messages('info', 'Web')).toContain(
-        `Password changed for user ${userId}: other sessions, 0 MCP tokens, 0 device tokens and 1 other push devices revoked`,
+        `Password changed for user ${userId}: other sessions, 0 MCP tokens, 0 device tokens, 1 other push devices and 0 unanswered invites revoked`,
       );
       // Endpoints are capability URLs: never logged.
       const logged = JSON.stringify(t.logs.records);
@@ -311,9 +311,11 @@ describe('push subscriptions revoked with the sessions (PWA_ENABLED=true)', () =
     expect(await endpointsOf(userId)).toEqual([]);
     expect(await deviceAt(bystander)).toBeDefined();
     expect(logs.records.map((record) => record.msg)).toEqual([
-      `Password set for user ${userId} via CLI: 0 MCP tokens, 0 device tokens and 2 push devices revoked`,
+      `Password set for user ${userId} via CLI: 0 MCP tokens, 0 device tokens, 2 push devices and 0 unanswered invites revoked`,
     ]);
-    expect(stdout).toContain('push subscriptions are revoked');
+    expect(stdout).toContain(
+      'push subscriptions and unanswered invites are revoked',
+    );
   });
 
   describe('push:revoke-all (after rotating ACCESS_TOKEN_SECRET)', () => {

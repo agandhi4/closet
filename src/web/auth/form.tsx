@@ -22,6 +22,24 @@ export interface FieldProps {
   minlength?: number;
 }
 
+/**
+ * The signed-in account's address beside a current-password field, for
+ * password managers to know whose password it is: readonly, never shown,
+ * the one hidden control of the step-up forms (guards.conf @hidden-control).
+ */
+export function UsernameTwin(props: { email: string | null | undefined }) {
+  return (
+    <input
+      type="text"
+      name="username"
+      autocomplete="username"
+      value={props.email ?? ''}
+      class="hidden"
+      readonly
+    />
+  );
+}
+
 /** A labelled input with its messages underneath; the input turns red with them. */
 export function Field(props: FieldProps) {
   const invalid = (props.errors?.length ?? 0) > 0;

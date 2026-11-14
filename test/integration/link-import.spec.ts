@@ -871,7 +871,7 @@ describe('adding a garment from a link', () => {
       const invite = await t.inject({
         method: 'POST',
         url: '/wardrobe-share/create-invite-link',
-        payload: { permission },
+        payload: { permission, currentPassword: TEST_PASSWORD },
         headers: { 'hx-request': 'true' },
       });
       const token = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(

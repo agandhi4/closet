@@ -5,7 +5,7 @@ import { garment, optionGroup } from '../../src/db/schema';
 import { markSuggestion } from '../../src/web/wishlist/decisions';
 import { deviceToken, expectProblem } from './api';
 import { createGarment, createWishlistItem, garmentRow } from './garments';
-import { createTestApp, type TestApp } from './harness';
+import { createTestApp, type TestApp, TEST_PASSWORD } from './harness';
 
 /**
  * The wishlist and Muse's inbox on /api/v1 (#194b): the tab and a need's
@@ -61,7 +61,7 @@ async function shareWith(
   const invite = await t.inject({
     method: 'POST',
     url: '/wardrobe-share/create-invite-link',
-    payload: { permission },
+    payload: { permission, currentPassword: TEST_PASSWORD },
     headers: { 'hx-request': 'true' },
   });
   const shareToken = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(

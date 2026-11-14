@@ -1,9 +1,7 @@
 import type { Child } from 'hono/jsx';
 import { todayIn } from '../../calendar-date';
-import { jsonForScript } from '../html';
 import { type StringKey, t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
-import { BrandMark } from '../layout/brand-mark';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { ProfileSection } from '../layout/parts';
@@ -15,7 +13,12 @@ import {
   PushSettings,
   PushSignedOut,
 } from '../push/settings';
-import { SharingSection, type SharingModel } from '../sharing/pages';
+import {
+  PermissionBadge,
+  SharingSection,
+  type SharingModel,
+} from '../sharing/pages';
+import type { ShareView } from '../sharing/queries';
 import { SHARING_SECTION_ID } from '../sharing/urls';
 import type { BodyMeasurements, BrandSize } from '../sizes/queries';
 import { SIZES_SECTION_ID } from '../sizes/urls';
@@ -26,7 +29,15 @@ import type { WeatherSettings as Settings } from '../weather/queries';
 import { WEATHER_SETTINGS_ID, WeatherSettings } from '../weather/settings';
 import { WEEK_SETTINGS_ID } from '../week-plan/urls';
 import { WeekTemplateSettings } from '../week-plan/views';
-import { ErrorAlert, Field, Fieldset, PostForm, SubmitButton } from './form';
+import { AccountShell } from './account-shell';
+import {
+  ErrorAlert,
+  Field,
+  Fieldset,
+  PostForm,
+  SubmitButton,
+  UsernameTwin,
+} from './form';
 import { SignOutForm } from './logout';
 import { RETURN_TO_PARAM } from './return-to';
 import type { TokenListing } from './personal-tokens';
@@ -56,76 +67,29 @@ const ACCOUNT_SECTION_PATH = profileSection(ACCOUNT_SECTION_ID);
 /** "Sign out": the logout page's title, Profile's section and its index entry. */
 const SIGN_OUT_KEY = 'profile.SIGN_OUT' satisfies StringKey;
 
-/** A one-form page: sign in, register, the account's forms. */
-function AccountShell(props: {
-  ctx: ViewContext;
-  /** The app bar's title, the page's h1. */
-  title: string;
-  /** The back arrow (the account's forms go back to Profile). */
-  back?: string;
-  /** Sign in and register: where signing in lands (return-to.ts). */
-  returnTo?: string;
-  /**
-   * A public entry page's (sign in, register) link preview: the og tags
-   * and the schema.org WebPage, both named by `ogTitle`, which stays meta
-   * only: the h1 is `title`.
-   */
-  preview?: { ogTitle: string; description: string };
-  children: Child;
-}) {
-  const { preview } = props;
+/**
+ * After a new password: what it ended, and who still has the wardrobe. The
+ * password deleted every unanswered invite, but accepted shares stay (#668),
+ * so they are named here for the owner to revoke any they do not know.
+ */
+function PasswordChangedNotice(props: { shares: ShareView[] }) {
   return (
-    <Layout
-      ctx={props.ctx}
-      title={preview?.ogTitle ?? props.title}
-      ogTitle={preview?.ogTitle}
-      ogDescription={preview?.description}
-    >
-      <AppBar
-        ctx={props.ctx}
-        title={props.title}
-        back={props.back}
-        returnTo={props.returnTo}
-      />
-      {/* Centred while it fits; from the top once it does not, so nothing
-          ends up under the fixed app bar, where no scroll reaches it. The
-          padding clears the app bar and the dock, as on every other page. */}
-      <main class="flex flex-col justify-center-safe items-center min-h-full gap-3 px-4 pt-20 pb-24">
-        {preview && (
-          <WebPageData
-            ctx={props.ctx}
-            name={preview.ogTitle}
-            description={preview.description}
-          />
-        )}
-        {!props.ctx.user && <BrandMark ctx={props.ctx} />}
-        {props.children}
-      </main>
-      <Dock ctx={props.ctx} />
-    </Layout>
-  );
-}
-
-/** schema.org description of a public entry page, for link previews. */
-function WebPageData(props: {
-  ctx: ViewContext;
-  name: string;
-  description: string;
-}) {
-  const data = {
-    '@context': 'https://schema.org',
-    '@type': 'WebPage',
-    name: props.name,
-    description: props.description,
-    isPartOf: { '@id': `${props.ctx.siteUrl}/#website` },
-  };
-  return (
-    <script
-      type="application/ld+json"
-      // Structured data is JSON by definition; jsonForScript keeps it
-      // from closing the element.
-      dangerouslySetInnerHTML={{ __html: jsonForScript(data) }}
-    />
+    <div role="status" class="alert alert-success flex-col items-start">
+      <span>{t('PASSWORD_CHANGED')}</span>
+      {props.shares.length > 0 && (
+        <>
+          <span>{t('PASSWORD_CHANGED_SHARES')}</span>
+          <ul class="flex flex-col gap-1">
+            {props.shares.map((share) => (
+              <li class="flex items-center gap-2 break-all">
+                {share.grantee?.email}
+                <PermissionBadge permission={share.permission} />
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -334,9 +298,9 @@ export function ProfilePage(props: ProfileProps) {
       <AppBar ctx={ctx} title={t('PROFILE')} />
       <main class="p-4 pt-20 pb-24 w-full max-w-lg mx-auto flex flex-col gap-4">
         {props.passwordChanged && (
-          <div role="status" class="alert alert-success">
-            <span>{t('PASSWORD_CHANGED')}</span>
-          </div>
+          <PasswordChangedNotice
+            shares={props.sharing.outbound.filter((share) => share.acceptedAt)}
+          />
         )}
         {/* Above the sections: the last device's revoke hides its section. */}
         {props.devices.notice && (
@@ -593,15 +557,7 @@ export function ChangePasswordPage(props: {
     >
       <PostForm action="/auth/change-password">
         <Fieldset legend={t('CHANGE_PASSWORD')}>
-          {/* Tells password managers which account's password this is. */}
-          <input
-            type="text"
-            name="username"
-            autocomplete="username"
-            value={props.ctx.user?.email ?? ''}
-            class="hidden"
-            readonly
-          />
+          <UsernameTwin email={props.ctx.user?.email} />
           <Field
             id="currentPassword"
             label={t('CURRENT_PASSWORD')}

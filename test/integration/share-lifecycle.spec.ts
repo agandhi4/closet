@@ -4,16 +4,24 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type SharePermission, user, wardrobeShare } from '../../src/db/schema';
 import { LOGIN_PATH } from '../../src/web/auth/login-path';
 import { loginUrl, registerUrl } from '../../src/web/auth/return-to';
+import { updatePasswordHash } from '../../src/web/auth/queries';
+import {
+  acceptInvite,
+  createInvite as mintInvite,
+  INVITE_LIFETIME_MS,
+} from '../../src/web/sharing/queries';
 import { invitePath } from '../../src/web/sharing/urls';
 import { createGarment, garmentRow, garmentsNamed } from './garments';
 import {
   createTestApp,
+  sessionFingerprintOf,
   TEST_PASSWORD,
   TestApp,
   unescapeHtml,
   uniqueClient,
   userIdOf,
 } from './harness';
+import { interleave } from './interleave';
 
 /**
  * A wardrobe share after it is created (share.spec.ts covers creating and
@@ -46,20 +54,13 @@ describe('wardrobe share lifecycle', () => {
     return { id, cookie };
   };
 
-  const createInvite = async (
-    grantor: Account,
-    permission: SharePermission,
-  ) => {
-    const res = await t.inject({
-      method: 'POST',
-      url: '/wardrobe-share/create-invite-link',
-      payload: { permission },
-      headers: { cookie: grantor.cookie, 'hx-request': 'true' },
-    });
-    const match = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(res.body);
-    if (!match) throw new Error(`No invite URL in partial:\n${res.body}`);
-    return match[1];
-  };
+  /**
+   * An open invite link; its token. Through the writer: the route is
+   * ACCOUNT_LIMITed and asks an edit link for the password (#668), which
+   * `creating an invite` below drives.
+   */
+  const createInvite = async (grantor: Account, permission: SharePermission) =>
+    (await mintInvite(t.db, grantor.id, permission)).inviteToken;
 
   /**
    * An invite with its grantee already set. The UI only makes open links
@@ -615,6 +616,326 @@ describe('wardrobe share lifecycle', () => {
       expect(res.statusCode).toBe(302);
       expect(res.headers.location).toBe(LOGIN_PATH);
       expect(await shareByToken(token)).toMatchObject({ granteeId: null });
+    });
+  });
+
+  // #668: an edit link is a credential (it asks for the password), an
+  // unanswered invite lives INVITE_LIFETIME_MS, and a new password deletes
+  // the invites its account sent that nobody accepted.
+  describe('invites as credentials', () => {
+    const NEW_PASSWORD = 'Another-pass-668';
+
+    const signUpAs = async (label: string) => {
+      const email = `${label}-${randomUUID().slice(0, 8)}@example.com`;
+      const cookie = await t.register(email);
+      return { id: await userIdOf(t, email), cookie, email };
+    };
+
+    const createLink = (
+      grantor: Account,
+      payload: { permission?: SharePermission; currentPassword?: string },
+      htmx = false,
+    ) =>
+      t.inject({
+        method: 'POST',
+        url: '/wardrobe-share/create-invite-link',
+        payload,
+        headers: htmx
+          ? { cookie: grantor.cookie, 'hx-request': 'true' }
+          : { cookie: grantor.cookie },
+      });
+
+    const invitesOf = (grantor: Account) =>
+      t.db
+        .select({
+          permission: wardrobeShare.permission,
+          granteeId: wardrobeShare.granteeId,
+          acceptedAt: wardrobeShare.acceptedAt,
+        })
+        .from(wardrobeShare)
+        .where(eq(wardrobeShare.grantorId, grantor.id));
+
+    /** An open invite's created_at, `ms` before the app's clock. */
+    const age = (token: string, ms: number) =>
+      t.db
+        .update(wardrobeShare)
+        .set({ createdAt: new Date(Date.now() - ms) })
+        .where(eq(wardrobeShare.inviteToken, token));
+
+    const INVITE_URL = /\/wardrobe-share\/invite\/[0-9a-f-]{36}/;
+
+    it('an edit link without the current password, or with a wrong one, is a 400 and stores nothing', async () => {
+      const grantor = await signUpAs('stepup-refused');
+      for (const currentPassword of [undefined, 'Wrong-pass-1']) {
+        for (const htmx of [false, true]) {
+          const res = await createLink(
+            grantor,
+            { permission: 'MANAGE', currentPassword },
+            htmx,
+          );
+          expect(res.statusCode).toBe(400);
+          expect(res.body).toContain('Current password is incorrect');
+          expect(res.body).not.toMatch(INVITE_URL);
+        }
+      }
+      expect(await invitesOf(grantor)).toEqual([]);
+    });
+
+    it('an edit link with the current password: a MANAGE invite, back on Profile › Sharing with its link', async () => {
+      const grantor = await signUpAs('stepup-ok');
+      const res = await createLink(grantor, {
+        permission: 'MANAGE',
+        currentPassword: TEST_PASSWORD,
+      });
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.location).toBe(SHARING);
+      expect(await invitesOf(grantor)).toEqual([
+        { permission: 'MANAGE', granteeId: null, acceptedAt: null },
+      ]);
+      const [row] = await t.db
+        .select({ token: wardrobeShare.inviteToken })
+        .from(wardrobeShare)
+        .where(eq(wardrobeShare.grantorId, grantor.id));
+      const profile = await t.inject({
+        method: 'GET',
+        url: '/auth/profile',
+        headers: { cookie: grantor.cookie },
+      });
+      expect(unescapeHtml(profile.body)).toContain(invitePath(row.token!));
+    });
+
+    it('a view link takes no password: one tap', async () => {
+      const grantor = await signUpAs('view-link');
+      const res = await createLink(grantor, { permission: 'VIEW' }, true);
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toMatch(INVITE_URL);
+      expect(await invitesOf(grantor)).toEqual([
+        { permission: 'VIEW', granteeId: null, acceptedAt: null },
+      ]);
+    });
+
+    it('a grantee naming the owner’s wardrobe mints a link to their own, never the owner’s', async () => {
+      const manager = await signUpAs('stepup-grantee');
+      await acceptOk(await createInvite(owner, 'MANAGE'), manager);
+      const res = await t.inject({
+        method: 'POST',
+        url: `/wardrobe-share/create-invite-link?ownerId=${owner.id}`,
+        payload: { permission: 'MANAGE', currentPassword: TEST_PASSWORD },
+        headers: { cookie: manager.cookie },
+      });
+      expect(res.statusCode).toBe(302);
+      expect(await invitesOf(manager)).toEqual([
+        { permission: 'MANAGE', granteeId: null, acceptedAt: null },
+      ]);
+    });
+
+    it('the step-up page is a native post form no cache keeps', async () => {
+      const grantor = await signUpAs('stepup-page');
+      const res = await t.inject({
+        method: 'GET',
+        url: '/wardrobe-share/edit-invite',
+        headers: { cookie: grantor.cookie },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['cache-control']).toBe('no-store');
+      expect(res.body).toContain('action="/wardrobe-share/create-invite-link"');
+      expect(res.body).toContain('name="currentPassword"');
+    });
+
+    it('an invite past its lifetime: the landing says it expired, accepting refuses, and its grantor sees it expired', async () => {
+      const guest = await signUpAs('expired-guest');
+      const token = await createInvite(owner, 'MANAGE');
+      await age(token, INVITE_LIFETIME_MS + 60_000);
+      const expired = 'This invite has expired. Ask for a new link.';
+
+      const landing = await t.inject({
+        method: 'GET',
+        url: invitePath(token),
+        headers: { cookie: guest.cookie },
+      });
+      expect(landing.statusCode).toBe(200);
+      expect(unescapeHtml(landing.body)).toContain(expired);
+      expect(landing.body).not.toContain(`${invitePath(token)}/accept`);
+
+      await expectAcceptRefused(
+        await accept(token, guest),
+        'expired',
+        expired,
+        guest,
+      );
+      expect(await shareBetween(guest)).toBeNull();
+      const row = (await shareByToken(token))!;
+      expect(row).toMatchObject({ granteeId: null, acceptedAt: null });
+
+      // Listed to its grantor as expired, without its link, still revocable.
+      const profile = await t.inject({
+        method: 'GET',
+        url: '/auth/profile',
+        headers: { cookie: owner.cookie },
+      });
+      expect(unescapeHtml(profile.body)).not.toContain(invitePath(token));
+      expect(profile.body).toContain('Expired');
+      expect(profile.body).toContain(`/wardrobe-share/${row.id}/remove`);
+    });
+
+    it('valid until the instant created_at plus its lifetime, not at it', async () => {
+      const guest = await signUpAs('boundary');
+      const token = await createInvite(owner, 'VIEW');
+      const { createdAt } = (await shareByToken(token))!;
+      const expiry = createdAt.getTime() + INVITE_LIFETIME_MS;
+      expect(
+        await acceptInvite(t.db, token, guest.id, new Date(expiry)),
+      ).toEqual({ accepted: false, reason: 'expired' });
+      expect(
+        await acceptInvite(t.db, token, guest.id, new Date(expiry - 1)),
+      ).toMatchObject({ accepted: true, grantorId: owner.id });
+    });
+
+    it('an accepted share outlives the invite lifetime', async () => {
+      const grantee = await signUpAs('long-share');
+      await acceptOk(await createInvite(owner, 'VIEW'), grantee);
+      await t.db
+        .update(wardrobeShare)
+        .set({ createdAt: new Date(Date.now() - 10 * INVITE_LIFETIME_MS) })
+        .where(eq(wardrobeShare.granteeId, grantee.id));
+      expect(await readStatuses(grantee)).toEqual([200, 200]);
+    });
+
+    // The read finds the invite in force; it expires before the guarded
+    // write runs, whose own cutoff refuses it: "gone meanwhile".
+    it.each([
+      ['claimed', undefined],
+      ['folded into a VIEW share', 'VIEW'],
+    ] as const)(
+      'an invite that expires between the read and the write is not found: %s',
+      async (_what, held) => {
+        const guest = await signUpAs('race-expiry');
+        if (held) await acceptOk(await createInvite(owner, held), guest);
+        const token = await createInvite(owner, 'MANAGE');
+        const [, result] = await interleave(
+          t.db,
+          (tx) =>
+            tx
+              .update(wardrobeShare)
+              .set({
+                createdAt: new Date(Date.now() - INVITE_LIFETIME_MS - 60_000),
+              })
+              .where(eq(wardrobeShare.inviteToken, token)),
+          () => acceptInvite(t.db, token, guest.id),
+        );
+        expect(result).toEqual({ accepted: false, reason: 'not-found' });
+        expect(await shareByToken(token)).toMatchObject({
+          granteeId: null,
+          acceptedAt: null,
+        });
+        expect((await shareBetween(guest))?.permission ?? null).toBe(
+          held ?? null,
+        );
+      },
+    );
+
+    it('a new password deletes the invites its account sent that nobody accepted, keeps the rest, and lists who still has the wardrobe', async () => {
+      const grantor = await signUpAs('new-password');
+      const grantee = await signUpAs('kept-grantee');
+      const other = await signUpAs('other-sender');
+      const kept = await createInvite(grantor, 'MANAGE');
+      expect((await acceptInvite(t.db, kept, grantee.id)).accepted).toBe(true);
+      const open = await createInvite(grantor, 'MANAGE');
+      const addressed = randomUUID();
+      const received = randomUUID();
+      await t.db.insert(wardrobeShare).values([
+        // Sent by the grantor to someone: goes with the open link.
+        {
+          grantorId: grantor.id,
+          granteeId: other.id,
+          permission: 'VIEW',
+          inviteToken: addressed,
+          createdAt: new Date(),
+        },
+        // Received by the grantor: not theirs to revoke, it stays.
+        {
+          grantorId: other.id,
+          granteeId: grantor.id,
+          permission: 'VIEW',
+          inviteToken: received,
+          createdAt: new Date(),
+        },
+      ]);
+      const othersOpen = await createInvite(other, 'VIEW');
+
+      t.logs.clear();
+      const res = await t.inject({
+        method: 'POST',
+        url: '/auth/change-password',
+        payload: {
+          currentPassword: TEST_PASSWORD,
+          newPassword: NEW_PASSWORD,
+          confirmPassword: NEW_PASSWORD,
+        },
+        headers: { cookie: grantor.cookie },
+      });
+      expect(res.statusCode).toBe(302);
+
+      expect(await shareByToken(open)).toBeNull();
+      expect(await shareByToken(addressed)).toBeNull();
+      expect(await shareByToken(received)).not.toBeNull();
+      expect(await shareByToken(othersOpen)).not.toBeNull();
+      expect(await invitesOf(grantor)).toEqual([
+        expect.objectContaining({
+          granteeId: grantee.id,
+          permission: 'MANAGE',
+        }),
+      ]);
+      expect(t.logs.messages('info', 'Web').join('\n')).toContain(
+        '2 unanswered invites revoked',
+      );
+
+      const confirmation = await t.inject({
+        method: 'GET',
+        url: res.headers.location,
+        headers: { cookie: await t.login(grantor.email, NEW_PASSWORD) },
+      });
+      const shown = unescapeHtml(confirmation.body);
+      expect(shown).toContain('Your unused invite links no longer work.');
+      expect(shown).toContain(grantee.email);
+    });
+
+    it('an invite accepted after its grantor’s new password is not found', async () => {
+      const grantor = await signUpAs('after-password');
+      const guest = await signUpAs('too-late');
+      const token = await createInvite(grantor, 'MANAGE');
+      await updatePasswordHash(t.db, grantor.id, 'not-a-hash-668');
+      expect(await acceptInvite(t.db, token, guest.id)).toEqual({
+        accepted: false,
+        reason: 'not-found',
+      });
+    });
+
+    it('an invite minted while the password waits goes with it; one that waited for the password is refused', async () => {
+      const grantor = await signUpAs('mint-race');
+      const fingerprint = await sessionFingerprintOf(t.db, grantor.id);
+      const [minted, change] = await interleave(
+        t.db,
+        (tx) => mintInvite(tx, grantor.id, 'VIEW', { fingerprint }),
+        () => updatePasswordHash(t.db, grantor.id, 'not-a-hash-held'),
+      );
+      expect(minted).toBeDefined();
+      expect(change.revokedInvites).toBe(1);
+      expect(await invitesOf(grantor)).toEqual([]);
+
+      const waiter = await signUpAs('mint-waited');
+      const [, res] = await interleave(
+        t.db,
+        (tx) =>
+          tx
+            .update(user)
+            .set({ password: 'not-a-hash-moved' })
+            .where(eq(user.id, waiter.id)),
+        () => createLink(waiter, { permission: 'VIEW' }, true),
+      );
+      expect(res.statusCode).toBe(401);
+      expect(res.headers['hx-redirect']).toBe('/auth/login');
+      expect(await invitesOf(waiter)).toEqual([]);
     });
   });
 });

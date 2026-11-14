@@ -146,8 +146,8 @@ export const SIGN_IN_ACCOUNT_LIMIT = {
 
 /**
  * Every route that checks the current password: change password, change
- * email, delete account and creating a personal access token (src/web/auth/
- * token-routes.tsx). Per signed-in user, whatever address
+ * email, delete account, creating a personal access token (src/web/auth/
+ * token-routes.tsx) and creating an edit link (INVITE_LIMIT). Per signed-in user, whatever address
  * they come from. A preHandler, so it runs after the session gate (the web
  * plugin's own preHandler) has guaranteed `request.auth`; an anonymous
  * request is answered by the gate and never counted.
@@ -157,6 +157,18 @@ export const ACCOUNT_LIMIT = {
   timeWindow: MINUTE_MS,
   hook: 'preHandler',
   keyGenerator: (request) => `user ${request.auth!.user.id}`,
+} satisfies RateLimitOptions;
+
+/**
+ * Creating an invite (src/web/sharing/routes.tsx, #668): ACCOUNT_LIMIT for
+ * an edit link, the one that checks the password; a view link checks none
+ * and stays one uncounted tap. A preHandler, so the body is parsed and
+ * validated (CreateInviteBody) when this reads it.
+ */
+export const INVITE_LIMIT = {
+  ...ACCOUNT_LIMIT,
+  allowList: (request) =>
+    (request.body as { permission?: string } | null)?.permission !== 'MANAGE',
 } satisfies RateLimitOptions;
 
 /**

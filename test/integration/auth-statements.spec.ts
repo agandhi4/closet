@@ -328,7 +328,7 @@ describe('auth, account and push statements (#171)', () => {
     expect(tokens).toHaveLength(2);
     for (const token of tokens) expect(token.revokedAt).not.toBeNull();
     expect(t.logs.messages('info', 'Web')).toContain(
-      `Password changed for user ${id}: other sessions, 1 MCP tokens, 1 device tokens and 0 other push devices revoked`,
+      `Password changed for user ${id}: other sessions, 1 MCP tokens, 1 device tokens, 0 other push devices and 0 unanswered invites revoked`,
     );
   });
 

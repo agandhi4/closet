@@ -1,6 +1,13 @@
 import type { Child } from 'hono/jsx';
 import type { SharePermission } from '../../db/schema';
-import { PostForm } from '../auth/form';
+import { AccountShell } from '../auth/account-shell';
+import {
+  Field,
+  Fieldset,
+  PostForm,
+  SubmitButton,
+  UsernameTwin,
+} from '../auth/form';
 import { loginUrl, registerUrl } from '../auth/return-to';
 import { t, type StringKey } from '../i18n';
 import { AppBar } from '../layout/app-bar';
@@ -17,12 +24,19 @@ import type {
   ShareView,
 } from './queries';
 import { wardrobeUrl } from '../wardrobe/urls';
-import { invitePath, SHARING_SECTION_ID } from './urls';
+import {
+  CREATE_INVITE_PATH,
+  EDIT_INVITE_PATH,
+  invitePath,
+  SHARING_PATH,
+  SHARING_SECTION_ID,
+} from './urls';
 
 /** Views of sharing: Profile's Sharing section, the invite landing, the new-link fragment. */
 
 const REFUSAL_MESSAGES: Record<AcceptRefusal, StringKey> = {
   'not-found': 'SHARE_ERROR_NOT_FOUND',
+  expired: 'SHARE_ERROR_EXPIRED',
   'own-invite': 'SHARE_ERROR_OWN_INVITE',
   'wrong-recipient': 'SHARE_ERROR_WRONG_RECIPIENT',
   'already-shared': 'SHARE_ERROR_ALREADY_SHARED',
@@ -122,25 +136,24 @@ export function SharingSection(props: SharingModel) {
         </div>
       )}
 
-      <p class="text-sm text-base-content/70">{t('SHARE_WARDROBE_DESC')}</p>
-      <form
-        hx-post="/wardrobe-share/create-invite-link"
-        hx-target="#invite-link-result"
-        hx-swap="outerHTML"
-        class="flex gap-2 items-center"
-      >
-        <select
-          name="permission"
-          class="select select-bordered select-sm"
-          aria-label={t('SHARE_WARDROBE')}
+      <p class="text-sm text-muted">{t('SHARE_WARDROBE_DESC')}</p>
+      {/* A view link is one tap; an edit link asks for the password on its
+          own page (#668). */}
+      <div class="flex gap-2 items-center flex-wrap">
+        <form
+          hx-post={CREATE_INVITE_PATH}
+          hx-target="#invite-link-result"
+          hx-swap="outerHTML"
         >
-          <option value="VIEW">{t('PERMISSION_VIEW')}</option>
-          <option value="MANAGE">{t('PERMISSION_MANAGE')}</option>
-        </select>
-        <button type="submit" class="btn btn-primary btn-sm">
-          {t('CREATE_INVITE_LINK')}
-        </button>
-      </form>
+          <input type="hidden" name="permission" value="VIEW" />
+          <button type="submit" class="btn btn-primary btn-sm">
+            {t('CREATE_VIEW_LINK')}
+          </button>
+        </form>
+        <a href={EDIT_INVITE_PATH} class="btn btn-outline btn-sm">
+          {t('CREATE_EDIT_LINK')}
+        </a>
+      </div>
       <div id="invite-link-result"></div>
 
       {outbound.length > 0 && (
@@ -155,13 +168,9 @@ export function SharingSection(props: SharingModel) {
                       : t('PENDING_INVITE')}
                   </span>
                   <PermissionBadge permission={share.permission} />
-                  {!share.acceptedAt && (
-                    <span class="badge badge-ghost badge-sm">
-                      {t('PENDING')}
-                    </span>
-                  )}
+                  {!share.acceptedAt && <InviteState share={share} />}
                 </div>
-                {share.inviteToken && (
+                {share.inviteToken && !share.expired && (
                   <CopyableText
                     value={inviteUrl(props.origin, share.inviteToken)}
                     size="xs"
@@ -188,14 +197,17 @@ export function SharingSection(props: SharingModel) {
                   {partyName(share.grantor)}
                 </span>
                 <PermissionBadge permission={share.permission} class="ml-2" />
+                {share.expired && <InviteState share={share} class="ml-2" />}
               </div>
               {share.inviteToken && (
                 <div class="flex gap-2">
-                  <PostButton
-                    action={`/wardrobe-share/invite/${share.inviteToken}/accept`}
-                    label={t('ACCEPT')}
-                    class="btn btn-primary btn-xs"
-                  />
+                  {!share.expired && (
+                    <PostButton
+                      action={`/wardrobe-share/invite/${share.inviteToken}/accept`}
+                      label={t('ACCEPT')}
+                      class="btn btn-primary btn-xs"
+                    />
+                  )}
                   <PostButton
                     action={`/wardrobe-share/invite/${share.inviteToken}/decline`}
                     label={t('DECLINE')}
@@ -236,6 +248,53 @@ export function SharingSection(props: SharingModel) {
   );
 }
 
+/** An unanswered invite's badge: pending, or expired (listed, never offered). */
+function InviteState(props: { share: ShareView; class?: string }) {
+  const [tone, label] = props.share.expired
+    ? ['badge-warning', t('INVITE_EXPIRED')]
+    : ['badge-ghost', t('PENDING')];
+  return (
+    <span class={`badge badge-sm ${tone} ${props.class ?? ''}`.trim()}>
+      {label}
+    </span>
+  );
+}
+
+/**
+ * The edit link's step-up page (#668), a one-form page like changing the
+ * password: what an edit link gives, and the current password. A refusal
+ * answers it again with the field marked; success lands on Profile ›
+ * Sharing, listing the new link.
+ */
+export function EditInvitePage(props: {
+  ctx: ViewContext;
+  passwordError?: string;
+}) {
+  return (
+    <AccountShell
+      ctx={props.ctx}
+      title={t('CREATE_EDIT_LINK')}
+      back={SHARING_PATH}
+    >
+      <p class="text-sm text-muted w-xs">{t('EDIT_LINK_DESC')}</p>
+      <PostForm action={CREATE_INVITE_PATH}>
+        <Fieldset legend={t('CREATE_EDIT_LINK')}>
+          <input type="hidden" name="permission" value="MANAGE" />
+          <UsernameTwin email={props.ctx.user?.email} />
+          <Field
+            id="currentPassword"
+            label={t('CURRENT_PASSWORD')}
+            type="password"
+            autocomplete="current-password"
+            errors={props.passwordError ? [props.passwordError] : undefined}
+          />
+          <SubmitButton label={t('CREATE_EDIT_LINK')} />
+        </Fieldset>
+      </PostForm>
+    </AccountShell>
+  );
+}
+
 /**
  * The invite landing page, public: an anonymous recipient sees who invited
  * them and to what before being asked to sign in.
@@ -257,12 +316,14 @@ export function InvitePage(props: {
         {!ctx.user && <BrandMark ctx={ctx} />}
         <div class="card bg-base-100 shadow-md w-full max-w-md">
           <div class="card-body">
-            {invite ? (
+            {invite && !invite.expired ? (
               <InviteDetails invite={invite} token={props.token} ctx={ctx} />
             ) : (
               <>
                 <div role="alert" class="alert alert-error mb-4">
-                  <span>{t('INVITE_NOT_FOUND')}</span>
+                  <span>
+                    {t(invite ? 'INVITE_EXPIRED_DESC' : 'INVITE_NOT_FOUND')}
+                  </span>
                 </div>
                 <a href="/" class="btn btn-primary btn-sm">
                   {t('RETURN_TO_HOME')}

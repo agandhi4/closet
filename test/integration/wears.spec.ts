@@ -26,6 +26,7 @@ import {
   unescapeHtml,
   userIdOf,
   asFixture,
+  TEST_PASSWORD,
 } from './harness';
 import {
   expectFragment,
@@ -1179,7 +1180,7 @@ describe('wears and washes', () => {
         const invite = await t.inject({
           method: 'POST',
           url: '/wardrobe-share/create-invite-link',
-          payload: { permission: 'MANAGE' },
+          payload: { permission: 'MANAGE', currentPassword: TEST_PASSWORD },
           headers: { 'hx-request': 'true' },
         });
         const token = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(

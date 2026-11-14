@@ -1,13 +1,28 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import { Type } from '@sinclair/typebox';
 import { SHARE_PERMISSIONS } from '../../db/schema';
-import { sessionUserId } from '../auth/require-session';
+import { verifyPassword } from '../auth/passwords';
+import { loginRequired, sessionUserId } from '../auth/require-session';
+import { loginUrl } from '../auth/return-to';
+import {
+  endSession,
+  sessionAccount,
+  sessionFingerprint,
+} from '../auth/session';
+import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage, wantsFragment } from '../render';
 import { requestOrigin } from '../security/origin';
+import { INVITE_LIMIT } from '../security/rate-limit';
 import { viewContext } from '../view-context';
 import { actorOf } from './access';
-import { InviteLinkResult, InvitePage, inviteUrl, parseRefusal } from './pages';
+import {
+  EditInvitePage,
+  InviteLinkResult,
+  InvitePage,
+  inviteUrl,
+  parseRefusal,
+} from './pages';
 import {
   acceptInvite,
   createInvite,
@@ -16,7 +31,13 @@ import {
   removeShare,
 } from './queries';
 import { wardrobeUrl } from '../wardrobe/urls';
-import { LEGACY_MANAGE_PATH, SHARING_PATH, sharingRefusalUrl } from './urls';
+import {
+  CREATE_INVITE_PATH,
+  EDIT_INVITE_PATH,
+  LEGACY_MANAGE_PATH,
+  SHARING_PATH,
+  sharingRefusalUrl,
+} from './urls';
 
 const LegacyManageQuery = Type.Object({
   // A refusal code from an accept redirect made before #82; unknown values
@@ -29,6 +50,8 @@ const CreateInviteBody = Type.Object({
   permission: Type.Optional(
     Type.Union(SHARE_PERMISSIONS.map((value) => Type.Literal(value))),
   ),
+  // Asked for, and checked, only for an edit link (#668).
+  currentPassword: Type.Optional(Type.String({ maxLength: 1024 })),
 });
 
 const ShareParams = Type.Object({ id: Type.Integer({ minimum: 1 }) });
@@ -60,15 +83,62 @@ export const sharingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // Profile's htmx form swaps the link in; without htmx, back to the
-  // section, which lists the new invite with its link.
+  // An edit link's step-up page. No secret on it, but it is a credential
+  // form: no cache keeps it, the worker's included (forbidsStorage).
+  app.get(EDIT_INVITE_PATH, async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return renderPage(reply, <EditInvitePage ctx={viewContext(reply)} />);
+  });
+
+  // A view link is one tap: Profile's htmx form swaps the link in. An edit
+  // link hands out write access that outlives signing out, so it takes the
+  // current password (the step-up rule, src/web/auth/AGENTS.md) and the
+  // account budget (INVITE_LIMIT): the step-up page's native post, which
+  // lands back on the section, listing the new link. `checksPassword` is
+  // on for both roles, since the role is the body's, known only once the
+  // session (which reads the hash) is resolved.
   app.post(
-    '/wardrobe-share/create-invite-link',
-    { schema: { body: CreateInviteBody } },
+    CREATE_INVITE_PATH,
+    {
+      config: { rateLimit: INVITE_LIMIT, checksPassword: true },
+      schema: { body: CreateInviteBody },
+    },
     async (request, reply) => {
       const id = sessionUserId(request);
       const permission = request.body.permission ?? 'VIEW';
-      const invite = await createInvite(db, id, permission);
+      if (permission === 'MANAGE') {
+        const { password } = sessionAccount(request);
+        const typed = request.body.currentPassword ?? '';
+        if (!(await verifyPassword(typed, password))) {
+          logger.info(
+            `Edit invite refused for user ${id}: wrong or missing current password`,
+          );
+          reply.header('Cache-Control', 'no-store');
+          return renderPage(
+            reply,
+            <EditInvitePage
+              ctx={viewContext(reply)}
+              passwordError={t('WRONG_CURRENT_PASSWORD')}
+            />,
+            { status: 400 },
+          );
+        }
+      }
+      const invite = await createInvite(db, id, permission, {
+        fingerprint: sessionFingerprint(request),
+      });
+      // The password changed after the session gate let this request in:
+      // answered as the gate answers an ended session (as /push/subscribe
+      // does), the step-up page's native post with the login page.
+      if (!invite) {
+        logger.info(
+          `User ${id}'s ${permission} invite refused: the session ended under it`,
+        );
+        endSession(reply);
+        return request.headers['hx-request'] === 'true'
+          ? loginRequired(reply)
+          : reply.redirect(loginUrl(SHARING_PATH), 302);
+      }
       logger.info(`User ${id} created ${permission} invite ${invite.id}`);
       if (wantsFragment(request, reply)) {
         return renderFragment(

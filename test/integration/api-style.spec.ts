@@ -66,7 +66,7 @@ async function share(
   const invite = await t.inject({
     method: 'POST',
     url: '/wardrobe-share/create-invite-link',
-    payload: { permission },
+    payload: { permission, currentPassword: TEST_PASSWORD },
     headers: {
       'hx-request': 'true',
       ...(grantorCookie && { cookie: grantorCookie }),
