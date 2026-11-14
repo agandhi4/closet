@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { variantFileName } from '../../src/web/files/image-variant';
@@ -13,6 +13,9 @@ import {
   uploadPhoto,
 } from './garments';
 import { variantPath } from './cutouts';
+import { TRASH_DIR } from '../../src/web/files/storage';
+
+const TRASHED = `${randomUUID()}.webp`;
 import {
   createTestApp,
   multipart,
@@ -111,8 +114,18 @@ describe('/file route and request logging', () => {
     '/file/sqlite3.db',
     '/file/.incoming',
     '/file/..%2Fapp.log',
+    '/file/.closet-storage',
+    '/file/.trash',
+    `/file/.trash%2F2026-01-01%2F${TRASHED}%2F${TRASHED}`,
+    `/file/thumb/..%2F.trash%2F2026-01-01%2F${TRASHED}%2F${TRASHED}`,
+    `/file/${TRASHED}`,
   ])('refuses %s', async (url) => {
     await writeFile(join(t.dataPath, 'sqlite3.db'), 'not a photo');
+    // A quarantined photo (#649): bytes on disk, never served, not even
+    // by its own base name.
+    const trashed = join(t.dataPath, TRASH_DIR, '2026-01-01', TRASHED);
+    await mkdir(trashed, { recursive: true });
+    await writeFile(join(trashed, TRASHED), 'a quarantined photo');
     expect(await status(url)).toBe(404);
   });
 

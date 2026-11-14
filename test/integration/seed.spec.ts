@@ -825,11 +825,11 @@ describe('seed personas', () => {
     expect(await t.db.$count(generatorAvoid)).toBe(0);
     expect(await t.db.$count(selfie)).toBe(0);
     const report = await reconcileStorage(
-      { db: t.db, photos: t.photos, logger: t.logger },
+      { db: t.db, photos: t.photos, logger: t.logger, timeZone: t.timeZone },
       { dryRun: true, olderThanMs: 0 },
     );
     expect(report).toMatchObject({
-      orphanedObjectsDeleted: 0,
+      orphanedSetsQuarantined: 0,
       orphanedRowsDeleted: 0,
       missingOriginals: 0,
     });

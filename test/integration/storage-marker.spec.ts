@@ -45,7 +45,12 @@ describe('the photo storage marker', () => {
   const markerPath = () => join(t.dataPath, STORAGE_MARKER);
   const reconcile = (force = false) =>
     reconcileStorage(
-      { db: t.db, photos: t.photos, logger: silentLogger },
+      {
+        db: t.db,
+        photos: t.photos,
+        logger: silentLogger,
+        timeZone: t.timeZone,
+      },
       { force },
     );
   const storedFiles = async () =>
@@ -140,7 +145,7 @@ describe('the photo storage marker', () => {
         expect(report).toMatchObject({
           pendingPhotosDeleted: 0,
           pendingRowsWithoutFiles: 0,
-          orphanedObjectsDeleted: 0,
+          orphanedSetsQuarantined: 0,
           orphanedRowsDeleted: 0,
         });
       }

@@ -74,7 +74,12 @@ export async function serve(
         hour: RECONCILE_HOUR,
         timeZone: config.APP_TIMEZONE,
         run: metrics.timeJob('reconciliation', () =>
-          reconcileStorage({ db, photos, logger: reconciliation }),
+          reconcileStorage({
+            db,
+            photos,
+            logger: reconciliation,
+            timeZone: config.APP_TIMEZONE,
+          }),
         ),
         logger: reconciliation,
       }),

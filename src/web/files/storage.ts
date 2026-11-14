@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import type { IsoDate } from '../../calendar-date';
 import type { Logger } from '../../logger';
 
 // Writes land here first and are renamed into DATA_PATH when complete (same
@@ -12,6 +13,17 @@ import type { Logger } from '../../logger';
 // never sees in-flight writes.
 const INCOMING_DIR = '.incoming';
 const STALE_INCOMING_MS = 60 * 60 * 1000;
+
+/**
+ * Reconciliation's quarantine (#649): `.trash/<YYYY-MM-DD>/<set>/<files>`,
+ * one directory per day (APP_TIMEZONE) and per photo set. Under DATA_PATH,
+ * so a move is a rename on one filesystem: atomic, the bytes untouched. A
+ * dot-directory: list() skips it and parseStoredName refuses its name, so
+ * nothing in it is scanned or served by /file/**.
+ */
+export const TRASH_DIR = '.trash';
+// A day directory's name; anything else under .trash is not ours to purge.
+const TRASH_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * The directory's identity (#650): written once, by claimStorage
@@ -47,10 +59,11 @@ export type MarkerRead =
   | { state: 'unreadable'; code: string };
 
 /**
- * The file operations the marker uses, injectable so a spec can fail a read
- * or hold a writer between its temp file and its link (photo-storage.spec.ts).
+ * The file operations the marker and the trash's restore use, injectable so
+ * a spec can fail a read or a link, or hold a writer between its temp file
+ * and its link (photo-storage.spec.ts).
  */
-export interface MarkerFs {
+export interface StorageFs {
   readText(file: string): Promise<string>;
   /** Creates `file`, failing with EEXIST when it exists (`wx`). */
   writeNew(file: string, text: string): Promise<void>;
@@ -59,7 +72,7 @@ export interface MarkerFs {
   remove(file: string): Promise<void>;
 }
 
-const NODE_MARKER_FS: MarkerFs = {
+const NODE_STORAGE_FS: StorageFs = {
   readText: (file) => fs.promises.readFile(file, 'utf8'),
   writeNew: (file, text) => fs.promises.writeFile(file, text, { flag: 'wx' }),
   link: (from, to) => fs.promises.link(from, to),
@@ -70,6 +83,14 @@ const NODE_MARKER_FS: MarkerFs = {
 export interface StoredObject {
   name: string;
   lastModified: Date;
+}
+
+/** A quarantined photo set: `.trash/<day>/<entry>`, holding `files`. */
+export interface TrashedSet {
+  day: IsoDate;
+  /** The set's name, with a `~<hex>` suffix when the day already held one. */
+  entry: string;
+  files: string[];
 }
 
 /**
@@ -87,7 +108,7 @@ export class PhotoStorage {
   constructor(
     readonly directory: string,
     private readonly logger: Logger,
-    private readonly markerFs: MarkerFs = NODE_MARKER_FS,
+    private readonly storageFs: StorageFs = NODE_STORAGE_FS,
   ) {
     this.incoming = path.join(directory, INCOMING_DIR);
   }
@@ -120,7 +141,7 @@ export class PhotoStorage {
   async readMarker(): Promise<MarkerRead> {
     let text: string;
     try {
-      text = await this.markerFs.readText(this.pathOf(STORAGE_MARKER));
+      text = await this.storageFs.readText(this.pathOf(STORAGE_MARKER));
     } catch (error) {
       const code = String((error as NodeJS.ErrnoException).code);
       if (code === 'ENOENT') return { state: 'absent' };
@@ -155,8 +176,8 @@ export class PhotoStorage {
     };
     const tempPath = path.join(this.incoming, `${randomUUID()}-marker`);
     try {
-      await this.markerFs.writeNew(tempPath, `${JSON.stringify(marker)}\n`);
-      await this.markerFs.link(tempPath, this.pathOf(STORAGE_MARKER));
+      await this.storageFs.writeNew(tempPath, `${JSON.stringify(marker)}\n`);
+      await this.storageFs.link(tempPath, this.pathOf(STORAGE_MARKER));
       return { state: 'present', marker };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
@@ -170,7 +191,7 @@ export class PhotoStorage {
       }
       return existing;
     } finally {
-      await this.markerFs.remove(tempPath);
+      await this.storageFs.remove(tempPath);
     }
   }
 
@@ -272,11 +293,164 @@ export class PhotoStorage {
     }
   }
 
+  /**
+   * Moves `names` (one photo set) into `.trash/<day>/<setName>/`, by
+   * rename, never a copy: atomic and byte-preserving. A set of that name
+   * already in the day's folder (quarantined, restored, quarantined again)
+   * gets a fresh suffixed directory, so nothing in the trash is ever
+   * overwritten. A file gone meanwhile is skipped; undefined when none was
+   * there to move.
+   */
+  async quarantine(
+    setName: string,
+    names: readonly string[],
+    day: IsoDate,
+  ): Promise<TrashedSet | undefined> {
+    const dayDir = path.join(this.directory, TRASH_DIR, day);
+    await fs.promises.mkdir(dayDir, { recursive: true });
+    const entry = await createFreshDirectory(dayDir, path.basename(setName));
+    const files: string[] = [];
+    for (const name of names) {
+      const file = path.basename(name);
+      try {
+        await fs.promises.rename(
+          this.pathOf(file),
+          path.join(dayDir, entry, file),
+        );
+        files.push(file);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    }
+    if (files.length === 0) {
+      await fs.promises.rmdir(path.join(dayDir, entry));
+      return undefined;
+    }
+    return { day, entry, files };
+  }
+
+  /** Every quarantined set, by day directory; none when nothing was quarantined. */
+  async trash(): Promise<TrashedSet[]> {
+    const root = path.join(this.directory, TRASH_DIR);
+    const sets: TrashedSet[] = [];
+    for (const day of await directoriesIn(root)) {
+      if (!TRASH_DAY.test(day)) continue;
+      for (const entry of await directoriesIn(path.join(root, day))) {
+        const files = await fs.promises.readdir(path.join(root, day, entry));
+        sets.push({ day, entry, files: files.sort() });
+      }
+    }
+    return sets;
+  }
+
+  /** The day directories of `.trash`, oldest first. */
+  async trashDays(): Promise<IsoDate[]> {
+    const days = await directoriesIn(path.join(this.directory, TRASH_DIR));
+    return days.filter((day) => TRASH_DAY.test(day)).sort();
+  }
+
+  /** Deletes one day's quarantine, every set in it. */
+  async removeTrashDay(day: IsoDate): Promise<void> {
+    if (!TRASH_DAY.test(day)) throw new Error(`Not a trash day: ${day}`);
+    await fs.promises.rm(path.join(this.directory, TRASH_DIR, day), {
+      recursive: true,
+    });
+  }
+
+  /**
+   * Moves quarantined entries (one photo set, possibly split across
+   * entries by a quarantine that failed mid-set) back into DATA_PATH, where
+   * list() finds them, whole or not at all: every file is linked first (a
+   * link fails with EEXIST rather than replace a live file), and the trash
+   * lets go only once all are; a failed link unlinks the ones made and
+   * rethrows, leaving storage and the trash as they were. Every restored
+   * file's mtime becomes `now`, so reconciliation's day-old grace starts
+   * at the restore rather than at the upload. Emptied directories go.
+   */
+  async restore(sets: readonly TrashedSet[], now: Date): Promise<void> {
+    const moves = sets.flatMap((set) =>
+      set.files.map((file) => ({
+        from: path.join(this.trashEntryPath(set), path.basename(file)),
+        to: this.pathOf(file),
+      })),
+    );
+    const linked: string[] = [];
+    try {
+      for (const { from, to } of moves) {
+        await this.storageFs.link(from, to);
+        linked.push(to);
+      }
+      for (const to of linked) await fs.promises.utimes(to, now, now);
+    } catch (error) {
+      // Each is a second name of a file the trash still holds.
+      for (const to of linked) await this.storageFs.remove(to);
+      throw error;
+    }
+    for (const { from } of moves) await this.storageFs.remove(from);
+    for (const set of sets) {
+      await removeIfEmpty(this.trashEntryPath(set));
+      // Other sets quarantined that day stay.
+      await removeIfEmpty(path.dirname(this.trashEntryPath(set)));
+    }
+  }
+
+  private trashEntryPath(set: TrashedSet): string {
+    return path.join(
+      this.directory,
+      TRASH_DIR,
+      path.basename(set.day),
+      path.basename(set.entry),
+    );
+  }
+
   // Names come from our own code (variantFileName of a stored name, or a
   // route segment parseStoredName accepted); basename() is the last line
   // against a path ever leaving the directory.
   private pathOf(fileName: string): string {
     return path.join(this.directory, path.basename(fileName));
+  }
+}
+
+// The subdirectories of `directory`; none when it does not exist.
+async function directoriesIn(directory: string): Promise<string[]> {
+  try {
+    const entries = await fs.promises.readdir(directory, {
+      withFileTypes: true,
+    });
+    return entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+// A directory already gone (the second set of one day) is as good as removed.
+async function removeIfEmpty(directory: string): Promise<void> {
+  await fs.promises.rmdir(directory).catch((error: unknown) => {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'ENOTEMPTY' && code !== 'ENOENT') throw error;
+  });
+}
+
+// mkdir fails with EEXIST rather than reuse a directory, so the name
+// returned is one this call created, empty.
+async function createFreshDirectory(
+  parent: string,
+  name: string,
+): Promise<string> {
+  for (
+    let candidate = name;
+    ;
+    candidate = `${name}~${randomUUID().slice(0, 8)}`
+  ) {
+    try {
+      await fs.promises.mkdir(path.join(parent, candidate));
+      return candidate;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
   }
 }
 
