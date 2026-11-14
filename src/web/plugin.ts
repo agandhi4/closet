@@ -102,6 +102,8 @@ export interface WebOptions {
   logger: Logger;
   db: Db;
   tokens: SessionTokens;
+  /** AppOptions.photoUploadMax: PHOTO_UPLOAD_LIMIT's max, for the specs alone. */
+  photoUploadMax?: number;
   /**
    * The process's one Photos, built by createApp() (its thumb single-flight
    * must be shared): garment writes store through it, /file/** serves
@@ -193,7 +195,10 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   app.addHook(
     'preHandler',
     photoUploadHook(
-      app.createRateLimit(PHOTO_UPLOAD_LIMIT),
+      app.createRateLimit({
+        ...PHOTO_UPLOAD_LIMIT,
+        max: options.photoUploadMax ?? PHOTO_UPLOAD_LIMIT.max,
+      }),
       logger.child({ logger: 'Security' }),
     ),
   );

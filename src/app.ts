@@ -154,6 +154,12 @@ export interface AppOptions {
    * test/support/heic-stub-worker.ts); production never passes them.
    */
   heicDecoder?: HeicDecoderOptions;
+  /**
+   * PHOTO_UPLOAD_LIMIT's max: the authorization matrix builds its fixtures
+   * through the upload routes, hundreds a minute as one owner. Production
+   * never passes it.
+   */
+  photoUploadMax?: number;
 }
 
 function buildInfoFor(config: Config): BuildInfo {
@@ -513,6 +519,7 @@ export async function createApp(
     push,
     metrics,
     errors,
+    photoUploadMax: options.photoUploadMax,
   });
 
   return {
