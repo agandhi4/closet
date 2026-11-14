@@ -29,7 +29,14 @@ import { FILTERED, scrubSecrets } from '../secret-text';
  */
 
 /** Where an error was captured: a tag, so Bugsink can filter by it. */
-type ErrorSource = 'route' | 'job' | 'push' | 'mcp' | 'client' | 'process';
+type ErrorSource =
+  | 'route'
+  | 'job'
+  | 'push'
+  | 'mcp'
+  | 'cutout_model'
+  | 'client'
+  | 'process';
 
 export interface ErrorContext {
   source: ErrorSource;

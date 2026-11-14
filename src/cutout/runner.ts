@@ -24,9 +24,11 @@ export interface CutoutRunner {
   readonly inputSize: number;
   /**
    * Resolves once mask() has nothing unbounded left to wait for (the model
-   * file verified, or downloaded on a first boot). The queue waits for it
-   * before claiming a job, so a job's lease (CUTOUT_LEASE_MS) only counts
-   * bounded work. Rejects while that cannot be done; cheap once resolved.
+   * file verified, or downloaded on a first boot) and can run at all (the
+   * runtime's native binding loads). The queue waits for it before claiming
+   * a job, so a job's lease (CUTOUT_LEASE_MS) only counts bounded work, and
+   * while it rejects the queue waits for the model (queue-state.ts) rather
+   * than failing photos. Cheap once resolved.
    */
   ready(): Promise<void>;
   /** `rgb`: inputSize x inputSize RGB, 3 bytes a pixel. One call at a time. */
@@ -43,8 +45,22 @@ export class CutoutTimeoutError extends Error {
   }
 }
 
+/**
+ * onnxruntime-node's native binding did not load in the model process (the
+ * arm64 image, whose binaries the Dockerfile deletes; a broken install).
+ */
+export class ModelBindingError extends Error {
+  constructor(how: string) {
+    super(`The model process could not load onnxruntime-node (${how})`);
+    this.name = 'ModelBindingError';
+  }
+}
+
 export const CUTOUT_TIMEOUT_MS = 60_000;
 const MODEL_IDLE_MS = 15 * 60_000;
+// A process that loads the binding answers the probe in well under a
+// second; one that hangs is as unusable as one that died.
+const PROBE_TIMEOUT_MS = 30_000;
 
 export interface ModelRunnerOptions {
   model: Pick<CutoutModel, 'ready' | 'spec'>;
@@ -92,6 +108,10 @@ export class ModelRunner implements CutoutRunner {
   private inFlight: InFlight | undefined;
   private idleTimer: NodeJS.Timeout | undefined;
   private nextId = 1;
+  // The binding probe's verdict, kept once it passed (a binding does not go
+  // away under a running process); a failed one is tried again next call.
+  private bindingLoads: Promise<void> | undefined;
+  private probeChild: ChildProcess | undefined;
   // Why we stopped a process, so its exit is logged as expected.
   private readonly stopReasons = new WeakMap<ChildProcess, string>();
   private readonly timeoutMs: number;
@@ -112,6 +132,11 @@ export class ModelRunner implements CutoutRunner {
 
   async ready(): Promise<void> {
     await this.options.model.ready();
+    this.bindingLoads ??= this.probeBinding().catch((error: unknown) => {
+      this.bindingLoads = undefined;
+      throw error;
+    });
+    await this.bindingLoads;
   }
 
   async mask(rgb: Buffer): Promise<CutoutMask> {
@@ -127,7 +152,61 @@ export class ModelRunner implements CutoutRunner {
 
   async close(): Promise<void> {
     clearTimeout(this.idleTimer);
+    this.probeChild?.kill('SIGKILL');
     if (this.child) await this.stop(this.child, 'shutdown');
+  }
+
+  // Proves the runtime loads where the model runs, without loading the
+  // model (3 GB): a short-lived model process answers `probe` once its
+  // static import of onnxruntime-node succeeded, and dies before answering
+  // when the binding is missing. The web process never loads onnxruntime.
+  private probeBinding(): Promise<void> {
+    const { logger } = this.options;
+    const startedAt = performance.now();
+    const child = fork(this.childScript.path, [], {
+      serialization: 'advanced',
+      execArgv: this.childScript.execArgv,
+      stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+    });
+    this.probeChild = child;
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => end(new ModelBindingError(`no answer in ${PROBE_TIMEOUT_MS} ms`)),
+        PROBE_TIMEOUT_MS,
+      );
+      let settled = false;
+      const end = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (this.probeChild === child) this.probeChild = undefined;
+        if (error) {
+          // Dead already, or hung: either way it never runs a model. The
+          // queue logs the failure with the state it enters.
+          child.kill('SIGKILL');
+          reject(error);
+          return;
+        }
+        // Closing the channel ends it (child.ts exits on disconnect).
+        child.disconnect();
+        logger.info(
+          `Model process ${child.pid} loaded onnxruntime-node in ${Math.round(performance.now() - startedAt)} ms`,
+        );
+        resolve();
+      };
+      child.on('message', (reply: ChildReply) => {
+        if (reply.type === 'probed') end();
+      });
+      child.on('error', (error) =>
+        end(new ModelBindingError(`could not start: ${error.message}`)),
+      );
+      child.on('exit', (code, signal) =>
+        end(new ModelBindingError(`exited with ${signal ?? `code ${code}`}`)),
+      );
+      child.send({ type: 'probe' } satisfies ChildRequest, (error) => {
+        if (error) end(new ModelBindingError(`unreachable: ${error.message}`));
+      });
+    });
   }
 
   private spawn(modelPath: string): ChildProcess {
@@ -199,6 +278,9 @@ export class ModelRunner implements CutoutRunner {
   private onReply(child: ChildProcess, reply: ChildReply): void {
     const { logger } = this.options;
     switch (reply.type) {
+      // Only the binding probe's process is sent `probe`.
+      case 'probed':
+        return;
       case 'loaded':
         logger.info(
           `Model process ${child.pid} loaded the model in ${reply.loadMs} ms (RSS ${reply.rssMb} MB)`,

@@ -53,7 +53,14 @@ const NO_IO =
 
 export default tseslint.config(
   {
-    ignores: ['eslint.config.mjs', './test/support/legacy-migrations/**/*'],
+    // The cutout-children are stand-in model processes (plain .mjs, outside
+    // the TypeScript project): lint:check never covered them, and devkit's
+    // changed-lint failed to parse one whenever it changed.
+    ignores: [
+      'eslint.config.mjs',
+      './test/support/legacy-migrations/**/*',
+      './test/fixtures/cutout-children/*.mjs',
+    ],
   },
   // devkit's base first (devkit/lint/README.md): no-console, no-eval, no-implied-eval and the
   // innerHTML / outerHTML / insertAdjacentHTML sinks. Later layers relax it per glob.

@@ -1,8 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import { captureLogs } from '../../test/support/log-capture';
 import { recordErrors } from '../../test/support/sentry-stub';
-import { JOB_OUTCOMES, type JobName, Metrics } from './metrics';
+import {
+  JOB_OUTCOMES,
+  type JobName,
+  Metrics,
+  type PendingCutouts,
+} from './metrics';
 import { endWhole, PartialFailure } from './partial-failure';
+
+/** A count of pending cutouts none of which is dated. */
+const depthOnly = (depth: number): PendingCutouts => ({
+  depth,
+  oldestRequestedAt: null,
+});
 
 function newMetrics(enabled = false) {
   const { logger, logs } = captureLogs();
@@ -319,7 +330,9 @@ describe('Metrics', () => {
       return {
         counts,
         pending: () =>
-          new Promise<number>((resolve) => counts.push({ resolve })),
+          new Promise<number>((resolve) => counts.push({ resolve })).then(
+            depthOnly,
+          ),
       };
     }
 
@@ -367,7 +380,9 @@ describe('Metrics', () => {
       const { metrics, logs } = newMetrics();
       let depth: number | Error = 3;
       metrics.trackCutoutQueue(() =>
-        depth instanceof Error ? Promise.reject(depth) : Promise.resolve(depth),
+        depth instanceof Error
+          ? Promise.reject(depth)
+          : Promise.resolve(depthOnly(depth)),
       );
       expect((await metrics.exposition()).body).toMatch(
         /^cutout_queue_depth 3$/m,
@@ -400,7 +415,7 @@ describe('Metrics', () => {
         try {
           const { metrics, logs } = newMetrics();
           let depth = 3;
-          metrics.trackCutoutQueue(() => Promise.resolve(depth));
+          metrics.trackCutoutQueue(() => Promise.resolve(depthOnly(depth)));
           expect((await metrics.exposition()).body).toMatch(
             /^cutout_queue_depth 3$/m,
           );
@@ -427,7 +442,9 @@ describe('Metrics', () => {
       const counts: { reject: (error: Error) => void }[] = [];
       metrics.trackCutoutQueue(
         () =>
-          new Promise<number>((_resolve, reject) => counts.push({ reject })),
+          new Promise<PendingCutouts>((_resolve, reject) =>
+            counts.push({ reject }),
+          ),
       );
       const first = metrics.exposition();
       await vi.waitFor(() => expect(counts).toHaveLength(1));
@@ -449,7 +466,7 @@ describe('Metrics', () => {
       metrics.trackCutoutQueue(() => {
         calls += 1;
         if (calls === 1) throw new Error('pool closed');
-        return Promise.resolve(2);
+        return Promise.resolve(depthOnly(2));
       });
       expect((await metrics.exposition()).body).toMatch(
         /^cutout_queue_depth 0$/m,
@@ -464,6 +481,42 @@ describe('Metrics', () => {
         /^cutout_queue_depth 2$/m,
       );
       expect(calls).toBe(3);
+    });
+
+    // #689: a queue that cannot run its model shows as an age that grows
+    // while the depth stands still. The age is measured at the scrape, from
+    // the count's oldest request, so it grows between counts too.
+    it("exports the oldest pending cutout's age beside the depth, from one count", async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        vi.setSystemTime(new Date('2026-11-14T12:00:00Z'));
+        const { metrics } = newMetrics();
+        let calls = 0;
+        metrics.trackCutoutQueue(() => {
+          calls += 1;
+          // The first count answers; the next never does.
+          return calls === 1
+            ? Promise.resolve({
+                depth: 2,
+                oldestRequestedAt: new Date('2026-11-14T11:58:30Z'),
+              })
+            : new Promise<PendingCutouts>(() => undefined);
+        });
+        const first = (await metrics.exposition()).body;
+        expect(first).toMatch(/^cutout_queue_depth 2$/m);
+        expect(first).toMatch(/^cutout_queue_oldest_age_seconds 90$/m);
+        expect(calls).toBe(1);
+
+        vi.setSystemTime(new Date('2026-11-14T12:00:10Z'));
+        // The second count is still out: the last one's depth stands, and
+        // its oldest photo is 10 s older now. Both gauges shared one count.
+        const second = (await metrics.exposition()).body;
+        expect(second).toMatch(/^cutout_queue_depth 2$/m);
+        expect(second).toMatch(/^cutout_queue_oldest_age_seconds 100$/m);
+        expect(calls).toBe(2);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
@@ -493,7 +546,7 @@ describe('Metrics', () => {
       cache: false,
       ms: { request: 1 },
     });
-    metrics.trackCutoutQueue(() => Promise.resolve(2));
+    metrics.trackCutoutQueue(() => Promise.resolve(depthOnly(2)));
 
     const { contentType, body } = await metrics.exposition();
     expect(contentType).toBe('text/plain; version=0.0.4; charset=utf-8');
@@ -503,6 +556,7 @@ describe('Metrics', () => {
         "# TYPE client_timing_dropped_total counter",
         "# TYPE client_timing_seconds histogram",
         "# TYPE cutout_queue_depth gauge",
+        "# TYPE cutout_queue_oldest_age_seconds gauge",
         "# TYPE http_request_db_statements histogram",
         "# TYPE http_request_duration_seconds histogram",
         "# TYPE job_duration_seconds histogram",
@@ -528,6 +582,7 @@ describe('Metrics', () => {
         "client_timing_seconds_count{cache,kind,metric,route}",
         "client_timing_seconds_sum{cache,kind,metric,route}",
         "cutout_queue_depth{}",
+        "cutout_queue_oldest_age_seconds{}",
         "http_request_db_statements_bucket{le="+Inf",route}",
         "http_request_db_statements_bucket{le="0",route}",
         "http_request_db_statements_bucket{le="1",route}",
