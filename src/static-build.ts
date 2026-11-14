@@ -82,7 +82,7 @@ function isVersionedPath(pathname: string): boolean {
 /**
  * The build a first-party static URL names (`?v=`, src/web/layout/layout.tsx and the importmap),
  * or undefined for a URL no build precache answers: another origin, a path outside the versioned
- * roots, no `v` (the content-hashed fonts, the worker's own precache route's).
+ * roots, no `v` (the content-hashed fonts: answerContentHashed).
  */
 export function assetBuildOf(url: URL, origin: string): string | undefined {
   if (url.origin !== origin || !isVersionedPath(url.pathname)) return undefined;
@@ -97,6 +97,37 @@ export interface PrecacheStorage {
     options: { cacheName: string; ignoreSearch?: boolean },
   ): Promise<Response | undefined>;
   delete(cacheName: string): Promise<boolean>;
+}
+
+/**
+ * The precache route's extra candidates (Workbox's `urlManipulation`) for a file outside the
+ * versioned roots that a page names with `?v=` anyway (`/favicon.ico?v=`, the layout): the same
+ * URL without `v`, the path the precache keys it by (#781). Never for a versioned root: its
+ * `?v=X` is X's bytes or the network (answerVersionedAsset), never this build's under X's name.
+ */
+export function unversionedPrecacheVariants(url: URL, origin: string): URL[] {
+  if (
+    url.origin !== origin ||
+    isVersionedPath(url.pathname) ||
+    !url.searchParams.has('v')
+  ) {
+    return [];
+  }
+  const variant = new URL(url.href);
+  variant.searchParams.delete('v');
+  return [variant];
+}
+
+/**
+ * A first-party file named by its content hash, with no `?v=`: the webfonts, which
+ * `npm run generate:fonts` writes as `[name]-[hash].woff2` and bundle.css names bare.
+ */
+export function isContentHashed(url: URL, origin: string): boolean {
+  return (
+    url.origin === origin &&
+    url.pathname.startsWith('/vendor/fonts/') &&
+    !url.searchParams.has('v')
+  );
 }
 
 /**
@@ -193,8 +224,17 @@ export async function dropOtherPrecaches(
   caches: PrecacheStorage,
   own: string,
 ): Promise<{ kept: string[]; dropped: string[] }> {
+  const result = keptPrecaches(await precacheStates(caches), own);
+  await Promise.all(result.dropped.map((name) => caches.delete(name)));
+  return result;
+}
+
+/** Every build precache present, with when its worker activated. */
+async function precacheStates(
+  caches: Pick<PrecacheStorage, 'keys' | 'match'>,
+): Promise<PrecacheState[]> {
   const names = (await caches.keys()).filter(isPrecacheName);
-  const states = await Promise.all(
+  return Promise.all(
     names.map(async (name) => {
       const marker = await caches.match(ACTIVATED_KEY, { cacheName: name });
       return {
@@ -203,7 +243,29 @@ export async function dropOtherPrecaches(
       };
     }),
   );
-  const result = keptPrecaches(states, own);
-  await Promise.all(result.dropped.map((name) => caches.delete(name)));
-  return result;
+}
+
+/**
+ * Answers a content-hashed file (isContentHashed) from `own`'s precache (this worker's, by
+ * cache name), else from the other kept builds', the latest to have activated first (the one
+ * `own` replaced): an older build's page offline names the fonts its own bundle.css names, which
+ * this build may no longer have (#780). One name is one set of bytes, so any build's copy is
+ * right. Without a copy anywhere, the network, stored nowhere.
+ */
+export async function answerContentHashed(
+  url: URL,
+  caches: Pick<PrecacheStorage, 'keys' | 'match'>,
+  own: string,
+  network: () => Promise<Response>,
+): Promise<Response> {
+  const request = `${url.origin}${url.pathname}`;
+  const others = (await precacheStates(caches))
+    .filter((state) => state.name !== own)
+    .sort((a, b) => (b.activatedAt ?? 0) - (a.activatedAt ?? 0))
+    .map((state) => state.name);
+  for (const cacheName of [own, ...others]) {
+    const copy = await caches.match(request, { cacheName, ignoreSearch: true });
+    if (copy) return copy;
+  }
+  return network();
 }

@@ -5,10 +5,17 @@ import {
   cachedAt,
   endedSession,
   forbidsStorage,
+  isBackingOff,
   isRenderedPage,
   navigationPostAnswer,
+  nextRefreshBackoff,
   PAGE_ACCOUNT_HEADER,
   pageAccount,
+  parseRefreshBackoff,
+  parseRefreshedRecord,
+  type RefreshBackoff,
+  refreshDue,
+  refreshedRecord,
   refetchInTurn,
   type RefetchStep,
   refetchVerdict,
@@ -462,5 +469,104 @@ describe('refetchInTurn', () => {
     const run = await refetchInTurn(keys, refetch, () => asked.length === 1);
     expect(asked).toEqual(['/wardrobe/1']);
     expect(run.stop).toBe('the session changed');
+  });
+});
+
+// #782: a page answering 500 no longer makes every WARM_PAGES rescan and ask it.
+describe('the refresh backoff', () => {
+  const MINUTE = 60_000;
+  const activated = 1_000;
+
+  it('waits 5 min after a failure, doubling to a day', () => {
+    let backoff: RefreshBackoff | undefined;
+    const waits: number[] = [];
+    let now = activated;
+    for (let failure = 0; failure < 11; failure++) {
+      backoff = nextRefreshBackoff(backoff, now, activated);
+      waits.push((backoff.retryAt - now) / MINUTE);
+      now = backoff.retryAt;
+    }
+    expect(waits).toEqual([5, 10, 20, 40, 80, 160, 320, 640, 1280, 1440, 1440]);
+    expect(backoff?.failures).toBe(11);
+  });
+
+  it('passes a key over until its wait ends, then asks it again', () => {
+    const backoff = nextRefreshBackoff(undefined, activated, activated);
+    expect(isBackingOff(backoff, activated + 5 * MINUTE - 1)).toBe(true);
+    expect(isBackingOff(backoff, activated + 5 * MINUTE)).toBe(false);
+    expect(isBackingOff(undefined, activated)).toBe(false);
+  });
+
+  it('skips the scan while every left key backs off, and is due once one ends', () => {
+    const now = activated + MINUTE;
+    const waiting = [
+      nextRefreshBackoff(undefined, now, activated),
+      nextRefreshBackoff(
+        { failures: 2, retryAt: now, activatedAt: activated },
+        now,
+        activated,
+      ),
+    ];
+    const record = parseRefreshedRecord(
+      JSON.stringify(refreshedRecord(now, waiting)),
+    );
+    expect(record).toEqual({ at: now, retryAt: now + 5 * MINUTE });
+    expect(refreshDue(record, activated, now + 5 * MINUTE - 1)).toBe(false);
+    expect(refreshDue(record, activated, now + 5 * MINUTE)).toBe(true);
+    // A later deploy makes everything due again, backoff or not.
+    expect(refreshDue(record, now + 2 * MINUTE, now + 2 * MINUTE)).toBe(true);
+  });
+
+  it('is not due again after a walk that left nothing waiting', () => {
+    const now = activated + MINUTE;
+    const record = parseRefreshedRecord(
+      JSON.stringify(refreshedRecord(now, [])),
+    );
+    expect(refreshDue(record, activated, now + 365 * 24 * 60 * MINUTE)).toBe(
+      false,
+    );
+    expect(refreshDue(undefined, activated, now)).toBe(true);
+  });
+
+  // A refreshed-at written before #782 is a bare number.
+  it('reads the older record and treats unreadable ones as none', () => {
+    expect(parseRefreshedRecord('12345')).toEqual({ at: 12345 });
+    expect(parseRefreshedRecord('{')).toBeUndefined();
+    expect(
+      parseRefreshBackoff('{"failures":2,"retryAt":9,"activatedAt":1}', 1),
+    ).toEqual({ failures: 2, retryAt: 9, activatedAt: 1 });
+    expect(parseRefreshBackoff('{"failures":"2"}', 1)).toBeUndefined();
+    expect(parseRefreshBackoff(undefined, 1)).toBeUndefined();
+  });
+
+  // A deploy may fix the failing page: its backoff must not outlive the
+  // activation that wrote it.
+  it('expires a backoff once another build activates', () => {
+    const buildA = activated;
+    let now = buildA + MINUTE;
+    let backoff: RefreshBackoff | undefined;
+    for (let failure = 0; failure < 10; failure++) {
+      backoff = nextRefreshBackoff(backoff, now, buildA);
+    }
+    const stored = JSON.stringify(backoff);
+    expect(backoff?.retryAt).toBe(now + 24 * 60 * MINUTE);
+    expect(isBackingOff(parseRefreshBackoff(stored, buildA), now)).toBe(true);
+
+    now += 2 * MINUTE;
+    const buildB = now;
+    const refreshed = refreshedRecord(
+      buildA + MINUTE,
+      backoff ? [backoff] : [],
+    );
+    // The next WARM_PAGES scans, and asks the key as if it never failed.
+    expect(refreshDue(refreshed, buildB, now)).toBe(true);
+    const underB = parseRefreshBackoff(stored, buildB);
+    expect(underB).toBeUndefined();
+    expect(isBackingOff(underB, now)).toBe(false);
+    expect(nextRefreshBackoff(underB, now, buildB)).toEqual({
+      failures: 1,
+      retryAt: now + 5 * MINUTE,
+      activatedAt: buildB,
+    });
   });
 });
