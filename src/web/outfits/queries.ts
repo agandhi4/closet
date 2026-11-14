@@ -924,6 +924,7 @@ export function createOutfit(
             outfitId: saved.id,
             ...input.plan,
             chooser: planChooser(input),
+            outfitCreated: true,
           })
         ).outcome
       : undefined;

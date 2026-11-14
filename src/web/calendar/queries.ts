@@ -5,6 +5,7 @@ import {
   file,
   garment,
   outfit,
+  weekPlanEntry,
   outfitCalendar,
   outfitSlot,
 } from '../../db/schema';
@@ -218,6 +219,8 @@ export interface NewEntry {
   occasion: Occasion;
   /** Who chose it (planned-by.ts): the planner, the agent or the person; required, so a new caller says. */
   chooser: Chooser;
+  /** The pick that planned it created the outfit (#748): what deleteEntry may prune. Absent: no. */
+  outfitCreated?: boolean;
 }
 
 /**
@@ -353,9 +356,10 @@ async function upsertEntry(tx: Queryable, entry: NewEntry): Promise<Scheduled> {
     pending: boolean;
   }>(sql`
     with written as (
-      insert into ${outfitCalendar} (owner_id, day, outfit_id, occasion, planned_by, planned_by_token_id)
+      insert into ${outfitCalendar} (owner_id, day, outfit_id, occasion, planned_by, planned_by_token_id, outfit_created)
       select ${entry.ownerId}::int, ${entry.day}::date, ${outfitId},
-        ${entry.occasion}::text, ${choice.plannedBy}::text, ${choice.plannedByTokenId}::int
+        ${entry.occasion}::text, ${choice.plannedBy}::text, ${choice.plannedByTokenId}::int,
+        ${entry.outfitCreated ?? null}::boolean
       where ${outfitMayBeHeld(outfitId)}
       on conflict (owner_id, day, outfit_id) ${takeOverSql}
       returning ${outfitCalendar.id} as id, (xmax = 0) as inserted
@@ -489,14 +493,20 @@ export async function setEntryOutfit(
   entryId: number,
   outfitId: number,
   origin: WriteOrigin,
+  /** Whether the pick created `outfitId` (#748); absent when the entry keeps its outfit. */
+  outfitCreated?: boolean,
 ): Promise<void> {
   const outfit = sql`${outfitId}::int`;
+  const created =
+    outfitCreated === undefined
+      ? sql``
+      : sql`, outfit_created = ${outfitCreated}::boolean`;
   const { rows } = await tx.execute<{
     toBuy: PieceToBuy[];
     pending: boolean;
   }>(sql`
     with written as (
-      update ${outfitCalendar} set outfit_id = ${outfit}, ${choiceSet(chooserOf(origin))}
+      update ${outfitCalendar} set outfit_id = ${outfit}, ${choiceSet(chooserOf(origin))}${created}
       where ${outfitCalendar.id} = ${entryId} and ${outfitMayBeHeld(outfit)}
     )
     select ${holdRefusalColumns(outfit)}`);
@@ -536,9 +546,11 @@ export function wearOutfitOn(
     occasion: Occasion;
     at: Date;
     today: IsoDate;
+    /** The pick just before created the outfit (wearIdea): see NewEntry. */
+    outfitCreated?: boolean;
   },
 ): Promise<WornOutfit | 'future'> {
-  const { ownerId, outfitId, day, occasion } = input;
+  const { ownerId, outfitId, day, occasion, outfitCreated } = input;
   if (day > input.today) return Promise.resolve('future');
   return ownerTransaction(db, ownerId, 'wearOutfitOn', async (tx) => {
     const { inserted, ...entry } = await planToWear(tx, {
@@ -546,6 +558,7 @@ export function wearOutfitOn(
       outfitId,
       day,
       occasion,
+      outfitCreated,
     });
     const worn = await changeEntryWorn(tx, entry, {
       ownerId,
@@ -588,9 +601,9 @@ async function planToWear(
     pending: boolean;
   }>(sql`
     with written as (
-      insert into ${outfitCalendar} (owner_id, day, outfit_id, occasion)
+      insert into ${outfitCalendar} (owner_id, day, outfit_id, occasion, outfit_created)
       select ${entry.ownerId}::int, ${entry.day}::date, ${outfitId},
-        ${entry.occasion}::text
+        ${entry.occasion}::text, ${entry.outfitCreated ?? null}::boolean
       where ${outfitMayBeHeld(outfitId)}
       on conflict (owner_id, day, outfit_id) do update set ${PERSONS_CHOICE_SET}
       returning json_build_object(
@@ -636,19 +649,23 @@ export async function ownEntryDay(
  * re-plan must not swap in an outfit for the entry the person just took
  * off the day.
  *
- * Undo's rule applies to every one-off (#659, #748): an entry whose
- * outfit is origin `idea` ("Wear this", a day's pick) or `planner` takes
- * that outfit with it once nothing else holds it (removeUnheldOutfits:
- * another day's entry or a trip keeps it). An outfit anyone saved or
- * adopted is `person`, and an agent's is `agent`: those never go, as in
- * Change.
+ * Undo's rule applies to the one-off this entry created (#659, #748): an
+ * entry whose outfit is origin `idea` ("Wear this", a day's pick) or
+ * `planner` takes that outfit with it once nothing else holds it
+ * (removeUnheldOutfits: another day's entry or a trip keeps it), but only
+ * when the entry's own pick created it: `outfit_calendar.outfit_created`
+ * (a pick) or the planner's `week_plan_entry.outfit_created` (cleared when
+ * a person's save adopts the outfit). An outfit that existed before the
+ * entry, one the planner reused, and any `person` or `agent` outfit stay,
+ * as in Change.
  *
  * Two statements inside the lock, no look-up first (#165): the selfie's
  * delete is scoped to the owner, so for another's or a missing entry it
  * finds nothing, and the entry's own delete (which locks its row) answers
- * whether there was one, and whose outfit it held and whether that is a one-off (origin, read in
- * the RETURNING). The selfie goes
- * first, while the entry still points at it. Two more only for a one-off.
+ * whether there was one, whose outfit it held and whether the entry
+ * created that one-off (read in the RETURNING, before the cascade takes the
+ * planner's row). The selfie goes first, while the entry still points at
+ * it. Two more only for a one-off.
  */
 export function deleteEntry(
   db: Queryable,
@@ -658,23 +675,33 @@ export function deleteEntry(
   return ownerTransaction(db, ownerId, 'deleteEntry', async (tx) => {
     const selfies = await deleteEntrySelfie(tx, id, ownerId);
     // The target aliased and every column qualified: the RETURNING's
-    // subquery reads week_plan_entry, so a bare `id` or `planned_by` must
+    // subqueries read week_plan_entry and outfit, so a bare `id` or `origin` must
     // never be left to name resolution. An alias renders as its name
     // alone in sql``, so each table is named before it.
     const entry = alias(outfitCalendar, 'deleted_entry');
     const held = alias(outfit, 'entry_outfit');
+    const plan = alias(weekPlanEntry, 'entry_plan');
     const {
       rows: [deleted],
-    } = await tx.execute<{ outfit_id: number; one_off: boolean }>(sql`
+    } = await tx.execute<{
+      outfit_id: number;
+      created: boolean;
+      one_off: boolean;
+    }>(sql`
       delete from ${outfitCalendar} as ${entry}
       where ${entry.id} = ${id} and ${entry.ownerId} = ${ownerId}
       returning ${entry.outfitId} as outfit_id,
-        (select ${held.origin} in (${sql.join(
+        coalesce(${entry.outfitCreated}, false) or coalesce(
+          (select ${plan.outfitCreated} from ${weekPlanEntry} as ${plan} where ${plan.entryId} = ${entry.id}),
+          false
+        ) as created,
+        coalesce((select ${held.origin} in (${sql.join(
           ONE_OFF_ORIGINS.map((o) => sql`${o}`),
           sql`, `,
-        )}) from ${outfit} as ${held} where ${held.id} = ${entry.outfitId}) as one_off`);
+        )}) from ${outfit} as ${held} where ${held.id} = ${entry.outfitId}), false) as one_off`);
     if (!deleted) return 'not-found';
     const removed =
+      deleted.created &&
       deleted.one_off &&
       (await removeUnheldOutfits(tx, ownerId, [deleted.outfit_id])) > 0;
     return {

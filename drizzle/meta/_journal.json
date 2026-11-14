@@ -421,6 +421,13 @@
       "when": 1794638568832,
       "tag": "0059_install-id",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1794646450144,
+      "tag": "0060_calendar-entry-outfit-created",
+      "breakpoints": true
     }
   ]
 }

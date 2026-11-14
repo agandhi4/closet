@@ -1120,3 +1120,9 @@ Consequence: a smoke boot with the placeholder model reads `cutout_queue` down (
 Why: `networkSwitch`'s `context.route` handler awaits `abort()`/`fallback()` per request. A device left offline with queued writes (trips, offline-writes) still makes requests (outbox replays, heartbeat), so `context.close()` could run while a handler was pending; its call then failed with "Target page, context or browser has been closed" and that surfaced at `close()`, passing on retry.
 Decision: such a context ends with `closeSwitchedContext` (`test/support/service-worker.ts`): `unrouteAll({ behavior: 'wait' })`, then `close()`. Each scenario's `finally` is still the one owner of its context.
 Consequence: a new spec using `networkSwitch` on a context it closes uses the helper, never a bare `close()`.
+
+## 2026-11-14 — A removed entry prunes only the one-off it created (#748)
+
+Why: pruning every unheld idea/planner outfit when an entry went also took outfits that existed before the entry (a reused planner outfit, an idea outfit picked earlier); only the planner's `week_plan_entry.outfit_created` said who made one, and Wear this had nothing.
+Decision: `outfit_calendar.outfit_created` (nullable boolean, 0060), written true by the pick that created the outfit (createOutfit's plan, wearIdea, Change), null otherwise; `deleteEntry` prunes when it or the planner's row says created, the outfit is origin idea/planner and nothing holds it (`removeUnheldOutfits`, which never deletes person/agent).
+Consequence: existing entries are null, so their outfits are kept as before. The column is internal: not in the sync feed or the API.

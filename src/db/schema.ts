@@ -1149,6 +1149,12 @@ export const outfitCalendar = pgTable(
     // The agent token whose choice it is (#682): set with planned_by
     // 'agent' and only then (src/web/calendar/planned-by.ts owns both).
     plannedByTokenId: integer('planned_by_token_id'),
+    // True when the pick that put this entry on the day also created its
+    // outfit (#748): what lets the entry's removal prune a one-off it made
+    // and never one that existed before. Null: not known to be (every entry
+    // before 0060, a reuse, a plan of a saved outfit). Internal: the feed
+    // and the API do not carry it.
+    outfitCreated: boolean('outfit_created'),
     revision: syncRevision(),
     updatedAt: syncUpdatedAt(),
     clientId: clientId(),
