@@ -7,8 +7,8 @@
  * flushes loses its last events.
  *
  * The phases run in sequence (app.close()): the timers' runs in flight at
- * preClose (src/maintenance/scheduled.ts), then at onClose the cutout queue
- * and the weather refreshes together (src/app.ts), then the error tracker
+ * preClose (src/maintenance/scheduled.ts), then at onClose the cutout queue,
+ * the weather refreshes and the HEIC thread together (src/app.ts), then the error tracker
  * (src/metrics/error-tracker.ts). The request drain, the pool's end and the
  * exit are not bounded here: they are what the margin under
  * SHUTDOWN_BUDGET_MS and Docker's 10 s is for.
@@ -43,6 +43,13 @@ export const CUTOUT_LOOP_STOP_MS = 2_500;
 
 /** The whole cutout queue's stop; the weather refreshes settle in parallel within it. */
 export const CUTOUT_STOP_MS = CUTOUT_LISTENER_CLOSE_MS + CUTOUT_LOOP_STOP_MS;
+
+/**
+ * Terminating the HEIC decoder's thread (Photos.close), in parallel with
+ * the cutout queue's stop and inside it: terminate() interrupts a decode,
+ * so this is only the thread's teardown.
+ */
+export const HEIC_DECODER_STOP_MS = 500;
 
 /** onClose's last step: the error tracker's flush. */
 export const ERROR_TRACKER_CLOSE_MS = 1_000;

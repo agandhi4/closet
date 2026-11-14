@@ -69,7 +69,7 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // every upload): a refused photo is the error page.
   app.post(
     PHOTO_ADD_PATH,
-    { schema: { querystring: OwnerQuery } },
+    { config: { photoUpload: true }, schema: { querystring: OwnerQuery } },
     async (request, reply) => {
       const { access, viewOwner } = await authorize(request, 'manage');
       const userId = sessionUserId(request);
@@ -185,7 +185,10 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // storeUploadParts drains and ignores; a third file would be a 413.
   app.post(
     '/wardrobe/:id/photo',
-    { schema: { params: GarmentParams, querystring: OwnerQuery } },
+    {
+      config: { photoUpload: true },
+      schema: { params: GarmentParams, querystring: OwnerQuery },
+    },
     async (request, reply) => {
       const { id } = request.params;
       const { viewOwner } = await replaceGarmentPhoto(
@@ -238,7 +241,10 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // /file answers that through the row).
   app.post(
     '/wardrobe/:id/nobg',
-    { schema: { params: GarmentParams, querystring: OwnerQuery } },
+    {
+      config: { photoUpload: true },
+      schema: { params: GarmentParams, querystring: OwnerQuery },
+    },
     async (request, reply) => {
       const { id } = request.params;
       const edited = await saveEditedGarmentCutout(

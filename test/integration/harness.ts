@@ -269,6 +269,10 @@ export interface TestAppOptions {
   orderMail?: AppOptions['orderMail'];
   /** Every route as it registers (AppOptions.onRoute). */
   onRoute?: AppOptions['onRoute'];
+  /** The HEIC decoder's stub thread and bounds (AppOptions.heicDecoder). */
+  heicDecoder?: AppOptions['heicDecoder'];
+  /** PHOTO_UPLOAD_LIMIT's max (AppOptions.photoUploadMax). */
+  photoUploadMax?: AppOptions['photoUploadMax'];
 }
 
 /** A spec never reaches a real third party: each one it turns on needs its stand-in. */
@@ -326,6 +330,8 @@ export async function createTestApp(
         weather: options.weather,
         orderMail: options.orderMail,
         onRoute: options.onRoute,
+        heicDecoder: options.heicDecoder,
+        photoUploadMax: options.photoUploadMax,
       }));
     await app.ready();
   } catch (error) {

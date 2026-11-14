@@ -1,30 +1,28 @@
-import heicDecode from 'heic-decode';
-import { Readable } from 'stream';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Readable } from 'node:stream';
+import { describe, expect, it, vi } from 'vitest';
 import { HttpError } from '../errors';
 import { decodeHeic, isHeicUpload } from './heic';
+import { HeicDecodeError, type HeicDecoding } from './heic-decoder';
 
-// libheif is WASM and there is no HEIC fixture: the decoder is mocked, and
-// these cover what goes in and what is allowed out.
-vi.mock('heic-decode', () => ({ default: { all: vi.fn() } }));
-const allMock = vi.mocked(heicDecode.all);
+// The thread itself is heic-decoder.spec.ts's; these cover what decodeHeic
+// sends the decoder and how each of its answers reaches the caller.
+const decoder = (
+  answer: (read: () => Promise<Buffer>) => ReturnType<HeicDecoding['decode']>,
+): HeicDecoding => ({ decode: vi.fn(answer), close: vi.fn() });
 
-/** heic-decode's all(): the container's images, pixels decoded on demand. */
-const container = (width: number, height: number) => {
-  const decode = vi.fn(() =>
-    Promise.resolve({
-      width,
-      height,
-      data: new Uint8ClampedArray(width * height * 4).fill(7),
-    }),
+/** A part that counts how many of its chunks were read. */
+const countedPart = (chunks: Buffer[]) => {
+  const counter = { read: 0 };
+  const stream = Readable.from(
+    (function* () {
+      for (const chunk of chunks) {
+        counter.read += 1;
+        yield chunk;
+      }
+    })(),
   );
-  const dispose = vi.fn();
-  const images = Object.assign([{ width, height, decode }], { dispose });
-  allMock.mockResolvedValue(images);
-  return { decode, dispose };
+  return { stream, counter };
 };
-
-const heicBytes = (bytes = 'heic') => Readable.from(Buffer.from(bytes));
 
 describe('isHeicUpload', () => {
   it.each([
@@ -40,55 +38,86 @@ describe('isHeicUpload', () => {
 });
 
 describe('decodeHeic', () => {
-  // Braced: Vitest runs a function returned from beforeEach as its cleanup,
-  // and mockReset() returns the mock itself.
-  beforeEach(() => {
-    allMock.mockReset();
-  });
-
-  it('drains the whole part before rejecting an oversized upload', async () => {
-    const chunks = [Buffer.alloc(600), Buffer.alloc(600), Buffer.alloc(600)];
-    let read = 0;
-    const file = Readable.from(
-      (function* () {
-        for (const chunk of chunks) {
-          read += 1;
-          yield chunk;
-        }
-      })(),
+  it('hands the decoder the whole part and answers its pixels with their layout', async () => {
+    let container: Buffer | undefined;
+    const pixels = Buffer.alloc(3 * 2 * 4, 7);
+    const decoded = await decodeHeic(
+      Readable.from([Buffer.from('he'), Buffer.from('ic')]),
+      1000,
+      1_000_000,
+      decoder(async (read) => {
+        container = await read();
+        return { width: 3, height: 2, pixels };
+      }),
     );
-    const refused = decodeHeic(file, 1000, 1_000_000);
-    await expect(refused).rejects.toBeInstanceOf(HttpError);
-    await expect(refused).rejects.toMatchObject({ statusCode: 413 });
-    // busboy only moves to the next part once this one is consumed.
-    expect(read).toBe(chunks.length);
-    expect(allMock).not.toHaveBeenCalled();
-  });
 
-  it('returns the primary image as raw RGBA pixels with their layout', async () => {
-    const { dispose } = container(3, 2);
-    const decoded = await decodeHeic(heicBytes(), 1000, 1_000_000);
-
-    expect(allMock).toHaveBeenCalledWith({ buffer: Buffer.from('heic') });
+    expect(container).toEqual(Buffer.from('heic'));
     expect(decoded.raw).toEqual({ width: 3, height: 2, channels: 4 });
     const out: Buffer[] = [];
     for await (const chunk of decoded.pixels) out.push(chunk as Buffer);
-    expect(Buffer.concat(out)).toEqual(Buffer.alloc(3 * 2 * 4, 7));
-    // libheif's WASM memory is freed on every path.
-    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(Buffer.concat(out)).toEqual(pixels);
   });
 
-  it('refuses more pixels than allowed before decoding any', async () => {
-    // A few bytes can declare a 20000x20000 grid: 1.6 GB once decoded.
-    const { decode, dispose } = container(20_000, 20_000);
-    const refused = decodeHeic(heicBytes(), 1000, 64_000_000);
-
+  it('drains the whole part before rejecting an oversized upload with a 413', async () => {
+    const { stream, counter } = countedPart([
+      Buffer.alloc(600),
+      Buffer.alloc(600),
+      Buffer.alloc(600),
+    ]);
+    const refused = decodeHeic(
+      stream,
+      1000,
+      1_000_000,
+      decoder(async (read) => {
+        await read();
+        throw new Error('never decoded');
+      }),
+    );
     await expect(refused).rejects.toBeInstanceOf(HttpError);
+    await expect(refused).rejects.toMatchObject({ statusCode: 413 });
+    // busboy only moves to the next part once this one is consumed.
+    expect(counter.read).toBe(3);
+  });
+
+  it('answers too many pixels as "Image too large"', async () => {
+    await expect(
+      decodeHeic(
+        Readable.from([Buffer.from('heic')]),
+        1000,
+        64_000_000,
+        decoder(async (read) => {
+          await read();
+          throw new HeicDecodeError('too-large', '20000x20000');
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 400, message: 'Image too large' });
+  });
+
+  it('refuses with a 503 and Retry-After when the decoder is full, draining the part it never buffered', async () => {
+    const { stream, counter } = countedPart([Buffer.alloc(600)]);
+    // The decoder refuses before calling `read`, as HeicDecoder does.
+    const refused = decodeHeic(
+      stream,
+      1000,
+      1_000_000,
+      decoder(() => Promise.reject(new HeicDecodeError('busy', '4 waiting'))),
+    );
     await expect(refused).rejects.toMatchObject({
-      statusCode: 400,
-      message: 'Image too large',
+      statusCode: 503,
+      retryAfterSeconds: 5,
     });
-    expect(decode).not.toHaveBeenCalled();
-    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(counter.read).toBe(1);
+  });
+
+  it('passes any other decode failure through for the caller to map', async () => {
+    const failure = new HeicDecodeError('timeout', '30000 ms');
+    await expect(
+      decodeHeic(
+        Readable.from([Buffer.from('heic')]),
+        1000,
+        1_000_000,
+        decoder(() => Promise.reject(failure)),
+      ),
+    ).rejects.toBe(failure);
   });
 });

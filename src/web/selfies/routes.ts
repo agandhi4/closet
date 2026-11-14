@@ -46,7 +46,10 @@ export const selfieRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   // selfie dialog: a native multipart post, 303 back where it came from.
   app.post(
     '/calendar/:id/selfie',
-    { schema: { params: EntryParams, querystring: ReturnQuery } },
+    {
+      config: { photoUpload: true },
+      schema: { params: EntryParams, querystring: ReturnQuery },
+    },
     async (request, reply) => {
       const { day } = await attachSelfie(deps, actorOf(request), {
         entryId: request.params.id,

@@ -22,10 +22,14 @@ import { PROJECT_ROOT } from '../../project-root';
 import {
   type DecodedHeic,
   decodeHeic,
-  heicPixelCount,
   imageTooLarge,
   isHeicUpload,
 } from './heic';
+import {
+  HeicDecoder,
+  type HeicDecoderOptions,
+  type HeicDecoding,
+} from './heic-decoder';
 import type { SignablePhotoRef } from './image-url';
 import {
   type ImageVariant,
@@ -109,6 +113,13 @@ export interface ImageSource {
   mimetype: string;
   /** As the sender named it: for logs, and the HEIC hint (isHeicUpload). */
   filename: string;
+  /**
+   * Bytes from the internet (link import): never decoded as HEIC, whatever
+   * their type or name (#699), so a stranger's site never reaches the
+   * decoder; a HEIC there is an unreadable image. Uploads are HEIC by type
+   * or name.
+   */
+  fetched?: true;
 }
 
 export interface StoreImageOptions {
@@ -187,12 +198,13 @@ export async function createPhotos(
   config: PhotosConfig,
   db: Db,
   logger: Logger,
+  heic: HeicDecoderOptions = {},
 ): Promise<Photos> {
   const storage = new PhotoStorage(config.dataPath, logger);
   storage.prepare();
   await claimStorage(storage, db, logger, config.installPairing);
   logger.info(`Photos stored under ${config.dataPath}`);
-  return new Photos(storage, db, logger, config);
+  return new Photos(storage, db, logger, config, new HeicDecoder(logger, heic));
 }
 
 /**
@@ -225,7 +237,13 @@ export class Photos {
       PhotosConfig,
       'maxHeicBytes' | 'watermarkIconPath' | 'watermarkEnabled'
     >,
+    private readonly heic: HeicDecoding,
   ) {}
+
+  /** Ends the HEIC decoder's thread (createApp's onClose); nothing else holds a resource. */
+  close(): Promise<void> {
+    return this.heic.close();
+  }
 
   /** storeImage for a multipart part; a 400 without one. */
   storeUpload(
@@ -334,18 +352,16 @@ export class Photos {
   }
 
   /**
-   * How many pixels decoding the image would take, read from its header (a
-   * HEIC's container) without decoding any: for a caller that budgets
-   * several decodes (link import's choices). The same refusals as a
-   * decode: 400 for bytes that are not an image, 400 "Image too large" past
-   * MAX_INPUT_PIXELS. Consumes the stream.
+   * How many pixels decoding the image would take, read from its header
+   * without decoding any: for a caller that budgets several decodes (link
+   * import's choices, fetched: never a HEIC, which sharp cannot read). The
+   * same refusals as a decode: 400 for bytes that are not an image, 400
+   * "Image too large" past MAX_INPUT_PIXELS. Consumes the stream.
    */
   async inputPixels(source: ImageSource): Promise<number> {
     let pixels: number;
     try {
-      pixels = isHeicUpload(source)
-        ? await heicPixelCount(source.stream, this.config.maxHeicBytes)
-        : await this.headerPixels(source);
+      pixels = await this.headerPixels(source);
     } catch (error) {
       if (error instanceof HttpError) throw error;
       this.logger.warn(
@@ -1062,7 +1078,9 @@ export class Photos {
   private async imageSource(
     source: ImageSource,
   ): Promise<{ pixels: Readable; raw?: DecodedHeic['raw'] }> {
-    if (isHeicUpload(source)) return this.decodeHeicSource(source);
+    if (!source.fetched && isHeicUpload(source)) {
+      return this.decodeHeicSource(source);
+    }
     refuseNonImage(source);
     return { pixels: source.stream };
   }
@@ -1080,8 +1098,9 @@ export class Photos {
 
   // HEIC is the one format sharp cannot read (see heic.ts). The whole part is
   // buffered, so MAX_HEIC_BYTES bounds memory per upload; the 413 from the cap
-  // passes through, as does the 400 for too many pixels; undecodable bytes
-  // are the client's error like any other.
+  // passes through, as do the 400 for too many pixels and the decoder's 503
+  // when it has no room; undecodable bytes, a decode past its deadline and a
+  // crashed thread are the bad-photo answer like any other.
   private async decodeHeicSource(source: ImageSource): Promise<DecodedHeic> {
     const startedAt = Date.now();
     try {
@@ -1089,6 +1108,7 @@ export class Photos {
         source.stream,
         this.config.maxHeicBytes,
         MAX_INPUT_PIXELS,
+        this.heic,
       );
       this.logger.debug(
         `Decoded HEIC ${source.filename} (${decoded.raw.width}x${decoded.raw.height}) in ${Date.now() - startedAt}ms`,
