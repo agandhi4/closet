@@ -29,9 +29,8 @@ npm run maintenance:reconcile [-- --dry-run] [--force]
                               # guard refused; --force deletes anyway (dry-run first). Like set-password it
                               # never migrates: a database behind the build is refused (start the server first)
 npm run maintenance:reconcile -- --repair-storage-identity --confirm
-                              # pairs the database (`install`) with DATA_PATH's marker as it is (#833), before
-                              # any claim; 2 without --confirm, 3 no or unreadable marker (never writes one).
-                              # The operator's step: docs/operations.md#photo-storage-marker
+                              # pairs `install` with DATA_PATH's marker (#833; docs/operations.md#photo-storage-
+                              # marker); 2 without --confirm, 3 no readable marker (never writes one)
 npm run maintenance:reconcile -- --restore-from-trash <uuid>.webp | <day>/<entry>
                               # moves one quarantined set back into DATA_PATH (Gotchas: the quarantine);
                               # exits 3 refused (no match, several, or a live set of that name)
