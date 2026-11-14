@@ -49,56 +49,73 @@ export async function purgeTrash(
   return purged;
 }
 
-export type RestoreOutcome = { restored: TrashedSet } | { refused: string };
+export type RestoreOutcome = { restored: TrashedSet[] } | { refused: string };
 
 /**
  * `maintenance:reconcile -- --restore-from-trash <name>`: moves a
  * quarantined set back into DATA_PATH, where list() (and reconciliation)
- * finds it. `name` is the set's base name (`<uuid>.webp`), or
- * `<day>/<entry>` when it was quarantined more than once. Refused when no
- * set or several match, or when storage already holds a live set of that
- * name: the trash never overwrites a photo.
+ * finds it. `name` is the set's base name (`<uuid>.webp`): every trash
+ * entry holding its files is restored together, since a quarantine that
+ * failed mid-set leaves one set in several entries. When two entries hold
+ * the same file (a set quarantined twice), `name` must be `<day>/<entry>`.
+ * Refused when nothing matches, or when storage already holds a live file
+ * of that set: the trash never overwrites a photo. Whole or nothing
+ * (PhotoStorage.restore): a failed link rolls back and rejects.
  *
- * Restores the bytes only: with no `file` row they are an orphan again,
- * quarantined the next night unless the row is restored too.
+ * Restores the bytes only, stamped `now` so the next nightly run leaves
+ * them a day's grace; with no `file` row they are an orphan again after
+ * it, quarantined unless the row is restored too.
  */
 export async function restoreFromTrash(
   storage: PhotoStorage,
   name: string,
   logger: Logger,
+  now: Date = new Date(),
 ): Promise<RestoreOutcome> {
-  const matches = (await storage.trash()).filter(
-    (set) =>
-      `${set.day}/${set.entry}` === name ||
-      set.entry === name ||
-      set.entry.startsWith(`${name}~`),
-  );
+  const trash = await storage.trash();
+  const matches = name.includes('/')
+    ? trash.filter((set) => `${set.day}/${set.entry}` === name)
+    : trash.filter((set) => setBaseName(set) === name);
   if (matches.length === 0) {
     return { refused: `no quarantined photo set named ${name}` };
   }
-  if (matches.length > 1) {
-    const names = matches.map((set) => `${set.day}/${set.entry}`).join(', ');
-    return { refused: `${name} matches several sets; name one: ${names}` };
+  const files = matches.flatMap((set) => set.files);
+  if (new Set(files).size < files.length) {
+    const names = matches.map(entryName).join(', ');
+    return {
+      refused: `${name} was quarantined more than once; name one: ${names}`,
+    };
   }
-  const [set] = matches as [TrashedSet];
-  const baseName = setBaseName(set);
-  if (!baseName) {
-    return { refused: `${set.day}/${set.entry} holds no photo files` };
-  }
+  const baseNames = new Set(matches.map(setBaseName));
   for await (const object of storage.list()) {
-    if (parseStoredName(object.name)?.baseName === baseName) {
+    const baseName = parseStoredName(object.name)?.baseName;
+    if (baseName && baseNames.has(baseName)) {
       return {
         refused: `storage already holds a photo set named ${baseName}`,
       };
     }
   }
-  await storage.restore(set);
+  try {
+    await storage.restore(matches, now);
+  } catch (error) {
+    logger.warn(
+      { err: error },
+      `Restore of ${matches.map(entryName).join(', ')} failed; rolled back, the trash keeps it`,
+    );
+    throw error;
+  }
   logger.info(
-    `Restored ${set.day}/${set.entry} from the trash: ${set.files.join(', ')}`,
+    `Restored ${matches.map(entryName).join(', ')} from the trash: ${files.join(', ')}`,
   );
-  return { restored: set };
+  return { restored: matches };
 }
 
+function entryName(set: TrashedSet): string {
+  return `${set.day}/${set.entry}`;
+}
+
+// The set's base name from its first photo file; the entry's name alone
+// may carry a `~<hex>` suffix.
 function setBaseName(set: TrashedSet): string | undefined {
   for (const file of set.files) {
     const parsed = parseStoredName(file);

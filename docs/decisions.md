@@ -1042,6 +1042,7 @@ Consequence: MCP_WRITES' required `attribution` says what each tool stamps; `mcp
 **Why:** the trip's offline note said packing needs a connection while ticks queue, the fallback page sat under a "showing saved data" banner, and a queued tick left the counter and the "Saved" line as they were.
 **Decision:** `offlineNotice(kinds)` (`src/offline-writes.ts`, pure) maps a page's `data-offline-queue` kinds to none / wears / washes / ticks / changes, and the page renders the matching `offlineNotice.*` string (the trip page derives its kinds from the controls it draws). The global banner says dimmed controls need a connection, once. `/offline.html` carries `data-offline-fallback`, which makes connectivity.js hide the banner, and links `OPENS_STALE`'s tab roots. The outbox sets `[data-packed-count]` from the checked ticks and empties the autosave status when it queues.
 **Consequence:** a page that gains a queueable control joins its kinds list; no string may say a queueable write needs a connection.
+
 ## 2026-11-14 — DATA_PATH is identified by a marker, not by its contents (#650)
 
 **Why:** a container started on the bare NFS mountpoint read as "every photo gone": reconciliation deleted every pending row and reported success, and uploads landed where the remount hid them.
@@ -1069,5 +1070,5 @@ Consequence: MCP_WRITES' required `attribution` says what each tool stamps; `mcp
 ## 2026-11-14 — Reconciliation quarantines unexplained photo sets (#649)
 
 **Why:** after a database restore from an older dump, the photo sets of garments added since have no `file` row and are the only copy; a dozen of them passes the wholesale guard, so the nightly unlinked them.
-**Decision:** the orphan pass renames each set into `DATA_PATH/.trash/<APP_TIMEZONE day>/<base name>/` (`PhotoStorage.quarantine`; a second set of a name that day gets a `~<hex>` entry, never an overwrite), and the same run purges day directories older than 30 days (`TRASH_RETENTION_DAYS`), not while the guard refuses. `--restore-from-trash` links files back and refuses over a live set. Unreferenced rows' sets, pending photos and superseded variants stay direct deletions: a row explains them.
+**Decision:** the orphan pass renames each set into `DATA_PATH/.trash/<APP_TIMEZONE day>/<base name>/` (`PhotoStorage.quarantine`; a second set of a name that day gets a `~<hex>` entry, never an overwrite), and the same run purges day directories older than 30 days (`TRASH_RETENTION_DAYS`), not while the guard refuses. `--restore-from-trash` links files back whole or not at all, stamped now, and refuses over a live set. Unreferenced rows' sets, pending photos and superseded variants stay direct deletions: a row explains them.
 **Consequence:** DATA_PATH holds at most 30 days of orphans. A restored set without its row is quarantined again the next night; re-attaching is out of scope.

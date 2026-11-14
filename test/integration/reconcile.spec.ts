@@ -380,14 +380,47 @@ describe('storage reconciliation', () => {
       expect((await reconcileAt()).orphanedSetsQuarantined).toBe(0);
 
       expect(
-        await restoreFromTrash(t.photos.storage, baseName, silentLogger),
-      ).toMatchObject({ restored: { day: today(), entry: baseName } });
+        await restoreFromTrash(t.photos.storage, baseName, silentLogger, now),
+      ).toMatchObject({ restored: [{ day: today(), entry: baseName }] });
       expect(await listed()).toEqual(expect.arrayContaining(names));
       for (const [i, name] of names.entries()) {
         expect(await hashOf(join(t.dataPath, name))).toBe(hashes[i]);
       }
       expect(
         (await t.photos.storage.trash()).some((set) => set.entry === baseName),
+      ).toBe(false);
+      // Stamped at the restore: the 03:00 run hours later leaves it a day.
+      const hoursLater = new Date(now.getTime() + 6 * 60 * 60 * 1000);
+      expect((await reconcileAt(hoursLater)).orphanedSetsQuarantined).toBe(0);
+      expect(await listed()).toEqual(expect.arrayContaining(names));
+      await t.photos.deleteFiles(names);
+    });
+
+    it('restores a set a failed quarantine split across entries, whole', async () => {
+      const { baseName, names, hashes } = await restoredAway();
+      const [original, ...variants] = names;
+      await t.photos.storage.quarantine(baseName, [original], today());
+      const rest = await t.photos.storage.quarantine(
+        baseName,
+        variants,
+        today(),
+      );
+      expect(rest?.entry).not.toBe(baseName);
+
+      const outcome = await restoreFromTrash(
+        t.photos.storage,
+        baseName,
+        silentLogger,
+        now,
+      );
+      expect(outcome).toHaveProperty('restored', expect.any(Array));
+      for (const [i, name] of names.entries()) {
+        expect(await hashOf(join(t.dataPath, name))).toBe(hashes[i]);
+      }
+      expect(
+        (await t.photos.storage.trash()).some((set) =>
+          set.entry.startsWith(baseName),
+        ),
       ).toBe(false);
       await t.photos.deleteFiles(names);
     });
@@ -410,7 +443,7 @@ describe('storage reconciliation', () => {
       // Both match the base name: the operator names one.
       expect(
         await restoreFromTrash(t.photos.storage, baseName, silentLogger),
-      ).toHaveProperty('refused', expect.stringContaining('several'));
+      ).toHaveProperty('refused', expect.stringContaining('more than once'));
       expect(
         await restoreFromTrash(
           t.photos.storage,
