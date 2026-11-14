@@ -58,6 +58,16 @@ describe('judgeLink', () => {
       'https://www.shop.example/us/en/linen-shirt-p01234567.html?v1=9',
       'https://www.shop.example/us/en/linen-shirt-p01234567.html?v1=9',
     ],
+    [
+      'a plain product slug',
+      'https://shop.example/products/blue-tee',
+      'https://shop.example/products/blue-tee',
+    ],
+    [
+      'an Amazon product',
+      'https://www.amazon.com/gp/product/B0ABCDEFGH',
+      'https://www.amazon.com/gp/product/B0ABCDEFGH',
+    ],
   ])('selects %s as a product', (_, href, link) => {
     expect(judgeLink(href)).toEqual({ link, kind: 'product' });
   });
@@ -143,6 +153,7 @@ describe('judgeLink', () => {
     ],
     ['an opaque link of no known shape', 'https://shop.example/c/abc123'],
     ['an opaque link on an email. host', 'https://email.shop.example/x/abc'],
+    ['a percent-encoded tracker path', 'https://shop.example/%6Cs/click/p/1'],
     ['a bare numeric id', 'https://shop.example/u/1234567890'],
     ['a numeric id below a path', 'https://shop.example/a/s/12345678/view'],
     [
@@ -163,6 +174,23 @@ describe('judgeLink', () => {
     ],
   ])('passes over %s, which is no web link', (_, href) => {
     expect(judgeLink(href)).toBeUndefined();
+  });
+});
+
+describe('one canonical form (#949)', () => {
+  it('decodes the path for a redirect hop as for a first link', () => {
+    expect(
+      isProductLink(new URL('https://shop.example/products/123/%63ancel')),
+    ).toBe(false);
+    expect(
+      isProductLink(new URL('https://shop.example/products/blue-%74ee')),
+    ).toBe(true);
+    // An escaped hyphen is the hyphen the word rules split on.
+    expect(
+      isProductLink(
+        new URL('https://shop.example/cancel%2Dorder-12345678.html'),
+      ),
+    ).toBe(false);
   });
 });
 

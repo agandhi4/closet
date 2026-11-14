@@ -864,6 +864,39 @@ describe('order email import', () => {
         ),
       ]);
     });
+
+    it('follows neither a product link answering 302 without a Location nor one whose page refreshes to /cancel (#950)', async () => {
+      sites.serve('/p/no-location', {
+        status: 302,
+        type: 'text/plain',
+        body: '',
+      });
+      sites.serve(
+        '/p/meta-refresh',
+        html('<meta http-equiv="refresh" content="0;url=/cancel">'),
+      );
+      sites.serve('/cancel', html(PRODUCT_DATA));
+      jmap.deliver(
+        htmlEmail(
+          'Mproduct01',
+          '2026-09-29T09:30:00Z',
+          `<a href="${shop('/p/no-location')}">Tee</a>
+           <a href="${shop('/p/meta-refresh')}">Tee</a>`,
+        ),
+      );
+      sites.hits.length = 0;
+
+      await poll();
+
+      expect([...sites.hits].sort()).toEqual([
+        '/p/meta-refresh',
+        '/p/no-location',
+      ]);
+      expect(await emailRow('Mproduct01')).toMatchObject({
+        outcome: 'no-products',
+        items: 0,
+      });
+    });
   });
 });
 

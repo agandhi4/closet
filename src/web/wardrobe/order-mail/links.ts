@@ -92,11 +92,10 @@ function textLinks(text: string): string[] {
 export function judgeLink(href: string): JudgedLink | undefined {
   const url = parseHttp(href);
   if (!url) return undefined;
-  const target = unwrap(url);
-  target.hash = '';
+  const target = canonicalUrl(unwrap(url));
   return {
     link: target.href,
-    kind: isProductLink(target) ? 'product' : 'refused',
+    kind: productShape(target) ? 'product' : 'refused',
   };
 }
 
@@ -106,6 +105,30 @@ export function judgeLink(href: string): JudgedLink | undefined {
  * `mayFollow` for every redirect, and its test of where a fetch ended.
  */
 export function isProductLink(url: URL): boolean {
+  return productShape(canonicalUrl(url));
+}
+
+/**
+ * One form of an address for every check (#949): no fragment, and the path's
+ * percent-escapes of unreserved characters decoded (`/%63ancel` is `/cancel`
+ * to the server, so to the deny rules). The host is already lower case. A
+ * check never reads an address that did not pass through here; the checks
+ * below take the canonical URL and decode nothing themselves.
+ */
+function canonicalUrl(url: URL): URL {
+  const canonical = new URL(url.href);
+  canonical.hash = '';
+  canonical.pathname = canonical.pathname.replace(
+    /%([0-7][0-9A-F])/gi,
+    (escape, hex: string) => {
+      const char = String.fromCharCode(parseInt(hex, 16));
+      return /[A-Za-z0-9._~-]/.test(char) ? char : escape;
+    },
+  );
+  return canonical;
+}
+
+function productShape(url: URL): boolean {
   return (
     url.protocol === 'https:' &&
     isProductPath(url.pathname) &&
