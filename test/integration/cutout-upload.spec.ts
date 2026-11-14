@@ -109,7 +109,7 @@ describe('cutouts: upload, page and polling', () => {
     const polls = (id: number, n: number, every: string) =>
       `hx-get="/wardrobe/${id}/cutout?poll=${n + 1}" hx-trigger="every ${every}"`;
 
-    it('backs off from 2 s to 10 s, then stops at 2 min with the queued line while the model is unavailable', async () => {
+    it('backs off from 2 s to 10 s, then stops at 2 min with the queued line while the model is unavailable, and never refuses a poll count', async () => {
       const id = await createGarment(t, { name: 'Waiting shirt' });
       await uploadPhoto(t, id, await jpegPhoto());
       const runner = fakeRunner();
@@ -138,13 +138,16 @@ describe('cutouts: upload, page and polling', () => {
         'Background removal is queued and will finish later.',
       );
       expect(capped).not.toContain('Removing background…');
-      // A count no fragment writes is refused, not guessed at.
-      const bad = await t.inject({
-        method: 'GET',
-        url: `/wardrobe/${id}/cutout?poll=soon`,
-        headers: HX_FRAGMENT,
-      });
-      expect(bad.statusCode).toBe(400);
+      // URL state is a fallback, never a 400: a count past the clamp (a page
+      // left open for hours) or one no fragment writes still answers.
+      for (const odd of ['1001', '99999999999999999999', 'soon', '-1']) {
+        const res = await t.inject({
+          method: 'GET',
+          url: `/wardrobe/${id}/cutout?poll=${odd}`,
+          headers: HX_FRAGMENT,
+        });
+        expectFragment(res);
+      }
     });
 
     it('keeps polling every 10 s past 2 min while the queue runs, busy with a job', async () => {
