@@ -24,9 +24,17 @@ import {
   endedSession,
   forbidsStorage,
   type FreshPage,
+  isBackingOff,
   isRenderedPage,
   navigationPostAnswer,
+  nextRefreshBackoff,
   pageAccount,
+  parseRefreshBackoff,
+  parseRefreshedRecord,
+  type RefreshBackoff,
+  refreshDue,
+  type RefreshedRecord,
+  refreshedRecord,
   refetchInTurn,
   type RefetchStep,
   type RefetchVerdict,
@@ -49,14 +57,17 @@ import {
 import { WARM_REQUEST_HEADER } from '../../src/warm-request';
 import {
   ACTIVATED_KEY,
+  answerContentHashed,
   answerVersionedAsset,
   ASSET_VERSION_HEADER,
   assetBuildOf,
   dropOtherPrecaches,
   INSTALLED_KEY,
+  isContentHashed,
   meetsItsBuild,
   precacheName,
   staticBuildId,
+  unversionedPrecacheVariants,
 } from '../../src/static-build';
 import {
   receiveShare,
@@ -258,11 +269,25 @@ registerRoute(
     ),
 );
 
-// Unversioned public/ files (the fonts bundle.css names by content hash) are
-// this build's: its precache answers them.
+// The fonts bundle.css names by content hash, no `?v=`: this build's copy,
+// else a kept older build's (answerContentHashed, #780), whose page offline
+// names fonts this build may have dropped.
+registerRoute(
+  ({ url, request }) =>
+    request.method === 'GET' && isContentHashed(url, self.location.origin),
+  ({ url, request }) =>
+    answerContentHashed(url, self.caches, PRECACHE, () => fetch(request)),
+);
+
+// Every other precached public/ file is this build's. One a page names with
+// `?v=` outside the versioned roots (the favicon) matches without it
+// (unversionedPrecacheVariants, #781); a versioned root's `?v=` never gets
+// here unless it is empty.
 registerRoute(
   new PrecacheRoute(precache, {
     ignoreURLParametersMatching: [/^utm_/, /^fbclid$/],
+    urlManipulation: ({ url }) =>
+      unversionedPrecacheVariants(url, self.location.origin),
   }),
 );
 
@@ -273,9 +298,15 @@ const ACTIVATED_AT_KEY = 'https://page-cache.invalid/activated-at';
 // When the last warm ran to its end (warmPages): a drop takes it, so the
 // first page after a sign-in warms the new account.
 const WARMED_AT_KEY = 'https://page-cache.invalid/warmed-at';
-// When the activation refresh last found no older-build copy left
-// (refreshOlderBuildPages): later than ACTIVATED_AT_KEY, nothing is due.
+// When the activation refresh last asked every key it was not backing off
+// from, and when the earliest backoff ends (refreshOlderBuildPages,
+// RefreshedRecord): later than ACTIVATED_AT_KEY and before that end,
+// nothing is due.
 const REFRESHED_AT_KEY = 'https://page-cache.invalid/refreshed-at';
+// One record per failing page key, `<prefix><encoded key>`: its
+// RefreshBackoff (#782).
+const REFRESH_BACKOFF_PREFIX =
+  'https://page-cache.invalid/refresh-backoff?key=';
 
 async function readRecord(key: string): Promise<string | undefined> {
   const cache = await self.caches.open(PAGES_CACHE);
@@ -1190,58 +1221,132 @@ const USAGE_CHECK_EVERY = 10;
  * ACTIVATED_AT_KEY, so a run cut short (offline, the server unavailable or
  * throttling) resumes at the next WARM_PAGES with what is left, and a second
  * deploy makes this build's copies due again. One page failing (a 500) is
- * passed over and stays due, asked again next run. Until a key is replaced,
- * its older copy is NetworkFirst's offline answer. Its own generation, like
- * any run: a drop stops it, and whatever it had in flight is refused
- * (runOf). True when the walk asked every key, failed ones included, so the
- * daily warm is never held back by one bad page; REFRESHED_AT_KEY, written
- * only when none failed, spares the next WARM_PAGES the scan.
+ * passed over and stays due, but backs off (#782, RefreshBackoff in
+ * page-cache.ts): a record beside it says when it is asked again, 5 min
+ * doubling to a day, and runs before then pass it over unasked. Until a key
+ * is replaced, its older copy is NetworkFirst's offline answer. Its own
+ * generation, like any run: a drop stops it, and whatever it had in flight
+ * is refused (runOf). True when the walk asked every key not backing off,
+ * failed ones included, so the daily warm is never held back by one bad
+ * page; then REFRESHED_AT_KEY (with the earliest backoff's end) spares every
+ * WARM_PAGES before that end the scan.
  */
 async function refreshOlderBuildPages(
   event: ExtendableMessageEvent,
 ): Promise<boolean> {
   const run = generation;
   const since = await activatedAt();
-  const refreshedAt = Number((await readRecord(REFRESHED_AT_KEY)) ?? 0);
-  if (refreshedAt > since) return true;
+  const refreshed = parseRefreshedRecord(await readRecord(REFRESHED_AT_KEY));
+  if (!refreshDue(refreshed, since, Date.now())) return true;
   // Nobody's pages (a fresh install, a drop): nothing an older build left.
   const owner = await readRecord(OWNER_KEY);
   if (!owner) return true;
   const cache = await self.caches.open(PAGES_CACHE);
   const due: Request[] = [];
+  const backoffRecords = new Set<string>();
   for (const key of await cache.keys()) {
+    if (key.url.startsWith(REFRESH_BACKOFF_PREFIX)) {
+      backoffRecords.add(key.url);
+      continue;
+    }
     if (new URL(key.url).origin !== self.location.origin) continue;
     const copy = await cache.match(key);
     if (copy && isFromAnOlderBuild(copy, since)) due.push(key);
   }
   const startedAt = Date.now();
+  const previous = new Map<string, RefreshBackoff>();
+  const waiting: RefreshBackoff[] = [];
+  const asked: Request[] = [];
+  for (const key of due) {
+    const record = backoffKeyOf(key.url);
+    const backoff = backoffRecords.has(record)
+      ? parseRefreshBackoff(await (await cache.match(record))?.text())
+      : undefined;
+    if (isBackingOff(backoff, startedAt)) waiting.push(backoff);
+    else {
+      asked.push(key);
+      if (backoff) previous.set(key.url, backoff);
+    }
+  }
+  // Each asked key's backoff after this run: the next one for a failure,
+  // none (the record deleted) for any other answer. A key the walk never
+  // reached (it stopped) keeps its record as it was.
+  const after = new Map<string, RefreshBackoff | undefined>();
   const walk = await refetchInTurn(
-    due,
-    (key) => refetchCachedPage(event, key, run, 'refresh'),
+    asked,
+    async (key) => {
+      const step = await refetchCachedPage(event, key, run, 'refresh');
+      if (step.verdict === 'failed') {
+        after.set(
+          key.url,
+          nextRefreshBackoff(previous.get(key.url), Date.now()),
+        );
+      } else if (!('stop' in step) && previous.has(key.url)) {
+        after.set(key.url, undefined);
+      }
+      return step;
+    },
     () => generation !== run,
   );
+  // A record whose page is no longer due (renewed by a visit, deleted) is
+  // nobody's backoff.
+  const dueRecords = new Set(due.map((key) => backoffKeyOf(key.url)));
+  const orphans = [...backoffRecords].filter((url) => !dueRecords.has(url));
+  const record = walk.stop
+    ? undefined
+    : refreshedRecord(Date.now(), [
+        ...waiting,
+        ...[...after.values()].filter((backoff) => backoff !== undefined),
+      ]);
+  await recordRefresh(run, after, orphans, record);
   const summary =
     `${walk.stored} of ${due.length} older-build page(s) in ` +
     `${((Date.now() - startedAt) / 1000).toFixed(1)} s ` +
-    `(${walk.removed} deleted, ${walk.kept} kept, ${walk.failed} failed)`;
+    `(${walk.removed} deleted, ${walk.kept} kept, ${walk.failed} failed, ` +
+    `${waiting.length} backing off)`;
   if (walk.stop) {
     if (due.length > 0) {
       console.info(`[sw] refresh stopped, ${walk.stop}: refreshed ${summary}`);
     }
     return false;
   }
-  // A failed key stays due: not recorded, so the next WARM_PAGES asks it
-  // (and only it, the rest replaced) again.
-  if (walk.failed === 0) await recordRefreshed(run);
-  if (due.length > 0) console.info(`[sw] refreshed ${summary}`);
+  if (asked.length > 0) console.info(`[sw] refreshed ${summary}`);
   return true;
 }
 
-/** Under the lock: never written into the next session's cache. */
-function recordRefreshed(run: number): Promise<void> {
+function backoffKeyOf(pageKey: string): string {
+  return `${REFRESH_BACKOFF_PREFIX}${encodeURIComponent(pageKey)}`;
+}
+
+/**
+ * The run's backoffs, then (a walk that asked every key) REFRESHED_AT_KEY,
+ * in that order: a cut between them leaves the refresh due, never a
+ * backoff unrecorded behind a record that skips the scan. Under the lock:
+ * never written into the next session's cache.
+ */
+function recordRefresh(
+  run: number,
+  backoffs: ReadonlyMap<string, RefreshBackoff | undefined>,
+  orphans: readonly string[],
+  refreshed: RefreshedRecord | undefined,
+): Promise<void> {
   return serialized(async () => {
-    if (generation === run) {
-      await writeRecord(REFRESHED_AT_KEY, String(Date.now()));
+    if (generation !== run) return;
+    const cache = await self.caches.open(PAGES_CACHE);
+    for (const [pageKey, backoff] of backoffs) {
+      if (backoff) {
+        await cache.put(
+          backoffKeyOf(pageKey),
+          new Response(JSON.stringify(backoff)),
+        );
+      } else await cache.delete(backoffKeyOf(pageKey));
+    }
+    await Promise.all(orphans.map((url) => cache.delete(url)));
+    if (refreshed) {
+      await cache.put(
+        REFRESHED_AT_KEY,
+        new Response(JSON.stringify(refreshed)),
+      );
     }
   });
 }

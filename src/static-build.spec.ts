@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   ACTIVATED_KEY,
+  answerContentHashed,
   answerVersionedAsset,
   assetBuildOf,
   dropOtherPrecaches,
   INSTALLED_KEY,
+  isContentHashed,
   isInstalled,
   keptPrecaches,
   meetsItsBuild,
@@ -12,6 +14,7 @@ import {
   precacheName,
   type PrecacheStorage,
   staticBuildId,
+  unversionedPrecacheVariants,
 } from './static-build';
 
 const ORIGIN = 'https://closet.test';
@@ -95,7 +98,7 @@ describe('assetBuildOf', () => {
   });
 
   it.each([
-    // No build named: the worker's own precache route answers it.
+    // No build named: the precache route or answerContentHashed answers it.
     '/js/pwa.js',
     '/js/pwa.js?v=',
     '/vendor/fonts/inter-latin-wght-normal.abc.woff2',
@@ -150,6 +153,78 @@ describe('answerVersionedAsset', () => {
       network,
     );
     expect(await answer.text()).toBe('network');
+  });
+});
+
+describe('unversionedPrecacheVariants', () => {
+  // #781: the layout names the favicon with ?v=; the precache keys it by its path.
+  it('drops `v` from a file outside the versioned roots', () => {
+    expect(
+      unversionedPrecacheVariants(at('/favicon.ico?v=abc'), ORIGIN).map(
+        (url) => url.href,
+      ),
+    ).toEqual([`${ORIGIN}/favicon.ico`]);
+  });
+
+  // The #742 invariant: a versioned root's ?v=X is X's bytes or the network.
+  it.each(['/js/pwa.js?v=abc', '/js/pwa.js?v=', '/bundle.css?v=abc'])(
+    "never offers %s as this build's file",
+    (path) => {
+      expect(unversionedPrecacheVariants(at(path), ORIGIN)).toEqual([]);
+    },
+  );
+
+  it('adds nothing without `v` or for another origin', () => {
+    expect(unversionedPrecacheVariants(at('/favicon.ico'), ORIGIN)).toEqual([]);
+    expect(
+      unversionedPrecacheVariants(
+        new URL('https://cdn.test/favicon.ico?v=abc'),
+        ORIGIN,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe('answerContentHashed', () => {
+  const font = '/vendor/fonts/inter-latin-wght-normal-abc.woff2';
+
+  it('is only the bare fonts', () => {
+    expect(isContentHashed(at(font), ORIGIN)).toBe(true);
+    expect(isContentHashed(at(`${font}?v=A`), ORIGIN)).toBe(false);
+    expect(isContentHashed(at('/vendor/styling.js'), ORIGIN)).toBe(false);
+  });
+
+  // #780: an older build's bundle.css names a font this build no longer has.
+  it("answers from this build's precache, else the replaced build's", async () => {
+    const caches = new FakeCaches();
+    caches.put(precacheName('A'), ACTIVATED_KEY, '100');
+    caches.put(precacheName('A'), `${ORIGIN}${font}?__WB_REVISION__=1`, 'A');
+    caches.put(precacheName('B'), ACTIVATED_KEY, '200');
+    caches.put(precacheName('B'), `${ORIGIN}/vendor/fonts/new.woff2`, 'B');
+    const answer = (path: string) =>
+      answerContentHashed(at(path), caches, precacheName('B'), network);
+
+    expect(await (await answer(font)).text()).toBe('A');
+    expect(await (await answer('/vendor/fonts/new.woff2')).text()).toBe('B');
+    expect(await (await answer('/vendor/fonts/gone.woff2')).text()).toBe(
+      'network',
+    );
+  });
+
+  it('prefers the latest to have activated among the others', async () => {
+    const caches = new FakeCaches();
+    caches.put(precacheName('A'), ACTIVATED_KEY, '100');
+    caches.put(precacheName('A'), `${ORIGIN}${font}`, 'A');
+    caches.put(precacheName('B'), ACTIVATED_KEY, '200');
+    caches.put(precacheName('B'), `${ORIGIN}${font}`, 'B');
+    caches.put(precacheName('C'), `${ORIGIN}/js/pwa.js`, 'C');
+    const copy = await answerContentHashed(
+      at(font),
+      caches,
+      precacheName('C'),
+      network,
+    );
+    expect(await copy.text()).toBe('B');
   });
 });
 

@@ -392,3 +392,116 @@ export async function refetchInTurn<Key>(
   }
   return run;
 }
+
+/**
+ * A key the activation refresh found failing (a `failed` step), recorded
+ * beside it in the pages cache (#782): how many runs in a row it failed and
+ * when it is asked again. Without it, one page answering 500 kept the
+ * refresh due, so every WARM_PAGES (each signed-in load, each return to the
+ * app) rescanned the cache and asked that page again.
+ */
+export interface RefreshBackoff {
+  failures: number;
+  /** Epoch ms: the first run at or after it asks the key again. */
+  retryAt: number;
+}
+
+/** The wait after a first failure, doubling with each one after it. */
+export const REFRESH_BACKOFF_BASE_MS = 5 * 60_000;
+/** The longest wait: a page that keeps failing is asked once a day. */
+export const REFRESH_BACKOFF_CAP_MS = 24 * 60 * 60_000;
+
+export function nextRefreshBackoff(
+  previous: RefreshBackoff | undefined,
+  now: number,
+): RefreshBackoff {
+  const failures = (previous?.failures ?? 0) + 1;
+  const wait = Math.min(
+    REFRESH_BACKOFF_BASE_MS * 2 ** (failures - 1),
+    REFRESH_BACKOFF_CAP_MS,
+  );
+  return { failures, retryAt: now + wait };
+}
+
+/** Whether a due key sits this run out. */
+export function isBackingOff(
+  backoff: RefreshBackoff | undefined,
+  now: number,
+): backoff is RefreshBackoff {
+  return backoff !== undefined && backoff.retryAt > now;
+}
+
+function parseRecord(text: string | undefined): unknown {
+  if (text === undefined) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    // An unreadable record reads as none: the key is asked, the scan runs.
+    return undefined;
+  }
+}
+
+/** A record's numeric field, or undefined for any other value or shape. */
+function numberField(value: unknown, field: string): number | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const read: unknown = (value as Record<string, unknown>)[field];
+  return typeof read === 'number' ? read : undefined;
+}
+
+/** A stored backoff record; missing or unreadable is none. */
+export function parseRefreshBackoff(
+  text: string | undefined,
+): RefreshBackoff | undefined {
+  const value = parseRecord(text);
+  const failures = numberField(value, 'failures');
+  const retryAt = numberField(value, 'retryAt');
+  if (failures === undefined || retryAt === undefined) return undefined;
+  return { failures, retryAt };
+}
+
+/**
+ * When the refresh last asked every due key not backing off, and the
+ * earliest backoff it left running: until then nothing is due, and a
+ * WARM_PAGES skips the scan (refreshDue).
+ */
+export interface RefreshedRecord {
+  at: number;
+  retryAt?: number;
+}
+
+/** What a walk that asked every key writes; `waiting`: the keys left backing off. */
+export function refreshedRecord(
+  now: number,
+  waiting: readonly RefreshBackoff[],
+): RefreshedRecord {
+  if (waiting.length === 0) return { at: now };
+  return { at: now, retryAt: Math.min(...waiting.map((b) => b.retryAt)) };
+}
+
+/**
+ * The stored record. A bare number was written before backoffs (#782) and
+ * is its `at`; missing or unreadable is never refreshed.
+ */
+export function parseRefreshedRecord(
+  text: string | undefined,
+): RefreshedRecord | undefined {
+  const value = parseRecord(text);
+  if (typeof value === 'number') return { at: value };
+  const at = numberField(value, 'at');
+  if (at === undefined) return undefined;
+  const retryAt = numberField(value, 'retryAt');
+  return retryAt === undefined ? { at } : { at, retryAt };
+}
+
+/**
+ * Whether a WARM_PAGES scans for older-build copies: nothing refreshed since
+ * this worker activated, or a backoff the last refresh left has ended.
+ */
+export function refreshDue(
+  record: RefreshedRecord | undefined,
+  activatedAt: number,
+  now: number,
+): boolean {
+  if (!record || record.at <= activatedAt) return true;
+  return record.retryAt !== undefined && record.retryAt <= now;
+}
