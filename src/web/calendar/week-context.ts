@@ -6,6 +6,7 @@ import { type DetachedLook, detachedLooksSql } from '../selfies/queries';
 import { planDays, type PlannedBanner, plannedBanner } from '../week-plan/plan';
 import { batchEntriesSql, entrySlotsSql } from '../week-plan/queries';
 import { inTemplateOrder, weekTemplateSql } from '../week-plan/template';
+import { type AwayTrip, awayTripsSql } from '../trips/away';
 import type { IsoDate } from '../../calendar-date';
 import type { CalendarEntry } from './calendar-view';
 import { entriesSql } from './queries';
@@ -19,7 +20,9 @@ import { entriesSql } from './queries';
  * - `banner`: after "Plan my week" (`?planned=`), what it planned and the
  *   next 7 days' slots still empty (PlannedWeekBanner);
  * - `canDress`: the first-run gate (closetCanDress, #666): "Plan my week"
- *   shows only once the closet can be dressed as an outfit.
+ *   shows only once the closet can be dressed as an outfit;
+ * - `trips`: the trips with a day in the week or the banner's window
+ *   (#684): each day away says so ("Away: Lisbon") and opens no slot.
  */
 export interface WeekContext {
   entries: CalendarEntry[];
@@ -27,6 +30,7 @@ export interface WeekContext {
   template: TemplateSlot[];
   banner: PlannedBanner | undefined;
   canDress: boolean;
+  trips: AwayTrip[];
 }
 
 /**
@@ -58,6 +62,12 @@ export async function weekContext(
     window: window && entrySlotsSql(ownerId, window[0], window.at(-1)!),
     // The gate's, and the banner's (plannedBanner) when it is asked for.
     closetKinds: closetKindsSql(ownerId),
+    // The week's days and the banner's, which may run into the next week.
+    trips: awayTripsSql(
+      ownerId,
+      earliest(week.start, window?.[0]),
+      latest(week.end, window?.at(-1)),
+    ),
   });
   const template = inTemplateOrder(row.template);
   return {
@@ -73,9 +83,20 @@ export async function weekContext(
           template,
           window: row.window ?? [],
           closetKinds: row.closetKinds,
+          trips: row.trips,
         },
         banner,
       ),
     canDress: closetCanDress(row.closetKinds),
+    trips: row.trips,
   };
+}
+
+// ISO dates compare correctly as strings.
+function earliest(day: IsoDate, other: IsoDate | undefined): IsoDate {
+  return other !== undefined && other < day ? other : day;
+}
+
+function latest(day: IsoDate, other: IsoDate | undefined): IsoDate {
+  return other !== undefined && other > day ? other : day;
 }

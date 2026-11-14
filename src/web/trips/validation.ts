@@ -4,6 +4,12 @@ import type { FieldErrors } from '../auth/validation';
 import { daysBetween, parseIsoDate } from '../../calendar-date';
 import { checklistBody } from '../checklist';
 import { t } from '../i18n';
+import {
+  LocationBody,
+  type PickedPlace,
+  PlaceBody,
+  pickedPlace,
+} from '../weather/place-picker';
 import { OccasionSchema, RowId } from '../schemas';
 import type { TripFields } from './queries';
 
@@ -39,14 +45,60 @@ export const TripItemParams = Type.Object({ id: RowId, itemId: RowId });
 
 // Dates arrive as the date inputs' strings: readTripForm judges them, so a
 // blank one is a message on the form, not an error page.
-export const TripBody = Type.Object({
+const tripBodyFields = {
   name: Type.String({ maxLength: TRIP_NAME_MAX }),
   destination: Type.Optional(Type.String({ maxLength: TRIP_DESTINATION_MAX })),
   startsOn: Type.String({ maxLength: 10 }),
   endsOn: Type.String({ maxLength: 10 }),
   notes: Type.Optional(Type.String({ maxLength: TRIP_NOTES_MAX })),
-});
+};
+export const TripBody = Type.Object(tripBodyFields);
 export type TripBody = Static<typeof TripBody>;
+
+/**
+ * POST /trips: the form and, when its picker chose one (#684), the place's
+ * coordinates and zone (PlaceBody's) beside the destination, which is the
+ * place's name then. All or none: a partial place is a 400.
+ */
+export const NewTripBody = Type.Object(
+  {
+    ...tripBodyFields,
+    latitude: Type.Optional(LocationBody.properties.latitude),
+    longitude: Type.Optional(LocationBody.properties.longitude),
+    timeZone: PlaceBody.properties.timeZone,
+  },
+  {
+    // A place needs its name: a blank destination beside coordinates is refused.
+    dependencies: {
+      latitude: {
+        required: ['destination', 'longitude'],
+        properties: { destination: { pattern: '\\S' } },
+      },
+      longitude: ['latitude'],
+      timeZone: ['latitude'],
+    },
+  },
+);
+export type NewTripBody = Static<typeof NewTripBody>;
+
+/** The new-trip form's Find: its destination field, as typed (routes.tsx judges the length). */
+export const NewTripPlacesQuery = Type.Object({
+  destination: Type.String({ maxLength: TRIP_DESTINATION_MAX }),
+});
+
+/** The picker's Change: back to the text, the picked name in it. */
+export const NewTripDestinationQuery = Type.Object({
+  destination: Type.Optional(Type.String({ maxLength: TRIP_DESTINATION_MAX })),
+});
+
+/** The place the new-trip form's picker chose, or null (an unlocated trip: the trip page offers Find). */
+export function formPlace(body: NewTripBody): PickedPlace | null {
+  const { destination, latitude, longitude, timeZone } = body;
+  // NewTripBody's dependencies send all three or none.
+  if (destination === undefined || latitude === undefined) return null;
+  if (longitude === undefined) return null;
+  return pickedPlace({ name: destination, latitude, longitude, timeZone });
+}
 
 export type TripField = 'name' | 'startsOn' | 'endsOn';
 

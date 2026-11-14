@@ -12,9 +12,10 @@ import type { Place } from './open-meteo';
 import type { WeatherService } from './service';
 
 /**
- * The place-search protocol both pickers share (the profile's home city,
- * src/web/weather/settings.tsx, and a trip's destination,
- * src/web/trips/weather.tsx): the search field's bounds and its query
+ * The place-search protocol the pickers share (the profile's home city,
+ * src/web/weather/settings.tsx, a trip's destination,
+ * src/web/trips/weather.tsx, and the new-trip form's, form-page.tsx, #684):
+ * the search field's bounds and its query
  * schema, the answer, the list of places with their posted fields, and the
  * schemas those posts are read with. `@place-fields` (scripts/ci/guards.conf)
  * keeps the posted coordinates here; each picker brings only where a pick
@@ -57,10 +58,13 @@ export function postedLocation(body: Static<typeof LocationBody>): Location {
   return roundedLocation(body.latitude, body.longitude)!;
 }
 
-export function pickedPlace(body: Static<typeof PlaceBody>): {
+/** A place as a picker keeps it: the trip's destination, the profile's home. */
+export interface PickedPlace {
   name: string;
   location: PickedLocation;
-} {
+}
+
+export function pickedPlace(body: Static<typeof PlaceBody>): PickedPlace {
   const timeZone =
     body.timeZone == null ? null : canonicalTimeZone(body.timeZone);
   return {
@@ -74,7 +78,7 @@ export function pickedPlace(body: Static<typeof PlaceBody>): {
  * a trip destination's): the name and the rounded coordinates. Not the zone:
  * the home is always read in APP_TIMEZONE (#678).
  */
-export function keptPlace(place: ReturnType<typeof pickedPlace>): {
+export function keptPlace(place: PickedPlace): {
   name: string;
   latitude: number;
   longitude: number;
@@ -88,7 +92,7 @@ export function keptPlace(place: ReturnType<typeof pickedPlace>): {
  * saved, null when the sent one was absent, null or unknown (so the caller
  * sees the fallback to APP_TIMEZONE, #808).
  */
-export function keptDestination(place: ReturnType<typeof pickedPlace>) {
+export function keptDestination(place: PickedPlace) {
   return { ...keptPlace(place), timeZone: place.location.timeZone };
 }
 
@@ -128,15 +132,28 @@ export function LocationFields(props: { location?: Location }) {
   );
 }
 
+/** A picked place's coordinates and zone as hidden fields, without its name (each picker posts that as it names it). */
+export function PlaceLocationFields(props: { location: PickedLocation }) {
+  const { location } = props;
+  return (
+    <>
+      <LocationFields location={location} />
+      {location.timeZone && (
+        <input type="hidden" name="timeZone" value={location.timeZone} />
+      )}
+    </>
+  );
+}
+
+/** How a picker offers one place of the search's answer. */
+export type PlacePick = (props: { place: Place }) => JSX.Element;
+
 /**
- * The search's answer (a 200 either way, so htmx shows it): a button per
- * place, each in a `Form` of the picker's, posting PlaceBody's fields.
+ * The search's answer (a 200 either way, so htmx shows it): a control per
+ * place, the picker's `Pick`.
  */
-export function PlaceResults(props: {
-  answer: PlaceAnswer;
-  Form: (props: { children: Child }) => JSX.Element;
-}) {
-  const { answer, Form } = props;
+export function PlaceResults(props: { answer: PlaceAnswer; Pick: PlacePick }) {
+  const { answer, Pick } = props;
   if ('failed' in answer) {
     return <p class="text-sm text-error">{t('weather.SEARCH_FAILED')}</p>;
   }
@@ -147,21 +164,56 @@ export function PlaceResults(props: {
     <ul class="flex flex-col gap-1">
       {answer.places.map((place) => (
         <li>
-          <Form>
-            <input type="hidden" name="name" value={place.label} />
-            <LocationFields location={place.location} />
-            {place.timeZone && (
-              <input type="hidden" name="timeZone" value={place.timeZone} />
-            )}
-            <button
-              type="submit"
-              class="btn btn-ghost btn-sm justify-start w-full"
-            >
-              {place.label}
-            </button>
-          </Form>
+          <Pick place={place} />
         </li>
       ))}
     </ul>
   );
+}
+
+const PICK_BUTTON = 'btn btn-ghost btn-sm justify-start w-full';
+
+/** A pick that posts PlaceBody's fields in the picker's own form. */
+export function postedPick(
+  Form: (props: { children: Child }) => JSX.Element,
+): PlacePick {
+  return ({ place }) => (
+    <Form>
+      <input type="hidden" name="name" value={place.label} />
+      <PlaceLocationFields
+        location={{ ...place.location, timeZone: place.timeZone }}
+      />
+      <button type="submit" class={PICK_BUTTON}>
+        {place.label}
+      </button>
+    </Form>
+  );
+}
+
+/**
+ * A pick for a picker inside a form of its own, which cannot nest one (the
+ * new-trip form): a button asking `path` by GET with PlaceBody's fields as
+ * the query, its answer swapped over `target`. Writes nothing: the form's
+ * post carries the place.
+ */
+export function fetchedPick(path: string, target: string): PlacePick {
+  return ({ place }) => {
+    const query = new URLSearchParams({
+      name: place.label,
+      latitude: String(place.location.latitude),
+      longitude: String(place.location.longitude),
+    });
+    if (place.timeZone) query.set('timeZone', place.timeZone);
+    return (
+      <button
+        type="button"
+        class={PICK_BUTTON}
+        hx-get={`${path}?${query}`}
+        hx-target={target}
+        hx-swap="outerHTML"
+      >
+        {place.label}
+      </button>
+    );
+  };
 }

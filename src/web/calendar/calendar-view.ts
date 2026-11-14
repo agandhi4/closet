@@ -11,6 +11,7 @@ import type { GarmentStatus } from '../../wardrobe/status';
 import type { SignablePhotoRef } from '../files/image-url';
 import { type CollageGarment, collagePieces } from '../outfits/collage';
 import type { DetachedLook, SelfieRef } from '../selfies/queries';
+import { type AwayTrip, splitAwayDays, tripsOn } from '../trips/away';
 import type { AgentLabel } from '../write-origin';
 import {
   addDays,
@@ -109,6 +110,8 @@ export interface CalendarDayView {
   openSlots: Occasion[];
   /** Selfies kept after their outfit was deleted (#19), as taken. */
   looks: DetachedLook[];
+  /** The trips the day is one of (#684): "Away", and no open slot. */
+  away: AwayTrip[];
 }
 
 export interface CalendarView {
@@ -164,16 +167,27 @@ export function buildCalendarView(input: {
   looks?: DetachedLook[];
   /** The owner's week template (#16); no open slots when absent. */
   template?: readonly TemplateSlot[];
+  /** Trips with a day in the week (awayTripsSql, #684); none when absent. */
+  trips?: readonly AwayTrip[];
 }): CalendarView {
-  const { weekStart, today, entries, looks = [], template = [] } = input;
+  const {
+    weekStart,
+    today,
+    entries,
+    looks = [],
+    template = [],
+    trips = [],
+  } = input;
   const dates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  // A day away opens no slot: "Plan my week" skips it too (planMyWeek).
+  const { home } = splitAwayDays(dates, trips);
   const open = emptySlots({
     today,
     // The start of the day: /calendar is a stale-while-revalidate tab root
     // and must render the same all day, so none of today's slots has ended.
     hour: 0,
     // ISO dates compare correctly as strings.
-    days: dates.filter((date) => date >= today),
+    days: home.filter((date) => date >= today),
     template,
     entries,
   });
@@ -189,6 +203,7 @@ export function buildCalendarView(input: {
           .filter((slot) => slot.day === date)
           .map((slot) => slot.occasion),
         looks: looks.filter((look) => look.day === date),
+        away: tripsOn(trips, date),
       }),
     ),
     weekOccasions: OCCASIONS.filter(

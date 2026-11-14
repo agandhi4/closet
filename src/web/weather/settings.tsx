@@ -13,6 +13,7 @@ import {
   PLACE_QUERY_MIN,
   type PlaceAnswer,
   PlaceResults,
+  postedPick,
 } from './place-picker';
 import {
   activeLocation,
@@ -278,7 +279,7 @@ export function OffsetControls(props: {
 
 /** GET /weather/places's answer: a button per place, each setting it as home. */
 export function HomePlaceResults(props: { answer: PlaceAnswer }) {
-  return <PlaceResults answer={props.answer} Form={HomeForm} />;
+  return <PlaceResults answer={props.answer} Pick={postedPick(HomeForm)} />;
 }
 
 function HomeForm(props: { children: Child }) {

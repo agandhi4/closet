@@ -13,7 +13,7 @@ export const weekPlanTools = [
     name: 'plan_week',
     title: 'Plan my week',
     description:
-      "WRITES: fills the empty slots of your week template (get_style_profile's week: each weekday's occasions) for today and the next six days with outfits from your closet, each dressed for its slot's forecast (weather on and a location set) and its occasion's formality, as the calendar's Plan my week does. Its own planned wears count toward wash limits across the week, and no outfit is used twice in it. New outfits are saved and named after their garments; each planned entry is marked auto, which the daily re-plan may swap when the forecast changes, until you edit or wear it. Safe to retry: slots already filled are left alone, so a second call plans nothing new. Returns what it planned (entry and outfit ids, garments, any problems of a near miss), the slots nothing clean could fill, and weekPlanId; Undo is in the app. With no week template it plans nothing and says so.",
+      "WRITES: fills the empty slots of your week template (get_style_profile's week: each weekday's occasions) for today and the next six days with outfits from your closet, each dressed for its slot's forecast (weather on and a location set) and its occasion's formality, as the calendar's Plan my week does. Its own planned wears count toward wash limits across the week, and no outfit is used twice in it. New outfits are saved and named after their garments; each planned entry is marked auto, which the daily re-plan may swap when the forecast changes, until you edit or wear it. Safe to retry: slots already filled are left alone, so a second call plans nothing new. Returns what it planned (entry and outfit ids, garments, any problems of a near miss), the slots nothing clean could fill, the days skipped because a trip covers them (away: plan those on the trip), and weekPlanId; Undo is in the app. With no week template it plans nothing and says so.",
     input: z.object({}),
     writes: true,
     // Filled slots are skipped: a retry plans nothing more.
@@ -46,6 +46,7 @@ export const weekPlanTools = [
           problems: entry.problems,
         })),
         unfilled: result.unfilled,
+        away: result.away,
         ...(result.templateSet
           ? {}
           : {

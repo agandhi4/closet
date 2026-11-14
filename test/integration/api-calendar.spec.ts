@@ -595,6 +595,7 @@ describe('the week plan', () => {
       templateSet: false,
       planned: [],
       unfilled: [],
+      away: [],
       weatherDays: 0,
     });
 

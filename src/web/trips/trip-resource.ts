@@ -14,6 +14,7 @@ import { IsoDateSchema, RowId } from '../schemas';
 import { TEMPERATURE_UNITS } from '../../weather/temperature';
 import {
   DayWeather,
+  PlaceInput,
   toDayWeather,
   toTypicalDayWeather,
   TypicalDayWeather,
@@ -365,6 +366,8 @@ const tripInputFields = {
 export const NewTrip = Type.Object(
   {
     ...tripInputFields,
+    // Described on the route: PlaceInput is a named schema.
+    place: Type.Optional(PlaceInput),
     clientId: Type.Optional(
       Type.String({
         format: 'uuid',

@@ -8,7 +8,11 @@ import {
 import { PostForm } from '../auth/form';
 import { dayLabel, shortDayLabel } from '../date-labels';
 import { t } from '../i18n';
-import { type PlaceAnswer, PlaceResults } from '../weather/place-picker';
+import {
+  type PlaceAnswer,
+  PlaceResults,
+  postedPick,
+} from '../weather/place-picker';
 import {
   ConditionIcon,
   fetchedLabel,
@@ -217,5 +221,5 @@ export function TripPlaceResults(props: {
       {form.children}
     </PostForm>
   );
-  return <PlaceResults answer={props.answer} Form={Form} />;
+  return <PlaceResults answer={props.answer} Pick={postedPick(Form)} />;
 }

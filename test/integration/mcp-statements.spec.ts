@@ -364,7 +364,8 @@ describe('MCP statements per tool (#172)', () => {
     ['laundry_status', () => ({}), 2],
     ['mark_worn', () => ({ garmentId: ids.garment }), 2],
     ['mark_washed', () => ({ garmentIds: [ids.garment] }), 2],
-    ['plan_week', () => ({}), 7],
+    // The template, the window's entries and its trips in one (#684).
+    ['plan_week', () => ({}), 6],
     ['list_trips', () => ({}), 2],
     ['get_trip', () => ({ tripId: ids.trip }), 2],
     // The trip and outfit locked, then the insert judged after the lock
