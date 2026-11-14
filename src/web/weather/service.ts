@@ -8,6 +8,7 @@ import {
 } from '../../weather/location';
 import { type ClimateNormals, normalYears } from '../../weather/normals';
 import { canonicalTimeZone, todayIn } from '../../calendar-date';
+import { abortedBy } from '../abort';
 import {
   createLocationCache,
   elapsed,
@@ -277,6 +278,8 @@ export async function userWeatherOrNone(
   deps: { db: Db; weather: WeatherService; logger: Logger },
   userId: number,
   now: Date,
+  /** A scheduled run's: its abort ends the wait on a fetch (ReadOptions), thrown on, never "no forecast". */
+  signal?: AbortSignal,
 ): Promise<UserWeather> {
   const found = await findWeatherWithForecast(
     deps.db,
@@ -285,8 +288,9 @@ export async function userWeatherOrNone(
     deps.weather.timeZone,
   );
   try {
-    return await userWeatherFrom(deps.weather, found, now);
+    return await userWeatherFrom(deps.weather, found, now, { signal });
   } catch (error) {
+    if (abortedBy(signal, error)) throw error;
     deps.logger.warn(
       { err: error },
       `No forecast for user ${userId}: the fetch failed and nothing is cached`,
@@ -321,6 +325,11 @@ export async function refreshForecastsFor(
   deps: { db: Db; weather: WeatherService; logger: Logger },
   userIds: readonly number[],
   now: Date,
+  /**
+   * A scheduled run's: once it aborts no fetch is waited on or started and
+   * this throws its reason (the fetches in flight are the cache's).
+   */
+  signal?: AbortSignal,
 ): Promise<Map<number, UserWeather>> {
   const users = new Map<number, UserWeather>();
   const found = await findWeathersWithForecast(
@@ -362,19 +371,20 @@ export async function refreshForecastsFor(
   let pending = queue.length;
   const worker = async () => {
     // No new fetch once the deadline has passed: the job reads stale rows.
-    while (!expired) {
+    while (!expired && !signal?.aborted) {
       const next = queue.shift();
       if (!next) return;
       const [label, { location, known }] = next;
       await deps.weather
-        .forecastFor(location, { fresh: true }, known)
+        .forecastFor(location, { fresh: true, signal }, known)
         .then((cached) => answers.set(label, cached))
-        .catch((error: unknown) =>
+        .catch((error: unknown) => {
+          if (abortedBy(signal, error)) return;
           deps.logger.error(
             { err: error },
             `Forecast refresh for ${label} failed`,
-          ),
-        );
+          );
+        });
       pending -= 1;
     }
   };
@@ -392,6 +402,7 @@ export async function refreshForecastsFor(
   ]);
   clearTimeout(timer);
   expired = true;
+  signal?.throwIfAborted();
   deps.logger.info(
     `Forecasts for ${locations.size} location(s) refreshed for a batch in ${elapsed(started)} ms${
       pending > 0 ? `; ${pending} not done by the deadline, read stale` : ''

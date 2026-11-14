@@ -37,8 +37,10 @@ import { claimAutoEntries } from '../../src/web/week-plan/queries';
 import type { PushPayload } from '../../src/web/push/payload';
 import {
   type ReminderDeps,
+  type ReminderRun,
   sendDueReminders,
 } from '../../src/web/push/reminders';
+import { scheduleJob } from '../../src/maintenance/scheduled';
 import { tripModel } from '../../src/web/trips/model';
 import { addTripOutfit, createTrip } from '../../src/web/trips/queries';
 import { REMINDER_WINDOWS } from '../../src/push/reminders';
@@ -2007,6 +2009,85 @@ describe('the weekly auto-plan', () => {
         );
         expect(notice.payload.body).not.toContain('Monday');
       });
+
+      it('a stop while the re-plan is held cancels it, not abandons it: the run waits it out, nothing is swapped or told, the claim is given back (#920)', async () => {
+        await planWarm();
+        await remindAt(REPLAN_HOUR);
+        const planned = (await weekEntries()).find((e) => e.day === TODAY)!;
+        forecastDays = weekAt((day) =>
+          day === TODAY || day === WEEK[3] ? -2 : 24,
+        );
+        let fetchStarted!: () => void;
+        const started = new Promise<void>(
+          (resolve) => (fetchStarted = resolve),
+        );
+        let letGo!: () => void;
+        const hold = new Promise<void>((resolve) => (letGo = resolve));
+        // A step the signal cannot cut short (this read ignores it), as a
+        // statement in flight is: the run must wait it out.
+        const cold = fakeWeather(() => forecastDays);
+        const weather: WeatherService = {
+          ...cold,
+          forecastFor: async (...args) => {
+            fetchStarted();
+            await hold;
+            return cold.forecastFor(...args);
+          },
+        };
+        const held: ReminderDeps = {
+          ...reminders,
+          replan: { ...deps, weather },
+        };
+        const now = at(TODAY, REPLAN_HOUR);
+        let running: Promise<ReminderRun> | undefined;
+        let settled = false;
+        const job = scheduleJob({
+          name: 'Push reminders',
+          logger: reminders.logger,
+          now: () => now,
+          untilNext: () => 0,
+          run: (signal) => {
+            running = sendDueReminders(held, now, signal);
+            running.then(
+              () => (settled = true),
+              () => (settled = true),
+            );
+            return running;
+          },
+        });
+        await started;
+
+        await job.stop();
+        // Still waiting on its re-plan: no claim given back under it.
+        expect(settled).toBe(false);
+        letGo();
+        const run = await running!;
+        expect(run).toMatchObject({
+          claimed: 1,
+          sent: 0,
+          failed: 0,
+          released: 1,
+          lost: 0,
+          interrupted: true,
+        });
+        // Rolled back whole: no swap, no claim of the day, nobody told.
+        expect(
+          (await weekEntries()).find((e) => e.day === TODAY)!.outfitId,
+        ).toBe(planned.outfitId);
+        expect(await t.db.$count(weekReplan)).toBe(0);
+        expect(sends).toEqual([]);
+        expect(await t.db.$count(pushReminder)).toBe(0);
+
+        // The next minute re-plans and reminds, once.
+        const next = await sendDueReminders(
+          reminders,
+          new Date(now.getTime() + 60_000),
+        );
+        expect(next).toMatchObject({ claimed: 1, sent: 1, failed: 0 });
+        expect(reminderTo()[0].payload.body).toMatch(/^Swapped in /);
+        expect(swapNotices()).toHaveLength(1);
+        expect(await t.db.$count(weekReplan)).toBe(1);
+      }, 15_000);
 
       it('two servers running the reminders and the re-plan at the same minute re-plan once and remind once, after the re-plan', async () => {
         const logger = t.logger.child({ logger: 'WeekPlan' });
