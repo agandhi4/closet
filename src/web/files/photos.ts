@@ -41,6 +41,7 @@ import {
   readPhotoRef,
   type NewPhotoRow,
 } from './queries';
+import { claimStorage } from './storage-identity';
 import { PhotoStorage } from './storage';
 
 const IMAGE_MAX_PX = 1080;
@@ -174,17 +175,19 @@ export function photosConfig(config: Config): PhotosConfig {
 
 /**
  * Builds the one Photos instance of a process (its thumb single-flight map
- * must be shared by every caller) and prepares its directory: creates it
- * and sweeps stale partial writes. createApp() builds the server's and
- * hands it to the web layer; the reconciliation CLI builds its own.
+ * must be shared by every caller) and prepares its directory: creates it,
+ * sweeps stale partial writes and claims it (claimStorage: rejects with a
+ * StorageIdentityError on an unmounted share). createApp() builds the
+ * server's and hands it to the web layer; each CLI builds its own.
  */
-export function createPhotos(
+export async function createPhotos(
   config: PhotosConfig,
   db: Db,
   logger: Logger,
-): Photos {
+): Promise<Photos> {
   const storage = new PhotoStorage(config.dataPath, logger);
   storage.prepare();
+  await claimStorage(storage, db, logger);
   logger.info(`Photos stored under ${config.dataPath}`);
   return new Photos(storage, db, logger, config);
 }

@@ -5,6 +5,10 @@ import { createBootLogger, createLogger, type Logger } from './logger';
 import { createCrashHandler } from './metrics/error-tracker';
 import { serve } from './server';
 import { ownershipFix, probeWritable } from './storage-probe';
+import {
+  identityRefusal,
+  StorageIdentityError,
+} from './web/files/storage-identity';
 
 /**
  * The background-removal model's runner. The model file is verified (or
@@ -75,7 +79,13 @@ async function main(): Promise<void> {
       void onCrash(error, origin);
     });
   } catch (error) {
-    logger.fatal({ err: error }, 'Boot failed');
+    // An unmounted photo share (createPhotos' claim) is a refusal naming
+    // DATA_PATH and the fix, like a ConfigError: no stack to read.
+    if (error instanceof StorageIdentityError) {
+      logger.fatal(identityRefusal(error.problem));
+    } else {
+      logger.fatal({ err: error }, 'Boot failed');
+    }
     process.exit(1);
   }
 }

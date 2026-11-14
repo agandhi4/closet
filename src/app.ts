@@ -198,11 +198,16 @@ export async function createApp(
   // Before anything queries: the schema is current or the boot fails.
   await runMigrations(database, logger.child({ logger: 'Migrations' }));
   const db = createDb(database, logger.child({ logger: 'Db' }));
-  const photos = createPhotos(
+  // Refuses an unmounted photo share (StorageIdentityError, main.ts); the
+  // pool is ended here, since no onClose hook exists yet to end it.
+  const photos = await createPhotos(
     photosConfig(config),
     db,
     logger.child({ logger: 'Photos' }),
-  );
+  ).catch(async (error: unknown) => {
+    await db.$client.end();
+    throw error;
+  });
   // Before any page renders a /file URL: the key the /file routes verify.
   configurePhotoUrls(config.ACCESS_TOKEN_SECRET);
   configurePasswordHashing(config.PASSWORD_HASH_ROUNDS);

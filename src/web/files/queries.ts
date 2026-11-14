@@ -213,6 +213,16 @@ export async function lockOwnersAndPhotoName(
   return locked.owners === accounts.length;
 }
 
+/**
+ * Every `file` row's stored name: claimStorage's proof, on an unmarked
+ * boot only, that a directory holds this database's photos (a household's
+ * few hundred names).
+ */
+export async function photoRowNames(q: Queryable): Promise<string[]> {
+  const rows = await q.select({ fileName: file.fileName }).from(file);
+  return rows.map((row) => row.fileName);
+}
+
 export async function photoRowExists(
   q: Queryable,
   fileName: string,

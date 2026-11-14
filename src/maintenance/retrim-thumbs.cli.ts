@@ -17,7 +17,7 @@ runCli(
     const report = await retrimCutoutThumbs(
       {
         db,
-        photos: createPhotos(
+        photos: await createPhotos(
           photosConfig(config),
           db,
           logger.child({ logger: 'Photos' }),
