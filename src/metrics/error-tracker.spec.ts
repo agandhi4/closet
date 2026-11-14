@@ -1,4 +1,4 @@
-import type { ErrorEvent } from '@sentry/node';
+import type { ErrorEvent, NodeClient } from '@sentry/node';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -115,6 +115,8 @@ describe('scrubEvent', () => {
   });
 });
 
+type SdkClient = typeof NodeClient;
+
 describe('createErrorTracker', () => {
   const options = {
     release: 'dev',
@@ -139,6 +141,42 @@ describe('createErrorTracker', () => {
     expect(tracker.enabled).toBe(true);
     expect(loadSdk).toHaveBeenCalledTimes(1);
     await tracker.close(0);
+  });
+
+  // v11 collects cookies, headers, bodies and user info when dataCollection is
+  // unset: the options handed to the client are the net under that.
+  it('keeps every data-collection category off and attaches no stack to non-errors', async () => {
+    let seen: ConstructorParameters<SdkClient>[0] | undefined;
+    const loadSdk = async () => {
+      const sdk = await import('@sentry/node');
+      class RecordingClient extends sdk.NodeClient {
+        constructor(clientOptions: ConstructorParameters<SdkClient>[0]) {
+          super(clientOptions);
+          seen = clientOptions;
+        }
+      }
+      return { ...sdk, NodeClient: RecordingClient };
+    };
+    const tracker = await createErrorTracker({
+      ...options,
+      dsn: 'http://key@127.0.0.1:9/1',
+      loadSdk,
+    });
+    await tracker.close(0);
+    expect(seen).toMatchObject({
+      attachStacktrace: false,
+      dataCollection: {
+        userInfo: false,
+        cookies: false,
+        httpHeaders: { request: false, response: false },
+        httpBodies: [],
+        urlQueryParams: false,
+        genAI: { inputs: false, outputs: false },
+        databaseQueryData: false,
+        queues: false,
+        graphQL: { document: false, variables: false },
+      },
+    });
   });
 
   // What keeps the loader the only way in: a value import anywhere in
