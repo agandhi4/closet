@@ -25,7 +25,7 @@
     "SIGN_OUT": "Sign out",
     "SIGN_OUT_HINT": "Signs out this device only. Changing your password signs out every device.",
     "EXPORT": "Export",
-    "EXPORT_HINT": "Download your garment list with all its details: a CSV for spreadsheets, or JSON with links to the photos. It holds garments only: no photo files (the links point to this server and stop working if it goes away), outfits, calendar, wears, washes, capsules, trips, sizes, style profile, selfies or saved looks. It is not a backup; backups are the operator's database dump plus the photo share.",
+    "EXPORT_HINT": "Download your garment list with all its details: a CSV for spreadsheets, or JSON with links to the photos. It holds your garments and Muse needs only: no photo files (the links point to this server and stop working if it goes away), outfits, calendar, wears, washes, capsules, trips, sizes, style profile, selfies or saved looks. It is not a backup; backups are the operator's database dump plus the photo share.",
     "EXPORT_CSV": "Download CSV",
     "EXPORT_JSON": "Download JSON"
   },
