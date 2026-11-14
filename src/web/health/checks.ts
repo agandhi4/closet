@@ -1,3 +1,8 @@
+import {
+  type CutoutQueueState,
+  MODEL_UNAVAILABLE_FIX,
+  type ModelUnavailableKind,
+} from '../../cutout/queue-state';
 import type { Logger } from '../../logger';
 import type { StorageFailure, WriteProbe } from '../../storage-probe';
 
@@ -17,6 +22,8 @@ export interface HealthCheck {
   fix?: string;
   /** cron_jobs: the jobs whose run has been in flight past STUCK_AFTER_MS. */
   stuck?: string[];
+  /** cutout_queue while it waits for the model: why, a closed word (queue-state.ts). */
+  reason?: ModelUnavailableKind;
 }
 
 export interface Readiness {
@@ -97,9 +104,26 @@ export function checkJobs(stuck: string[] | undefined): HealthCheck {
   return { status: 'up', required: false };
 }
 
-/** The background-removal queue (CutoutQueue.running); optional like the timers. */
-export function checkCutoutQueue(running: boolean): HealthCheck {
-  return running ? { status: 'up', required: false } : down(false);
+/**
+ * The background-removal queue (CutoutQueue.state); optional like the
+ * timers. Down when it was never started or is stopping, and while it waits
+ * for a model it cannot have (#689), naming the kind and its fix: photos
+ * stay pending until then.
+ */
+export function checkCutoutQueue(state: CutoutQueueState): HealthCheck {
+  switch (state.name) {
+    case 'running':
+      return { status: 'up', required: false };
+    case 'stopped':
+      return down(false);
+    case 'waiting-for-model':
+      return {
+        status: 'down',
+        required: false,
+        reason: state.kind,
+        fix: MODEL_UNAVAILABLE_FIX[state.kind],
+      };
+  }
 }
 
 /** How long a storage verdict is reused: a probe writes to disk (and NFS). */

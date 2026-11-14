@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { captureLogs } from '../../test/support/log-capture';
 import { PROJECT_ROOT } from '../project-root';
 import type { ModelSpec } from './model';
-import { CutoutTimeoutError, ModelRunner } from './runner';
+import { CutoutTimeoutError, ModelBindingError, ModelRunner } from './runner';
 
 /**
  * The model process's lifecycle, against stand-in processes that speak the
@@ -119,6 +119,29 @@ describe('ModelRunner', () => {
     );
     await runner.mask(rgb);
     expect(started()).toHaveLength(2);
+  });
+
+  // #689: the arm64 image has no onnxruntime binding; ready() must say so
+  // before the queue claims a photo, without loading the model.
+  it('is ready once a model process answers the binding probe, and probes once', async () => {
+    const runner = build('echo');
+    await runner.ready();
+    await runner.ready();
+    const probed = logs
+      .messages('info')
+      .filter((message) => /loaded onnxruntime-node in \d+ ms$/.test(message));
+    expect(probed).toHaveLength(1);
+    // The probe loads no model: the first image starts its own process.
+    expect(started()).toEqual([]);
+  });
+
+  it('refuses ready() with a ModelBindingError when the process dies before answering', async () => {
+    const runner = build('no-binding');
+    const refused = runner.ready();
+    await expect(refused).rejects.toBeInstanceOf(ModelBindingError);
+    await expect(refused).rejects.toThrow(
+      'The model process could not load onnxruntime-node (exited with code 1)',
+    );
   });
 
   it('stops the process on close', async () => {

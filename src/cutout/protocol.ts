@@ -27,9 +27,19 @@ interface RunRequest {
   rgb: Uint8Array;
 }
 
-export type ChildRequest = LoadRequest | RunRequest;
+/**
+ * Answer once the process is up: its static import of onnxruntime-node
+ * already loaded the native binding, or the process died before replying
+ * (ModelRunner.ready's binding probe).
+ */
+interface ProbeRequest {
+  type: 'probe';
+}
+
+export type ChildRequest = LoadRequest | RunRequest | ProbeRequest;
 
 export type ChildReply =
+  | { type: 'probed' }
   | { type: 'loaded'; loadMs: number; rssMb: number }
   | {
       type: 'mask';

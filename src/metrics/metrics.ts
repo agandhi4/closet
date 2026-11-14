@@ -130,6 +130,13 @@ const CLIENT_BUCKETS = [
   0.025, 0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.2, 2, 3, 5, 8, 13,
 ];
 
+/** What trackCutoutQueue counts (countPendingCutouts, src/cutout/queries.ts). */
+export interface PendingCutouts {
+  depth: number;
+  /** The oldest pending photo's request time; null with none pending (or none dated). */
+  oldestRequestedAt: Date | null;
+}
+
 export interface MetricsOptions {
   /** METRICS_ENABLED: adds the process's default metrics (CPU, memory, event loop). */
   enabled: boolean;
@@ -310,48 +317,85 @@ export class Metrics {
   }
 
   /**
-   * The background-removal queue's pending photos, counted in the database
-   * (any server's writes count). Each scrape starts a count and answers
-   * with the last one that finished, so the value is at most one scrape
-   * interval old. Only the first scrape waits, for the first count's
-   * attempt: if that fails, the gauge stays at 0 until a count succeeds,
-   * and no later scrape waits. The scrape never waits on the database
-   * otherwise: in production that is a round trip to pgvault on the NAS,
-   * which was most of every scrape's time (#174). One count at a time: a
-   * scrape while one is still out starts none. A failed count is logged and
-   * the last value stands.
+   * The cutout queue cannot have its model (CutoutQueue, queue-state.ts):
+   * called once per outage and failure kind, never per retry, so Bugsink
+   * shows one event per kind instead of one every five minutes.
    */
-  trackCutoutQueue(pending: () => Promise<number>): void {
+  captureCutoutModelUnavailable(kind: string, error: unknown): void {
+    this.errors.captureException(error, {
+      source: 'cutout_model',
+      tags: { kind },
+    });
+  }
+
+  /**
+   * The background-removal queue's pending photos, counted in the database
+   * (any server's writes count): `cutout_queue_depth`, and
+   * `cutout_queue_oldest_age_seconds`, how long the oldest has waited (#689:
+   * a queue that cannot run its model shows as an age that only grows).
+   * Each scrape starts a count and answers with the last one that finished,
+   * so the depth is at most one scrape interval old; the age is measured at
+   * the scrape from the oldest request time that count read. Only the first
+   * scrape waits, for the first count's attempt: if that fails, both stay
+   * at 0 until a count succeeds, and no later scrape waits. The scrape
+   * never waits on the database otherwise: in production that is a round
+   * trip to pgvault on the NAS, which was most of every scrape's time
+   * (#174). One count at a time, shared by both gauges: a scrape while one
+   * is still out starts none. A failed count is logged and the last value
+   * stands.
+   */
+  trackCutoutQueue(pending: () => Promise<PendingCutouts>): void {
     const logger = this.logger;
     let counting: Promise<void> | undefined;
     let attempted = false;
+    let depth = 0;
+    let oldest: Date | null = null;
+    // Never rejects: past the first scrape nothing awaits it, and an
+    // unhandled rejection is a crash (main.ts, createCrashHandler). The
+    // reset is a .finally() so it always runs after the assignment, even
+    // when `pending` throws synchronously.
+    const refresh = async (): Promise<void> => {
+      counting ??= (async () => {
+        try {
+          const counted = await pending();
+          if (!Number.isFinite(counted.depth)) {
+            throw new Error(`not a count: ${String(counted.depth)}`);
+          }
+          depth = counted.depth;
+          oldest = counted.oldestRequestedAt;
+        } catch (error) {
+          logger.warn(
+            { err: error },
+            "Could not read the cutout queue's depth",
+          );
+        }
+        attempted = true;
+      })().finally(() => {
+        counting = undefined;
+      });
+      if (!attempted) await counting;
+    };
+    const registers = [this.registry];
     new Gauge({
       name: 'cutout_queue_depth',
       help: 'Photos waiting for background removal (pending cutouts).',
-      registers: [this.registry],
+      registers,
       async collect() {
-        // Never rejects: past the first scrape nothing awaits it, and an
-        // unhandled rejection is a crash (main.ts, createCrashHandler).
-        // The reset is a .finally() so it always runs after the assignment,
-        // even when `pending` throws synchronously.
-        counting ??= (async () => {
-          try {
-            const depth = await pending();
-            if (!Number.isFinite(depth)) {
-              throw new Error(`not a count: ${String(depth)}`);
-            }
-            this.set(depth);
-          } catch (error) {
-            logger.warn(
-              { err: error },
-              "Could not read the cutout queue's depth",
-            );
-          }
-          attempted = true;
-        })().finally(() => {
-          counting = undefined;
-        });
-        if (!attempted) await counting;
+        await refresh();
+        this.set(depth);
+      },
+    });
+    new Gauge({
+      name: 'cutout_queue_oldest_age_seconds',
+      help: 'How long the oldest pending cutout has waited, in seconds; 0 with none pending.',
+      registers,
+      async collect() {
+        await refresh();
+        this.set(
+          oldest === null
+            ? 0
+            : Math.max(0, (Date.now() - oldest.getTime()) / 1000),
+        );
       },
     });
   }
