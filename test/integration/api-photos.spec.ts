@@ -349,7 +349,12 @@ describe('POST /garments/link-imports', () => {
       `?ownerId=${t.owner.id}`,
     );
     expect(res.statusCode, res.body).toBe(201);
-    const { id, notices } = res.json<{ id: number; notices: string[] }>();
+    const { id, notices, confidence } = res.json<{
+      id: number;
+      notices: string[];
+      confidence: string;
+    }>();
+    expect(confidence).toBe('product');
     expect(res.headers.location).toBe(
       `/api/v1/garments/${id}?ownerId=${t.owner.id}`,
     );

@@ -26,6 +26,7 @@ import {
   LinkImportError,
   REFUSALS,
 } from './import';
+import type { ExtractionConfidence } from './extract';
 import { importedForm } from './prefill';
 
 /** What the caller says instead of the page. */
@@ -53,8 +54,17 @@ export interface LinkSaveOptions {
 export type LinkSaveSurface = 'MCP' | 'API';
 
 /** The save, or the garment form's refusal (the fetched photo discarded). */
+export interface LinkSaved {
+  ok: true;
+  id: number;
+  /** Warnings first: what the import says about itself, as the page shows it. */
+  notices: string[];
+  /** How much of a product the page gave; null when the link was an image. */
+  confidence: ExtractionConfidence | null;
+}
+
 export type LinkSave =
-  | { ok: true; id: number; notices: string[] }
+  | LinkSaved
   | { ok: false; errors: FieldErrors<GarmentField> };
 
 /**
@@ -141,7 +151,12 @@ export async function saveGarmentFromLink(
   logger.info(
     `Garment ${id} added from a link by user ${userId} into wardrobe ${ownerId} (${overrides.destination}, ${surface}): ${imported.kind}${photo ? `, photo ${photo}` : ', no photo'}`,
   );
-  return { ok: true, id, notices: form.link.notices };
+  return {
+    ok: true,
+    id,
+    notices: [...form.link.warnings, ...form.link.notices],
+    confidence: imported.kind === 'page' ? imported.product.confidence : null,
+  };
 }
 
 /**

@@ -13,6 +13,7 @@ const fixture = (name: string) =>
 
 const NOTHING: ExtractedProduct = {
   source: null,
+  confidence: 'title-only',
   name: null,
   brand: null,
   price: null,
@@ -25,6 +26,8 @@ const NOTHING: ExtractedProduct = {
   images: [],
 };
 
+const page = (head: string) => `<html><head>${head}</head></html>`;
+
 describe('extractProduct', () => {
   it('reads a Shopify product page from its ProductGroup JSON-LD', () => {
     const page = new URL(
@@ -33,6 +36,7 @@ describe('extractProduct', () => {
 
     expect(extractProduct(fixture('shopify-product.html'), page)).toEqual({
       source: 'json-ld',
+      confidence: 'product',
       name: 'Heavyweight Pocket Tee – Navy',
       brand: 'Acme Supply Co.',
       // On the variant only, as Shopify writes it.
@@ -58,6 +62,7 @@ describe('extractProduct', () => {
 
     expect(extractProduct(fixture('woocommerce-graph.html'), page)).toEqual({
       source: 'json-ld',
+      confidence: 'product',
       name: 'Selvedge Jeans 14 oz',
       brand: 'Iron Denim',
       price: { amount: '1299.00', currency: 'SEK' },
@@ -78,6 +83,7 @@ describe('extractProduct', () => {
 
     expect(extractProduct(fixture('open-graph-only.html'), page)).toEqual({
       source: 'open-graph',
+      confidence: 'product',
       name: 'Merino Crew Sweater',
       brand: 'Knitwear Co.',
       price: { amount: '120', currency: 'EUR' },
@@ -101,11 +107,100 @@ describe('extractProduct', () => {
     expect(extractProduct(html, new URL('https://boutique.test/p/1'))).toEqual({
       ...NOTHING,
       source: 'title',
+      confidence: 'title-only',
       name: 'Linen Shirt Dress',
+      brand: 'Boutique',
       category: 'dresses',
       type: 'day-dress',
       materials: ['linen'],
     });
+  });
+
+  describe('confidence', () => {
+    const jsonLd = `<script type="application/ld+json">{"@type":"Product","name":"Wool Coat","brand":"Acme"}</script>`;
+    const ogOnly =
+      '<meta property="og:title" content="Acme Outerwear"><meta property="og:image" content="/logo.png">';
+    const appShell =
+      '<html><head><title>Acme</title></head><body><div id="root"></div></body></html>';
+    const product = new URL('https://acme.test/p/wool-coat-123');
+
+    it.each([
+      ['a JSON-LD Product', page(jsonLd), 'product'],
+      [
+        'Open Graph with product tags',
+        page(`${ogOnly}<meta property="product:price:amount" content="9">`),
+        'product',
+      ],
+      [
+        'Open Graph typed as a product',
+        page(`${ogOnly}<meta property="og:type" content="product">`),
+        'product',
+      ],
+      ['Open Graph alone', page(ogOnly), 'page'],
+      ['an app shell with only a title', appShell, 'title-only'],
+      ['an empty page', '', 'title-only'],
+    ] as const)('is read from %s', (_, html, confidence) => {
+      expect(extractProduct(html, product).confidence).toBe(confidence);
+    });
+
+    it('is title-only when the link was redirected to the home page, whatever it says', () => {
+      const home = new URL('https://acme.test/');
+      expect(extractProduct(page(jsonLd), home, product).confidence).toBe(
+        'title-only',
+      );
+      expect(
+        extractProduct(page(jsonLd), new URL('https://acme.test/p'), product)
+          .confidence,
+      ).toBe('title-only');
+    });
+
+    it('is not lowered by a redirect that stayed as deep as the link was', () => {
+      const locale = new URL('https://acme.test/us/p/wool-coat-123');
+      expect(extractProduct(page(jsonLd), locale, product).confidence).toBe(
+        'product',
+      );
+    });
+
+    it('is not lowered when the link itself was the home page', () => {
+      const home = new URL('https://acme.test/');
+      expect(extractProduct(page(jsonLd), home).confidence).toBe('product');
+    });
+  });
+
+  it('strips the site from a title and takes the brand from og:site_name', () => {
+    const html = page(
+      '<title>Mens Merino Sweater | UNIQLO US</title><meta property="og:site_name" content="UNIQLO">',
+    );
+    expect(
+      extractProduct(html, new URL('https://www.uniqlo.com/us/p/1')),
+    ).toMatchObject({ name: 'Mens Merino Sweater', brand: 'UNIQLO' });
+  });
+
+  it.each([
+    ['https://www.uniqlo.com/p/1', 'Uniqlo'],
+    ['https://shop.example.co.uk/p/1', 'Example'],
+    ['http://127.0.0.2/p/1', null],
+  ])('falls back from a missing brand to the domain: %s', (url, brand) => {
+    const html = page('<title>Tee | Shop</title>');
+    expect(extractProduct(html, new URL(url)).brand).toBe(brand);
+  });
+
+  it('reads a colour from the address when the page names none', () => {
+    const html = page(
+      '<meta property="og:title" content="Merino Crew Sweater"><meta property="product:brand" content="K">',
+    );
+    expect(
+      extractProduct(html, new URL('https://k.test/p/merino-crew-navy.html'))
+        .colors,
+    ).toEqual(['blue']);
+    expect(
+      extractProduct(html, new URL('https://k.test/p/merino-crew?Color=Olive'))
+        .colors,
+    ).toEqual([]);
+    expect(
+      extractProduct(html, new URL('https://k.test/p/merino-crew?color=olive'))
+        .colors,
+    ).toEqual(['green']);
   });
 
   it('finds nothing on a page without any of it', () => {

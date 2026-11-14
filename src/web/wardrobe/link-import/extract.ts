@@ -36,9 +36,19 @@ interface ExtractedPrice {
 
 type ExtractionSource = 'json-ld' | 'open-graph' | 'title';
 
+/**
+ * How much of a product the page gave: `product` (schema.org Product, or
+ * Open Graph with product tags), `page` (Open Graph alone: a title and a
+ * picture, which a landing page has too) or `title-only` (nothing but a
+ * `<title>`, or a link that ended away from the product's page). Only the
+ * first two are worth prefilling a garment from.
+ */
+export type ExtractionConfidence = 'product' | 'page' | 'title-only';
+
 export interface ExtractedProduct {
   /** The most reliable source that yielded anything; null for none. */
   source: ExtractionSource | null;
+  confidence: ExtractionConfidence;
   name: string | null;
   brand: string | null;
   price: ExtractedPrice | null;
@@ -58,7 +68,17 @@ export const MAX_IMAGE_CANDIDATES = 8;
 const MAX_URL_LENGTH = 2048;
 const MAX_HINT_TEXT = 5000;
 
-export function extractProduct(html: string, pageUrl: URL): ExtractedProduct {
+/**
+ * `pageUrl` is where the page was read (after redirects); `requestedUrl`
+ * is the link that was asked for, when it differs: a link that ended on a
+ * shallower address (see leftProductPath) is `title-only` whatever the page
+ * says, because it is the shop's landing page, not the product.
+ */
+export function extractProduct(
+  html: string,
+  pageUrl: URL,
+  requestedUrl: URL = pageUrl,
+): ExtractedProduct {
   const document = scanDocument(html);
   // Most reliable first; a source that found nothing is null.
   const sources = [
@@ -67,17 +87,117 @@ export function extractProduct(html: string, pageUrl: URL): ExtractedProduct {
     titleFields(document.title),
   ].filter((source) => source !== null);
   const fields = mergeFields(sources);
+  const guessed = guessProperties(fields);
+  const source = sources[0]?.source ?? null;
   return {
-    source: sources[0]?.source ?? null,
+    source,
+    confidence: confidenceOf(source, document, requestedUrl, pageUrl),
     name: clip(fields.name, NAME_MAX),
-    brand: clip(fields.brand, BRAND_MAX),
+    brand: clip(
+      fields.brand ??
+        (source === null
+          ? null
+          : (metaText(document.metas, 'og:site_name') ??
+            registrableName(pageUrl))),
+      BRAND_MAX,
+    ),
     price: fields.price,
-    ...guessProperties(fields),
+    ...guessed,
+    colors:
+      guessed.colors.length > 0
+        ? guessed.colors
+        : guessColors(urlWords(pageUrl)),
     images: absoluteImages(
       sources.flatMap((source) => source.images),
       baseUrl(document.baseHref, pageUrl),
     ),
   };
+}
+
+function confidenceOf(
+  source: ExtractionSource | null,
+  document: DocumentMetadata,
+  requestedUrl: URL,
+  pageUrl: URL,
+): ExtractionConfidence {
+  if (leftProductPath(requestedUrl, pageUrl)) return 'title-only';
+  if (source === 'json-ld') return 'product';
+  if (source === 'open-graph') {
+    return hasProductTags(document) ? 'product' : 'page';
+  }
+  return 'title-only';
+}
+
+/** Open Graph that says it is a product: og:type, a `product:` or price tag. */
+function hasProductTags({ metas }: DocumentMetadata): boolean {
+  return (
+    metas.get('og:type')?.some((type) => /^(?:og:)?product/i.test(type)) ===
+      true ||
+    [...metas.keys()].some(
+      (key) => key.startsWith('product:') || key.startsWith('og:price:'),
+    )
+  );
+}
+
+/**
+ * A redirect that left the product path: the link named a page below the
+ * site's root (or a section), and the final address is the root or one of
+ * those ancestors (`/p/sweater-123` to `/` or `/p`), or on another host's
+ * root. Shops send unknown, expired and bot-blocked products to their
+ * home page, whose title and logo are not the garment. A different
+ * address of the same depth (a locale or a canonical URL) is not leaving.
+ */
+function leftProductPath(requested: URL, final: URL): boolean {
+  const asked = pathSegments(requested);
+  const ended = pathSegments(final);
+  if (asked.length === 0) return false;
+  if (requested.hostname !== final.hostname) return ended.length === 0;
+  return (
+    ended.length < asked.length &&
+    ended.every((segment, index) => segment === asked[index])
+  );
+}
+
+function pathSegments(url: URL): string[] {
+  return url.pathname.split('/').filter(Boolean);
+}
+
+function metaText(
+  metas: ReadonlyMap<string, readonly string[]>,
+  key: string,
+): string | null {
+  const value = metas.get(key)?.[0];
+  return value === undefined ? null : cleanText(value);
+}
+
+// Second-level registries, so "shop.example.co.uk" is "example", not "co".
+// Deliberately tiny: a miss gives a worse brand guess, never a wrong
+// security decision, and the person reviews the form.
+const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'ac', 'gov']);
+
+/** "Uniqlo" from `www.uniqlo.com` or `shop.uniqlo.co.uk`; null for an IP. */
+function registrableName(url: URL): string | null {
+  const labels = url.hostname.split('.');
+  if (labels.length < 2 || /^[\d.]+$|:/.test(url.hostname)) return null;
+  const tld = labels.length - 1;
+  const name =
+    labels.length > 2 && SECOND_LEVEL.has(labels[tld - 1])
+      ? labels[tld - 2]
+      : labels[tld - 1];
+  return name ? name.charAt(0).toUpperCase() + name.slice(1) : null;
+}
+
+/**
+ * The words of a product's address that a colour can hide in: its last
+ * path segment (`mens-merino-sweater-navy`) and the `color`/`colour`
+ * variant parameter.
+ */
+function urlWords(url: URL): string {
+  const slug = (pathSegments(url).pop() ?? '').replace(/\.[a-z0-9]{2,5}$/i, '');
+  const variants = ['color', 'colour'].flatMap((key) =>
+    url.searchParams.getAll(key),
+  );
+  return [slug, ...variants].join(' ').replace(/[-_+]+/g, ' ');
 }
 
 /** What one source says, as text; null where it says nothing. */
@@ -408,7 +528,7 @@ function openGraph(document: DocumentMetadata): SourceFields | null {
   const amount = parsePrice(all('product:price:amount', 'og:price:amount')[0]);
   const fields: SourceFields = {
     source: 'open-graph',
-    name: first('og:title', 'twitter:title'),
+    name: withoutSiteName(first('og:title', 'twitter:title') ?? '') || null,
     brand: first('product:brand', 'og:brand'),
     color: first('product:color'),
     material: null,
@@ -439,16 +559,27 @@ function openGraph(document: DocumentMetadata): SourceFields | null {
   return found ? fields : null;
 }
 
-/** The last resort: `<title>` without the site's name after the last bar. */
+/** The last resort: `<title>` without the site's name after its separator. */
 function titleFields(title: string | null): SourceFields | null {
   if (!title) return null;
-  const bar = title.lastIndexOf(' | ');
   return {
     ...EMPTY_FIELDS,
     source: 'title',
-    name: bar > 0 ? title.slice(0, bar).trim() : title,
+    name: withoutSiteName(title),
     images: [],
   };
+}
+
+/**
+ * "Mens Merino Sweater | UNIQLO US" is "Mens Merino Sweater": the text after
+ * the last " | ", " – " or " — " is the site. A hyphen is not one: it is
+ * as often part of the name.
+ */
+function withoutSiteName(title: string): string {
+  const cut = Math.max(
+    ...[' | ', ' – ', ' — '].map((separator) => title.lastIndexOf(separator)),
+  );
+  return cut > 0 ? title.slice(0, cut).trim() : title;
 }
 
 function clip(value: string | null | undefined, max: number): string | null {

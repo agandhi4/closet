@@ -134,7 +134,8 @@ describe('order email import', () => {
           // a product path, so read first.
           productUrl: sites.url('/products/merino-crew-socks'),
           name: 'Merino Crew Socks (3-pack)',
-          brand: null,
+          // The page names no brand: the shop's domain stands in (#675).
+          brand: 'Shop',
           price: '24.00',
           currency: 'USD',
           state: 'pending',

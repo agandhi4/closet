@@ -771,10 +771,12 @@ describe('the MCP endpoint', () => {
       const added = await tool<{
         garment: { id: number; name: string; brand: string; price: string };
         notices: string[];
+        confidence: string;
       }>(t, token, 'add_garment_from_link', {
         url: sites.url('/products/tee'),
         replacesGarmentId: garments.tee.id,
       });
+      expect(added.confidence).toBe('product');
       expect(added.garment).toMatchObject({
         name: 'Heavyweight Pocket Tee',
         brand: 'Studio Knit',

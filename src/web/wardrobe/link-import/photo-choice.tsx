@@ -13,8 +13,10 @@ export interface LinkImportView {
   photo: string | undefined;
   /** The page's photos to pick from; empty unless there are two or more. */
   choices: PhotoChoice[];
-  /** What the import found, or could not (translated sentences). */
+  /** What the import found (translated sentences). */
   notices: string[];
+  /** What it could not read well: shown as a warning, never as a success. */
+  warnings: string[];
 }
 
 /**
@@ -23,7 +25,7 @@ export interface LinkImportView {
  * sheet's camera or library, GET /wardrobe/new?photo=).
  */
 export function pendingPhotoView(photo: string | undefined): LinkImportView {
-  return { photo, choices: [], notices: [] };
+  return { photo, choices: [], notices: [], warnings: [] };
 }
 
 const SLOT_ID = 'link-photo';
@@ -42,6 +44,11 @@ export function LinkImportSection(props: {
   const { link, viewOwner } = props;
   return (
     <div class="flex flex-col gap-3">
+      {link.warnings.map((warning) => (
+        <div role="status" class="alert alert-warning alert-soft text-sm">
+          {warning}
+        </div>
+      ))}
       {link.notices.map((notice) => (
         <div role="status" class="alert alert-info alert-soft text-sm">
           {notice}

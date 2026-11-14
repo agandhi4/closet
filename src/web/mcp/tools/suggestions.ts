@@ -323,6 +323,7 @@ export const suggestionTools = [
         price: garment.price,
         size: garment.size,
         notices: saved.notices,
+        confidence: saved.confidence,
       };
     },
   }),
