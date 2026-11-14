@@ -1,6 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { signIn } from './support/e2e-session';
-import { waitForServiceWorker, withoutWarming } from './support/service-worker';
+import {
+  cachePage,
+  waitForServiceWorker,
+  withoutWarming,
+} from './support/service-worker';
 import { WEBKIT_CANNOT_NAVIGATE_OFFLINE } from './support/webkit-limits';
 
 /**
@@ -48,6 +52,9 @@ test.describe('installed app delivery', () => {
       )
       .toMatchObject({ enabled: true });
 
+    // The worker stores a page after answering it: wait for the one the
+    // fallback page must link.
+    await cachePage(page, '/wardrobe');
     const online = await page.goto('/outfits');
     expect(online?.fromServiceWorker()).toBe(true);
     expect(online?.status()).toBe(200);
