@@ -5,34 +5,30 @@ import { scanDocument } from '../link-import/html';
  * docs/plans/2026-09-28-order-email-import.md, Links; #698). Pure. The
  * body is a stranger's (a retailer's, forwarded) and is never rendered:
  * HTML parts are read by the link import's linear tag scanner (its
- * `anchors`, each href with its text), text parts by one bounded regex,
- * and nothing here throws on any input.
+ * `links`), text parts by one bounded regex, and nothing here throws on
+ * any input.
  *
  * A fetch is a GET the retailer sees as a click, and a "Cancel this order",
  * "Confirm your email" or single-use "View your order" link acts on one, so
- * the rule is an allowlist judged before anything is fetched (judgeLink).
- * Each link is unwrapped from the query of a redirector that carries its
- * target in plain sight (`?url=https%3A...`, Google's `?q=`, Outlook's safe
- * links), up to MAX_UNWRAP_DEPTH wrappers; the target must be https, pass
- * the deny rules (`excluded`, `refusedQuery`) and be either a product path
- * (`isProductLink`: the shapes isProductPath names) or an opaque click
- * tracker of a known shape (`isTracker`) whose anchor text names no action.
- * A tracker is fetched only to see where it redirects: the poll passes
- * `isProductLink` as the fetcher's `mayFollow`, so every hop must be a
- * product link before it is requested, and keeps a product only where the
- * fetch ended on one. Anything else is never fetched, only counted
- * (`skipped`). A shop whose product addresses have none of these shapes
- * lists nothing: fail closed, at the cost of a manual "Add from a link".
- * Product paths come first, then at most MAX_TRACKERS_PER_EMAIL trackers,
- * MAX_LINKS_PER_EMAIL in all. A link's query is left as written (a
- * tracker's may be signed); tracking parameters come off the product
- * page's own address (normalizedLink), which is what is stored.
+ * the rule is an allowlist judged before anything is fetched (judgeLink),
+ * and it fails closed (#946). Each link is unwrapped from the query of a
+ * redirector that carries its target in plain sight (`?url=https%3A...`,
+ * Google's `?q=`, Outlook's safe links), up to MAX_UNWRAP_DEPTH wrappers;
+ * the target must be a product link (`isProductLink`: https, a product
+ * path, nothing the deny rules refuse). An opaque click tracker (a target
+ * only its redirect tells) is never fetched: it records the click on the
+ * first request, whatever its anchor says. A shop whose product addresses
+ * have none of these shapes, or that wraps every link in an opaque
+ * tracker, lists nothing: a manual "Add from a link". The poll passes
+ * `isProductLink` as the fetcher's `mayFollow`, so every redirect of a
+ * product page must be one too, and keeps a product only where the fetch
+ * ended on one. Anything else is never fetched, only counted (`skipped`).
+ * A link's query is left as written; tracking parameters come off the
+ * product page's own address (normalizedLink), which is what is stored.
  */
 
 /** How many of an email's links are fetched. */
 export const MAX_LINKS_PER_EMAIL = 12;
-/** How many of those may be opaque trackers. */
-export const MAX_TRACKERS_PER_EMAIL = 2;
 const MAX_UNWRAP_DEPTH = 3;
 const MAX_URL_LENGTH = 2048;
 const MAX_TEXT_LINKS = 200;
@@ -51,60 +47,30 @@ export interface EmailLinks {
   skipped: number;
 }
 
-/**
- * A link as the poll judges it, without its fragment. `unlabelled` is a
- * tracker with no text to read (a text part's link, an image without
- * `alt`): fetched only when another anchor of the same link names a
- * product, never on its own.
- */
+/** A link as the poll judges it, unwrapped and without its fragment. */
 export interface JudgedLink {
   link: string;
-  kind: 'product' | 'tracker' | 'unlabelled' | 'refused';
+  kind: 'product' | 'refused';
 }
-
-// When one link appears more than once, the stronger verdict holds: one
-// refused anchor refuses it (a tracker behind both "Cancel" and a product's
-// name is the cancel link), and one labelled anchor labels it.
-const VERDICT_STRENGTH: Readonly<Record<JudgedLink['kind'], number>> = {
-  unlabelled: 0,
-  tracker: 1,
-  product: 1,
-  refused: 2,
-};
 
 /** The email's links to fetch, and how many of its others were not. */
 export function emailLinks(parts: readonly BodyPart[]): EmailLinks {
-  const judged = new Map<string, JudgedLink['kind']>();
-  for (const { href, text } of parts.flatMap(partLinks)) {
-    const verdict = judgeLink(href, text);
-    if (!verdict) continue;
-    const known = judged.get(verdict.link);
-    if (
-      known === undefined ||
-      VERDICT_STRENGTH[verdict.kind] > VERDICT_STRENGTH[known]
-    ) {
-      judged.set(verdict.link, verdict.kind);
+  const products = new Set<string>();
+  const refused = new Set<string>();
+  for (const href of parts.flatMap(partLinks)) {
+    const verdict = judgeLink(href);
+    if (verdict) {
+      (verdict.kind === 'product' ? products : refused).add(verdict.link);
     }
   }
-  const ofKind = (kind: JudgedLink['kind']) =>
-    [...judged].filter(([, k]) => k === kind).map(([link]) => link);
-  const links = [
-    ...ofKind('product'),
-    ...ofKind('tracker').slice(0, MAX_TRACKERS_PER_EMAIL),
-  ].slice(0, MAX_LINKS_PER_EMAIL);
-  return { links, skipped: judged.size - links.length };
+  const links = [...products].slice(0, MAX_LINKS_PER_EMAIL);
+  return { links, skipped: products.size + refused.size - links.length };
 }
 
-interface EmailLink {
-  href: string;
-  /** The anchor's text; empty for a text part's link. */
-  text: string;
-}
-
-function partLinks(part: BodyPart): readonly EmailLink[] {
+function partLinks(part: BodyPart): readonly string[] {
   return part.type === 'text/html'
-    ? scanDocument(part.value).anchors
-    : textLinks(part.value).map((href) => ({ href, text: '' }));
+    ? scanDocument(part.value).links
+    : textLinks(part.value);
 }
 
 const TEXT_LINK = /https?:\/\/[^\s<>"'()[\]]+/gi;
@@ -120,26 +86,18 @@ function textLinks(text: string): string[] {
 }
 
 /**
- * `href` judged before any fetch (unwrapped, without its fragment), its
- * anchor `text` read for a tracker; undefined for one that is not an
- * http(s) link at all.
+ * `href` judged before any fetch (unwrapped, without its fragment);
+ * undefined for one that is not an http(s) link at all.
  */
-export function judgeLink(href: string, text = ''): JudgedLink | undefined {
+export function judgeLink(href: string): JudgedLink | undefined {
   const url = parseHttp(href);
   if (!url) return undefined;
   const target = unwrap(url);
   target.hash = '';
-  const link = target.href;
-  if (isProductLink(target)) return { link, kind: 'product' };
-  if (
-    target.protocol !== 'https:' ||
-    !isTracker(target) ||
-    excluded(target) ||
-    namesAnAction(text)
-  ) {
-    return { link, kind: 'refused' };
-  }
-  return { link, kind: text.trim() ? 'tracker' : 'unlabelled' };
+  return {
+    link: target.href,
+    kind: isProductLink(target) ? 'product' : 'refused',
+  };
 }
 
 /**
@@ -151,6 +109,7 @@ export function isProductLink(url: URL): boolean {
   return (
     url.protocol === 'https:' &&
     isProductPath(url.pathname) &&
+    !isTracker(url) &&
     !excluded(url) &&
     !refusedQuery(url)
   );
@@ -227,10 +186,11 @@ const EXCLUDED_HOSTS = [
   'play.google.com',
 ];
 
-// A host's first label, a whole path segment, or a product path's query key
-// or whole value that names a page about the order or the account, or an
-// action, rather than a product. Whole segments and values, never
-// substrings: `/products/confirm-hoodie` and `/products/track-pant` pass.
+// A host's first label, a word of any path segment (split on non-letters,
+// so `cancel-order` and `confirm-email` are refused, and `confirm-hoodie`
+// too: an accepted false refusal, fail closed #946), or a product path's
+// query key or whole value that names a page about the order or the
+// account, or an action, rather than a product.
 const EXCLUDED_WORDS = new Set([
   'account',
   'accounts',
@@ -309,11 +269,31 @@ function excluded(url: URL): boolean {
   ) {
     return true;
   }
-  const segments = url.pathname.toLowerCase().split('/');
   return (
-    segments.some((segment) => EXCLUDED_WORDS.has(segment)) ||
+    safeDecode(url.pathname).toLowerCase().split('/').some(namesExcludedWord) ||
     isAmazonServicePath(url.pathname) ||
     url.searchParams.has('unsubscribe')
+  );
+}
+
+// Opaque click trackers, whose target only their redirect tells: SendGrid's
+// `/ls/click` and `/wf/click`, Amazon SES's `/CL0/`, and a `click.` or
+// `links.` host. Never a product, whatever else their path says (#946): a
+// fetch is the click they record.
+const TRACKER_PATH = /^\/(?:ls|wf)\/click(?:\/|$)|\/CL0(?:\/|$)/i;
+const TRACKER_HOSTS = new Set(['click', 'links']);
+
+function isTracker(url: URL): boolean {
+  return (
+    TRACKER_PATH.test(url.pathname) ||
+    TRACKER_HOSTS.has(url.hostname.toLowerCase().split('.')[0])
+  );
+}
+
+function namesExcludedWord(segment: string): boolean {
+  return (
+    EXCLUDED_WORDS.has(segment) ||
+    segment.split(/[^a-z]+/).some((word) => EXCLUDED_WORDS.has(word))
   );
 }
 
@@ -369,60 +349,6 @@ function refusedQuery(url: URL): boolean {
   return false;
 }
 
-// Opaque click trackers, whose target only their redirect tells:
-// SendGrid's `/ls/click` and `/wf/click`, Amazon SES's `/CL0/`, and a
-// `click.` or `links.` host. Nothing broader: each one fetched is a click
-// the tracker records.
-const TRACKER_PATH = /^\/(?:ls|wf)\/click(?:\/|$)|\/CL0(?:\/|$)/i;
-const TRACKER_HOSTS = new Set(['click', 'links']);
-
-function isTracker(url: URL): boolean {
-  return (
-    TRACKER_PATH.test(url.pathname) ||
-    TRACKER_HOSTS.has(url.hostname.toLowerCase().split('.')[0])
-  );
-}
-
-// An anchor's words that name an action or an account page: a tracker
-// whose text says one is never fetched, whatever its target.
-const ACTION_WORDS = new Set([
-  'cancel',
-  'confirm',
-  'verify',
-  'unsubscribe',
-  'manage',
-  'account',
-  'order',
-  'orders',
-  'track',
-  'tracking',
-  'return',
-  'returns',
-  'review',
-  'survey',
-  'feedback',
-  'checkout',
-  'cart',
-  'pay',
-  'reset',
-  'password',
-  'login',
-  'signin',
-  'logout',
-  'preferences',
-  'subscription',
-  'help',
-]);
-const ACTION_PHRASE = /\b(?:sign|log)\s?(?:in|out|on|up)\b/;
-
-function namesAnAction(text: string): boolean {
-  const lower = text.toLowerCase();
-  return (
-    ACTION_PHRASE.test(lower) ||
-    lower.split(/[^a-z]+/).some((word) => ACTION_WORDS.has(word))
-  );
-}
-
 function isTrackingParameter(name: string): boolean {
   const lower = name.toLowerCase();
   return (
@@ -444,21 +370,16 @@ const TRACKING_PARAMETERS = new Set([
 
 // Paths retailers give product pages: a /p/, /dp/ (Amazon), /product(s)/
 // or /item(s)/ segment, or a last segment naming the SKU as a page
-// (`shirt-p01234567.html`, Zara; `productpage.0970819001.html`, H&M) with
-// no denied word among its tokens. A bare numeric id is no product: order,
-// unsubscribe and sign-in links carry those too (`/u/1234567890`).
+// (`shirt-p01234567.html`, Zara; `productpage.0970819001.html`, H&M). A
+// bare numeric id is no product: order, unsubscribe and sign-in links
+// carry those too (`/u/1234567890`).
 const PRODUCT_SEGMENT =
   /\/(?:p|dp|pd|pdp|prod|product|products|item|items)(?:\/|$)/i;
 const SKU_PAGE = /\d{5,}[^/]*\.html?$/i;
 
 function isProductPath(pathname: string): boolean {
-  if (PRODUCT_SEGMENT.test(pathname)) return true;
-  const last = pathname.slice(pathname.lastIndexOf('/') + 1);
   return (
-    SKU_PAGE.test(last) &&
-    !last
-      .toLowerCase()
-      .split(/[^a-z]+/)
-      .some((word) => EXCLUDED_WORDS.has(word))
+    PRODUCT_SEGMENT.test(pathname) ||
+    SKU_PAGE.test(pathname.slice(pathname.lastIndexOf('/') + 1))
   );
 }

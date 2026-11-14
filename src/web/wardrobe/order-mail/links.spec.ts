@@ -6,7 +6,6 @@ import {
   isProductLink,
   judgeLink,
   MAX_LINKS_PER_EMAIL,
-  MAX_TRACKERS_PER_EMAIL,
   normalizedLink,
 } from './links';
 
@@ -40,14 +39,14 @@ describe('judgeLink', () => {
       'https://shop.example/dp/B0C1',
     ],
     [
-      'a product whose name starts like a refused word',
-      'https://shop.example/products/track-pant',
-      'https://shop.example/products/track-pant',
+      'a product whose name merely resembles a refused word',
+      'https://shop.example/products/blue-tee',
+      'https://shop.example/products/blue-tee',
     ],
     [
-      'a product whose name is a refused word and more (whole segments)',
-      'https://shop.example/products/confirm-hoodie',
-      'https://shop.example/products/confirm-hoodie',
+      'a tracker carrying a product in its query',
+      `https://click.shop.example/ls/click?url=${encodeURIComponent('https://shop.example/products/linen')}`,
+      'https://shop.example/products/linen',
     ],
     [
       "Amazon's /gp/product/ page",
@@ -61,34 +60,6 @@ describe('judgeLink', () => {
     ],
   ])('selects %s as a product', (_, href, link) => {
     expect(judgeLink(href)).toEqual({ link, kind: 'product' });
-  });
-
-  it.each([
-    [
-      "SendGrid's tracker, its query as written",
-      'https://shop.example/ls/click?upn=abc-2Fdef&utm_campaign=x#top',
-      'https://shop.example/ls/click?upn=abc-2Fdef&utm_campaign=x',
-    ],
-    [
-      'a click. host',
-      'https://click.shop.example/q/abc',
-      'https://click.shop.example/q/abc',
-    ],
-    [
-      'a links. host',
-      'https://links.shop.example/u/abc',
-      'https://links.shop.example/u/abc',
-    ],
-    [
-      "SES's tracker",
-      'https://r.shop.example/CL0/abc/1/x',
-      'https://r.shop.example/CL0/abc/1/x',
-    ],
-  ])('selects %s as a tracker', (_, href, link) => {
-    expect(judgeLink(href, 'Relaxed Linen Shirt')).toEqual({
-      link,
-      kind: 'tracker',
-    });
   });
 
   it.each([
@@ -135,6 +106,41 @@ describe('judgeLink', () => {
       'a tracker wrapping a cancel page in plain sight',
       `https://links.shop.example/ls/click?url=${encodeURIComponent('https://shop.example/account/cancel')}`,
     ],
+    [
+      'an opaque SendGrid tracker',
+      'https://shop.example/ls/click?upn=abc-2Fdef',
+    ],
+    [
+      'a click. host with a product path',
+      'https://click.shop.example/p/abc123',
+    ],
+    [
+      'a percent-encoded deny word',
+      'https://shop.example/products/123/%63ancel',
+    ],
+    ['an opaque click. host', 'https://click.shop.example/q/abc'],
+    ['an opaque links. host', 'https://links.shop.example/u/abc'],
+    ['an opaque SES tracker', 'https://r.shop.example/CL0/abc/1/x'],
+    [
+      'a cancel word in the last segment',
+      'https://shop.example/products/123/cancel-order',
+    ],
+    [
+      'a confirm word below an item',
+      'https://shop.example/item/9/confirm-email',
+    ],
+    [
+      'an unsubscribe word after /p/',
+      'https://shop.example/p/1/unsubscribe-alerts',
+    ],
+    [
+      'a deny word in a product name (fail closed)',
+      'https://shop.example/products/confirm-hoodie',
+    ],
+    [
+      'a deny word in a middle segment',
+      'https://shop.example/products/x/track-parcel/y',
+    ],
     ['an opaque link of no known shape', 'https://shop.example/c/abc123'],
     ['an opaque link on an email. host', 'https://email.shop.example/x/abc'],
     ['a bare numeric id', 'https://shop.example/u/1234567890'],
@@ -145,22 +151,6 @@ describe('judgeLink', () => {
     ],
   ])('refuses %s', (_, href) => {
     expect(judgeLink(href)?.kind).toBe('refused');
-  });
-
-  it.each([
-    'Cancel your order',
-    "Didn't place this order? Cancel it",
-    'Confirm your email',
-    'Verify your address',
-    'View order',
-    'Sign in',
-    'Log in to see it',
-    'Manage your subscription',
-    'Unsubscribe',
-  ])('refuses a tracker whose text says "%s"', (text) => {
-    expect(judgeLink('https://shop.example/ls/click?upn=abc', text)?.kind).toBe(
-      'refused',
-    );
   });
 
   it.each([
@@ -208,7 +198,7 @@ describe('normalizedLink', () => {
 });
 
 describe('emailLinks', () => {
-  it('selects only the product path and the tracker of a forwarded confirmation', () => {
+  it('selects only the two product links of a forwarded confirmation', () => {
     const email = JSON.parse(
       readFileSync(
         join(
@@ -227,8 +217,8 @@ describe('emailLinks', () => {
     }));
     expect(emailLinks(parts)).toEqual({
       links: [
+        'https://shop.test/products/relaxed-linen-shirt?utm_source=email&utm_medium=order&variant=sage',
         'https://shop.test/products/merino-crew-socks?utm_source=order_confirmation',
-        'https://shop.test/ls/click?upn=u001.Qp9x7-2FbT0kL3rN8vYh-2BsE4eZ1aJ6cG5mW-3D&utm_campaign=order',
       ],
       // The home page, three collections, "View or manage your order",
       // help, two social sites, unsubscribe and privacy.
@@ -236,53 +226,41 @@ describe('emailLinks', () => {
     });
   });
 
-  it('never selects a cancel, confirm or view-order link, behind a tracker or not', () => {
-    const { links } = emailLinks([
+  it('never selects a tracker, whatever its anchor says, nor a cancel or confirm link', () => {
+    const { links, skipped } = emailLinks([
       htmlPart(
-        `<a href="https://shop.example/ls/click?upn=one">Didn't place this order? Cancel it</a>
-         <a href="https://click.shop.example/q/two"><img alt="Confirm your email" src="x"></a>
-         <a href="https://links.shop.example/u/three">View your order</a>
+        `<a href="https://shop.example/ls/click?upn=one">Tee</a>
+         <a href="https://click.shop.example/q/two">Approve</a>
+         <a href="https://links.shop.example/u/three">Yes, it was me</a>
          <a href="https://shop.example/orders/12345678/cancel">Cancel</a>
          <a href="https://shop.example/products/tee">Tee</a>`,
       ),
+      {
+        type: 'text/plain',
+        value: 'Not you? https://shop.example/ls/click?upn=four',
+      },
     ]);
     expect(links).toEqual(['https://shop.example/products/tee']);
+    expect(skipped).toBe(5);
   });
 
-  it('fetches a tracker with no text of its own only when an HTML anchor names it', () => {
-    const text = {
-      type: 'text/plain',
-      value:
-        'Cancel your order: https://shop.example/ls/click?upn=c\nLinen shirt: https://shop.example/ls/click?upn=s',
-    };
-    // A text part's links have no anchor to read: never fetched alone.
-    expect(emailLinks([text])).toEqual({ links: [], skipped: 2 });
-    expect(
-      emailLinks([
-        text,
-        htmlPart(
-          '<a href="https://shop.example/ls/click?upn=s">Linen shirt</a>',
-        ),
-      ]),
-    ).toEqual({ links: ['https://shop.example/ls/click?upn=s'], skipped: 1 });
-  });
-
-  it('refuses a tracker when any of its anchors names an action', () => {
+  it('selects the product a tracker carries in its query, and not a cancel page it carries', () => {
+    const wrap = (target: string) =>
+      `https://shop.example/ls/click?url=${encodeURIComponent(target)}`;
     expect(
       emailLinks([
         htmlPart(
-          `<a href="https://shop.example/ls/click?upn=x">Tee</a>
-           <a href="https://shop.example/ls/click?upn=x">Cancel</a>`,
+          `<a href="${wrap('https://shop.example/products/tee')}">Tee</a>
+           <a href="${wrap('https://shop.example/account/cancel')}">Tee</a>`,
         ),
       ]),
-    ).toEqual({ links: [], skipped: 1 });
+    ).toEqual({ links: ['https://shop.example/products/tee'], skipped: 1 });
   });
 
   it("reads an HTML part's links and a text part's, product paths first, each once", () => {
     const { links } = emailLinks([
       htmlPart(
-        `<a href="https://shop.example/ls/click?upn=1">Tee</a>
-         <a href="https://shop.example/products/tee?a=1&amp;b=2">Tee</a>
+        `<a href="https://shop.example/products/tee?a=1&amp;b=2">Tee</a>
          <a href="https://shop.example/products/tee?a=1&amp;b=2#img">Tee again</a>`,
       ),
       {
@@ -293,24 +271,17 @@ describe('emailLinks', () => {
     expect(links).toEqual([
       'https://shop.example/products/tee?a=1&b=2',
       'https://shop.example/p/55555',
-      'https://shop.example/ls/click?upn=1',
     ]);
   });
 
-  it(`selects at most ${MAX_TRACKERS_PER_EMAIL} trackers and ${MAX_LINKS_PER_EMAIL} links from one email`, () => {
-    const anchors = (path: (i: number) => string) =>
-      Array.from(
-        { length: 20 },
-        (_, i) => `<a href="https://shop.example${path(i)}">${i}</a>`,
-      ).join('');
-    const trackers = anchors((i) => `/ls/click?upn=${i}`);
-    const both = emailLinks([htmlPart(trackers + anchors((i) => `/p/${i}`))]);
-    expect(both.links).toHaveLength(MAX_LINKS_PER_EMAIL);
-    expect(both.links.every((link) => link.includes('/p/'))).toBe(true);
-    expect(both.skipped).toBe(40 - MAX_LINKS_PER_EMAIL);
-    expect(emailLinks([htmlPart(trackers)]).links).toHaveLength(
-      MAX_TRACKERS_PER_EMAIL,
-    );
+  it(`selects at most ${MAX_LINKS_PER_EMAIL} links from one email`, () => {
+    const anchors = Array.from(
+      { length: 20 },
+      (_, i) => `<a href="https://shop.example/p/${i}">${i}</a>`,
+    ).join('');
+    const { links, skipped } = emailLinks([htmlPart(anchors)]);
+    expect(links).toHaveLength(MAX_LINKS_PER_EMAIL);
+    expect(skipped).toBe(20 - MAX_LINKS_PER_EMAIL);
   });
 
   it('never throws on broken or hostile markup', () => {
