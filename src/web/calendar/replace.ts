@@ -184,7 +184,7 @@ export function replaceEntryOutfit(
     }
     const plannerMade =
       result.adopted && (await plannerCreatedOutfit(tx, entry.id));
-    await setEntryOutfit(tx, entry.id, chosen.id, madeBy);
+    await setEntryOutfit(tx, entry.id, chosen.id, madeBy, !chosen.alreadySaved);
     const selfieDetached = await detachEntrySelfie(tx, entry.id);
     const outfitsRemoved = plannerMade
       ? await removeUnheldOutfits(tx, ownerId, [entry.outfitId])

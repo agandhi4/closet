@@ -1121,6 +1121,12 @@ Why: `networkSwitch`'s `context.route` handler awaits `abort()`/`fallback()` per
 Decision: such a context ends with `closeSwitchedContext` (`test/support/service-worker.ts`): `unrouteAll({ behavior: 'wait' })`, then `close()`. Each scenario's `finally` is still the one owner of its context.
 Consequence: a new spec using `networkSwitch` on a context it closes uses the helper, never a bare `close()`.
 
+## 2026-11-14 — A removed entry prunes only the one-off it created (#748)
+
+Why: pruning every unheld idea/planner outfit when an entry went also took outfits that existed before the entry (a reused planner outfit, an idea outfit picked earlier); only the planner's `week_plan_entry.outfit_created` said who made one, and Wear this had nothing.
+Decision: `outfit_calendar.outfit_created` (nullable boolean, 0060), written true by the pick that created the outfit (createOutfit's plan, wearIdea, Change), null otherwise; `deleteEntry` reads only it (the planner's `week_plan_entry.outfit_created` goes stale when Change gives the entry an existing outfit), the outfit is origin idea/planner and nothing holds it (`removeUnheldOutfits`, which never deletes person/agent).
+Consequence: existing entries are null, so their outfits are kept as before (planner entries made before 0060 lose x-pruning until re-planned). The column is internal: not in the sync feed or the API.
+
 ## 2026-11-14 — A 5xx makes a queued write stuck, never failed (#865, #866; replaces #691's budget)
 Why: #691 failed a record after 5 counted 5xx, but only if a neighbour was answered, i.e. it inferred server health. Three review rounds found the inference wrong each way (a lone poisoned record never failed; an outage could fail valid writes; evidence went stale), and a durable health stamp only moved the error.
 Decision: no inference, nothing dropped. 3 consecutive 5xx (`STUCK_AFTER_SERVER_ERRORS`) make the record `stuck`: still pending, skipped by the drain with its key, listed in the notice with Try again and Discard. It is retried when a record saves in a drain or after 30 min (`STUCK_RETRY_MS`), and stays stuck while it fails. Other keys keep going; the network, 408, 429 and 503 still stop the drain and count nothing.

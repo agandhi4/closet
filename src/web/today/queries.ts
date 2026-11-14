@@ -125,6 +125,7 @@ export function wearIdea(
       occasion: input.occasion,
       at: input.at,
       today,
+      outfitCreated: !outfit.alreadySaved,
     });
     // The callers never pass a day after today.
     if (worn === 'future') throw new Error(`Wear this on ${day}, after today`);

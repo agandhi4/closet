@@ -116,9 +116,9 @@ export async function removeEntry(
       ? ` with its selfie ${outcome.selfies.join(', ')}`
       : '';
   const planner =
-    outcome.plannerOutfitRemoved === null
+    outcome.oneOffRemoved === null
       ? ''
-      : `, planner's outfit ${outcome.plannerOutfitRemoved} removed`;
+      : `, one-off outfit ${outcome.oneOffRemoved} removed`;
   logger.info(
     `Calendar entry ${id} deleted by user ${actor.userId}${selfie}${planner}`,
   );
