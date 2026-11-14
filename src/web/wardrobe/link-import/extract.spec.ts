@@ -279,7 +279,7 @@ describe('extractProduct', () => {
     );
     const read = extractProduct(
       html,
-      new URL('https://k.test/p/red-wing-boots?Color=Olive'),
+      new URL('https://k.test/p/red-wing-boots'),
     );
 
     expect(read.confidence).toBe('product');
@@ -288,6 +288,19 @@ describe('extractProduct', () => {
     expect(
       extractProduct(ld, new URL('https://k.test/p/blackwatch-plaid')).colors,
     ).toEqual([]);
+  });
+
+  it('reads an explicit colour parameter even on a product read', () => {
+    const html = page(
+      '<meta property="og:title" content="Iron Ranger"><meta property="product:brand" content="Red Wing">',
+    );
+    const read = extractProduct(
+      html,
+      new URL('https://k.test/p/red-wing-boots?Color=Olive'),
+    );
+
+    expect(read.confidence).toBe('product');
+    expect(read.colors).toEqual(['green']);
   });
 
   it('finds nothing on a page without any of it', () => {

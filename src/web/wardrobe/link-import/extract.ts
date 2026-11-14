@@ -109,13 +109,10 @@ export function extractProduct(
     ),
     price: fields.price,
     ...guessed,
-    // Like the brand: the address stands in for a colour only where the page
-    // gave less than a product, since a slug names brands and styles too
-    // ('red-wing-boots', 'blackwatch-plaid').
     colors:
-      guessed.colors.length > 0 || confidence === 'product'
+      guessed.colors.length > 0
         ? guessed.colors
-        : guessColors(urlWords(pageUrl)),
+        : guessColors(urlColorWords(pageUrl, confidence)),
     images: absoluteImages(
       sources.flatMap((source) => source.images),
       baseUrl(document.baseHref, pageUrl),
@@ -201,12 +198,18 @@ function registrableName(url: URL): string | null {
 }
 
 /**
- * The words of a product's address that a colour can hide in: its last
- * path segment (`mens-merino-sweater-navy`) and the `color`/`colour`
- * variant parameter (any key case: `?Color=Olive`).
+ * The words of a product's address that a colour can hide in. The explicit
+ * `color`/`colour` variant parameter (any key case: `?Color=Olive`) is
+ * unambiguous and read at every confidence. The last path segment
+ * (`mens-merino-sweater-navy`) is read only where the page gave less than a
+ * product, like the brand fallback: a slug names brands and styles too
+ * ('red-wing-boots', 'blackwatch-plaid').
  */
-function urlWords(url: URL): string {
-  const slug = (pathSegments(url).pop() ?? '').replace(/\.[a-z0-9]{2,5}$/i, '');
+function urlColorWords(url: URL, confidence: ExtractionConfidence): string {
+  const slug =
+    confidence === 'product'
+      ? ''
+      : (pathSegments(url).pop() ?? '').replace(/\.[a-z0-9]{2,5}$/i, '');
   const variants = [...url.searchParams]
     .filter(([key]) => /^colou?r$/i.test(key))
     .map(([, value]) => value);
