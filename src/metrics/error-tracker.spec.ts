@@ -9,6 +9,7 @@ import {
   createErrorTracker,
   DISABLED_ERROR_TRACKER,
   type ErrorTracker,
+  reportBootFailure,
   scrubEvent,
 } from './error-tracker';
 
@@ -235,5 +236,37 @@ describe('createCrashHandler', () => {
     release();
     await first;
     expect(steps).toEqual(['capture', 'flush 2000', 'exit 1', 'exit 1']);
+  });
+});
+
+describe('reportBootFailure', () => {
+  it('captures the failure as a boot-origin process error and flushes before returning', async () => {
+    const recorded = recordErrors();
+    const steps: string[] = [];
+    const tracker: ErrorTracker = {
+      ...recorded.tracker,
+      flush: (timeoutMs) => {
+        steps.push(`flush ${timeoutMs}`);
+        return Promise.resolve();
+      },
+    };
+    const error = new Error('migration refused');
+    await reportBootFailure(tracker, error, captureLogs().logger);
+    expect(recorded.exceptions).toEqual([
+      { error, context: { source: 'process', tags: { origin: 'boot' } } },
+    ]);
+    expect(steps).toEqual(['flush 2000']);
+  });
+
+  it('never throws when the tracker does', async () => {
+    const { logger, logs } = captureLogs();
+    const broken: ErrorTracker = {
+      ...recordErrors().tracker,
+      flush: () => Promise.reject(new Error('Bugsink unreachable')),
+    };
+    await reportBootFailure(broken, new Error('boom'), logger);
+    expect(logs.messages('warn')).toEqual([
+      'Could not report the boot failure',
+    ]);
   });
 });

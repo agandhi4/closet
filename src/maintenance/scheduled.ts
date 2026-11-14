@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { settlesWithin } from '../cutout/deadline';
 import type { Logger } from '../logger';
 import { runAsJob } from '../request-context';
+import { JOBS_STOP_MS } from '../shutdown-budget';
 
 /**
  * What every timer server.ts starts has in common (scheduleNightly,
@@ -60,13 +61,14 @@ export class JobRoster {
 }
 
 /**
- * How long stop() waits for a run in flight: past a push send's 10 s socket
- * timeout per device, and short of a deploy's patience. A run cut off here
- * keeps going until its next query fails against the ended pool; every
- * scheduled job leaves the database consistent at each step (claims before
- * work, rows before bytes), so what it did not finish is found next time.
+ * How long stop() waits for a run in flight: JOBS_STOP_MS, which keeps the
+ * whole shutdown inside docker stop's 10 s. A push send's socket timeout is
+ * 10 s a device, so a run can be cut off mid-send. A run cut off here keeps
+ * going until its next query fails against the ended pool; every scheduled
+ * job leaves the database consistent at each step (claims before work, rows
+ * before bytes), so what it did not finish is found next time.
  */
-const STOP_WAIT_MS = 15_000;
+const STOP_WAIT_MS = JOBS_STOP_MS;
 
 export interface JobTimer {
   name: string;

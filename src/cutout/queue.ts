@@ -4,6 +4,7 @@ import type { Db, DbConfig } from '../db/client';
 import type { Logger } from '../logger';
 import type { JobEnding, Metrics } from '../metrics/metrics';
 import { runAsJob } from '../request-context';
+import { CUTOUT_LOOP_STOP_MS } from '../shutdown-budget';
 import type { Photos } from '../web/files/photos';
 import { settlesWithin } from './deadline';
 import { CutoutListener } from './listener';
@@ -36,8 +37,9 @@ const MODEL_RETRY_MS = 5 * 60_000;
 // How long stop() waits for the runner to close and the job loop to end
 // (after the listener's own bounded close). The loop ends within a query
 // once stopped; a runner closes in well under a second. Past this, stop()
-// returns anyway: a hung shutdown blocks the deploy behind it.
-const STOP_TIMEOUT_MS = 10_000;
+// returns anyway: a hung shutdown is SIGKILLed by docker stop
+// (src/shutdown-budget.ts), and the lease release below must land first.
+const STOP_TIMEOUT_MS = CUTOUT_LOOP_STOP_MS;
 
 export interface CutoutQueueDeps {
   db: Db;

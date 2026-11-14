@@ -7,14 +7,16 @@ import Fastify, {
   LogController,
   type RouteOptions,
 } from 'fastify';
-import { loadBuildInfo } from './build-info';
+import { type BuildInfo, loadBuildInfo } from './build-info';
 import { type Config, orderMailSenders, trustedProxies } from './config';
+import { settlesWithin } from './cutout/deadline';
 import { countPendingCutouts } from './cutout/queries';
 import { CutoutQueue } from './cutout/queue';
 import { createDb, type Db, dbConfig } from './db/client';
 import { runMigrations } from './db/migrate';
 import type { Logger } from './logger';
 import { JobRoster } from './maintenance/scheduled';
+import { CUTOUT_STOP_MS } from './shutdown-budget';
 import { createErrorTracker, type ErrorTracker } from './metrics/error-tracker';
 import { registerHttpMetrics } from './metrics/http';
 import { Metrics } from './metrics/metrics';
@@ -108,6 +110,12 @@ export interface ClosetApp {
 
 export interface AppOptions {
   /**
+   * The error tracker, when the caller made it first (main.ts does, so a
+   * boot that fails before or inside createApp is still captured);
+   * otherwise createApp makes its own.
+   */
+  errors?: ErrorTracker;
+  /**
    * The outbound fetcher's test-only options (a scripted resolver, a
    * loopback alias standing in for the internet, the TLS fixture's
    * certificate): the link import's specs pass them; production never does
@@ -141,6 +149,25 @@ export interface AppOptions {
   onRoute?: (route: RouteOptions) => void;
 }
 
+function buildInfoFor(config: Config): BuildInfo {
+  return loadBuildInfo(config.APP_VERSION, {
+    trustStaticId: config.NODE_ENV === 'production',
+  });
+}
+
+/** The tracker as createApp would make it; main.ts calls it before serve(). */
+export function createAppErrorTracker(
+  config: Config,
+  logger: Logger,
+): Promise<ErrorTracker> {
+  return createErrorTracker({
+    dsn: config.SENTRY_DSN,
+    release: buildInfoFor(config).release,
+    environment: config.APP_ENV,
+    logger: logger.child({ logger: 'ErrorTracking' }),
+  });
+}
+
 /**
  * Builds the application without binding a port: migrations, the database
  * pool, Photos, then the Fastify instance with its root hooks, plugins,
@@ -167,20 +194,14 @@ export async function createApp(
   boot.info(`NODE_ENV: ${config.NODE_ENV}, APP_ENV: ${config.APP_ENV}`);
   boot.info(`DATA_PATH: ${config.DATA_PATH}`);
   boot.info(`Trusted proxies: ${trustProxy.join(', ')}`);
-  const build = loadBuildInfo(config.APP_VERSION, {
-    trustStaticId: config.NODE_ENV === 'production',
-  });
+  const build = buildInfoFor(config);
   boot.info(`Release ${build.release}, static cache key ${build.assetVersion}`);
 
   boot.info(
     `Metrics: ${config.METRICS_ENABLED ? 'on (GET /metrics, POST /metrics/vitals)' : 'off (METRICS_ENABLED=false)'}`,
   );
-  const errors = await createErrorTracker({
-    dsn: config.SENTRY_DSN,
-    release: build.release,
-    environment: config.APP_ENV,
-    logger: logger.child({ logger: 'ErrorTracking' }),
-  });
+  const errors =
+    options.errors ?? (await createAppErrorTracker(config, logger));
   // The DSN's host only: its key is a credential of sorts.
   boot.info(
     errors.enabled
@@ -286,7 +307,12 @@ export async function createApp(
   // running needs the pool to record itself, a refresh to save its row.
   // The error tracker last, so a failure on the way out is still sent.
   app.addHook('onClose', async () => {
-    await Promise.all([cutouts.stop(), weather?.settled()]);
+    // Both bounded by CUTOUT_STOP_MS: a refresh is an outbound fetch and
+    // must not outlast docker stop's grace (src/shutdown-budget.ts).
+    await Promise.all([
+      cutouts.stop(),
+      weather && settlesWithin(weather.settled(), CUTOUT_STOP_MS),
+    ]);
     await db.$client.end();
     await errors.close();
   });

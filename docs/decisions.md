@@ -1175,4 +1175,10 @@ Consequence: `true` flips to `verify` in the first release after homelab's compo
 
 Why: the 2026-10-13 health entry said homelab "still has to add the `autoheal: "true"` label", and the runbook told an operator an unhealthy container restarts itself; production has no autoheal container, so an operator waited for a heal that never came.
 Decision: no restarter, on purpose: the optional checks (`cron_jobs`, `cutout_queue`, `storage`) report what a restart does not fix, and a restart loop would cost the household the app. The runbook (Health, Permissions) now says an unhealthy container is only marked and is restarted by hand.
-Consequence: supersedes that entry's autoheal consequence (homelab owes no label). Docker's `restart: unless-stopped` still restarts a crash or a refused boot.
+Consequence: supersedes that entry's autoheal consequence (homelab owes no label). Docker's restart policy still restarts a crash or a refused boot.
+
+## 2026-11-14 — A boot failure reaches Bugsink, and shutdown fits docker stop's 10 s (#696)
+
+Why: main.ts's error tracker was made inside createApp, so a boot that failed (refused migration, unmounted share, taken port) was logged but never captured, and a crash-looping container was visible only in its logs. The stop bounds summed to 15 s (timers) + 5 s + 10 s (cutout) + 2 s (tracker) against Docker's default 10 s grace, so a deploy during a slow push send was SIGKILLed before the cutout lease was released.
+Decision: main.ts makes the tracker first (`createAppErrorTracker`, passed through `AppOptions.errors`) and its boot catch calls `reportBootFailure` (capture `source: process, origin: boot`, flush 2 s). The stop bounds are one budget (`src/shutdown-budget.ts`): timers 2 s, cutout listener 1.5 s + loop 2.5 s (the weather refresh settles inside the same 4 s), tracker 1 s: 7 s of bounded phases under an 8 s budget; `shutdown-budget.spec.ts` fails if they stop fitting. Shrunk rather than asking homelab for a `stop_grace_period`.
+Consequence: a timer run or push send still in flight after 2 s is cut off (found next time: claims before work). The request drain, the pool's end and the exit are unbounded and live in the 2 s margin.
