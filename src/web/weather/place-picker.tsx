@@ -43,10 +43,13 @@ export const PlaceBody = Type.Object({
   name: Type.String({ minLength: 1, maxLength: PLACE_NAME_MAX }),
   ...LocationBody.properties,
   // The search answer's zone (#678): a trip's days are asked in it. Absent
-  // (a form cached before it, a place whose answer named none) or a name
+  // (a form cached before it), null (the search's answer for a place that
+  // named none, which API clients send back as it came, #807) or a name
   // Intl does not know is no zone, never a 400: the weather reads
   // APP_TIMEZONE then, as it did before.
-  timeZone: Type.Optional(Type.String({ maxLength: TIME_ZONE_MAX })),
+  timeZone: Type.Optional(
+    Type.Union([Type.String({ maxLength: TIME_ZONE_MAX }), Type.Null()]),
+  ),
 });
 
 export function postedLocation(body: Static<typeof LocationBody>): Location {
@@ -59,7 +62,7 @@ export function pickedPlace(body: Static<typeof PlaceBody>): {
   location: PickedLocation;
 } {
   const timeZone =
-    body.timeZone === undefined ? null : canonicalTimeZone(body.timeZone);
+    body.timeZone == null ? null : canonicalTimeZone(body.timeZone);
   return {
     name: body.name.trim(),
     location: { ...postedLocation(body), timeZone },
@@ -78,6 +81,15 @@ export function keptPlace(place: ReturnType<typeof pickedPlace>): {
 } {
   const { latitude, longitude } = place.location;
   return { name: place.name, latitude, longitude };
+}
+
+/**
+ * A trip destination as the API answers it kept: KeptPlace plus the zone as
+ * saved, null when the sent one was absent, null or unknown (so the caller
+ * sees the fallback to APP_TIMEZONE, #808).
+ */
+export function keptDestination(place: ReturnType<typeof pickedPlace>) {
+  return { ...keptPlace(place), timeZone: place.location.timeZone };
 }
 
 export type PlaceAnswer = { places: Place[] } | { failed: true };

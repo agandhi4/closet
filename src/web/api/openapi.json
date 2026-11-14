@@ -14706,8 +14706,15 @@
                     "type": "number"
                   },
                   "timeZone": {
-                    "maxLength": 64,
-                    "type": "string"
+                    "anyOf": [
+                      {
+                        "maxLength": 64,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 }
               }
@@ -14729,17 +14736,18 @@
         ],
         "responses": {
           "200": {
-            "description": "A place picked from the search, as kept: the name trimmed, the coordinates rounded",
+            "description": "A trip's destination as kept: the name trimmed, the coordinates rounded, the zone as saved",
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "KeptPlace",
-                  "description": "A place picked from the search, as kept: the name trimmed, the coordinates rounded",
+                  "title": "KeptDestination",
+                  "description": "A trip's destination as kept: the name trimmed, the coordinates rounded, the zone as saved",
                   "type": "object",
                   "required": [
                     "name",
                     "latitude",
-                    "longitude"
+                    "longitude",
+                    "timeZone"
                   ],
                   "properties": {
                     "name": {
@@ -14752,6 +14760,17 @@
                     "longitude": {
                       "description": "Rounded to 2 decimals (~1 km)",
                       "type": "number"
+                    },
+                    "timeZone": {
+                      "description": "The IANA time zone kept with the destination; null when the one sent was absent or unknown, so the trip's days are the household's",
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   }
                 }
@@ -31009,8 +31028,15 @@
                     "type": "number"
                   },
                   "timeZone": {
-                    "maxLength": 64,
-                    "type": "string"
+                    "anyOf": [
+                      {
+                        "maxLength": 64,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 }
               }

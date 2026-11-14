@@ -496,6 +496,7 @@ describe("a trip's weather", () => {
       name: 'Brooklyn, New York, United States',
       latitude: 40.65,
       longitude: -73.95,
+      timeZone: null,
     });
     const [row] = await t.db
       .select({ destination: trip.destination, latitude: trip.latitude })
@@ -544,6 +545,15 @@ describe("a trip's weather", () => {
     };
     expect((await api('PUT', '/weather/home', home)).statusCode).toBe(200);
     expect((await api('GET', '/weather')).statusCode).toBe(200);
+    const kept200 = await api('PUT', `/trips/${id}/destination`, {
+      ...home,
+      timeZone: 'America/Chicago',
+    });
+    expect(kept200.statusCode).toBe(200);
+    // The answer names the zone that was saved.
+    expect(kept200.json<{ timeZone: string | null }>().timeZone).toBe(
+      'America/Chicago',
+    );
     expect(
       (await api('PUT', `/trips/${id}/destination`, home)).statusCode,
     ).toBe(200);
@@ -585,11 +595,20 @@ describe("a trip's weather", () => {
       timeZone: 'Mars/Olympus_Mons',
     });
     expect(unknown.statusCode).toBe(200);
+    // The answer says what was kept: no zone.
+    expect(unknown.json<{ timeZone: string | null }>().timeZone).toBeNull();
     const [kept] = await t.db
       .select({ timeZone: trip.timeZone })
       .from(trip)
       .where(eq(trip.id, id));
     expect(kept.timeZone).toBeNull();
+    // A search result that named no zone comes back as null (#807): the
+    // same fallback, on the destination and on the home.
+    const sentBack = { ...home, timeZone: null };
+    const nulled = await api('PUT', `/trips/${id}/destination`, sentBack);
+    expect(nulled.statusCode).toBe(200);
+    expect(nulled.json<{ timeZone: string | null }>().timeZone).toBeNull();
+    expect((await api('PUT', '/weather/home', sentBack)).statusCode).toBe(200);
     // Home again for the sections below.
     await api('PUT', '/weather/home', { name: 'Fort Greene', ...PRECISE });
   });
