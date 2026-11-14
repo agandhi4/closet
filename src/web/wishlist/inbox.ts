@@ -1,13 +1,7 @@
 import { and, eq, isNotNull, isNull, type SQL, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Db, Queryable } from '../../db/client';
-import {
-  file,
-  garment,
-  optionGroup,
-  personalAccessToken,
-  user,
-} from '../../db/schema';
+import { file, garment, optionGroup, user } from '../../db/schema';
 import { selectScalars } from '../../db/select-scalars';
 import type { BestOutfits, OutfitCount } from '../../wardrobe/goes-with';
 import type {
@@ -34,6 +28,12 @@ import {
 } from '../sizes/queries';
 import { onWishlist, wanted } from '../wardrobe/status';
 import { type GarmentRef } from './queries';
+import {
+  type AgentLabel,
+  agentLabelSql,
+  type AgentViewer,
+  OWNER_READS,
+} from '../write-origin';
 
 /**
  * The Muse inbox's reads (#333 PR B; docs/plans/2026-10-05-muse-suggestions.md,
@@ -81,8 +81,8 @@ export interface Need {
   resolvedGarmentId: number | null;
   dismissedReason: DismissReason | null;
   ownerNote: string | null;
-  /** The token's name ("Muse"); null when the token is gone. */
-  agent: string | null;
+  /** Muse, as the reader may see it (agentLabelSql: "Agent" to a grantee). */
+  agent: AgentLabel | null;
   /** Its picks on the wishlist, wanted or set aside, Muse's rank order. */
   picks: MusePick[];
   resolver: GarmentRef | null;
@@ -169,8 +169,12 @@ const resolverSql = sql<GarmentRef | null>`(
   where ${eq(resolverGarment.id, optionGroup.resolvedGarmentId)}
 )`;
 
-/** The owner's needs `which` picks, as JSON, oldest first. */
-function needsSql(ownerId: number, which: SQL | undefined): SQL<Need[]> {
+/** The owner's needs `which` picks, as JSON, oldest first, as `viewer` reads them. */
+function needsSql(
+  ownerId: number,
+  which: SQL | undefined,
+  viewer: AgentViewer,
+): SQL<Need[]> {
   return sql<Need[]>`(
     select coalesce(json_agg(json_build_object(
       'id', ${optionGroup.id},
@@ -181,13 +185,11 @@ function needsSql(ownerId: number, which: SQL | undefined): SQL<Need[]> {
       'resolvedGarmentId', ${optionGroup.resolvedGarmentId},
       'dismissedReason', ${optionGroup.dismissedReason},
       'ownerNote', ${optionGroup.ownerNote},
-      'agent', ${personalAccessToken.name},
+      'agent', ${agentLabelSql(optionGroup.suggestedByTokenId, viewer)},
       'picks', ${needPicksSql},
       'resolver', ${resolverSql}
     ) order by ${optionGroup.id}), '[]')
     from ${optionGroup}
-    left join ${personalAccessToken}
-      on ${eq(personalAccessToken.id, optionGroup.suggestedByTokenId)}
     where ${and(eq(optionGroup.ownerId, ownerId), which)}
   )`;
 }
@@ -265,8 +267,8 @@ function ownItemsSql(ownerId: number): SQL<OwnItem[]> {
 
 /** What a suggestion's own page shows of it beyond the garment (suggestion-section.tsx). */
 export interface SuggestionContext {
-  /** The token's name; null when it is gone. */
-  agent: string | null;
+  /** Muse, as the reader may see it (agentLabelSql: "Agent" to a grantee). */
+  agent: AgentLabel | null;
   note: string | null;
   dismissedReason: DismissReason | null;
   dismissedNote: string | null;
@@ -283,18 +285,17 @@ export function suggestionContextSql(
   ownerId: number,
   garmentId: number,
   groupId: number | null,
+  viewer: AgentViewer,
 ): SQL<SuggestionContext> {
   return sql<SuggestionContext>`(
     select json_build_object(
-      'agent', ${personalAccessToken.name},
+      'agent', ${agentLabelSql(garment.addedByTokenId, viewer)},
       'note', ${garment.suggestionNote},
       'dismissedReason', ${garment.dismissedReason},
       'dismissedNote', ${garment.dismissedNote},
-      'need', ${groupId === null ? sql`null` : sql`(${needsSql(ownerId, eq(optionGroup.id, groupId))})->0`}
+      'need', ${groupId === null ? sql`null` : sql`(${needsSql(ownerId, eq(optionGroup.id, groupId), viewer)})->0`}
     )
     from ${garment}
-    left join ${personalAccessToken}
-      on ${eq(personalAccessToken.id, garment.suggestedByTokenId)}
     where ${and(eq(garment.id, garmentId), eq(garment.ownerId, ownerId))}
   )`;
 }
@@ -385,7 +386,7 @@ function sortGroups(
  * the brand notes and "Unlocks N" (counted after the statement, one search
  * per open pick; logged with its time by the route). `groupsOnly`: the
  * next page's cards (GET /wardrobe/wishlist/more), which read the needs and
- * the unlocks alone. The switcher only for a `viewerId`: the page's, never
+ * the unlocks alone. The switcher only with `switcher`: the page's, never
  * its next pages', the API's or MCP's.
  */
 export async function readInbox(
@@ -395,18 +396,19 @@ export async function readInbox(
     viewerId,
     isOwner,
     groupsOnly = false,
+    switcher,
   }: {
     ownerId: number;
-    viewerId?: number;
+    viewerId: number;
     isOwner: boolean;
     groupsOnly?: boolean;
+    switcher?: boolean;
   },
 ): Promise<Inbox & { searchMs: number; counted: number }> {
   const row = await selectScalars(db, {
-    needs: needsSql(ownerId, inInbox),
+    needs: needsSql(ownerId, inInbox, { viewerId, ownsWardrobe: isOwner }),
     own: groupsOnly ? undefined : ownItemsSql(ownerId),
-    sharedWardrobes:
-      viewerId === undefined ? undefined : sharedWardrobesSql(viewerId),
+    sharedWardrobes: switcher ? sharedWardrobesSql(viewerId) : undefined,
     brandSizes: isOwner && !groupsOnly ? brandSizesSql(ownerId) : undefined,
     unlocks: isOwner ? goesWithManyInputsSql(ownerId, OPEN_PICKS) : undefined,
   });
@@ -479,11 +481,15 @@ export async function readNeed(
   {
     ownerId,
     groupId,
+    viewerId,
     isOwner,
-  }: { ownerId: number; groupId: number; isOwner: boolean },
+  }: { ownerId: number; groupId: number; viewerId: number; isOwner: boolean },
 ): Promise<(NeedDetail & { searchMs: number }) | undefined> {
   const row = await selectScalars(db, {
-    needs: needsSql(ownerId, eq(optionGroup.id, groupId)),
+    needs: needsSql(ownerId, eq(optionGroup.id, groupId), {
+      viewerId,
+      ownsWardrobe: isOwner,
+    }),
     brandSizes: isOwner ? brandSizesSql(ownerId) : undefined,
     judged: isOwner
       ? goesWithManyInputsSql(
@@ -519,8 +525,8 @@ export async function readNeed(
 /** Today's card (#333): how many needs wait on the owner's choice, and whose. */
 export interface NeedsToDecide {
   count: number;
-  /** The newest such need's token name; null when the token is gone. */
-  agent: string | null;
+  /** The newest such need's agent: Today is the owner's alone. */
+  agent: AgentLabel | null;
 }
 
 /**
@@ -532,11 +538,9 @@ export function needsToDecideSql(ownerId: number): SQL<NeedsToDecide | null> {
   return sql<NeedsToDecide | null>`(
     select case when count(*) = 0 then null else json_build_object(
       'count', count(*)::int,
-      'agent', (array_agg(${personalAccessToken.name} order by ${optionGroup.id} desc))[1]
+      'agent', (array_agg(${agentLabelSql(optionGroup.suggestedByTokenId, OWNER_READS)} order by ${optionGroup.id} desc))[1]
     ) end
     from ${optionGroup}
-    left join ${personalAccessToken}
-      on ${eq(personalAccessToken.id, optionGroup.suggestedByTokenId)}
     where ${and(
       eq(optionGroup.ownerId, ownerId),
       eq(optionGroup.status, 'open'),

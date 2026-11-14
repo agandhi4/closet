@@ -3811,6 +3811,20 @@
                         }
                       }
                     },
+                    "agent": {
+                      "title": "Agent",
+                      "description": "The agent that made it over MCP, by its personal access token (absent: a person did)",
+                      "type": "object",
+                      "required": [
+                        "name"
+                      ],
+                      "properties": {
+                        "name": {
+                          "description": "Your token's name when it was yours, \"<first name>'s agent\" for a grantee's agent on your wardrobe, else \"Agent\"",
+                          "type": "string"
+                        }
+                      }
+                    },
                     "capsules": {
                       "type": "array",
                       "items": {
@@ -8197,6 +8211,20 @@
                                 "type": "string"
                               }
                             }
+                          },
+                          "agent": {
+                            "title": "Agent",
+                            "description": "The agent that made it over MCP, by its personal access token (absent: a person did)",
+                            "type": "object",
+                            "required": [
+                              "name"
+                            ],
+                            "properties": {
+                              "name": {
+                                "description": "Your token's name when it was yours, \"<first name>'s agent\" for a grantee's agent on your wardrobe, else \"Agent\"",
+                                "type": "string"
+                              }
+                            }
                           }
                         }
                       }
@@ -8744,6 +8772,20 @@
                           ]
                         },
                         "agent": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "agent": {
+                      "title": "Agent",
+                      "description": "The agent that made it over MCP, by its personal access token (absent: a person did)",
+                      "type": "object",
+                      "required": [
+                        "name"
+                      ],
+                      "properties": {
+                        "name": {
+                          "description": "Your token's name when it was yours, \"<first name>'s agent\" for a grantee's agent on your wardrobe, else \"Agent\"",
                           "type": "string"
                         }
                       }
@@ -9366,21 +9408,41 @@
                             "type": "boolean"
                           },
                           "plannedBy": {
-                            "description": "`auto`: Plan my week's pick, which its daily re-plan may swap until you change, wear or plan it yourself; `user`: yours",
+                            "description": "`auto`: Plan my week's pick, which its daily re-plan may swap until you change, wear or plan it yourself; `agent`: your agent's over MCP (see `agent`), which the re-plan never touches; `user`: yours",
                             "anyOf": [
-                              {
-                                "type": "string",
-                                "enum": [
-                                  "user"
-                                ]
-                              },
                               {
                                 "type": "string",
                                 "enum": [
                                   "auto"
                                 ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "agent"
+                                ]
+                              },
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "user"
+                                ]
                               }
                             ]
+                          },
+                          "agent": {
+                            "title": "Agent",
+                            "description": "The agent that made it over MCP, by its personal access token (absent: a person did)",
+                            "type": "object",
+                            "required": [
+                              "name"
+                            ],
+                            "properties": {
+                              "name": {
+                                "description": "Your token's name when it was yours, \"<first name>'s agent\" for a grantee's agent on your wardrobe, else \"Agent\"",
+                                "type": "string"
+                              }
+                            }
                           },
                           "selfieId": {
                             "description": "The outfit selfie taken of it",
@@ -10710,21 +10772,41 @@
                                   "type": "boolean"
                                 },
                                 "plannedBy": {
-                                  "description": "`auto`: Plan my week's pick, which its daily re-plan may swap until you change, wear or plan it yourself; `user`: yours",
+                                  "description": "`auto`: Plan my week's pick, which its daily re-plan may swap until you change, wear or plan it yourself; `agent`: your agent's over MCP (see `agent`), which the re-plan never touches; `user`: yours",
                                   "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "enum": [
-                                        "user"
-                                      ]
-                                    },
                                     {
                                       "type": "string",
                                       "enum": [
                                         "auto"
                                       ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "agent"
+                                      ]
+                                    },
+                                    {
+                                      "type": "string",
+                                      "enum": [
+                                        "user"
+                                      ]
                                     }
                                   ]
+                                },
+                                "agent": {
+                                  "title": "Agent",
+                                  "description": "The agent that made it over MCP, by its personal access token (absent: a person did)",
+                                  "type": "object",
+                                  "required": [
+                                    "name"
+                                  ],
+                                  "properties": {
+                                    "name": {
+                                      "description": "Your token's name when it was yours, \"<first name>'s agent\" for a grantee's agent on your wardrobe, else \"Agent\"",
+                                      "type": "string"
+                                    }
+                                  }
                                 },
                                 "selfieId": {
                                   "description": "The outfit selfie taken of it",
@@ -12630,6 +12712,20 @@
                                 },
                                 "wornTodayEntryId": {
                                   "type": "integer"
+                                },
+                                "agent": {
+                                  "title": "Agent",
+                                  "description": "The agent that made it over MCP, by its personal access token (absent: a person did)",
+                                  "type": "object",
+                                  "required": [
+                                    "name"
+                                  ],
+                                  "properties": {
+                                    "name": {
+                                      "description": "Your token's name when it was yours, \"<first name>'s agent\" for a grantee's agent on your wardrobe, else \"Agent\"",
+                                      "type": "string"
+                                    }
+                                  }
                                 }
                               }
                             }
@@ -12823,6 +12919,20 @@
                           },
                           "wornTodayEntryId": {
                             "type": "integer"
+                          },
+                          "agent": {
+                            "title": "Agent",
+                            "description": "The agent that made it over MCP, by its personal access token (absent: a person did)",
+                            "type": "object",
+                            "required": [
+                              "name"
+                            ],
+                            "properties": {
+                              "name": {
+                                "description": "Your token's name when it was yours, \"<first name>'s agent\" for a grantee's agent on your wardrobe, else \"Agent\"",
+                                "type": "string"
+                              }
+                            }
                           }
                         }
                       }
@@ -29083,6 +29193,20 @@
                                       }
                                     }
                                   },
+                                  "agent": {
+                                    "title": "Agent",
+                                    "description": "The agent that made it over MCP, by its personal access token (absent: a person did)",
+                                    "type": "object",
+                                    "required": [
+                                      "name"
+                                    ],
+                                    "properties": {
+                                      "name": {
+                                        "description": "Your token's name when it was yours, \"<first name>'s agent\" for a grantee's agent on your wardrobe, else \"Agent\"",
+                                        "type": "string"
+                                      }
+                                    }
+                                  },
                                   "care": {
                                     "title": "SyncedGarmentCare",
                                     "description": "The owner's own care records as stored: only on their own wardrobe. What the wears and repairs add up to is the client's to derive",
@@ -29429,6 +29553,20 @@
                                         ]
                                       }
                                     }
+                                  },
+                                  "agent": {
+                                    "title": "Agent",
+                                    "description": "The agent that made it over MCP, by its personal access token (absent: a person did)",
+                                    "type": "object",
+                                    "required": [
+                                      "name"
+                                    ],
+                                    "properties": {
+                                      "name": {
+                                        "description": "Your token's name when it was yours, \"<first name>'s agent\" for a grantee's agent on your wardrobe, else \"Agent\"",
+                                        "type": "string"
+                                      }
+                                    }
                                   }
                                 }
                               }
@@ -29530,21 +29668,41 @@
                                     "type": "boolean"
                                   },
                                   "plannedBy": {
-                                    "description": "`auto`: Plan my week's pick, which its daily re-plan may swap until you change, wear or plan it yourself; `user`: yours",
+                                    "description": "`auto`: Plan my week's pick, which its daily re-plan may swap until you change, wear or plan it yourself; `agent`: your agent's over MCP (see `agent`), which the re-plan never touches; `user`: yours",
                                     "anyOf": [
-                                      {
-                                        "type": "string",
-                                        "enum": [
-                                          "user"
-                                        ]
-                                      },
                                       {
                                         "type": "string",
                                         "enum": [
                                           "auto"
                                         ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "agent"
+                                        ]
+                                      },
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "user"
+                                        ]
                                       }
                                     ]
+                                  },
+                                  "agent": {
+                                    "title": "Agent",
+                                    "description": "The agent that made it over MCP, by its personal access token (absent: a person did)",
+                                    "type": "object",
+                                    "required": [
+                                      "name"
+                                    ],
+                                    "properties": {
+                                      "name": {
+                                        "description": "Your token's name when it was yours, \"<first name>'s agent\" for a grantee's agent on your wardrobe, else \"Agent\"",
+                                        "type": "string"
+                                      }
+                                    }
                                   },
                                   "outfitId": {
                                     "type": "integer"
@@ -29763,6 +29921,20 @@
                                               ]
                                             }
                                           ]
+                                        },
+                                        "agent": {
+                                          "title": "Agent",
+                                          "description": "The agent that made it over MCP, by its personal access token (absent: a person did)",
+                                          "type": "object",
+                                          "required": [
+                                            "name"
+                                          ],
+                                          "properties": {
+                                            "name": {
+                                              "description": "Your token's name when it was yours, \"<first name>'s agent\" for a grantee's agent on your wardrobe, else \"Agent\"",
+                                              "type": "string"
+                                            }
+                                          }
                                         }
                                       }
                                     }

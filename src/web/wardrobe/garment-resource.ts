@@ -36,6 +36,11 @@ import type {
 } from './queries';
 import type { RepairEntry } from './repairs';
 import type { SwappedCutout } from './writes';
+import {
+  type AgentLabel,
+  AgentResource,
+  toAgentResource,
+} from '../write-origin';
 
 /**
  * The API's garment resources (#192a; docs/plans/2026-11-12-json-api.md
@@ -228,6 +233,7 @@ const recordFields = {
   careLabel: CareLabel,
   /** The owner's repair and alteration log: only on their own wardrobe. */
   repairs: Type.Optional(Type.Array(Repair)),
+  agent: Type.Optional(AgentResource),
 };
 
 export const Garment = Type.Object(
@@ -267,7 +273,11 @@ export const SyncedGarment = Type.Object(
 );
 
 /** What a garment page's answer and the feed's share, nulls kept for withoutNulls. */
-function recordOf(garment: GarmentDetail, repairs: RepairEntry[] | null) {
+function recordOf(
+  garment: GarmentDetail,
+  repairs: RepairEntry[] | null,
+  agent: AgentLabel | null,
+) {
   return {
     id: garment.id,
     name: garment.name,
@@ -307,6 +317,7 @@ function recordOf(garment: GarmentDetail, repairs: RepairEntry[] | null) {
       notes: garment.washingDetails,
     }),
     repairs: repairs && repairs.map((entry) => withoutNulls({ ...entry })),
+    agent: toAgentResource(agent),
   };
 }
 
@@ -321,7 +332,7 @@ export function toGarmentResource(
 ): Garment {
   const { own } = context;
   return withoutNulls({
-    ...recordOf(garment, own ? own.repairs.entries : null),
+    ...recordOf(garment, own ? own.repairs.entries : null, context.agent),
     capsules: context.capsules
       .filter((capsule) => capsule.member)
       .map(({ id, name }) => ({ id, name })),
@@ -338,7 +349,7 @@ export function toSyncedGarment(
   garment: SyncedGarmentRow,
 ): Static<typeof SyncedGarment> {
   return withoutNulls({
-    ...recordOf(garment, garment.repairs),
+    ...recordOf(garment, garment.repairs, garment.agent),
     care:
       garment.repairs === null
         ? null

@@ -41,6 +41,7 @@ import {
 } from './queries';
 import type { GarmentFields } from './garment-input';
 import { garmentNotFound } from './garment-access';
+import { BY_PERSON, type WriteOrigin } from '../write-origin';
 
 /**
  * The garment writes that involve photo bytes, which a transaction cannot
@@ -101,11 +102,14 @@ export function createGarment(
   ownerId: number,
   fields: GarmentFields,
   status: EntryStatus,
+  madeBy: WriteOrigin,
   withGarment?: WithGarment,
 ): Promise<number> {
-  if (!withGarment) return insertGarment(db, ownerId, fields, null, status);
+  if (!withGarment) {
+    return insertGarment(db, ownerId, fields, null, status, madeBy);
+  }
   return db.transaction(async (tx) => {
-    const id = await insertGarment(tx, ownerId, fields, null, status);
+    const id = await insertGarment(tx, ownerId, fields, null, status, madeBy);
     await withGarment(tx, id);
     return id;
   });
@@ -368,6 +372,7 @@ export async function createGarmentWithPendingPhoto(
   fields: GarmentFields,
   fileName: string,
   status: EntryStatus,
+  madeBy: WriteOrigin,
   withGarment?: WithGarment,
 ): Promise<ClaimedGarment | undefined> {
   // The wardrobe's owner owns the row, whoever saves (as replacePhoto).
@@ -393,7 +398,14 @@ export async function createGarmentWithPendingPhoto(
         ...photo,
         ...initialCutoutState('pending'),
       });
-      const id = await insertGarment(tx, ownerId, fields, photoId, status);
+      const id = await insertGarment(
+        tx,
+        ownerId,
+        fields,
+        photoId,
+        status,
+        madeBy,
+      );
       await withGarment?.(tx, id);
       return { id, draft: taken.draft };
     }));
@@ -464,13 +476,14 @@ export async function cloneGarment(
     : undefined;
   const entry = statusOfClone(source.status);
   if (!photo || !source.photo) {
-    return insertGarment(deps.db, requesterId, fields, null, entry);
+    return insertGarment(deps.db, requesterId, fields, null, entry, BY_PERSON);
   }
   const cutout = source.photo.cutoutStatus;
   const id = await commitWithPhoto(
     deps,
     { ...photo, ...initialCutoutState(cutout) },
-    (tx, photoId) => insertGarment(tx, requesterId, fields, photoId, entry),
+    (tx, photoId) =>
+      insertGarment(tx, requesterId, fields, photoId, entry, BY_PERSON),
   );
   if (cutout === 'pending') deps.cutouts.wake();
   return id;

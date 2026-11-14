@@ -6,6 +6,7 @@ import { t } from '../i18n';
 import { garmentsGoneError } from '../outfits/gone-garments';
 import { type PickResult, pickIdea } from '../outfits/pick';
 import { lockLookForSave, recordPieceChoices } from './queries';
+import { BY_PERSON } from '../write-origin';
 
 /**
  * The match view's "Save as outfit" (#22c; docs/plans/2026-11-13-
@@ -79,6 +80,7 @@ export async function saveRecreation(
         garmentIds,
         name: look.title ?? undefined,
         origin: 'person',
+        madeBy: BY_PERSON,
       });
       if (outfit === 'not-found') return outfit;
       const recorded = await recordPieceChoices(tx, id, ownerId, choices);

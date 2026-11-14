@@ -28,6 +28,7 @@ import {
 } from './import';
 import type { ExtractionConfidence } from './extract';
 import { importedForm } from './prefill';
+import type { WriteOrigin } from '../../write-origin';
 
 /** What the caller says instead of the page. */
 export interface LinkOverrides {
@@ -93,6 +94,7 @@ export async function saveGarmentFromLink(
   { ownerId, isOwner }: Pick<WardrobeAccess, 'ownerId' | 'isOwner'>,
   overrides: LinkOverrides,
   surface: LinkSaveSurface,
+  madeBy: WriteOrigin,
   { withGarment }: LinkSaveOptions = {},
 ): Promise<LinkSave> {
   const { logger } = deps;
@@ -137,6 +139,7 @@ export async function saveGarmentFromLink(
     id = await saveImported(deps, ownerId, userId, read.fields, {
       photo,
       destination: overrides.destination,
+      madeBy,
       withGarment,
     });
   } catch (error) {
@@ -196,15 +199,24 @@ async function saveImported(
   {
     photo,
     destination,
+    madeBy,
     withGarment,
   }: {
     photo: string | undefined;
     destination: EntryStatus;
+    madeBy: WriteOrigin;
     withGarment: WithGarment | undefined;
   },
 ): Promise<number | undefined> {
   if (!photo) {
-    return createGarment(deps, ownerId, fields, destination, withGarment);
+    return createGarment(
+      deps,
+      ownerId,
+      fields,
+      destination,
+      madeBy,
+      withGarment,
+    );
   }
   const claimed = await createGarmentWithPendingPhoto(
     deps,
@@ -213,6 +225,7 @@ async function saveImported(
     fields,
     photo,
     destination,
+    madeBy,
     withGarment,
   );
   return claimed?.id;

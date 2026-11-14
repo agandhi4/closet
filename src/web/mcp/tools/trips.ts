@@ -12,7 +12,8 @@ import {
   planTripOutfit,
   requireTripModel,
 } from '../../trips/trip-actions';
-import { actorOf, defineTool, type ToolContext } from '../tool';
+import { actorOf, defineTool, originOf, type ToolContext } from '../tool';
+import { agentNameOf } from '../../write-origin';
 import { isoDate, occasionInput, rowId } from './common';
 import { dayWeather, typicalDayWeather } from '../../weather/weather-resource';
 
@@ -29,6 +30,8 @@ function outfitOut(outfit: TripOutfitView) {
     name: outfit.name,
     day: outfit.day,
     occasion: outfit.occasion,
+    // Your agent put it on the trip (#682): its token's name.
+    agent: agentNameOf(outfit.agent),
     garments: outfit.garments.map((g) => ({
       id: g.id,
       name: g.name,
@@ -71,12 +74,17 @@ async function planOnTrip(
   const actor = actorOf(ctx);
   if (input.garmentIds === undefined) {
     const outfitId = input.outfitId!;
-    const added = await planTripOutfit(ctx.db, actor, {
-      tripId,
-      outfitId,
-      day,
-      occasion,
-    });
+    const added = await planTripOutfit(
+      ctx.db,
+      actor,
+      {
+        tripId,
+        outfitId,
+        day,
+        occasion,
+      },
+      originOf(ctx),
+    );
     return { outfitId, created: false, added: added === 'added' };
   }
   const picked = await pickIdeaForTrip(ctx.db, actor, {
@@ -87,6 +95,7 @@ async function planOnTrip(
     occasion,
     // An idea for the trip: a one-off, whoever picked it (#659).
     origin: 'idea',
+    madeBy: originOf(ctx),
   });
   return {
     outfitId: picked.outfit.id,

@@ -21,6 +21,7 @@ import {
   setEntryOutfit,
 } from './queries';
 import { replaceEntryOutfit } from './replace';
+import { BY_PERSON } from '../write-origin';
 
 vi.mock('./queries', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -86,6 +87,7 @@ const unworn = {
   outfitId: 31,
   worn: false,
   plannedBy: 'user' as const,
+  agent: null,
 };
 
 /** Each path called as `actor`, with its query answering the miss another user's id gets. */
@@ -95,11 +97,16 @@ const paths: [string, string, (actor: Actor) => Promise<unknown>][] = [
     'Outfit not found',
     (actor) => {
       vi.mocked(scheduleOutfit).mockResolvedValue('no-such-outfit');
-      return planOutfit(db, actor, {
-        outfitId: OUTFIT,
-        day: DAY,
-        occasion: 'work',
-      });
+      return planOutfit(
+        db,
+        actor,
+        {
+          outfitId: OUTFIT,
+          day: DAY,
+          occasion: 'work',
+        },
+        BY_PERSON,
+      );
     },
   ],
   [
@@ -136,7 +143,13 @@ const paths: [string, string, (actor: Actor) => Promise<unknown>][] = [
     'Calendar entry not found',
     (actor) => {
       vi.mocked(lockEntryToReplace).mockResolvedValue(undefined);
-      return replaceEntryOutfit(db, actor, target, { outfitId: OUTFIT });
+      return replaceEntryOutfit(
+        db,
+        actor,
+        target,
+        { outfitId: OUTFIT },
+        BY_PERSON,
+      );
     },
   ],
 ];
@@ -164,6 +177,7 @@ describe("another user's entry is not found, whatever they share", () => {
       outfitId: OUTFIT,
       day: DAY,
       occasion: 'work',
+      chooser: BY_PERSON,
     });
     expect(setEntryWorn).toHaveBeenCalledWith(
       db,
@@ -185,7 +199,7 @@ describe('a replace refuses with nothing changed', () => {
     vi.mocked(lockEntryToReplace).mockResolvedValue(unworn);
     vi.mocked(ownsOutfit).mockResolvedValue(false);
     await expect(
-      replaceEntryOutfit(db, owner, target, { outfitId: OUTFIT }),
+      replaceEntryOutfit(db, owner, target, { outfitId: OUTFIT }, BY_PERSON),
     ).rejects.toMatchObject({
       statusCode: 404,
       message: 'Outfit not found',
@@ -197,7 +211,7 @@ describe('a replace refuses with nothing changed', () => {
   it('refuses a worn entry before it looks at the choice (409)', async () => {
     vi.mocked(lockEntryToReplace).mockResolvedValue({ ...unworn, worn: true });
     await expect(
-      replaceEntryOutfit(db, owner, target, { outfitId: OUTFIT }),
+      replaceEntryOutfit(db, owner, target, { outfitId: OUTFIT }, BY_PERSON),
     ).rejects.toMatchObject({ statusCode: 409 });
     expect(ownsOutfit).not.toHaveBeenCalled();
   });
@@ -207,7 +221,7 @@ describe('a replace refuses with nothing changed', () => {
     vi.mocked(ownsOutfit).mockResolvedValue(true);
     vi.mocked(entryOf).mockResolvedValue({ id: 41, occasion: 'evening' });
     await expect(
-      replaceEntryOutfit(db, owner, target, { outfitId: OUTFIT }),
+      replaceEntryOutfit(db, owner, target, { outfitId: OUTFIT }, BY_PERSON),
     ).rejects.toMatchObject({
       statusCode: 409,
       message: expect.stringContaining('Evening'),

@@ -6,6 +6,7 @@ import { imageUrl } from '../files/image-url';
 import { enlargeLabel, PhotoSet, viewerTrigger } from '../files/photo-viewer';
 import { unlocksText } from '../gallery/goes-with';
 import { t } from '../i18n';
+import { museName } from '../write-origin';
 import { MUSE_GRID } from '../layout/columns';
 import { GarmentMark, markLabel } from '../layout/garment-mark';
 import { HangerIcon } from '../layout/parts';
@@ -56,9 +57,9 @@ export function MuseSection(props: {
   );
 }
 
-/** The agent's name as the token says it; "Muse" when it is gone. */
+/** The agent's name as the token says it; "Muse" when none did. */
 function agentOf(outfits: readonly MuseOutfit[]): string {
-  return outfits.find((o) => o.agent)?.agent ?? t('muse.AGENT');
+  return museName(outfits.find((o) => o.agent)?.agent ?? null);
 }
 
 /** Where a card's moves come back to: the tab, at the card. */

@@ -34,6 +34,7 @@ import {
   expectOfflineGuarded,
   HX_FRAGMENT,
 } from './pages';
+import { BY_PERSON } from '../../src/web/write-origin';
 
 /**
  * Trips and packing lists (#10): the trip form, outfits for its days and
@@ -403,6 +404,7 @@ describe('trips', () => {
             tripId: id,
             ownerId: t.owner.id,
             outfitId: doomed,
+            madeBy: BY_PERSON,
           }),
       );
       expect(added).toBe('no-outfit');

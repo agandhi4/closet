@@ -21,12 +21,28 @@ import {
 
 /**
  * Who owns a calendar entry's choice (outfit_calendar.planned_by): the
- * person, or the week planner while its pick stands untouched (the only
- * entries its daily re-plan may swap).
+ * week planner while its pick stands untouched (`auto`, the only entries
+ * its daily re-plan and Undo may swap or delete), the owner's agent over
+ * MCP (`agent`, #682, with its token), or the person (`user`).
+ *
+ * In rank order: a choosing write that meets an entry of the same outfit
+ * takes it over only from a lower rank (the person from the agent and the
+ * planner, the agent from the planner), never back
+ * (`takesOver`; src/web/calendar/planned-by.ts's `takeOverSql` is its SQL).
  */
-export const PLANNED_BY = ['user', 'auto'] as const;
+export const PLANNED_BY = ['auto', 'agent', 'user'] as const;
 export type PlannedBy = (typeof PLANNED_BY)[number];
 export const DEFAULT_PLANNED_BY: PlannedBy = 'user';
+
+/** Whether a `writer`'s choice of an entry's own outfit takes it over from `existing`. */
+export function takesOver(writer: PlannedBy, existing: PlannedBy): boolean {
+  return PLANNED_BY.indexOf(writer) > PLANNED_BY.indexOf(existing);
+}
+
+/** Whether the week planner may still swap or delete the entry (#16). */
+export function replannable(plannedBy: PlannedBy): boolean {
+  return plannedBy === 'auto';
+}
 
 /** 0 = Sunday ... 6 = Saturday: calendar-date.ts's dayOfWeek, weeks run Sunday to Saturday. */
 export const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;

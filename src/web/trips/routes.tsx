@@ -64,6 +64,7 @@ import {
   TripParams,
 } from './validation';
 import { TripPlaceResults, TripWeather } from './weather';
+import { BY_PERSON } from '../write-origin';
 
 /**
  * Trips (#10; plan section 4): the Calendar's Trips tab and every trip
@@ -293,12 +294,12 @@ export const tripRoutes: FastifyPluginCallbackTypebox<
       const { outfitId } = request.body;
       const day = request.body.day || undefined;
       const occasion: Occasion | undefined = request.body.occasion || undefined;
-      const outcome = await planTripOutfit(db, actor, {
-        tripId: id,
-        outfitId,
-        day,
-        occasion,
-      });
+      const outcome = await planTripOutfit(
+        db,
+        actor,
+        { tripId: id, outfitId, day, occasion },
+        BY_PERSON,
+      );
       logger.info(
         `Outfit ${outfitId} ${outcome === 'added' ? 'added to' : 'already on'} trip ${id} by user ${actor.userId} (${day ?? 'any day'}${occasion ? `, ${occasion}` : ''})`,
       );

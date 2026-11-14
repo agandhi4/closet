@@ -32,6 +32,7 @@ import {
 } from './pages';
 import { takeSelfie } from './selfies';
 import { interleave } from './interleave';
+import { BY_PERSON } from '../../src/web/write-origin';
 
 /**
  * Changing a planned outfit in place (#69): one replace write,
@@ -100,6 +101,7 @@ describe('changing a planned outfit in place', () => {
     const saved = await pickIdea(t.db, ownerId, {
       garmentIds,
       origin: 'person',
+      madeBy: BY_PERSON,
     });
     if (saved === 'not-found') throw new Error('garments not found');
     return saved.id;
@@ -159,8 +161,9 @@ describe('changing a planned outfit in place', () => {
       const weekPlanId = await createWeekPlan(tx, t.owner.id);
       const picked = await pickIdea(tx, t.owner.id, {
         garmentIds,
-        plan: { day, occasion, plannedBy: 'auto' },
+        plan: { day, occasion },
         origin: 'planner',
+        madeBy: BY_PERSON,
       });
       if (picked === 'not-found') throw new Error('garments not found');
       const [entry] = await tx
@@ -384,15 +387,27 @@ describe('changing a planned outfit in place', () => {
       const [first, second] = await interleave(
         t.db,
         (tx) =>
-          replaceEntryOutfit(tx, owner, target, {
-            garmentIds: idea,
-            origin: 'idea',
-          }),
+          replaceEntryOutfit(
+            tx,
+            owner,
+            target,
+            {
+              garmentIds: idea,
+              origin: 'idea',
+            },
+            BY_PERSON,
+          ),
         () =>
-          replaceEntryOutfit(t.db, owner, target, {
-            garmentIds: idea,
-            origin: 'idea',
-          }),
+          replaceEntryOutfit(
+            t.db,
+            owner,
+            target,
+            {
+              garmentIds: idea,
+              origin: 'idea',
+            },
+            BY_PERSON,
+          ),
       );
       expect(first).toMatchObject({ outcome: 'replaced', alreadySaved: false });
       expect(second).toMatchObject({
@@ -546,6 +561,7 @@ describe('changing a planned outfit in place', () => {
           tripId,
           ownerId: t.owner.id,
           outfitId: auto.outfitId,
+          madeBy: BY_PERSON,
         }),
       ).toBe('added');
       const chosen = await outfitOf([tops[1], bottoms[0], shoes[0]]);

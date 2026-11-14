@@ -9,6 +9,7 @@ import { outfitNotFound } from '../outfits/outfit-actions';
 import { NotFound } from '../refusals';
 import type { Actor } from '../sharing/access';
 import { type EntryWornOutcome, setEntryWorn } from '../wears/queries';
+import type { WriteOrigin } from '../write-origin';
 import type { CalendarEntry } from './calendar-view';
 import {
   deleteEntry,
@@ -43,10 +44,12 @@ export async function planOutfit(
   db: Db,
   actor: Actor,
   entry: { outfitId: number; day: IsoDate; occasion: Occasion },
+  madeBy: WriteOrigin,
 ): Promise<ScheduledEntry> {
   const scheduled = await scheduleOutfit(db, {
     ownerId: actor.userId,
     ...entry,
+    chooser: madeBy,
   });
   if (scheduled === 'no-such-outfit') throw outfitNotFound();
   return scheduled;

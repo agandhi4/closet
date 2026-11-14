@@ -90,6 +90,7 @@ export const wishlistApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       );
       const inbox = await readInbox(db, {
         ownerId: access.ownerId,
+        viewerId: actorOf(request).userId,
         isOwner: access.isOwner,
       });
       logger.debug(

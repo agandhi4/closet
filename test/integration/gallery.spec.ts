@@ -38,6 +38,7 @@ import {
 import { callTool, createAccessToken } from './mcp';
 import { expectFragment, expectFullPage, HX_FRAGMENT } from './pages';
 import { interleave } from './interleave';
+import { BY_PERSON } from '../../src/web/write-origin';
 
 /**
  * The outfit gallery (#9): the Outfits page's Ideas tab over the generator
@@ -566,12 +567,18 @@ describe('outfit gallery', () => {
       const [first, second] = await interleave(
         t.db,
         (tx) =>
-          pickIdea(tx, ownerId, { garmentIds: racing, plan, origin: 'person' }),
+          pickIdea(tx, ownerId, {
+            garmentIds: racing,
+            plan,
+            origin: 'person',
+            madeBy: BY_PERSON,
+          }),
         () =>
           pickIdea(t.db, ownerId, {
             garmentIds: racing,
             plan,
             origin: 'person',
+            madeBy: BY_PERSON,
           }),
       );
       expect(first).toMatchObject({

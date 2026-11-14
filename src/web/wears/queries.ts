@@ -29,6 +29,7 @@ import { photoRefJson } from '../files/queries';
 import type { GarmentDetail } from '../wardrobe/queries';
 import { repairCostSql } from '../wardrobe/repairs';
 import { inCloset, onWishlist, ownedGarment } from '../wardrobe/status';
+import { PERSONS_CHOICE_SET } from '../calendar/planned-by';
 
 /**
  * Wears, washes and away: the owner's own records about their garments
@@ -416,7 +417,7 @@ async function markWorn(
 ): Promise<number> {
   const { rows } = await tx.execute<{ wears: number }>(sql`
     with marked as (
-      update ${outfitCalendar} set worn_at = ${at}, planned_by = 'user'
+      update ${outfitCalendar} set worn_at = ${at}, ${PERSONS_CHOICE_SET}
       where ${outfitCalendar.id} = ${entry.id}
     ), worn as (
       select distinct ${garment.id} as garment_id
@@ -439,7 +440,7 @@ async function markWorn(
 async function unmarkWorn(tx: Queryable, entryId: number): Promise<number> {
   const { rows } = await tx.execute<{ wears: number }>(sql`
     with unmarked as (
-      update ${outfitCalendar} set worn_at = null, planned_by = 'user'
+      update ${outfitCalendar} set worn_at = null, ${PERSONS_CHOICE_SET}
       where ${outfitCalendar.id} = ${entryId}
     ), removed as (
       delete from ${garmentWear} where ${garmentWear.outfitCalendarId} = ${entryId}
