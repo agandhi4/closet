@@ -505,7 +505,8 @@ export function describeMatrix(
         url: `/wardrobe-share/invite/${token}/accept`,
         headers: { cookie: actors[grantee].cookie },
       });
-      expect(accept.headers.location).toBe('/auth/profile#sharing');
+      // Accept lands on the grantor's wardrobe (#661).
+      expect(accept.headers.location).toMatch(/^\/wardrobe\?ownerId=\d+$/);
     };
 
     /** The owner's Muse needs and picks (#333), written through the one writers. */
@@ -1066,7 +1067,8 @@ export function describeMatrix(
         expect(res.statusCode).toBe(401);
       } else expect(res.statusCode).toBe(REFUSED_STATUS[outcome]);
       if (surface === 'page' && outcome === 'login') {
-        expect(res.headers.location).toBe(LOGIN_PATH);
+        // A GET returns there after sign-in (?returnTo=, #661; auth.spec.ts).
+        expect(res.headers.location?.split('?')[0]).toBe(LOGIN_PATH);
       }
       expect(res.body).not.toContain(secret);
     };

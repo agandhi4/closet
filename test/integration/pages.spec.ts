@@ -1,3 +1,4 @@
+import { loginUrl } from '../../src/web/auth/return-to';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PostForm } from '../../src/web/auth/form';
 import { renderToString } from '../../src/web/render';
@@ -192,7 +193,7 @@ describe('pages', () => {
         url,
         status: res.statusCode,
         location: res.headers.location,
-      }).toEqual({ url, status: 302, location: '/auth/login' });
+      }).toEqual({ url, status: 302, location: loginUrl(url) });
     }
   });
 });

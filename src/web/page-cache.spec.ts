@@ -4,6 +4,7 @@ import {
   CACHED_AT_HEADER,
   cachedAt,
   endedSession,
+  forbidsStorage,
   isRenderedPage,
   navigationPostAnswer,
   PAGE_ACCOUNT_HEADER,
@@ -157,7 +158,7 @@ describe('servesStaleWhileRevalidate', () => {
   // worker answered from its cache could show the previous account's copy;
   // fetched first, its answer for the new account claims the cache, which
   // drops the old one before anything is stored (claimPageCache).
-  it('fetches a sign-in’s landing, Profile, from the server', () => {
+  it('fetches Profile, no tab root, from the server', () => {
     expect(
       servesStaleWhileRevalidate(
         { mode: 'navigate', url: `${ORIGIN}${PROFILE_PATH}` },
@@ -213,6 +214,33 @@ describe('isRenderedPage', () => {
   });
 });
 
+// The sign-in pages are no-store (their returnTo can carry an invite token,
+// #661): the worker's pageStore claims the cache from them but never stores
+// them under a page key.
+describe('forbidsStorage', () => {
+  it.each(['no-store', 'private, no-store', 'No-Store , max-age=0'])(
+    'refuses an answer of %s',
+    (value) => {
+      expect(forbidsStorage(new Headers({ 'Cache-Control': value }))).toBe(
+        true,
+      );
+    },
+  );
+
+  it.each(['private, no-cache', 'no-cache', 'public, max-age=60'])(
+    'stores an answer of %s',
+    (value) => {
+      expect(forbidsStorage(new Headers({ 'Cache-Control': value }))).toBe(
+        false,
+      );
+    },
+  );
+
+  it('stores an answer without the header', () => {
+    expect(forbidsStorage(new Headers())).toBe(false);
+  });
+});
+
 describe('sentToLogin', () => {
   const signedOut = new Headers();
 
@@ -221,6 +249,16 @@ describe('sentToLogin', () => {
       sentToLogin({
         redirected: true,
         url: `${ORIGIN}/auth/login`,
+        headers: signedOut,
+      }),
+    ).toBe(true);
+  });
+
+  it('is one still when the login page carries a returnTo (#661)', () => {
+    expect(
+      sentToLogin({
+        redirected: true,
+        url: `${ORIGIN}/auth/login?returnTo=%2Fcalendar`,
         headers: signedOut,
       }),
     ).toBe(true);

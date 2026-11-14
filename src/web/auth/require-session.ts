@@ -1,6 +1,8 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { LOGIN_PATH } from './login-path';
+import { bounceReturnTo, loginUrl } from './return-to';
 import { decideSessionAccess } from './session-access';
+import { originOf } from '../security/origin';
 import { loggableUrl } from '../loggable-url';
 import { surfaceOf } from '../surface';
 import type { Logger } from '../../logger';
@@ -30,12 +32,16 @@ declare module 'fastify' {
  * told its body is malformed. It answers as decideSessionAccess decides: a
  * page navigation without a session is a 302 to the login page, an htmx
  * fragment or fetch a bodiless 401 with `HX-Redirect`. Both are routine, so
- * they log at debug. When the request's cookie was rejected, the resolver
+ * they log at debug. Both send the login page the page to come back to
+ * (bounceReturnTo, return-to.ts), so a session that ended mid-task returns
+ * there after sign-in; the log line names the request through loggableUrl,
+ * never the Location, whose returnTo may carry an invite token. When the request's cookie was rejected, the resolver
  * has already set the cleared cookie and Clear-Site-Data on this reply
  * (endSession, session.ts), and both answers keep them: never reset the
  * reply's headers here.
  */
-export function createSessionHook(logger: Logger) {
+export function createSessionHook(logger: Logger, siteUrl: string) {
+  const siteOrigin = originOf(siteUrl);
   return async function requireSession(
     request: FastifyRequest,
     reply: FastifyReply,
@@ -45,28 +51,34 @@ export function createSessionHook(logger: Logger) {
     const isPublic = request.routeOptions.config.public === true;
     // Answering from an async hook means returning the reply: Fastify then
     // skips the handler.
-    switch (decideSessionAccess(request, isPublic)) {
-      case 'allow':
-        return;
-      case 'redirect-to-login':
-        logger.debug(`${loggableUrl(request)} -> ${LOGIN_PATH}`);
-        return reply.redirect(LOGIN_PATH, 302);
-      case 'login-required':
-        logger.debug(
-          `${loggableUrl(request)} -> 401, HX-Redirect ${LOGIN_PATH}`,
-        );
-        return loginRequired(reply);
+    const access = decideSessionAccess(request, isPublic);
+    if (access === 'allow') return;
+    const login = loginUrl(
+      bounceReturnTo(request, access === 'redirect-to-login', siteOrigin),
+    );
+    const returning = login === LOGIN_PATH ? '' : ', returning after sign-in';
+    if (access === 'redirect-to-login') {
+      logger.debug(`${loggableUrl(request)} -> ${LOGIN_PATH}${returning}`);
+      return reply.redirect(login, 302);
     }
+    logger.debug(
+      `${loggableUrl(request)} -> 401, HX-Redirect ${LOGIN_PATH}${returning}`,
+    );
+    return loginRequired(reply, login);
   };
 }
 
 /**
  * The bodiless 401 a fetch or htmx request without a session gets, its
- * `HX-Redirect` sending the page to log in: the gate's answer, and a write's
- * that finds its session ended under it (/push/subscribe).
+ * `HX-Redirect` sending the page to log in: the gate's answer (`login`
+ * coming back to the page), and a write's that finds its session ended
+ * under it (/push/subscribe).
  */
-export function loginRequired(reply: FastifyReply): FastifyReply {
-  return reply.status(401).header('HX-Redirect', LOGIN_PATH).send();
+export function loginRequired(
+  reply: FastifyReply,
+  login: string = LOGIN_PATH,
+): FastifyReply {
+  return reply.status(401).header('HX-Redirect', login).send();
 }
 
 /**

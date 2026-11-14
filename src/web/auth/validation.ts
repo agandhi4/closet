@@ -17,13 +17,23 @@ import { passwordProblems } from './passwords';
 export const Email = Type.String({ maxLength: 255 });
 export const Password = Type.String({ maxLength: 1024 });
 
-export const LoginBody = Type.Object({ email: Email, password: Password });
+// The page to land on after signing in, a hidden field (return-to.ts). Unknown:
+// a repeated or odd value is the `/` fallback (signInReturnTo), never a 400.
+const ReturnTo = Type.Optional(Type.Unknown());
+
+const Credentials = Type.Object({ email: Email, password: Password });
+
+export const LoginBody = Type.Object({
+  ...Credentials.properties,
+  returnTo: ReturnTo,
+});
 export type LoginBody = Static<typeof LoginBody>;
 
 export const RegisterBody = Type.Object({
   email: Email,
   password: Password,
   confirmPassword: Password,
+  returnTo: ReturnTo,
 });
 export type RegisterBody = Static<typeof RegisterBody>;
 
@@ -56,8 +66,8 @@ export const ChangePasswordBody = Type.Object({
 export type ChangePasswordBody = Static<typeof ChangePasswordBody>;
 
 /** Account deletion asks for the account's own credentials again. */
-export const DeleteAccountBody = LoginBody;
-export type DeleteAccountBody = LoginBody;
+export const DeleteAccountBody = Credentials;
+export type DeleteAccountBody = Static<typeof Credentials>;
 
 /** Messages per form field; a field without problems has no entry. */
 export type FieldErrors<Field extends string> = Partial<

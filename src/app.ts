@@ -425,6 +425,7 @@ export async function createApp(
     config: {
       appName: config.APP_NAME,
       iconName: config.ICON_NAME,
+      siteUrl: config.SITE_URL,
       timeZone: config.APP_TIMEZONE,
       registrationDisabled: config.DISABLE_REGISTRATION,
       pwaEnabled: config.PWA_ENABLED,

@@ -1,5 +1,6 @@
 import type { Child } from 'hono/jsx';
 import { LOGIN_PATH } from '../auth/login-path';
+import { loginUrl, registerUrl } from '../auth/return-to';
 import { PROFILE_PATH } from '../auth/urls';
 import { t } from '../i18n';
 import type { ViewContext } from '../view-context';
@@ -30,6 +31,11 @@ export interface AppBarProps {
   scope?: Child;
   /** At most two of the page's own actions, before the avatar. */
   actions?: Child;
+  /**
+   * Signed out: the page the "Login" or "Register" link comes back to after
+   * signing in (the sign-in pages' own returnTo, the invite page; #661).
+   */
+  returnTo?: string;
 }
 
 /**
@@ -83,7 +89,7 @@ export function AppBar(props: AppBarProps) {
       {props.actions && (
         <div class="flex items-center gap-1 shrink-0">{props.actions}</div>
       )}
-      <Account ctx={ctx} />
+      <Account ctx={ctx} returnTo={props.returnTo} />
     </header>
   );
 }
@@ -126,7 +132,7 @@ function TitleMenu(props: { title: Child; children: Child }) {
  * the way in: "Login", or "Register" on the login page itself (while
  * registration is open), so both of the old drawer's links stay reachable.
  */
-function Account({ ctx }: { ctx: ViewContext }) {
+function Account({ ctx, returnTo }: { ctx: ViewContext; returnTo?: string }) {
   if (ctx.user) {
     const onProfile =
       ctx.path === PROFILE_PATH || ctx.path.startsWith(`${PROFILE_PATH}/`);
@@ -153,13 +159,13 @@ function Account({ ctx }: { ctx: ViewContext }) {
   }
   if (ctx.path === LOGIN_PATH) {
     return ctx.signupsDisabled ? null : (
-      <a href="/auth/register" class="btn btn-ghost btn-sm shrink-0">
+      <a href={registerUrl(returnTo)} class="btn btn-ghost btn-sm shrink-0">
         {t('REGISTER')}
       </a>
     );
   }
   return (
-    <a href={LOGIN_PATH} class="btn btn-ghost btn-sm shrink-0">
+    <a href={loginUrl(returnTo)} class="btn btn-ghost btn-sm shrink-0">
       {t('LOGIN')}
     </a>
   );

@@ -1,6 +1,7 @@
 import type { Child } from 'hono/jsx';
 import type { SharePermission } from '../../db/schema';
 import { PostForm } from '../auth/form';
+import { loginUrl, registerUrl } from '../auth/return-to';
 import { t, type StringKey } from '../i18n';
 import { AppBar } from '../layout/app-bar';
 import { Layout } from '../layout/layout';
@@ -14,7 +15,8 @@ import type {
   ShareParty,
   ShareView,
 } from './queries';
-import { SHARING_SECTION_ID } from './urls';
+import { wardrobeUrl } from '../wardrobe/urls';
+import { invitePath, SHARING_SECTION_ID } from './urls';
 
 /** Views of sharing: Profile's Sharing section, the invite landing, the new-link fragment. */
 
@@ -35,7 +37,7 @@ export function parseRefusal(
 }
 
 export function inviteUrl(origin: string, token: string): string {
-  return `${origin}/wardrobe-share/invite/${token}`;
+  return `${origin}${invitePath(token)}`;
 }
 
 function permissionLabel(permission: SharePermission): string {
@@ -211,7 +213,7 @@ export function SharingSection(props: SharingModel) {
             <li class="py-3 flex items-center justify-between gap-2">
               <div class="min-w-0">
                 <a
-                  href={`/wardrobe?ownerId=${share.grantor.id}`}
+                  href={wardrobeUrl(share.grantor.id)}
                   class="font-medium link link-primary break-all"
                 >
                   {partyName(share.grantor)}
@@ -245,7 +247,11 @@ export function InvitePage(props: {
   const { ctx, invite } = props;
   return (
     <Layout ctx={ctx} title={t('WARDROBE_INVITE')}>
-      <AppBar ctx={ctx} title={t('WARDROBE_INVITE')} />
+      <AppBar
+        ctx={ctx}
+        title={t('WARDROBE_INVITE')}
+        returnTo={invite && invitePath(props.token)}
+      />
       <main class="flex flex-col justify-center items-center min-h-[80vh] px-4 pt-20">
         <div class="card bg-base-100 shadow-md w-full max-w-md">
           <div class="card-body">
@@ -276,7 +282,9 @@ function InviteDetails(props: {
   const { invite, ctx } = props;
   // Public page (opened before signing in, fetched by link previews): the
   // inviter is named the way /share names an owner, never by email.
-  const from = sharedBy(invite.grantor) ?? t('INVITE_FROM_UNKNOWN');
+  const name = sharedBy(invite.grantor);
+  const from = name ?? t('INVITE_FROM_UNKNOWN');
+  const path = invitePath(props.token);
   return (
     <>
       <p class="text-muted mb-4">
@@ -287,23 +295,19 @@ function InviteDetails(props: {
           <PermissionBadge permission={invite.permission} />
         </div>
         <p class="text-sm text-muted">
-          {t(
-            invite.permission === 'VIEW'
-              ? 'INVITE_VIEW_DESC'
-              : 'INVITE_MANAGE_DESC',
-          )}
+          {inviteeAccess(invite.permission, name)}
         </p>
       </div>
       {ctx.user ? (
         <div class="flex gap-2">
           <PostButton
-            action={`/wardrobe-share/invite/${props.token}/accept`}
+            action={`${path}/accept`}
             label={t('ACCEPT')}
             class="btn btn-primary w-full"
             formClass="flex-1"
           />
           <PostButton
-            action={`/wardrobe-share/invite/${props.token}/decline`}
+            action={`${path}/decline`}
             label={t('DECLINE')}
             class="btn btn-ghost w-full"
             formClass="flex-1"
@@ -312,11 +316,12 @@ function InviteDetails(props: {
       ) : (
         <div class="flex flex-col gap-2">
           <p class="text-sm text-muted mb-2">{t('INVITE_LOGIN_REQUIRED')}</p>
-          <a href="/auth/login" class="btn btn-primary">
+          {/* Signing in or registering comes back here (#661). */}
+          <a href={loginUrl(path)} class="btn btn-primary">
             {t('LOGIN')}
           </a>
           {!ctx.signupsDisabled && (
-            <a href="/auth/register" class="btn btn-outline">
+            <a href={registerUrl(path)} class="btn btn-outline">
               {t('REGISTER')}
             </a>
           )}
@@ -324,4 +329,20 @@ function InviteDetails(props: {
       )}
     </>
   );
+}
+
+/**
+ * What accepting gives the person reading the invite, in their words and
+ * naming the inviter: the first name only (sharedBy, a public page), else
+ * "this wardrobe".
+ */
+function inviteeAccess(
+  permission: SharePermission,
+  name: string | undefined,
+): string {
+  const view = permission === 'VIEW';
+  if (name === undefined) {
+    return t(view ? 'INVITE_VIEW_DESC_UNNAMED' : 'INVITE_MANAGE_DESC_UNNAMED');
+  }
+  return t(view ? 'INVITE_VIEW_DESC' : 'INVITE_MANAGE_DESC', { name });
 }

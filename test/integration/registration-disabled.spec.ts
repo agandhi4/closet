@@ -62,6 +62,19 @@ describe('registration disabled', () => {
     );
   });
 
+  // An invite's register link: closed registration still comes back (#661).
+  it('keeps a returnTo on its way to the login page', async () => {
+    const res = await t.inject({
+      method: 'GET',
+      url: '/auth/register?returnTo=%2Fwardrobe-share%2Finvite%2Fabc',
+      anonymous: true,
+    });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe(
+      '/auth/login?returnTo=%2Fwardrobe-share%2Finvite%2Fabc',
+    );
+  });
+
   it('the login page offers no registration', async () => {
     const res = await t.inject({
       method: 'GET',

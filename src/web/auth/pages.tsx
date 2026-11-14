@@ -27,6 +27,7 @@ import { WEEK_SETTINGS_ID } from '../week-plan/urls';
 import { WeekTemplateSettings } from '../week-plan/views';
 import { ErrorAlert, Field, Fieldset, PostForm, SubmitButton } from './form';
 import { SignOutForm } from './logout';
+import { RETURN_TO_PARAM } from './return-to';
 import type { TokenListing } from './personal-tokens';
 import {
   ACCOUNT_SECTION_ID,
@@ -61,6 +62,8 @@ function AccountShell(props: {
   title: string;
   /** The back arrow (the account's forms go back to Profile). */
   back?: string;
+  /** Sign in and register: where signing in lands (return-to.ts). */
+  returnTo?: string;
   /**
    * A public entry page's (sign in, register) link preview: the og tags
    * and the schema.org WebPage, both named by `title`.
@@ -77,7 +80,12 @@ function AccountShell(props: {
       ogTitle={preview ? props.title : undefined}
       ogDescription={description}
     >
-      <AppBar ctx={props.ctx} title={props.title} back={props.back} />
+      <AppBar
+        ctx={props.ctx}
+        title={props.title}
+        back={props.back}
+        returnTo={props.returnTo}
+      />
       {/* Centred while it fits; from the top once it does not, so nothing
           ends up under the fixed app bar, where no scroll reaches it. The
           padding clears the app bar and the dock, as on every other page. */}
@@ -123,17 +131,25 @@ export function LoginPage(props: {
   ctx: ViewContext;
   /** A refused sign-in: the address is kept, the password never is. */
   failed?: { email: string };
+  /** Where signing in lands, already through signInReturnTo. */
+  returnTo: string;
 }) {
   const { ctx } = props;
   const title = t('LOGIN_OG_TITLE', { appName: ctx.appName });
   const description = t('LOGIN_OG_DESC', { appName: ctx.appName });
   return (
-    <AccountShell ctx={ctx} title={title} description={description}>
+    <AccountShell
+      ctx={ctx}
+      title={title}
+      description={description}
+      returnTo={props.returnTo}
+    >
       {/* Signed out only: a signed-in visitor opening this page keeps
           their notifications. */}
       {ctx.pwaEnabled && !ctx.user && <PushSignedOut />}
       {props.failed && <ErrorAlert message={t('LOGIN_FAILED')} />}
       <PostForm action="/auth/login" endsSession>
+        <ReturnToField returnTo={props.returnTo} />
         <Fieldset legend={t('LOGIN')}>
           <Field
             id="email"
@@ -152,6 +168,17 @@ export function LoginPage(props: {
         </Fieldset>
       </PostForm>
     </AccountShell>
+  );
+}
+
+/**
+ * The page sign-in lands on, posted with the form (return-to.ts): in the
+ * body, never the action URL, so an invite token stays out of the access
+ * line. Absent for Today, the default.
+ */
+function ReturnToField(props: { returnTo: string }) {
+  return props.returnTo === '/' ? null : (
+    <input type="hidden" name={RETURN_TO_PARAM} value={props.returnTo} />
   );
 }
 
@@ -211,13 +238,21 @@ function RegisterFields({ input = {}, errors = {} }: RegisterFormState) {
   );
 }
 
-export function RegisterPage(props: { ctx: ViewContext } & RegisterFormState) {
+export function RegisterPage(
+  props: { ctx: ViewContext; returnTo: string } & RegisterFormState,
+) {
   const { ctx } = props;
   const title = t('REGISTER_OG_TITLE', { appName: ctx.appName });
   const description = t('REGISTER_OG_DESC', { appName: ctx.appName });
   return (
-    <AccountShell ctx={ctx} title={title} description={description}>
+    <AccountShell
+      ctx={ctx}
+      title={title}
+      description={description}
+      returnTo={props.returnTo}
+    >
       <PostForm action="/auth/register" endsSession>
+        <ReturnToField returnTo={props.returnTo} />
         <RegisterFields input={props.input} errors={props.errors} />
       </PostForm>
     </AccountShell>

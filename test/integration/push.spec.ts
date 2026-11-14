@@ -115,7 +115,7 @@ describe('web push (PWA_ENABLED=true)', () => {
         anonymous: true,
       });
       expect(res.statusCode).toBe(302);
-      expect(res.headers.location).toBe('/auth/login');
+      expect(res.headers.location?.split('?')[0]).toBe('/auth/login');
     });
   });
 
