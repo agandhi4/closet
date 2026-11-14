@@ -1125,3 +1125,9 @@ Consequence: a new spec using `networkSwitch` on a context it closes uses the he
 Why: #691 failed a record after 5 counted 5xx, but only if a neighbour was answered, i.e. it inferred server health. Three review rounds found the inference wrong each way (a lone poisoned record never failed; an outage could fail valid writes; evidence went stale), and a durable health stamp only moved the error.
 Decision: no inference, nothing dropped. 3 consecutive 5xx (`STUCK_AFTER_SERVER_ERRORS`) make the record `stuck`: still pending, skipped by the drain with its key, listed in the notice with Try again and Discard. It is retried when a record saves in a drain or after 30 min (`STUCK_RETRY_MS`), and stays stuck while it fails. Other keys keep going; the network, 408, 429 and 503 still stop the drain and count nothing.
 Consequence: a server-wide outage marks records stuck and loses none; a poisoned wear waits for the user. A same-day wear and wash are different keys, so their order rests on the taps' `day`/`at` (absent on pre-#676 records).
+
+## 2026-11-14 — Stuck retry ladder; Try again and Discard take the drain turn
+
+Why: a Postgres blip answers 500 behind a live heartbeat, so writes went stuck for a flat 30 min (#877); Try again/Discard raced a replay in flight (#878, #881).
+Decision: a stuck record retries after `stuckRetryMs` (1 min, doubling per further 5xx, capped at `STUCK_RETRY_MS`); a negative stuck age is due; the notice buttons run inside the drain lock (`exclusively`).
+Consequence: a poisoned record is retried a little more often early on; no second concurrent replay of a record.

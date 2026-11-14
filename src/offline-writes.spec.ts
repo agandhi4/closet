@@ -23,7 +23,13 @@ import {
   replayQueue,
   type ReplayVerdict,
   STUCK_AFTER_SERVER_ERRORS,
+  STUCK_RETRY_FIRST_MS,
   STUCK_RETRY_MS,
+  stuckRetryMs,
+  createTurns,
+  discardStuck,
+  retryStuck,
+  type StuckActionStore,
   isStuck,
   unstuck,
   retryDelayMs,
@@ -386,10 +392,51 @@ describe('replayQueue: a 5xx never fails a record, it makes it stuck', () => {
       stuckAt: 0,
     });
     w.sent.length = 0;
-    w.clock.now = STUCK_RETRY_MS - 1;
+    w.clock.now = stuckRetryMs(STUCK_AFTER_SERVER_ERRORS) - 1;
     const end = await w.drain();
     expect(w.sent).toEqual([]);
     expect(end).toEqual({ end: 'backoff', retryInMs: 1 });
+  });
+
+  it('a short outage costs minutes, not STUCK_RETRY_MS: the wait doubles per 5xx up to the cap', () => {
+    expect(stuckRetryMs(STUCK_AFTER_SERVER_ERRORS)).toBe(STUCK_RETRY_FIRST_MS);
+    expect(stuckRetryMs(STUCK_AFTER_SERVER_ERRORS + 1)).toBe(
+      2 * STUCK_RETRY_FIRST_MS,
+    );
+    expect(stuckRetryMs(STUCK_AFTER_SERVER_ERRORS + 50)).toBe(STUCK_RETRY_MS);
+    expect(stuckRetryMs(undefined)).toBe(STUCK_RETRY_FIRST_MS);
+  });
+
+  it('a record saved by the end-of-drain retry leaves no timer for an empty drain', async () => {
+    const w = world(
+      [{ ...row('bad'), serverErrors: 3, stuckAt: 0 }, row('ok')],
+      () => OK,
+      { now: 1000 },
+    );
+    expect(await w.drain()).toEqual({ end: 'done' });
+    expect(w.stored.size).toBe(0);
+  });
+
+  it('a parked record still waiting sets the timer for what is left of its wait', async () => {
+    const w = world(
+      [{ ...row('bad'), serverErrors: 3, stuckAt: 0 }],
+      () => OK,
+      { now: 1000 },
+    );
+    expect(await w.drain()).toEqual({
+      end: 'backoff',
+      retryInMs: STUCK_RETRY_FIRST_MS - 1000,
+    });
+  });
+
+  it('a stuckAt in the future (the clock moved back) is due, not parked', async () => {
+    const w = world(
+      [{ ...row('bad'), serverErrors: 3, stuckAt: 5 * STUCK_RETRY_MS }],
+      () => OK,
+      { now: 1000 },
+    );
+    expect(await w.drain()).toEqual({ end: 'done' });
+    expect(w.sent).toEqual(['bad']);
   });
 
   it('a server-wide 5xx fails and drops nothing: every record ends stuck', async () => {
@@ -525,6 +572,130 @@ describe('replayQueue: a 5xx never fails a record, it makes it stuck', () => {
     expect(isStuck(cleared)).toBe(false);
     expect(cleared).toMatchObject({ attempts: 0 });
     expect(cleared.serverErrors).toBeUndefined();
+  });
+
+  describe('Try again and Discard take the drain’s turn', () => {
+    /** A send held open until `release`: the replay in flight. */
+    function held(w: ReturnType<typeof world>) {
+      let release!: (v: ReplayVerdict) => void;
+      let begin!: () => void;
+      const started = new Promise<void>((resolve) => {
+        begin = resolve;
+      });
+      const answer = new Promise<ReplayVerdict>((resolve) => {
+        release = resolve;
+      });
+      const send = w.driver.send.bind(w.driver);
+      let first = true;
+      w.driver.send = (record) => {
+        if (!first) return send(record);
+        first = false;
+        w.sent.push(record.id);
+        begin();
+        return answer;
+      };
+      return { release, started };
+    }
+    const actions = (w: ReturnType<typeof world>) => {
+      const store: StuckActionStore<Row> = {
+        find: (id) => Promise.resolve(w.stored.get(id)),
+        settle(record, next) {
+          if (!w.stored.has(record.id)) return Promise.resolve(false);
+          if (next) w.stored.set(record.id, next);
+          else w.stored.delete(record.id);
+          return Promise.resolve(true);
+        },
+      };
+      return store;
+    };
+    const stuckRow = (): Row => ({
+      ...row('bad'),
+      serverErrors: 3,
+      stuckAt: 0,
+      attempts: 3,
+    });
+
+    it('Discard waits for the replay in flight, so a save is not reverted and no resend follows', async () => {
+      const w = world([stuckRow()], () => OK, { now: STUCK_RETRY_MS });
+      const gate = held(w);
+      const turn = createTurns();
+      const drain = turn(() => w.drain());
+      await gate.started;
+      let discarded: Row | undefined | 'pending' = 'pending';
+      const discard = discardStuck(actions(w), turn, 'bad').then((r) => {
+        discarded = r;
+      });
+      await Promise.resolve();
+      expect(discarded).toBe('pending');
+      gate.release(OK);
+      await Promise.all([drain, discard]);
+      expect(discarded).toBeUndefined();
+      expect(w.sent).toEqual(['bad']);
+      expect(w.stored.size).toBe(0);
+    });
+
+    it('Discard after a replay that failed again deletes the record and nothing resends it', async () => {
+      const w = world([stuckRow()], () => SERVER, { now: STUCK_RETRY_MS });
+      const gate = held(w);
+      const turn = createTurns();
+      const drain = turn(() => w.drain());
+      await gate.started;
+      const discard = discardStuck(actions(w), turn, 'bad');
+      gate.release(SERVER);
+      await Promise.all([drain, discard]);
+      expect((await discard)?.id).toBe('bad');
+      expect(w.stored.size).toBe(0);
+      expect(w.sent).toEqual(['bad']);
+    });
+
+    it('Try again waits for the replay in flight, then clears the counted copy it left', async () => {
+      const w = world([stuckRow()], () => SERVER, { now: STUCK_RETRY_MS });
+      const gate = held(w);
+      const turn = createTurns();
+      const drain = turn(() => w.drain());
+      await gate.started;
+      const retry = retryStuck(actions(w), turn, 'bad');
+      gate.release(SERVER);
+      await Promise.all([drain, retry]);
+      expect(await retry).toMatchObject({ id: 'bad' });
+      const left = w.stored.get('bad');
+      expect(left && isStuck(left)).toBe(false);
+      expect(left).toMatchObject({ attempts: 0 });
+    });
+
+    it('two replays of one record never overlap: Try again’s drain starts after the first ends', async () => {
+      const w = world([stuckRow()], () => SERVER, { now: STUCK_RETRY_MS });
+      const gate = held(w);
+      let inFlight = 0;
+      let overlapped = false;
+      const send = w.driver.send.bind(w.driver);
+      w.driver.send = async (record) => {
+        inFlight += 1;
+        overlapped ||= inFlight > 1;
+        try {
+          return await send(record);
+        } finally {
+          inFlight -= 1;
+        }
+      };
+      const turn = createTurns();
+      const first = turn(() => w.drain());
+      await gate.started;
+      const retry = retryStuck(actions(w), turn, 'bad').then(() =>
+        turn(() => w.drain()),
+      );
+      gate.release(SERVER);
+      await Promise.all([first, retry]);
+      expect(overlapped).toBe(false);
+      expect(w.sent).toEqual(['bad', 'bad']);
+    });
+
+    it('acts on nothing once the record is gone or no longer stuck', async () => {
+      const w = world([row('fresh')], () => OK);
+      const turn = createTurns();
+      expect(await retryStuck(actions(w), turn, 'fresh')).toBeUndefined();
+      expect(await discardStuck(actions(w), turn, 'nope')).toBeUndefined();
+    });
   });
 
   it('stops for a sign-in', async () => {
