@@ -7,10 +7,20 @@ import {
   outfit,
   outfitCalendar,
   outfitSlot,
+  trip,
+  tripItem,
   wardrobeShare,
 } from '../../src/db/schema';
 import type { GarmentStatus } from '../../src/wardrobe/status';
 import { addDays } from '../../src/calendar-date';
+import {
+  isQueueablePage,
+  LAUNDRY_PAGE,
+  QUEUEABLE_ROUTES,
+  type QueueableKind,
+  queuedTarget,
+  showsQueuedWrite,
+} from '../../src/offline-writes';
 import { weekOf } from '../../src/web/calendar/calendar-view';
 import { TAB_ROOTS } from '../../src/web/page-cache';
 import {
@@ -19,6 +29,7 @@ import {
   WARM_LIST_PATH,
   WARM_OUTFIT_CAP,
   WARM_PAGE_CAP,
+  WARM_TRIP_CAP,
   type WarmList,
 } from '../../src/web/shell/offline-warm';
 import { WARM_REQUEST_HEADER } from '../../src/warm-request';
@@ -165,6 +176,8 @@ describe('GET /offline/warm', () => {
     const nextSunday = addDays(weekOf(t.today()).start, 7);
     expect(list.pages).toEqual([
       `/calendar?week=${nextSunday}`,
+      // Always: Washed queues offline (#657).
+      '/laundry',
       ...closet.map((id) => `/wardrobe/${id}`),
       `/outfits/${outfitId}`,
       // The Muse inbox (#333): the Wishlist tab, and what is still wanted.
@@ -461,6 +474,148 @@ describe('GET /offline/warm', () => {
           (id) => `/outfits/${id}`,
         ),
       );
+    });
+  });
+
+  describe('pages with queueable controls (#657)', () => {
+    let cookie: string;
+    const tripIds = { past: 0, ending: 0, later: 0, sooner: 0 };
+
+    beforeAll(async () => {
+      const email = 'warm-queueable@example.com';
+      cookie = await t.register(email);
+      const ownerId = await userIdOf(t, email);
+      const today = t.today();
+      const make = async (name: string, startsOn: string, endsOn: string) => {
+        const [row] = await asFixture(t.db, (tx) =>
+          tx
+            .insert(trip)
+            .values({ ownerId, name, startsOn, endsOn })
+            .returning({ id: trip.id }),
+        );
+        return row.id;
+      };
+      // The household's today, never UTC's: a trip's last day is still on.
+      tripIds.past = await make('Past', addDays(today, -9), addDays(today, -1));
+      tripIds.later = await make(
+        'Later',
+        addDays(today, 30),
+        addDays(today, 33),
+      );
+      tripIds.ending = await make('Ending', addDays(today, -2), today);
+      tripIds.sooner = await make(
+        'Sooner',
+        addDays(today, 5),
+        addDays(today, 6),
+      );
+      // A trip draws its ticks only once it has something to pack.
+      await asFixture(t.db, (tx) =>
+        tx
+          .insert(tripItem)
+          .values({ tripId: tripIds.sooner, label: 'Charger' }),
+      );
+    });
+
+    it('warms the laundry and the trips ahead or on, nearest first, and not a past trip', async () => {
+      const list = await warmList(cookie);
+      const queueable = list.pages.filter(
+        (path) => path === LAUNDRY_PAGE || path.startsWith('/trips/'),
+      );
+      expect(queueable).toEqual([
+        LAUNDRY_PAGE,
+        `/trips/${tripIds.ending}`,
+        `/trips/${tripIds.sooner}`,
+        `/trips/${tripIds.later}`,
+      ]);
+      // Right after next week, before the wardrobe's pages.
+      expect(list.pages.indexOf(LAUNDRY_PAGE)).toBe(1);
+      expect(list.pages).not.toContain(`/trips/${tripIds.past}`);
+      // A past trip still exists: its visited copy stays.
+      expect(list.keep).toEqual([`/trips/${tripIds.past}`]);
+    });
+
+    it('caps the trips a warm names and keeps the rest', async () => {
+      const email = 'warm-trip-cap@example.com';
+      const capped = await t.register(email);
+      const id = await userIdOf(t, email);
+      const day = addDays(t.today(), 1);
+      const rows = await asFixture(t.db, (tx) =>
+        tx
+          .insert(trip)
+          .values(
+            Array.from({ length: WARM_TRIP_CAP + 1 }, (_, i) => ({
+              ownerId: id,
+              name: `Trip ${i}`,
+              startsOn: day,
+              endsOn: day,
+            })),
+          )
+          .returning({ id: trip.id }),
+      );
+      // The same first day: by id, so the last one made is past the cap.
+      const ids = rows.map((row) => row.id).sort((a, b) => a - b);
+      const list = await warmList(capped);
+      expect(list.pages.filter((p) => p.startsWith('/trips/'))).toEqual(
+        ids.slice(0, WARM_TRIP_CAP).map((n) => `/trips/${n}`),
+      );
+      expect(list.keep).toEqual([`/trips/${ids[WARM_TRIP_CAP]}`]);
+    });
+
+    // The invariant: a page showsQueuedWrite names is Today, a tab root, a
+    // warmed garment page, or a queueable page the warm list holds.
+    it('covers every page that shows a queued write', async () => {
+      const list = await warmList(cookie);
+      const id = tripIds.sooner;
+      const candidates = [
+        '/',
+        '/calendar',
+        LAUNDRY_PAGE,
+        `/trips/${id}`,
+        `/wardrobe/${id}`,
+        `/outfits/${id}`,
+        '/wardrobe',
+        '/wardrobe/wishlist',
+        '/insights',
+        '/styling',
+        '/trips',
+      ];
+      const covered = (path: string) =>
+        path === '/' ||
+        TAB_ROOTS.has(path) ||
+        /^\/wardrobe\/\d+$/.test(path) ||
+        (isQueueablePage(path) && list.pages.includes(path));
+      for (const kind of Object.keys(QUEUEABLE_ROUTES) as QueueableKind[]) {
+        const write = queuedTarget(kind, id).path;
+        for (const page of candidates) {
+          if (showsQueuedWrite(write, page)) {
+            expect(covered(page), `${page} shows ${write}`).toBe(true);
+          }
+        }
+      }
+    });
+
+    it('lists only pages that render a queueable control', async () => {
+      // The laundry draws its control only while something needs a wash.
+      const worn = await t.inject({
+        method: 'POST',
+        url: `/wardrobe/${closet[0]}/wear`,
+        headers: { cookie: t.owner.cookie },
+        payload: { worn: '1' },
+      });
+      expect(worn.statusCode).toBeLessThan(400);
+      for (const [path, as] of [
+        [LAUNDRY_PAGE, t.owner.cookie],
+        [`/trips/${tripIds.sooner}`, cookie],
+      ]) {
+        expect(isQueueablePage(path)).toBe(true);
+        const res = await t.inject({
+          method: 'GET',
+          url: path,
+          headers: { cookie: as },
+        });
+        expect(res.statusCode).toBe(200);
+        expect(unescapeHtml(res.body), path).toContain('data-offline-queue');
+      }
     });
   });
 });
