@@ -257,7 +257,7 @@ describe('extractProduct', () => {
 
   it('reads a colour from the address when the page names none', () => {
     const html = page(
-      '<meta property="og:title" content="Merino Crew Sweater"><meta property="product:brand" content="K">',
+      '<meta property="og:title" content="Merino Crew Sweater">',
     );
     expect(
       extractProduct(html, new URL('https://k.test/p/merino-crew-navy.html'))
@@ -266,11 +266,41 @@ describe('extractProduct', () => {
     expect(
       extractProduct(html, new URL('https://k.test/p/merino-crew?Color=Olive'))
         .colors,
-    ).toEqual([]);
+    ).toEqual(['green']);
     expect(
       extractProduct(html, new URL('https://k.test/p/merino-crew?color=olive'))
         .colors,
     ).toEqual(['green']);
+  });
+
+  it('keeps a product read without a colour when the address names a brand or style', () => {
+    const html = page(
+      '<meta property="og:title" content="Iron Ranger"><meta property="product:brand" content="Red Wing">',
+    );
+    const read = extractProduct(
+      html,
+      new URL('https://k.test/p/red-wing-boots'),
+    );
+
+    expect(read.confidence).toBe('product');
+    expect(read.colors).toEqual([]);
+    const ld = `<script type="application/ld+json">{"@type":"Product","name":"Flannel Shirt"}</script>`;
+    expect(
+      extractProduct(ld, new URL('https://k.test/p/blackwatch-plaid')).colors,
+    ).toEqual([]);
+  });
+
+  it('reads an explicit colour parameter even on a product read', () => {
+    const html = page(
+      '<meta property="og:title" content="Iron Ranger"><meta property="product:brand" content="Red Wing">',
+    );
+    const read = extractProduct(
+      html,
+      new URL('https://k.test/p/red-wing-boots?Color=Olive'),
+    );
+
+    expect(read.confidence).toBe('product');
+    expect(read.colors).toEqual(['green']);
   });
 
   it('finds nothing on a page without any of it', () => {
