@@ -27,11 +27,12 @@ import { TripFormPage, type TripFormModel } from './form-page';
 import { TripsPage } from './list-page';
 import { tripModel } from './model';
 import type { PackedChange } from './packed';
-import { createTrip, listTrips, outfitsOnDay, tripDays } from './queries';
+import { listTrips, outfitsOnDay, tripDays } from './queries';
 import {
   addTripItem,
   type ChecklistTicks,
   copyTripExtras,
+  createTripLocated,
   editTrip,
   locateTrip,
   packTrip,
@@ -158,9 +159,14 @@ export const tripRoutes: FastifyPluginCallbackTypebox<
       const ownerId = sessionUserId(request);
       const form = readTripForm(request.body);
       if (!form.ok) return refuseForm(reply, form);
-      const id = await createTrip(db, ownerId, form.fields);
+      const { id, lookup } = await createTripLocated(
+        { db, weather, logger },
+        ownerId,
+        form.fields,
+      );
+      // The lookup's outcome, never the place: where someone travels is theirs.
       logger.info(
-        `Trip ${id} created by user ${ownerId}: ${form.fields.startsOn} to ${form.fields.endsOn}`,
+        `Trip ${id} created by user ${ownerId}: ${form.fields.startsOn} to ${form.fields.endsOn}, destination ${lookup}`,
       );
       return reply.redirect(tripUrl(id, '?created=1'), 303);
     },

@@ -24,8 +24,8 @@ import {
 
 /**
  * Trips (#10) at phone width, what only a browser shows: the trip form, the
- * destination found through the weather's search and its forecast loaded
- * into the page, an outfit added for a day, the packing list's and the
+ * destination located at save and its forecast loaded into the page, the
+ * week's Away row (#684), an outfit added for a day, the packing list's and the
  * extras' checkboxes saved on change (htmx, the summary swapped out of
  * band), "Wore it" and its Undo, nothing wider than the phone. With a
  * touch screen, the phone's sizing (#636) on the pages it passes: no field
@@ -108,14 +108,13 @@ test.describe('Trips', () => {
     );
     const tripUrl = page.url();
 
-    // Found on the map: its forecast comes into the page.
-    await page.getByRole('button', { name: 'Find', exact: true }).click();
-    await page
-      .getByRole('button', { name: 'Austin, Texas, United States' })
-      .click();
-    await expect(page).toHaveURL(tripUrl);
+    // Located when saved (one Austin, #684): its forecast comes into the
+    // page on first view, no Find needed.
     await expect(page.locator('[data-trip-weather="forecast"]')).toBeVisible();
     await expect(page.locator('[data-weather-day]')).toHaveCount(3);
+    await expect(
+      page.getByRole('button', { name: 'Change', exact: true }),
+    ).toBeVisible();
 
     // A saved outfit for today, from the add page.
     await page
@@ -170,6 +169,13 @@ test.describe('Trips', () => {
     await expect(
       page.locator(`a[href^="/styling?outfit=${outfit}&"]`),
     ).toHaveCount(1);
+    // The trip's days in the week say Away, under the date, linking to it.
+    const away = page
+      .locator(`section[data-day="${today}"]`)
+      .getByRole('link', { name: 'Away: Austin' });
+    await expect(away).toBeVisible();
+    await expect(away).toHaveAttribute('href', new URL(tripUrl).pathname);
+    await expectPhoneWidth(page);
     await expectTouchTargets(page);
 
     // The rest of the phone's sizing: Today (the trip's outfit on it), the

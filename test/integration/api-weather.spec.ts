@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { addDays, type IsoDate } from '../../src/calendar-date';
 import {
@@ -738,9 +738,23 @@ describe('one answer to the rain on every surface (#759)', () => {
         mcpWeather.days[0].outfit,
       ].map(pick);
     };
-    // "Plan my week" for the rainy day, undone so it can be asked again.
+    // "Plan my week" for the rainy day, undone so it can be asked again. The
+    // owner's trips (this one, earlier specs') moved off the week meanwhile:
+    // the planner skips a trip's days (#684), and the rain is the same at home.
+    const shiftTrips = (days: number) =>
+      asFixture(t.db, (tx) =>
+        tx
+          .update(trip)
+          .set({
+            startsOn: sql`${trip.startsOn} + ${days}::int`,
+            endsOn: sql`${trip.endsOn} + ${days}::int`,
+          })
+          .where(eq(trip.ownerId, t.owner.id)),
+      );
     const planProblems = async () => {
+      await shiftTrips(90);
       const planned = await api('POST', '/week-plans');
+      await shiftTrips(-90);
       expect(planned.statusCode, planned.body).toBe(200);
       const plan = planned.json<{
         weekPlanId: number;

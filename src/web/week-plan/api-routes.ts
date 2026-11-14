@@ -91,6 +91,10 @@ const WeekPlanned = Type.Object(
     unfilled: Type.Array(Slot, {
       description: 'Empty slots nothing clean could dress',
     }),
+    away: Type.Array(IsoDateSchema, {
+      description:
+        'The days a trip covers: skipped, since a trip plans its own outfits',
+    }),
     weatherDays: Type.Integer({
       minimum: 0,
       description: 'The days a forecast dressed (0 with the weather off)',
@@ -261,6 +265,7 @@ export const weekPlanApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         ...(result.weekPlanId !== null && { weekPlanId: result.weekPlanId }),
         planned: result.planned.map(toPlannedEntry),
         unfilled: result.unfilled,
+        away: result.away,
         weatherDays: forecast.days.size,
       };
     },

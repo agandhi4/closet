@@ -22,12 +22,14 @@ import {
   weekPlan,
   weekPlanEntry,
   weekReplan,
+  trip,
   tripOutfit,
   weekTemplate,
 } from '../../src/db/schema';
 import type { Occasion } from '../../src/wardrobe/occasions';
 import { addDays, instantAt, type IsoDate } from '../../src/calendar-date';
 import { insertEntry } from '../../src/web/calendar/queries';
+import { dayLabel } from '../../src/web/date-labels';
 import { claimAutoEntries } from '../../src/web/week-plan/queries';
 import type { PushPayload } from '../../src/web/push/payload';
 import {
@@ -64,6 +66,7 @@ import {
   unescapeHtml,
   asFixture,
 } from './harness';
+import { dayColumns } from './calendar-page';
 import { callTool, createAccessToken, tool } from './mcp';
 import {
   expectFullPage,
@@ -211,6 +214,8 @@ describe('the weekly auto-plan', () => {
   // test's too).
   const clearWeek = async () => {
     await asFixture(t.db, (tx) => tx.delete(outfit));
+    // A trip's days are skipped by the planner (#684).
+    await asFixture(t.db, (tx) => tx.delete(trip));
     await asFixture(t.db, (tx) => tx.delete(weekPlan));
     await t.db.delete(weekReplan);
   };
@@ -388,6 +393,60 @@ describe('the weekly auto-plan', () => {
   describe('"Plan my week"', () => {
     beforeEach(clearWeek);
 
+    it('skips the days a trip covers, says so in the banner, and the week shows Away on each (#684)', async () => {
+      const made = await post('/trips', {
+        name: 'Lisbon long weekend',
+        destination: 'Lisbon',
+        startsOn: WEEK[2],
+        endsOn: WEEK[3],
+        notes: '',
+      });
+      expect(made.statusCode).toBe(303);
+      const tripId = Number(
+        /^\/trips\/(\d+)/.exec(String(made.headers.location))![1],
+      );
+      const res = await post('/calendar/plan-week');
+      expect(res.statusCode).toBe(303);
+      // No home outfit on either trip day; every other slot planned.
+      const away = new Set([WEEK[2], WEEK[3]]);
+      expect((await weekEntries()).map((e) => e.slot).sort()).toEqual(
+        TEMPLATE_SLOTS.filter((slot) => !away.has(slot.slice(0, 10))),
+      );
+
+      const banner = unescapeHtml(
+        (await get(String(res.headers.location))).body,
+      );
+      expect(banner).toContain(
+        `Not planned while you are away: ${dayLabel(WEEK[2])}, ${dayLabel(WEEK[3])}`,
+      );
+      // Skipped, not empty.
+      expect(banner).not.toContain('data-still-empty');
+
+      // The week (Sunday 4 to Saturday 10 October): Away on the trip's days
+      // alone, linking to it, and no open slot there; read with the week in
+      // its one statement after the session.
+      let week: Awaited<ReturnType<typeof get>> | undefined;
+      const read = await recordQueries(async () => {
+        week = await get('/calendar');
+      });
+      expect(read.statements).toBe(2);
+      for (const [day, column] of dayColumns(unescapeHtml(week!.body))) {
+        if (away.has(day)) {
+          expect(column, day).toMatch(
+            new RegExp(`href="/trips/${tripId}"[^>]*data-away="${tripId}"`),
+          );
+          expect(column, day).toContain('Away: Lisbon');
+          expect(column, day).not.toContain('data-open-slot');
+        } else {
+          expect(column, day).not.toContain('data-away');
+        }
+      }
+
+      // Again: the trip's days are still skipped, so nothing new.
+      const again = await post('/calendar/plan-week');
+      expect(again.headers.location).toBe('/calendar?planned=none');
+    });
+
     it('sends someone without a week template to set one, and plans nothing', async () => {
       const cookie = await t.register('no-template@example.com');
       const res = await post('/calendar/plan-week', {}, cookie);
@@ -454,13 +513,13 @@ describe('the weekly auto-plan', () => {
 
       // Again: every slot is filled, so nothing new. #165: and nothing read
       // that only filling a slot needs (the pool, the generator's memory):
-      // the session, then begin, the owner lock, the template, the window's
-      // entries, commit.
+      // the session, then begin, the owner lock, the template with the
+      // window's entries and trips (one statement, #684), commit.
       let again: Awaited<ReturnType<typeof post>> | undefined;
       const repeat = await recordQueries(async () => {
         again = await post('/calendar/plan-week');
       });
-      expect(repeat.statements).toBe(6);
+      expect(repeat.statements).toBe(5);
       expect(again!.headers.location).toBe('/calendar?planned=none');
       expect(await weekEntries()).toHaveLength(8);
       expect(await t.db.$count(weekPlan)).toBe(1);
@@ -1183,6 +1242,52 @@ describe('the weekly auto-plan', () => {
       expect(thursday).toHaveLength(1);
       expect(thursday[0].outfitId).not.toBe(oldThursday.outfitId);
       await expectTripKeeps(tripId, oldThursday.outfitId);
+    });
+
+    it("removes its own entries from days a trip now covers, with the outfits it made for them, and leaves the person's (#684)", async () => {
+      await planWarm();
+      const before = await weekEntries();
+      const thursday = before.find((e) => e.day === WEEK[3])!;
+      const friday = before.find((e) => e.day === WEEK[4])!;
+      // Friday's is theirs now.
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(outfitCalendar)
+          .set({ plannedBy: 'user' })
+          .where(eq(outfitCalendar.id, friday.id)),
+      );
+      await createTrip(t.db, t.owner.id, {
+        name: 'Lisbon long weekend',
+        destination: 'Lisbon',
+        startsOn: WEEK[3],
+        endsOn: WEEK[4],
+        notes: null,
+      });
+      t.logs.clear();
+      const run = await replanWeeks(deps, at(TODAY, 7));
+      expect(run).toMatchObject({ claimed: 1, swapped: 0, failed: 0 });
+      const after = await weekEntries();
+      expect(after.filter((e) => e.day === WEEK[3])).toEqual([]);
+      expect(after.filter((e) => e.day === WEEK[4]).map((e) => e.id)).toEqual([
+        friday.id,
+      ]);
+      // The other days are as planned.
+      expect(after.filter((e) => e.day !== WEEK[3])).toEqual(
+        before
+          .filter((e) => e.day !== WEEK[3])
+          .map((e) => (e.id === friday.id ? { ...e, plannedBy: 'user' } : e)),
+      );
+      expect(await t.db.$count(outfit, eq(outfit.id, thursday.outfitId))).toBe(
+        0,
+      );
+      expect(t.logs.messages('info', 'WeekPlan')).toContainEqual(
+        expect.stringMatching(
+          new RegExp(
+            `^Week re-plan for user ${t.owner.id} on ${TODAY}: 0 swapped \\(\\), \\d+ kept, 1 removed from days away in `,
+          ),
+        ),
+      );
+      expect(sends).toEqual([]);
     });
 
     it("is idempotent: once a day per user, whatever the minutes, and never touches the person's entries", async () => {

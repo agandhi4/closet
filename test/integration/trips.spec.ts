@@ -1008,8 +1008,45 @@ describe('trips', () => {
   });
 
   describe('the destination’s forecast', () => {
+    it('locates a destination naming one place when the trip is created: the forecast on first view (#684)', async () => {
+      t.logs.clear();
+      const id = await newTrip({ destination: ' Austin ' });
+      const [row] = await t.db.select().from(trip).where(eq(trip.id, id));
+      // The person's wording stays the name; the search's place and zone are stored.
+      expect(row).toMatchObject({
+        destination: 'Austin',
+        latitude: 30.27,
+        longitude: -97.74,
+        timeZone: 'America/Chicago',
+      });
+      expect(t.logs.messages('info', 'Web')).toContainEqual(
+        expect.stringMatching(
+          new RegExp(
+            `^Trip ${id} created by user \\d+: .*, destination located$`,
+          ),
+        ),
+      );
+      // Never the place in a log line.
+      expect(JSON.stringify(t.logs.records)).not.toContain('30.27');
+      const page = unescapeHtml((await get(`/trips/${id}`)).body);
+      expect(page).toMatch(/<button type="submit"[^>]*>\s*Change\s*</);
+      const weather = await get(`/trips/${id}/weather`);
+      expectFragment(weather);
+      expect(weather.body).toContain('data-trip-weather="forecast"');
+      expect(weather.body.match(/data-weather-day="/g)).toHaveLength(5);
+    });
+
     it('finds the destination through the weather’s search and shows its days within the forecast', async () => {
-      const id = await newTrip({ destination: 'Austin' });
+      // Two Springfields: nothing located at save, so the page offers Find.
+      const id = await newTrip({ destination: 'Springfield' });
+      const [unlocated] = await t.db.select().from(trip).where(eq(trip.id, id));
+      expect(unlocated).toMatchObject({
+        destination: 'Springfield',
+        latitude: null,
+      });
+      const page = unescapeHtml((await get(`/trips/${id}`)).body);
+      expect(page).toMatch(/<button type="submit"[^>]*>\s*Find\s*</);
+      expect(page).toContain('value="Springfield"');
       const before = await get(`/trips/${id}/weather`);
       expectFragment(before);
       expect(before.body).toContain('data-trip-weather="no-location"');

@@ -1077,3 +1077,9 @@ Consequence: MCP_WRITES' required `attribution` says what each tool stamps; `mcp
 **Why:** #821 resolved the viewer's label in SQL (`agentLabelSql`) but nothing in the app showed it.
 **Decision:** `src/web/agent-badge.tsx` words an `AgentLabel` (`agentName`) as a `badge-soft badge-secondary` pill, the name truncating inside it, "Made by <name>" for assistive tech. Pages get the label as one more column of their own statement (the Saved tab's `savedOutfitsSql`, the wishlist's `ownItemsSql`, the garment page's existing context), so no statement count moves. Muse's rows keep "From Muse" and get no second badge.
 **Consequence:** the month grid shows none (its cells are collages only). A new surface for an agent-made row adds its label to its own query and renders `AgentBadge`, never a token name read another way.
+
+## 2026-11-14 — The home calendar reads a trip's days, nothing more (#684)
+
+**Why**: a trip was invisible to the week: "Plan my week" dressed Lisbon days for Brooklyn's forecast, and a new trip's destination needed a second Find before its forecast showed.
+**Decision**: trips stay standalone lists; `src/web/trips/away.ts` (`awayTripsSql`, folded into each reader's existing statement, so no page pays a round trip) is the one cross-reference. The week and Today show "Away" linking to the trip; `planMyWeek` skips trip days and says so; the re-plan removes its own unworn entries there (Undo's `removeAutoEntries`), never a person's or an agent's. A trip's create looks its destination up after the insert and stores it through `setTripDestination` only when the search names exactly one place, and only while the trip still has that destination (`unless.renamedFrom`).
+**Consequence**: a new reader of "days the planner may fill" goes through `splitAwayDays`. Only create looks a destination up; an edit's new name still clears the place and offers Find. Packed garments are not held back from home plans (out of scope).

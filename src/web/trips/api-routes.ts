@@ -19,10 +19,11 @@ import { API_PREFIX } from '../surface';
 import { keptDestination, pickedPlace } from '../weather/place-picker';
 import { KeptDestination, PlaceInput } from '../weather/weather-resource';
 import { tripForecast } from './forecast';
-import { createTrip, listTrips } from './queries';
+import { listTrips } from './queries';
 import {
   addTripItem,
   copyTripExtras,
+  createTripLocated,
   editTrip,
   locateTrip,
   pickIdeaForTrip,
@@ -218,9 +219,13 @@ export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       const { clientId, ...fields } = request.body;
       const form = readTripForm(fields);
       if (!form.ok) throw refusedBody(form.errors, POINTER_OF_TRIP_FIELD);
-      const id = await createTrip(db, userId, form.fields);
+      const { id, lookup } = await createTripLocated(
+        { db, weather, logger },
+        userId,
+        form.fields,
+      );
       logger.info(
-        `Trip ${id} created by user ${userId} (API): ${form.fields.startsOn} to ${form.fields.endsOn}${clientId ? `, client id ${clientId.slice(0, 8)}` : ''}`,
+        `Trip ${id} created by user ${userId} (API): ${form.fields.startsOn} to ${form.fields.endsOn}, destination ${lookup}${clientId ? `, client id ${clientId.slice(0, 8)}` : ''}`,
       );
       return reply
         .status(201)

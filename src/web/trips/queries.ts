@@ -313,13 +313,16 @@ export function updateTrip(
  * The destination picked from the geocoding search: its name, rounded
  * location and zone together, the one writer of all three (updateTrip only
  * clears them), so a zone never outlives its place (#678;
- * trip-location-writers.spec.ts). False when the trip is not the owner's.
+ * trip-location-writers.spec.ts). False when the trip is not the owner's,
+ * or, with `unless`, when the trip is no longer named for what was searched
+ * (the create's lookup, #684: an edit landed while the search ran).
  */
 export async function setTripDestination(
   db: Queryable,
   id: number,
   ownerId: number,
   place: { name: string; location: PickedLocation },
+  unless?: { renamedFrom: string },
 ): Promise<boolean> {
   const lock = ownerLockCte(db, ownerId);
   const updated = await db
@@ -331,7 +334,13 @@ export async function setTripDestination(
       longitude: place.location.longitude,
       timeZone: place.location.timeZone,
     })
-    .where(and(ownsTripWhere(id, ownerId), ownerLocked(db, lock)))
+    .where(
+      and(
+        ownsTripWhere(id, ownerId),
+        ownerLocked(db, lock),
+        unless && eq(trip.destination, unless.renamedFrom),
+      ),
+    )
     .returning({ id: trip.id });
   return updated.length > 0;
 }

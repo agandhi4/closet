@@ -11,7 +11,6 @@ import {
   sql,
 } from 'drizzle-orm';
 import type { Queryable } from '../../db/client';
-import { selectScalars } from '../../db/select-scalars';
 import {
   garment,
   garmentWear,
@@ -109,19 +108,6 @@ export function readWindowEntries(
       weather: matchGarment(garment),
     })),
   }));
-}
-
-/** windowEntriesSql alone, in one statement: "Plan my week" reads it before deciding anything else. */
-export async function windowEntries(
-  db: Queryable,
-  ownerId: number,
-  first: IsoDate,
-  last: IsoDate,
-): Promise<WindowEntry[]> {
-  const { entries } = await selectScalars(db, {
-    entries: windowEntriesSql(ownerId, first, last),
-  });
-  return readWindowEntries(entries);
 }
 
 /** An entry the planner wrote and still owns, with its batch and what it was planned for. */

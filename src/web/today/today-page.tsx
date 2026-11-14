@@ -14,6 +14,7 @@ import { ideasUrl } from '../gallery/urls';
 import { t } from '../i18n';
 import { museName } from '../write-origin';
 import { AppBar } from '../layout/app-bar';
+import { AwayLink } from '../trips/away-link';
 import { Dock } from '../layout/dock';
 import { PAIR_GRID } from '../layout/columns';
 import { PageMain } from '../layout/page-main';
@@ -87,6 +88,9 @@ export function TodayPage(props: {
             now={props.now}
           />
         )}
+        {model.away.map((trip) => (
+          <AwayLink trip={trip} class="self-start" />
+        ))}
         <p
           data-offline-note=""
           class="alert alert-warning alert-soft py-2 text-sm"

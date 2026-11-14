@@ -32,6 +32,7 @@ import {
 import { OccasionRow, OpenSlotRow } from './occasion-row';
 import { OPEN_PLAN_SHEET, PlanSheet, planSheetChoice } from './plan-sheet';
 import { dayAnchor, weekUrl } from './urls';
+import { AwayLink } from '../trips/away-link';
 
 /**
  * GET /calendar: the week as an agenda (R6; docs/plans/2026-09-26-redesign.md,
@@ -39,7 +40,7 @@ import { dayAnchor, weekUrl } from './urls';
  * after the page, src/web/weather/views.tsx); "Plan my week" (#16) and,
  * after it, the banner of what it planned with Undo; the week's ‹ › and its
  * strip of days; then a block per day, Sunday to Saturday: its weather chip,
- * its entries in occasion order (OccasionRow), the week template's
+ * "Away" linking to each trip the day is one of (#684), its entries in occasion order (OccasionRow), the week template's
  * occasions it has no outfit for yet (OpenSlotRow), the selfies kept after
  * their outfit went (DayLooks, #19) and "+ Plan", which opens the day's
  * sheet (PlanSheet), unless an open slot already does. `data-day` on each block is what the specs split days
@@ -225,7 +226,7 @@ function DaySection({
       aria-labelledby={`${dayAnchor(day.date)}-title`}
     >
       <div
-        class={`flex items-baseline gap-2 lg:flex-col lg:gap-0.5 lg:pb-1 lg:border-b lg:border-base-300 ${rowStart(1)}`}
+        class={`flex flex-wrap items-baseline gap-x-2 lg:flex-col lg:flex-nowrap lg:gap-0.5 lg:pb-1 lg:border-b lg:border-base-300 ${rowStart(1)}`}
       >
         <DayHeading
           as="h2"
@@ -234,6 +235,11 @@ function DaySection({
           isToday={day.isToday}
         />
         <WeatherDaySlot ctx={ctx} day={day.date} />
+        {day.away.map((trip) => (
+          // In the heading's row, so the desktop grid needs no row of its
+          // own; on a phone it wraps under the date.
+          <AwayLink trip={trip} class="basis-full lg:basis-auto" />
+        ))}
       </div>
       {OCCASIONS.filter((occasion) =>
         day.entries.some((entry) => entry.occasion === occasion),

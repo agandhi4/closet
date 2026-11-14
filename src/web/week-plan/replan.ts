@@ -19,6 +19,7 @@ import { DAY_NAMES, occasionLabel } from '../date-labels';
 import { ideaName } from '../gallery/ideas';
 import type { WeekPoolGarment } from '../gallery/queries';
 import { t, type StringKey } from '../i18n';
+import { awayTripsSql, tripsOn } from '../trips/away';
 import type { PushPayload } from '../push/payload';
 import type { PushSender, SendReport } from '../push/sender';
 import {
@@ -54,8 +55,9 @@ import {
  * longer be worn on its day (a garment lent, at repair, archived or
  * deleted, or today without a clean copy: unwearableOn) is swapped for the
  * slot's best idea; one whose forecast changed is kept while it still fits
- * and swapped for a better idea when it does not. Entries a person planned,
- * edited or wore are 'user' and never read here. What swapped is pushed to
+ * and swapped for a better idea when it does not. One on a day a trip now
+ * covers is removed (#684: the planner never dresses a day away). Entries a
+ * person planned, edited or wore are 'user' and never read here. What swapped is pushed to
  * the person's devices that take the morning reminder.
  *
  * replanToday is one user's re-plan for the day, once: the minutely run
@@ -122,7 +124,14 @@ export interface Swap {
 
 /** What replanToday did for one user. */
 export type ReplanOutcome =
-  | { kind: 'replanned'; swaps: Swap[]; kept: number; pushed: boolean }
+  | {
+      kind: 'replanned';
+      swaps: Swap[];
+      kept: number;
+      /** Auto entries removed from days a trip covers (#684). */
+      away: number;
+      pushed: boolean;
+    }
   | NotReplanned;
 
 /**
@@ -132,7 +141,13 @@ export type ReplanOutcome =
  * users at once.
  */
 type ReplanResult =
-  | { kind: 'replanned'; swaps: Swap[]; kept: number; notice: Swap[] }
+  | {
+      kind: 'replanned';
+      swaps: Swap[];
+      kept: number;
+      away: number;
+      notice: Swap[];
+    }
   | NotReplanned;
 
 type NotReplanned =
@@ -275,18 +290,18 @@ async function replanOnce(
     }
     const result = await replanUser(deps, userId, now, weather);
     if (!result) return { kind: 'skipped' };
-    const { swaps, kept } = result;
+    const { swaps, kept, away } = result;
     const swapped = swaps
       .map((s) => `${s.slot.day} ${s.slot.occasion} ${causeText(s.cause)}`)
       .join(', ');
     const ms = Math.round(performance.now() - started);
     deps.logger.info(
-      `Week re-plan for user ${userId} on ${today}: ${swaps.length} swapped (${swapped}), ${kept} kept in ${ms} ms`,
+      `Week re-plan for user ${userId} on ${today}: ${swaps.length} swapped (${swapped}), ${kept} kept${away > 0 ? `, ${away} removed from days away` : ''} in ${ms} ms`,
     );
     const notice = announcesToday
       ? swaps.filter((s) => s.slot.day !== today)
       : swaps;
-    return { kind: 'replanned', swaps, kept, notice };
+    return { kind: 'replanned', swaps, kept, away, notice };
   } catch (error) {
     // Another of the owner's writes held the lock past its timeout: nothing
     // was judged, so the day stays unclaimed and the next minute tries again
@@ -335,17 +350,20 @@ async function claimAfterFailure(
  * later today is judged by a later run) or the day was claimed already. A
  * kept entry records its new targets; a swap plans the new idea in the same
  * batch, then removes the old entry (and the outfit the planner made for
- * it, if nothing else holds it). Its forecast is read first, outside the
- * lock. Under the lock, two statements read everything: the auto entries
- * with the claim (claimAutoEntries), then the week, the pool, the
- * generator's memory and the auto outfits' garment states (#173).
+ * it, if nothing else holds it). An auto entry on a day a trip covers is
+ * removed instead, with the outfit the planner made for it once unheld
+ * (removeAutoEntries, Undo's rule; #684). Its forecast is read first,
+ * outside the lock. Under the lock, two statements read everything: the
+ * auto entries with the claim (claimAutoEntries), then the week, the pool,
+ * the generator's memory, the auto outfits' garment states (#173) and the
+ * trips over those days.
  */
 async function replanUser(
   deps: Pick<ReplanDeps, 'db' | 'weather' | 'timeZone' | 'logger'>,
   userId: number,
   now: Date,
   weather: UserWeather | undefined,
-): Promise<{ swaps: Swap[]; kept: number } | undefined> {
+): Promise<{ swaps: Swap[]; kept: number; away: number } | undefined> {
   const today = todayIn(deps.timeZone, now);
   // The batch's answer, else read here, not `fresh`: its callers (the
   // minutely run, the morning reminder) refreshed their batch's forecasts
@@ -355,15 +373,22 @@ async function replanUser(
     ? forecastOf(weather)
     : await weekForecast(deps, userId, now, {});
   return ownerTransaction(deps.db, userId, 'replanUser', async (tx) => {
-    const auto = await claimAutoEntries(tx, userId, today, now);
-    if (!auto) return undefined;
+    const claimed = await claimAutoEntries(tx, userId, today, now);
+    if (!claimed) return undefined;
+    const last = claimed[claimed.length - 1].day;
     const row = await selectScalars(tx, {
-      ...weekSql(userId, today, auto[auto.length - 1].day),
+      ...weekSql(userId, today, last),
       states: outfitGarmentStatesSql(
-        auto.map((a) => a.outfitId),
+        claimed.map((a) => a.outfitId),
         today,
       ),
+      trips: awayTripsSql(userId, today, last),
     });
+    const onTrip = (a: AutoEntryRow) => tripsOn(row.trips, a.day).length > 0;
+    const removed = await removeAutoEntries(tx, userId, claimed.filter(onTrip));
+    const auto = claimed.filter((a) => !onTrip(a));
+    const away = removed.entries;
+    if (auto.length === 0) return { swaps: [], kept: 0, away };
     const week = readWeekColumns(today, row);
     const outfits = readOutfitGarmentStates(row.states);
     const judged = auto.map((a) => {
@@ -417,7 +442,7 @@ async function replanUser(
       }
       kept += 1;
     }
-    return { swaps, kept };
+    return { swaps, kept, away };
   });
 }
 
