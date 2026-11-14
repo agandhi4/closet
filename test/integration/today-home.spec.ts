@@ -337,17 +337,6 @@ describe('Today', () => {
         tx.delete(garment).where(inArray(garment.id, picks)),
       );
     });
-
-    it('an empty closet says what ideas need', async () => {
-      const cookie = await t.register('empty-today@example.com');
-      const res = await get('/', { cookie });
-      expect(res.statusCode).toBe(200);
-      const html = unescapeHtml(res.body);
-      expect(rowsOf(html)).toEqual([['ideas', 'all-day']]);
-      expect(cardsOf(html)).toEqual([]);
-      expect(html).toContain('No ideas yet');
-      expect(refreshUrl(html)).toBeUndefined();
-    });
   });
 
   describe('Refresh', () => {

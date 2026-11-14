@@ -333,6 +333,7 @@ describe('sharing: statements per request', () => {
         strip: [ids[3], ids[2], ids[1], ids[0]].map((id, i) => ({
           id,
           name: ['Four', 'Three', 'Two', 'One'][i],
+          category: 'shirt',
           photo: null,
         })),
       },

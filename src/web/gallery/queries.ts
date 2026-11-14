@@ -22,7 +22,7 @@ import {
 import { washLimit } from '../../wardrobe/availability';
 import type { IdeaGarment, SavedOutfit } from '../../wardrobe/generator';
 import type { OutfitRule } from '../../wardrobe/outfit-rules';
-import { categoryRole } from '../../wardrobe/properties';
+import { canProduceOutfit, categoryRole } from '../../wardrobe/properties';
 import type { PlannerGarment } from '../../wardrobe/week-planner';
 import { matchGarment } from '../../weather/match';
 import type { IsoDate } from '../../calendar-date';
@@ -156,8 +156,10 @@ export function ideaPoolSql(
  * and away garments too), each once, as a scalar subquery: what
  * activewearGap and lacksActivewear (src/wardrobe/occasions.ts) read to tell
  * a closet without activewear from one whose activewear is out today.
- * Read only for an active occasion (a workout), in the statement of the
- * ideas or the week page that needs it.
+ * Read for an active occasion (a workout), in the statement of the ideas
+ * or the week page that needs it, and for the first-run gate
+ * (closetCanDress) in Today's, the calendar week's and Styling's strips'
+ * own statements.
  */
 export function closetKindsSql(ownerId: number): SQL<ClosetKind[]> {
   return sql<ClosetKind[]>`(
@@ -173,6 +175,16 @@ export function closetKindsSql(ownerId: number): SQL<ClosetKind[]> {
 export interface ClosetKind {
   category: string;
   type: string | null;
+}
+
+/**
+ * The first-run gate (#666) over closetKindsSql's kinds: the closet can be
+ * dressed as an outfit (canProduceOutfit). Today, the calendar week and
+ * Styling, each in the statement it already sends, hide planning and
+ * Include picks until it holds.
+ */
+export function closetCanDress(kinds: readonly ClosetKind[]): boolean {
+  return canProduceOutfit(kinds.map((kind) => categoryRole(kind.category)));
 }
 
 /** ideaPoolSql's value as the generator's garments. */

@@ -1333,6 +1333,14 @@
     "WEAR_THIS": "Wear this",
     "CHANGE": "Change",
     "PLAN_ANOTHER": "Plan another outfit",
+    "firstRun": {
+      "WELCOME_TITLE": "Welcome to your closet",
+      "WELCOME": "Photograph your clothes and the app suggests what to wear each day, checks the weather and plans your week. Start with one garment.",
+      "ADD_FIRST": "Add your first garment",
+      "INCOMPLETE_TITLE": "Almost ready for outfits",
+      "INCOMPLETE": "Outfit ideas and planning start once your closet has a top and a bottom, or a dress.",
+      "ADD_MORE": "Add a garment"
+    },
     "push": {
       "MORNING_TITLE": "Today's outfit",
       "EVENING_TITLE": "What did you wear?",

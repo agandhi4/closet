@@ -258,19 +258,23 @@ type Scope = StylingScope &
 
 /**
  * The wardrobe once the reads checked its capsule and whether the outfit
- * the rows edit is held (StripsReads.editingHeld): then no pick.
+ * the rows edit is held (StripsReads.editingHeld): then no pick. Nor
+ * while the closet cannot be dressed as an outfit (StripsReads.canDress,
+ * the first-run gate, #666), unless picks are on already, so the switch
+ * is there to turn them off.
  */
 function wardrobeOf(
   scope: Scope,
   capsule: CapsuleRef | undefined,
-  editingHeld: boolean,
+  { canDress, editingHeld }: Pick<StripsReads, 'canDress' | 'editingHeld'>,
 ): Wardrobe {
+  const picks = scope.picks === true && !editingHeld;
   return {
     ownerId: scope.ownerId,
     viewOwner: scope.viewOwner,
     capsule,
-    picks: scope.picks === true && !editingHeld,
-    picksOffered: scope.picksOffered && !editingHeld,
+    picks,
+    picksOffered: scope.picksOffered && !editingHeld && (picks || canDress),
   };
 }
 
@@ -573,7 +577,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     const aim = valueOf(aimed);
     const saved = checkedOutfit(query.outfit, reads.outfit);
     return {
-      wardrobe: wardrobeOf(scope, capsule, reads.editingHeld),
+      wardrobe: wardrobeOf(scope, capsule, reads),
       aim,
       opened: { saved },
       styled: {},
@@ -622,7 +626,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       menu: true,
     });
     return {
-      wardrobe: wardrobeOf(scope, capsule, reads.editingHeld),
+      wardrobe: wardrobeOf(scope, capsule, reads),
       aim,
       opened,
       styled: { idea, seed: shuffledSeed(seed), missed: !idea },
@@ -768,10 +772,11 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       );
       // The ideas draw from the closet alone: a pick is never drawn, and a
       // row the rows may carry it in (rowGarmentsSql) keeps it while locked.
-      const { windows, editingHeld } = await stripsReads(db, scope, {
+      const strips = await stripsReads(db, scope, {
         chosen: [...chosenOf(states), ...(idea?.garments ?? []).map(chosen)],
       });
-      const wardrobe = wardrobeOf(scope, capsule, editingHeld);
+      const { windows } = strips;
+      const wardrobe = wardrobeOf(scope, capsule, strips);
       const rows = withEveryRole(states, windows);
       logger.debug(
         `Styling shuffle for user ${userId} over ${describeScope(wardrobe)}: ${lockedIds.length} locked, seed ${seed}, ${idea ? `idea of garments ${ids(idea.garments).join(', ')}` : 'no idea fits'}${idea?.brokenRules.length ? `, the locks breaking ${idea.brokenRules.length} rule(s)` : ''} in ${Math.round(performance.now() - started)} ms`,
@@ -808,11 +813,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         chosen: chosenOf(posted),
         capsules: true,
       });
-      const wardrobe = wardrobeOf(
-        scope,
-        checkedCapsule(reads.capsule),
-        reads.editingHeld,
-      );
+      const wardrobe = wardrobeOf(scope, checkedCapsule(reads.capsule), reads);
       const states = checkedStates(posted, reads.held);
       if (query.add !== undefined && states.length < MAX_ROWS) {
         states.push({ role: query.add, garmentId: null, locked: false });
@@ -1035,7 +1036,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     const aim = valueOf(aimed);
     const saved = checkedOutfit(body.outfit, reads.outfit);
     const model = pageModel({
-      wardrobe: wardrobeOf(scope, capsule, reads.editingHeld),
+      wardrobe: wardrobeOf(scope, capsule, reads),
       aim,
       opened: { saved },
       styled: {},

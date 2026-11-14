@@ -59,6 +59,8 @@ export function CalendarPage(props: {
   banner?: PlannedBanner;
   /** After its Undo (?undone=N): the entries removed. */
   undone?: number;
+  /** The first-run gate (#666): without an outfit's worth of closet, no "Plan my week". */
+  canDress: boolean;
 }) {
   const { ctx, view } = props;
   const first = view.days[0].date;
@@ -70,7 +72,7 @@ export function CalendarPage(props: {
         <CalendarTabs active="week" />
         <WeatherSlot ctx={ctx} days={{ from: first, to: last }} />
         {props.banner && <PlannedWeekBanner banner={props.banner} />}
-        <PlanWeekForm class="mb-3" small />
+        {props.canDress && <PlanWeekForm class="mb-3" small />}
         <nav
           class="flex items-center justify-between gap-2"
           aria-label={t('calendar.WEEK_NAV')}

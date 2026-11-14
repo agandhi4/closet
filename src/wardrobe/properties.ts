@@ -75,6 +75,19 @@ export function categoryRole(category: string): GarmentRole {
 }
 
 /**
+ * Whether a closet holding these roles can be dressed as an outfit at all:
+ * a top and a bottom, or a dress (the generator's base templates,
+ * everydayTemplates in generator.ts; footwear only joins when there is
+ * some). The first-run gate (#666): Today shows its first-run path, and
+ * Today, Calendar and Styling hide planning and Include picks, until it
+ * holds.
+ */
+export function canProduceOutfit(roles: Iterable<GarmentRole>): boolean {
+  const held = new Set(roles);
+  return (held.has('top') && held.has('bottom')) || held.has('one-piece');
+}
+
+/**
  * The built-in categories whose garments play `role`: the inverse of
  * categoryRole, for queries that select a role (Styling's rows, #42). Every
  * custom category is `none` too, so a query for `none` is the categories

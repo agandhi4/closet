@@ -4,8 +4,9 @@ import { test } from './support/cutout-hold';
 import { signIn } from './support/e2e-session';
 
 /**
- * Adding a garment from a photo (#97) at phone width: the Wardrobe's ＋
- * opens the add sheet, the camera row opens the camera
+ * Adding a garment from a photo (#97) at phone width: a fresh account's
+ * Today leads with "Add your first garment" (#666), whose one tap opens the
+ * add sheet, the camera row opens the camera
  * (`capture=environment`), the chosen photo
  * is prepared on the phone and posted, the new garment form opens with it,
  * and saving lands on the garment with its cutout under way (held pending
@@ -14,9 +15,12 @@ import { signIn } from './support/e2e-session';
 
 test.use({ viewport: { width: 390, height: 844 } });
 
+/** The first-run path (#666): an empty closet's Today, one tap. */
 async function openAddSheet(page: Page) {
-  await page.goto('/wardrobe');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.goto('/');
+  await page
+    .getByRole('button', { name: 'Add your first garment', exact: true })
+    .click();
   const sheet = page.locator('#add-sheet');
   await expect(sheet).toBeVisible();
   return sheet;

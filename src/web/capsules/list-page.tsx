@@ -111,6 +111,7 @@ function CapsuleEntry(props: {
             {props.strip.map((garment) => (
               <PlinthImage
                 photo={garment.photo}
+                category={garment.category}
                 alt={garment.name ?? ''}
                 class="aspect-[4/5] rounded-box"
               />

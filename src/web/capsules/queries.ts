@@ -50,6 +50,8 @@ export interface CapsuleFields {
 export interface StripGarment {
   id: number;
   name: string | null;
+  /** Its silhouette without a photo (PlinthImage). */
+  category: string;
   photo: PlinthPhoto | null;
 }
 
@@ -184,7 +186,7 @@ function cardSql(members: SQL | undefined): SQL<CardJson> {
       select coalesce(json_agg(strip order by strip.id desc), '[]')
       from (
         select ${garment.id} as id, ${garment.name} as name,
-          ${plinthPhotoJson} as photo
+          ${garment.category} as category, ${plinthPhotoJson} as photo
         from ${garment}
         left join ${file} on ${eq(file.id, garment.photoId)}
         where ${members}
