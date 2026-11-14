@@ -139,9 +139,11 @@ describe('property filters, select mode and bulk edit', () => {
       expect(modal).not.toContain('name="material" value="silk"');
       expect(modal).toContain('name="warmth" value="4"');
       expect(modal).not.toContain('name="warmth" value="5"');
-      // Types appear only once a category is chosen.
+      // Types are in the sheet before any category is applied (revealed by
+      // the chosen category chip, #674), still only those the wardrobe holds.
       const unfiltered = (await get('/wardrobe')).body;
-      expect(unfiltered).not.toContain('name="type" value="t-shirt"');
+      expect(unfiltered).toContain('name="type" value="t-shirt"');
+      expect(unfiltered).not.toContain('name="type" value="sweater"');
     });
 
     it('shows a pill for each property filter and keeps them in the search form', async () => {

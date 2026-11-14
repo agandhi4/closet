@@ -160,6 +160,7 @@ export const orderReviewRoutes: FastifyPluginCallbackTypebox<
           photo: undefined,
           choices: [],
           notices: [t('orders.PAGE_UNAVAILABLE')],
+          warnings: [],
         },
       };
     }

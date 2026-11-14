@@ -131,4 +131,120 @@ describe('wardrobe', () => {
       expect(gone.statusCode).toBe(404);
     });
   });
+
+  describe('the filter sheet (#674)', () => {
+    const sheet = async (query = '') => {
+      const res = await t.inject({ method: 'GET', url: `/wardrobe${query}` });
+      expect(res.statusCode).toBe(200);
+      const html = unescapeHtml(res.body);
+      return html.slice(html.indexOf('<dialog id="filter-modal"'));
+    };
+
+    beforeAll(async () => {
+      const res = await t.inject({
+        method: 'POST',
+        url: '/wardrobe',
+        payload: {
+          name: 'Typed shirt',
+          category: 'tops',
+          props: '1',
+          type: 'shirt',
+          color: 'blue',
+        },
+      });
+      expect(res.statusCode).toBe(302);
+    });
+
+    it('is named by its heading, and every chip is a focusable input with a name', async () => {
+      const html = await sheet();
+      expect(html).toContain('aria-labelledby="filter-modal-title"');
+      expect(html).toContain('id="filter-modal-title"');
+      const chips = [
+        ...html.matchAll(/<input\b[^>]*name="(category|color|type)"[^>]*>/g),
+      ];
+      expect(chips.length).toBeGreaterThan(10);
+      for (const [chip] of chips) {
+        expect(chip).toContain('type="radio"');
+        expect(chip).toMatch(/aria-label="[^"]+"/);
+        expect(chip).not.toMatch(/class="[^"]*\bhidden\b/);
+      }
+    });
+
+    it('renders the type chips before any category is applied, revealed by the chosen category', async () => {
+      const html = await sheet();
+      expect(html).toContain('id="filter-type-tops-title"');
+      expect(html).toMatch(/<input[^>]*name="type"[^>]*value="shirt"[^>]*>/);
+      expect(html).toContain(
+        'group-has-[input[name=category][value=tops]:checked]/filter:block',
+      );
+    });
+
+    it('keeps a type only while its own category is applied (a cleared category drops a stale hidden type)', async () => {
+      const post = await t.inject({
+        method: 'POST',
+        url: '/wardrobe',
+        payload: {
+          name: 'Typed tee',
+          category: 'tops',
+          props: '1',
+          type: 't-shirt',
+        },
+      });
+      expect(post.statusCode).toBe(302);
+      const names = async (query: string) => {
+        const res = await t.inject({ method: 'GET', url: `/wardrobe${query}` });
+        expect(res.statusCode).toBe(200);
+        const html = unescapeHtml(res.body);
+        return {
+          shirt: html.includes('Typed shirt'),
+          tee: html.includes('Typed tee'),
+        };
+      };
+      expect(await names('?category=tops&type=shirt')).toEqual({
+        shirt: true,
+        tee: false,
+      });
+      // The sheet posts category= (cleared) with the hidden group's checked type.
+      const both = { shirt: true, tee: true };
+      expect(await names('?category=&type=shirt')).toEqual(both);
+      expect(await names('?type=shirt')).toEqual(both);
+    });
+
+    it('checks the applied type only inside the applied category (a shared type name stays unchecked elsewhere)', async () => {
+      for (const category of ['accessories', 'bags']) {
+        const post = await t.inject({
+          method: 'POST',
+          url: '/wardrobe',
+          payload: {
+            name: `Other ${category}`,
+            category,
+            props: '1',
+            type: 'other',
+          },
+        });
+        expect(post.statusCode).toBe(302);
+      }
+      const html = await sheet('?category=accessories&type=other');
+      const checked = [
+        ...html.matchAll(
+          /<input[^>]*name="type"[^>]*value="other"[^>]*checked[^>]*>/g,
+        ),
+      ];
+      expect(checked).toHaveLength(1);
+      const group = html
+        .split('role="group"')
+        .find((chunk) => chunk.includes(checked[0][0]))!;
+      expect(group).toContain('filter-type-accessories-title');
+    });
+
+    it('offers a clear chip only beside a chosen value, and keeps the chosen one checked', async () => {
+      const plain = await sheet();
+      expect(plain).not.toContain('value=""');
+      const chosen = await sheet('?category=tops&type=shirt&color=blue');
+      expect(chosen.match(/<input[^>]*value=""[^>]*>/g)).toHaveLength(3);
+      expect(chosen).toMatch(
+        /<input[^>]*name="type"[^>]*value="shirt"[^>]*checked/,
+      );
+    });
+  });
 });

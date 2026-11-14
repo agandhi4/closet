@@ -5,10 +5,13 @@ import {
   type TemplateSlot,
 } from '../../wardrobe/week';
 import type { Slot } from '../../wardrobe/week-planner';
+import type { IsoDate } from '../../calendar-date';
 import { PostForm } from '../auth/form';
 import { DAY_NAMES, dayLabel, occasionLabel } from '../date-labels';
+import { dayAnchor, dayUrl } from '../calendar/urls';
 import { t } from '../i18n';
 import { ProfileSection, SavedToast, StripFlags } from '../layout/parts';
+import { collagePieces, OutfitCollage } from '../outfits/collage';
 import type { PlannedBanner } from './plan';
 import { weekdayFieldNames } from './template';
 import {
@@ -61,7 +64,14 @@ function plannedHeading(banner: PlannedBanner): string {
  * still empty, and Undo for the batch. `?planned=none` says there was
  * nothing left to plan.
  */
-export function PlannedWeekBanner({ banner }: { banner: PlannedBanner }) {
+export function PlannedWeekBanner({
+  banner,
+  shown,
+}: {
+  banner: PlannedBanner;
+  /** The week the calendar shows: a row in it jumps within the page, any other opens its week. */
+  shown: { first: IsoDate; last: IsoDate };
+}) {
   const count = banner.entries.length;
   return (
     <section
@@ -73,16 +83,33 @@ export function PlannedWeekBanner({ banner }: { banner: PlannedBanner }) {
         {plannedHeading(banner)}
       </h2>
       {count > 0 && (
-        <ul class="text-sm flex flex-col gap-0.5" data-planned-entries>
+        <ul class="text-sm flex flex-col gap-1.5" data-planned-entries>
           {banner.entries.map((entry) => (
             <li data-entry-id={String(entry.entryId)}>
-              {slotText(entry)}:{' '}
-              <span class="font-medium">
-                {entry.outfitName || t('UNTITLED_OUTFIT')}
-              </span>
-              {entry.plannedBy === 'user' && (
-                <span class="text-muted"> ({t('weekPlan.YOURS_NOW')})</span>
-              )}
+              <a
+                href={
+                  entry.day >= shown.first && entry.day <= shown.last
+                    ? `#${dayAnchor(entry.day)}`
+                    : dayUrl(entry.day)
+                }
+                class="flex items-center gap-2"
+              >
+                <div class="w-20 shrink-0">
+                  <OutfitCollage
+                    garments={collagePieces(entry.garments, { warn: false })}
+                    size="thumb"
+                  />
+                </div>
+                <span>
+                  {slotText(entry)}:{' '}
+                  <span class="font-medium">
+                    {entry.outfitName || t('UNTITLED_OUTFIT')}
+                  </span>
+                  {entry.plannedBy === 'user' && (
+                    <span class="text-muted"> ({t('weekPlan.YOURS_NOW')})</span>
+                  )}
+                </span>
+              </a>
             </li>
           ))}
         </ul>

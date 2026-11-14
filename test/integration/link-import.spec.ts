@@ -171,6 +171,28 @@ describe('adding a garment from a link', () => {
         })}</script>`,
       ),
     );
+    sites.serve(
+      '/products/shell',
+      html(
+        `<title>The World's Most Comfortable Shoes</title><div id="root"></div>`,
+      ),
+    );
+    // A removed product sent to the shop's home page, which has JSON-LD of its own.
+    sites.serve('/products/gone', {
+      status: 302,
+      type: 'text/html',
+      body: '',
+      headers: { location: sites.url('/') },
+    });
+    sites.serve(
+      '/',
+      html(
+        `<script type="application/ld+json">${JSON.stringify({
+          '@type': 'Product',
+          name: 'Shop Outdoor Clothing',
+        })}</script>`,
+      ),
+    );
     sites.serve('/nothing', html('<html><body><p>Hello</p></body></html>'));
     // #347's refusals, as the shops answered them.
     sites.serve('/challenged', {
@@ -335,6 +357,29 @@ describe('adding a garment from a link', () => {
       expect(linkPhotoIn(res.body)).toBeUndefined();
       expect(await storedOriginals()).toEqual(before);
     });
+
+    it.each(['/products/shell', '/products/gone'])(
+      'that is title-only (%s) keeps the link, warns, and does not claim a fill-in',
+      async (path) => {
+        const link = sites.url(path);
+        const { cookie } = await signUp(
+          `title-only${path.replace(/\W/g, '')}@example.com`,
+        );
+        const before = await storedOriginals();
+        const res = await importLink(link, { cookie });
+        expect(res.statusCode).toBe(200);
+        expect(res.body).toContain(text('linkImport.TITLE_ONLY'));
+        expect(res.body).not.toContain(text('linkImport.FOUND_DETAILS'));
+        expect(res.body).toContain('alert-warning');
+        expect(res.body).not.toContain('Comfortable Shoes');
+        expect(res.body).not.toContain('Outdoor Clothing');
+        expect(unescapeHtml(res.body)).toMatch(
+          new RegExp(`name="sourceUrl"[^>]*value="${link}"`),
+        );
+        expect(linkPhotoIn(res.body)).toBeUndefined();
+        expect(await storedOriginals()).toEqual(before);
+      },
+    );
 
     it('past 2 MB is read up to the cap, where its JSON-LD and photo are (#347)', async () => {
       // A Shopify page's shape: the product's metadata first, then a

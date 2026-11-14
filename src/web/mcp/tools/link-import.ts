@@ -3,6 +3,7 @@ import type { FieldErrors } from '../../auth/validation';
 import type { GarmentField } from '../../wardrobe/garment-input';
 import {
   type LinkOverrides,
+  type LinkSaved,
   type LinkSaveOptions,
   saveGarmentFromLink,
 } from '../../wardrobe/link-import/save';
@@ -34,7 +35,7 @@ export async function addGarmentFromLink(
   access: Pick<WardrobeAccess, 'ownerId' | 'isOwner'>,
   overrides: LinkOverrides,
   options: LinkSaveOptions = {},
-): Promise<{ id: number; notices: string[] }> {
+): Promise<Pick<LinkSaved, 'id' | 'notices' | 'confidence'>> {
   const saved = await saveGarmentFromLink(
     {
       db: ctx.db,
@@ -50,5 +51,9 @@ export async function addGarmentFromLink(
     options,
   );
   if (!saved.ok) throw refusedForm(saved.errors);
-  return { id: saved.id, notices: saved.notices };
+  return {
+    id: saved.id,
+    notices: saved.notices,
+    confidence: saved.confidence,
+  };
 }

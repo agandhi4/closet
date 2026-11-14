@@ -7241,7 +7241,8 @@
                   "type": "object",
                   "required": [
                     "id",
-                    "notices"
+                    "notices",
+                    "confidence"
                   ],
                   "properties": {
                     "id": {
@@ -7252,6 +7253,32 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "confidence": {
+                      "description": "How much of a product the page gave: `product` (structured product data), `page` (a title and a photo only), `title-only` (nothing readable: only the link was kept, so the name is the caller's to give); null when the link was an image",
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "product"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "page"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "title-only"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   }
                 }

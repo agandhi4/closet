@@ -17,7 +17,7 @@ import {
   WARMTHS,
 } from '../../wardrobe/properties';
 import { autosaveAttributes } from '../autosave';
-import { ChipGroup, FormField, inputAttributes } from '../form-field';
+import { ChipGroup, Chips, FormField, inputAttributes } from '../form-field';
 import { t } from '../i18n';
 import { type LabelledProperty, valueLabel } from './labels';
 import type { PropertyFormValues } from './garment-input';
@@ -112,7 +112,7 @@ function PropertiesMainFields(props: PropertiesProps & { errors?: string[] }) {
         <ChipGroup label={t('PROPERTY_TYPE')}>
           <Chips
             name="type"
-            property="type"
+            label={labelOf('type')}
             options={types.map((type) => type.value)}
             selected={values.type}
           />
@@ -122,7 +122,7 @@ function PropertiesMainFields(props: PropertiesProps & { errors?: string[] }) {
         <ChipGroup label={t('PROPERTY_WARMTH')}>
           <Chips
             name="warmth"
-            property="warmth"
+            label={labelOf('warmth')}
             options={WARMTHS}
             selected={values.warmth}
           />
@@ -145,7 +145,7 @@ function PropertiesMoreFields(props: PropertiesProps) {
         <ChipGroup label={t('PROPERTY_FORMALITY')}>
           <Chips
             name="formality"
-            property="formality"
+            label={labelOf('formality')}
             options={FORMALITIES}
             selected={values.formality}
           />
@@ -169,7 +169,7 @@ function PropertiesMoreFields(props: PropertiesProps) {
         <ChipGroup label={t('PROPERTY_PATTERN')}>
           <Chips
             name="pattern"
-            property="pattern"
+            label={labelOf('pattern')}
             options={PATTERNS}
             selected={values.pattern}
           />
@@ -179,7 +179,7 @@ function PropertiesMoreFields(props: PropertiesProps) {
         <ChipGroup label={t('PROPERTY_FIT')}>
           <Chips
             name="fit"
-            property="fit"
+            label={labelOf('fit')}
             options={FITS}
             selected={values.fit}
           />
@@ -189,7 +189,7 @@ function PropertiesMoreFields(props: PropertiesProps) {
         <ChipGroup label={t('PROPERTY_SLEEVE')}>
           <Chips
             name="sleeve"
-            property="sleeve"
+            label={labelOf('sleeve')}
             options={SLEEVES}
             selected={values.sleeve}
           />
@@ -199,7 +199,7 @@ function PropertiesMoreFields(props: PropertiesProps) {
         <ChipGroup label={t('PROPERTY_LENGTH')}>
           <Chips
             name="length"
-            property="length"
+            label={labelOf('length')}
             options={LENGTHS}
             selected={values.length}
           />
@@ -270,7 +270,7 @@ function CareLabelFields(props: PropertiesProps) {
             <ChipGroup label={group.label}>
               <Chips
                 name={group.name}
-                property={group.name}
+                label={labelOf(group.name)}
                 options={group.options}
                 selected={values[group.name]}
               />
@@ -282,41 +282,9 @@ function CareLabelFields(props: PropertiesProps) {
   );
 }
 
-/**
- * One choice among `options` as radio chips, and a clear chip (value '')
- * while something is chosen: radios cannot be unchecked, and a property
- * left unset must stay settable back to unset.
- */
-function Chips(props: {
-  name: string;
-  property: LabelledProperty;
-  options: readonly (string | number)[];
-  selected: string;
-}) {
-  return (
-    <>
-      {props.selected && (
-        <input
-          type="radio"
-          name={props.name}
-          value=""
-          class="btn btn-sm btn-ghost rounded-full"
-          aria-label={`× ${t('CLEAR_CHOICE')}`}
-        />
-      )}
-      {props.options.map((option) => (
-        <input
-          type="radio"
-          name={props.name}
-          value={String(option)}
-          class="btn btn-sm rounded-full"
-          aria-label={valueLabel(props.property, option)}
-          checked={props.selected === String(option)}
-        />
-      ))}
-    </>
-  );
-}
+// A property's catalog label for Chips.
+const labelOf = (property: LabelledProperty) => (option: string | number) =>
+  valueLabel(property, option);
 
 /** Typed in oz or gsm (stored in gsm); a change refreshes the warmth preset (on blur: `change`). */
 function FabricWeight(props: {

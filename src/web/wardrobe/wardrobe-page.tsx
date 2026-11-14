@@ -7,6 +7,7 @@ import {
   LENGTHS,
   MATERIALS,
   PATTERNS,
+  GarmentCategory,
   SLEEVES,
   typesOf,
   WARMTHS,
@@ -15,6 +16,7 @@ import { ShownId } from '../checklist';
 import { CARE_WASH } from '../../wardrobe/care';
 import { garmentMarks } from '../../wardrobe/marks';
 import { PostForm } from '../auth/form';
+import { Chips } from '../form-field';
 import type { CapsuleRef } from '../capsules/queries';
 import { type StringKey, t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
@@ -1024,16 +1026,23 @@ function FilterModal(props: {
 }) {
   const { search, options, viewOwner } = props;
   return (
-    <dialog id="filter-modal" class="modal modal-bottom sm:modal-middle">
+    <dialog
+      id="filter-modal"
+      class="modal modal-bottom sm:modal-middle"
+      aria-labelledby="filter-modal-title"
+    >
+      {/* group/filter: the chosen category reveals its type chips (TYPE_GROUP_REVEAL). */}
       <form
         method="get"
         action="/wardrobe"
         hx-get="/wardrobe"
         hx-include={INCLUDE_KEYWORD}
         {...SWAP_MAIN}
-        class="modal-box"
+        class="modal-box group/filter"
       >
-        <h3 class="font-bold text-lg mb-4">{t('FILTERS')}</h3>
+        <h3 id="filter-modal-title" class="font-bold text-lg mb-4">
+          {t('FILTERS')}
+        </h3>
         {viewOwner !== undefined && (
           <input type="hidden" name="ownerId" value={viewOwner} />
         )}
@@ -1041,43 +1050,34 @@ function FilterModal(props: {
         {search.capsule && (
           <input type="hidden" name="capsule" value={search.capsule} />
         )}
-        <FilterGroup title={t('CATEGORY')}>
-          {options.categories.map((category) => (
-            <Choice
-              name="category"
-              value={category}
-              checked={category === search.category}
-              class="peer-checked:badge-primary capitalize"
-              label={categoryLabel(category)}
-            />
-          ))}
+        <FilterGroup id="filter-category" title={t('CATEGORY')}>
+          <Chips
+            name="category"
+            options={options.categories}
+            selected={search.category}
+            label={(category) => sentenceCase(categoryLabel(String(category)))}
+          />
         </FilterGroup>
-        <FilterGroup title={t('COLOR')}>
-          {GARMENT_COLORS.map((color) => (
-            <Choice
-              name="color"
-              value={color}
-              checked={color === search.color}
-              class="peer-checked:badge-primary capitalize"
-              label={color}
-            />
-          ))}
+        <FilterGroup id="filter-color" title={t('COLOR')}>
+          <Chips
+            name="color"
+            options={GARMENT_COLORS}
+            selected={search.color}
+            label={(color) => sentenceCase(String(color))}
+          />
         </FilterGroup>
         {options.sizes.length > 0 && (
-          <FilterGroup title={t('SIZE')}>
-            {options.sizes.map((size) => (
-              <Choice
-                name="size"
-                value={size}
-                checked={size === search.size}
-                class="peer-checked:badge-primary"
-                label={size}
-              />
-            ))}
+          <FilterGroup id="filter-size" title={t('SIZE')}>
+            <Chips
+              name="size"
+              options={options.sizes}
+              selected={search.size}
+              label={String}
+            />
           </FilterGroup>
         )}
         <PropertyFilterGroups search={search} options={options} />
-        <FilterGroup title={t('CARE')}>
+        <FilterGroup id="filter-care" title={t('CARE')}>
           {/* Wears are the owner's own: a share offers no wash filter. */}
           {props.ownerView && (
             <Toggle
@@ -1092,7 +1092,7 @@ function FilterModal(props: {
             label={t('FILTER_ATTENTION')}
           />
         </FilterGroup>
-        <FilterGroup title={t('ARCHIVED')}>
+        <FilterGroup id="filter-archived" title={t('ARCHIVED')}>
           <Toggle
             name="archived"
             checked={search.archived !== ''}
@@ -1119,31 +1119,51 @@ function FilterModal(props: {
   );
 }
 
+// Each built-in category's type group shows while that category's chip is
+// checked: a :has() on the form (`group/filter`), no script, so "Tops, Shirt"
+// takes no Apply between. Tailwind reads whole class strings, hence the
+// literal table; the Record makes a new category a type error here.
+const TYPE_GROUP_REVEAL: Record<GarmentCategory, string> = {
+  [GarmentCategory.ACCESSORIES]:
+    'group-has-[input[name=category][value=accessories]:checked]/filter:block',
+  [GarmentCategory.BAGS]:
+    'group-has-[input[name=category][value=bags]:checked]/filter:block',
+  [GarmentCategory.OUTERWEAR]:
+    'group-has-[input[name=category][value=outerwear]:checked]/filter:block',
+  [GarmentCategory.DRESSES]:
+    'group-has-[input[name=category][value=dresses]:checked]/filter:block',
+  [GarmentCategory.TOPS]:
+    'group-has-[input[name=category][value=tops]:checked]/filter:block',
+  [GarmentCategory.BOTTOMS]:
+    'group-has-[input[name=category][value=bottoms]:checked]/filter:block',
+  [GarmentCategory.FOOTWEAR]:
+    'group-has-[input[name=category][value=footwear]:checked]/filter:block',
+  [GarmentCategory.OTHER]:
+    'group-has-[input[name=category][value=other]:checked]/filter:block',
+};
+
+function sentenceCase(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /**
  * The property filters, each offering only the values the wardrobe holds
- * (FilterOptions). Types are listed for the chosen category alone, in the
- * form's order.
+ * (FilterOptions). Every category's types are rendered, in the form's
+ * order, and the chosen category's group is revealed by CSS; a type its
+ * category lacks is dropped by `gridSearch`. The type groups share the
+ * radio name `type`, so one type is chosen at a time.
  */
 function PropertyFilterGroups(props: {
   search: GridSearch;
   options: FilterOptions;
 }) {
   const { search, options } = props;
-  const types = typesOf(search.category)
-    .map((type) => type.value)
-    .filter((type) => options.types.includes(type));
   const groups: {
     name: keyof GridSearch;
     property: LabelledProperty;
     title: string;
     values: readonly (string | number)[];
   }[] = [
-    {
-      name: 'type',
-      property: 'type',
-      title: t('PROPERTY_TYPE'),
-      values: types,
-    },
     {
       name: 'warmth',
       property: 'warmth',
@@ -1171,29 +1191,63 @@ function PropertyFilterGroups(props: {
   ];
   return (
     <>
+      {Object.values(GarmentCategory).map((category) => {
+        const types = typesOf(category)
+          .map((type) => type.value)
+          .filter((type) => options.types.includes(type));
+        if (types.length === 0) return null;
+        return (
+          <FilterGroup
+            id={`filter-type-${category}`}
+            title={`${t('PROPERTY_TYPE')} · ${categoryLabel(category)}`}
+            class={`hidden ${TYPE_GROUP_REVEAL[category]}`}
+          >
+            <Chips
+              name="type"
+              options={types}
+              selected={
+                search.category === String(category) &&
+                types.includes(search.type)
+                  ? search.type
+                  : ''
+              }
+              label={(type) => valueLabel('type', type)}
+            />
+          </FilterGroup>
+        );
+      })}
       {groups
         .filter((group) => group.values.length > 0)
         .map((group) => (
-          <FilterGroup title={group.title}>
-            {group.values.map((value) => (
-              <Choice
-                name={group.name}
-                value={String(value)}
-                checked={String(value) === search[group.name]}
-                class="peer-checked:badge-primary"
-                label={valueLabel(group.property, value)}
-              />
-            ))}
+          <FilterGroup id={`filter-${group.name}`} title={group.title}>
+            <Chips
+              name={group.name}
+              options={group.values}
+              selected={search[group.name]}
+              label={(value) => valueLabel(group.property, value)}
+            />
           </FilterGroup>
         ))}
     </>
   );
 }
 
-function FilterGroup(props: { title: string; children: Child }) {
+function FilterGroup(props: {
+  id: string;
+  title: string;
+  class?: string;
+  children: Child;
+}) {
   return (
-    <div class="mb-5">
-      <h4 class="font-medium text-sm text-muted uppercase tracking-wide mb-2">
+    <div
+      role="group"
+      aria-labelledby={`${props.id}-title`}
+      class={`mb-5 ${props.class ?? ''}`}
+    >
+      <h4
+        id={`${props.id}-title`}
+        class="font-medium text-sm text-muted uppercase tracking-wide mb-2"
+      >
         {props.title}
       </h4>
       <div class="flex flex-wrap gap-2">{props.children}</div>
@@ -1217,30 +1271,6 @@ function Toggle(props: {
         checked={props.checked}
       />
       <span class="text-sm">{props.label}</span>
-    </label>
-  );
-}
-
-// A radio of the filter form; its name is the query parameter.
-function Choice(props: {
-  name: string;
-  value: string;
-  checked: boolean;
-  class: string;
-  label: string;
-}) {
-  return (
-    <label class="cursor-pointer">
-      <input
-        type="radio"
-        name={props.name}
-        value={props.value}
-        class="hidden peer"
-        checked={props.checked}
-      />
-      <span class={`badge badge-outline select-none ${props.class}`}>
-        {props.label}
-      </span>
     </label>
   );
 }

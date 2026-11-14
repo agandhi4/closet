@@ -13,6 +13,7 @@ const fixture = (name: string) =>
 
 const NOTHING: ExtractedProduct = {
   source: null,
+  confidence: 'title-only',
   name: null,
   brand: null,
   price: null,
@@ -25,6 +26,8 @@ const NOTHING: ExtractedProduct = {
   images: [],
 };
 
+const page = (head: string) => `<html><head>${head}</head></html>`;
+
 describe('extractProduct', () => {
   it('reads a Shopify product page from its ProductGroup JSON-LD', () => {
     const page = new URL(
@@ -33,6 +36,7 @@ describe('extractProduct', () => {
 
     expect(extractProduct(fixture('shopify-product.html'), page)).toEqual({
       source: 'json-ld',
+      confidence: 'product',
       name: 'Heavyweight Pocket Tee – Navy',
       brand: 'Acme Supply Co.',
       // On the variant only, as Shopify writes it.
@@ -58,6 +62,7 @@ describe('extractProduct', () => {
 
     expect(extractProduct(fixture('woocommerce-graph.html'), page)).toEqual({
       source: 'json-ld',
+      confidence: 'product',
       name: 'Selvedge Jeans 14 oz',
       brand: 'Iron Denim',
       price: { amount: '1299.00', currency: 'SEK' },
@@ -78,6 +83,7 @@ describe('extractProduct', () => {
 
     expect(extractProduct(fixture('open-graph-only.html'), page)).toEqual({
       source: 'open-graph',
+      confidence: 'product',
       name: 'Merino Crew Sweater',
       brand: 'Knitwear Co.',
       price: { amount: '120', currency: 'EUR' },
@@ -101,11 +107,200 @@ describe('extractProduct', () => {
     expect(extractProduct(html, new URL('https://boutique.test/p/1'))).toEqual({
       ...NOTHING,
       source: 'title',
+      confidence: 'title-only',
       name: 'Linen Shirt Dress',
+      brand: 'Boutique',
       category: 'dresses',
       type: 'day-dress',
       materials: ['linen'],
     });
+  });
+
+  describe('confidence', () => {
+    const jsonLd = `<script type="application/ld+json">{"@type":"Product","name":"Wool Coat","brand":"Acme"}</script>`;
+    const ogOnly =
+      '<meta property="og:title" content="Acme Outerwear"><meta property="og:image" content="/logo.png">';
+    const appShell =
+      '<html><head><title>Acme</title></head><body><div id="root"></div></body></html>';
+    const product = new URL('https://acme.test/p/wool-coat-123');
+
+    it.each([
+      ['a JSON-LD Product', page(jsonLd), 'product'],
+      [
+        'Open Graph with product tags',
+        page(`${ogOnly}<meta property="product:price:amount" content="9">`),
+        'product',
+      ],
+      [
+        'Open Graph typed as a product',
+        page(`${ogOnly}<meta property="og:type" content="product">`),
+        'product',
+      ],
+      ['Open Graph alone', page(ogOnly), 'page'],
+      ['an app shell with only a title', appShell, 'title-only'],
+      ['an empty page', '', 'title-only'],
+    ] as const)('is read from %s', (_, html, confidence) => {
+      expect(extractProduct(html, product).confidence).toBe(confidence);
+    });
+
+    it('is title-only when the link was redirected to the home page, whatever it says', () => {
+      const home = new URL('https://acme.test/');
+      expect(extractProduct(page(jsonLd), home, product).confidence).toBe(
+        'title-only',
+      );
+      for (const landing of [
+        'https://acme.test/en-us/',
+        'https://acme.test/us',
+      ]) {
+        expect(
+          extractProduct(page(jsonLd), new URL(landing), product).confidence,
+        ).toBe('title-only');
+      }
+      // Another host's root: a consent or tracking redirect that ended at a home page.
+      expect(
+        extractProduct(page(jsonLd), new URL('https://www.acme.test/'), product)
+          .confidence,
+      ).toBe('title-only');
+    });
+
+    it('stays product when a shop tidies the address: a canonical redirect to an ancestor', () => {
+      const asked = new URL('https://acme.test/product/123/wool-coat');
+      for (const final of [
+        'https://acme.test/product/123',
+        'https://acme.test/product',
+        'https://acme.test/en-us/product/123',
+      ]) {
+        expect(
+          extractProduct(page(jsonLd), new URL(final), asked).confidence,
+        ).toBe('product');
+      }
+    });
+
+    it('keeps a null brand on a product read, the shop standing in only below it', () => {
+      const store = new URL('https://www.nordstrom.test/p/1');
+      expect(
+        extractProduct(
+          page(
+            '<script type="application/ld+json">{"@type":"Product","name":"Wool Coat"}</script><meta property="og:site_name" content="Nordstrom">',
+          ),
+          store,
+        ),
+      ).toMatchObject({ confidence: 'product', brand: null });
+      expect(
+        extractProduct(
+          page(
+            '<meta property="og:title" content="Wool Coat"><meta property="og:site_name" content="Nordstrom">',
+          ),
+          store,
+        ),
+      ).toMatchObject({ confidence: 'page', brand: 'Nordstrom' });
+    });
+
+    it('is not lowered by a redirect that stayed as deep as the link was', () => {
+      const locale = new URL('https://acme.test/us/p/wool-coat-123');
+      expect(extractProduct(page(jsonLd), locale, product).confidence).toBe(
+        'product',
+      );
+    });
+
+    it('is not lowered when the link itself was the home page', () => {
+      const home = new URL('https://acme.test/');
+      expect(extractProduct(page(jsonLd), home).confidence).toBe('product');
+    });
+  });
+
+  it('strips the site from a title and takes the brand from og:site_name', () => {
+    const html = page(
+      '<title>Mens Merino Sweater | UNIQLO US</title><meta property="og:site_name" content="UNIQLO">',
+    );
+    expect(
+      extractProduct(html, new URL('https://www.uniqlo.com/us/p/1')),
+    ).toMatchObject({ name: 'Mens Merino Sweater', brand: 'UNIQLO' });
+  });
+
+  it('strips a title suffix only when it is the site, so a variant stays', () => {
+    // The Shopify fixture's own <title>: "Heavyweight Pocket Tee – Navy –
+    // Acme Supply Co." loses only the site, and its og:site_name names it.
+    const shopify = fixture('shopify-product.html')
+      .replace(/<script type="application\/ld\+json"[\s\S]*?<\/script>/g, '')
+      .replace(/<meta property="og:title"[^>]*>/g, '');
+    expect(
+      extractProduct(
+        shopify,
+        new URL('https://acme-supply.test/products/heavyweight-pocket-tee'),
+      ).name,
+    ).toBe('Heavyweight Pocket Tee – Navy');
+    const variant = page(
+      '<title>Pocket Tee – Navy</title><meta property="og:title" content="Pocket Tee – Navy"><meta property="og:site_name" content="Acme Supply Co.">',
+    );
+    const url = new URL('https://acme-supply.test/products/pocket-tee');
+    expect(extractProduct(variant, url).name).toBe('Pocket Tee – Navy');
+    const branded = page(
+      '<meta property="og:title" content="Pocket Tee – Navy | Acme Supply Co.">' +
+        '<meta property="og:site_name" content="Acme Supply Co.">',
+    );
+    expect(extractProduct(branded, url).name).toBe('Pocket Tee – Navy');
+    // The domain's own name counts when the page gives no og:site_name.
+    expect(
+      extractProduct(page('<title>Pocket Tee | Acme-supply</title>'), url).name,
+    ).toBe('Pocket Tee');
+  });
+
+  it.each([
+    ['https://www.uniqlo.com/p/1', 'Uniqlo'],
+    ['https://shop.example.co.uk/p/1', 'Example'],
+    ['http://127.0.0.2/p/1', null],
+  ])('falls back from a missing brand to the domain: %s', (url, brand) => {
+    const html = page('<title>Tee | Shop</title>');
+    expect(extractProduct(html, new URL(url)).brand).toBe(brand);
+  });
+
+  it('reads a colour from the address when the page names none', () => {
+    const html = page(
+      '<meta property="og:title" content="Merino Crew Sweater">',
+    );
+    expect(
+      extractProduct(html, new URL('https://k.test/p/merino-crew-navy.html'))
+        .colors,
+    ).toEqual(['blue']);
+    expect(
+      extractProduct(html, new URL('https://k.test/p/merino-crew?Color=Olive'))
+        .colors,
+    ).toEqual(['green']);
+    expect(
+      extractProduct(html, new URL('https://k.test/p/merino-crew?color=olive'))
+        .colors,
+    ).toEqual(['green']);
+  });
+
+  it('keeps a product read without a colour when the address names a brand or style', () => {
+    const html = page(
+      '<meta property="og:title" content="Iron Ranger"><meta property="product:brand" content="Red Wing">',
+    );
+    const read = extractProduct(
+      html,
+      new URL('https://k.test/p/red-wing-boots'),
+    );
+
+    expect(read.confidence).toBe('product');
+    expect(read.colors).toEqual([]);
+    const ld = `<script type="application/ld+json">{"@type":"Product","name":"Flannel Shirt"}</script>`;
+    expect(
+      extractProduct(ld, new URL('https://k.test/p/blackwatch-plaid')).colors,
+    ).toEqual([]);
+  });
+
+  it('reads an explicit colour parameter even on a product read', () => {
+    const html = page(
+      '<meta property="og:title" content="Iron Ranger"><meta property="product:brand" content="Red Wing">',
+    );
+    const read = extractProduct(
+      html,
+      new URL('https://k.test/p/red-wing-boots?Color=Olive'),
+    );
+
+    expect(read.confidence).toBe('product');
+    expect(read.colors).toEqual(['green']);
   });
 
   it('finds nothing on a page without any of it', () => {

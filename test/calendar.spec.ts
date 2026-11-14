@@ -52,10 +52,17 @@ test('the outfit page plans the outfit from its sheet and lands on that week; Pl
     headers: SAME_ORIGIN,
   });
   expect(template.ok()).toBe(true);
-  const planned = await page.request.post('/calendar/plan-week', {
-    headers: SAME_ORIGIN,
-  });
-  expect(planned.url()).toMatch(/planned=\d+/);
+  // #683: at phone width the tap lands on the day the plan starts, which is
+  // in view, and the banner's rows are links to their days.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/calendar');
+  await page.getByRole('button', { name: 'Plan my week' }).click();
+  await expect(page).toHaveURL(/\/calendar\?.*#day-\d{4}-\d\d-\d\d$/);
+  const firstDay = new URL(page.url()).hash;
+  await expect(page.locator(firstDay)).toBeInViewport();
+  await expect(
+    page.locator('[data-planned-entries] a[href^="#day-"]').first(),
+  ).toBeAttached();
   await page.goto('/outfits');
   const tiles = page.locator('#saved-outfits li');
   await expect(tiles).toHaveCount(1);
