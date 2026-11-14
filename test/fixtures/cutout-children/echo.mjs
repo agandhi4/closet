@@ -2,7 +2,9 @@
 // protocol of src/cutout/protocol.ts. This one answers every image with a
 // mask of 200s.
 process.on('message', (message) => {
-  if (message.type === 'load') {
+  if (message.type === 'probe') {
+    process.send({ type: 'probed' });
+  } else if (message.type === 'load') {
     process.send({ type: 'loaded', loadMs: 1, rssMb: 10 });
   } else {
     process.send({

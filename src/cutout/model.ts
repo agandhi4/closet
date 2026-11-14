@@ -58,6 +58,18 @@ export class ModelChecksumError extends Error {
   }
 }
 
+/**
+ * The model's host refused the download or could not be reached (an HTTP
+ * error, DNS, a reset before the first byte). The queue's waiting state
+ * names it as kind `download` (queue-state.ts).
+ */
+export class ModelDownloadError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'ModelDownloadError';
+  }
+}
+
 export type Fetch = typeof fetch;
 
 /**
@@ -135,10 +147,18 @@ export class CutoutModel {
       `Downloading ${this.spec.name} (${megabytes(this.spec.bytes)} MB) to ${this.path}`,
     );
     try {
-      const response = await this.fetchImpl(this.spec.url);
+      const host = new URL(this.spec.url).host;
+      const response = await this.fetchImpl(this.spec.url).catch(
+        (error: unknown) => {
+          throw new ModelDownloadError(
+            `Model download failed: ${host} could not be reached`,
+            { cause: error },
+          );
+        },
+      );
       if (!response.ok || !response.body) {
-        throw new Error(
-          `Model download failed: HTTP ${response.status} from ${new URL(this.spec.url).host}`,
+        throw new ModelDownloadError(
+          `Model download failed: HTTP ${response.status} from ${host}`,
         );
       }
       const hash = createHash('sha256');

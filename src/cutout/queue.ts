@@ -16,6 +16,13 @@ import {
   recordCutoutEvent,
   retryableCutouts,
 } from './queries';
+import {
+  type CutoutQueueEvent,
+  type CutoutQueueState,
+  MODEL_UNAVAILABLE_FIX,
+  modelUnavailableKind,
+  queueTransition,
+} from './queue-state';
 import type { CutoutRunner } from './runner';
 import { MAX_CUTOUT_ATTEMPTS } from './state';
 
@@ -40,7 +47,10 @@ export interface CutoutQueueDeps {
   logger: Logger;
   /** How long an idle queue waits before looking again unasked (CUTOUT_POLL_SECONDS). */
   pollMs: number;
-  /** Each job's run time and ending, as job_duration_seconds{name="cutout"}. */
+  /**
+   * Each job's run time and ending, as job_duration_seconds{name="cutout"};
+   * and the model's unavailability, captured once per kind (queue-state.ts).
+   */
   metrics: Metrics;
 }
 
@@ -63,6 +73,8 @@ export interface CutoutQueueDeps {
  * the lease (cutout_worker: host, pid and a random suffix).
  */
 export class CutoutQueue {
+  // Moved only by transition() (queue-state.ts owns the edges).
+  private current: CutoutQueueState = { name: 'stopped' };
   private runner: CutoutRunner | undefined;
   private listener: CutoutListener | undefined;
   private loop: Promise<void> | undefined;
@@ -78,18 +90,20 @@ export class CutoutQueue {
   constructor(private readonly deps: CutoutQueueDeps) {}
 
   /**
-   * Between start() and stop(): /health/ready's cutout_queue check. The job
-   * loop catches what a claim throws, and anything else it throws is an
-   * unhandled rejection that ends the process, so a started queue is a
-   * working one.
+   * /health/ready's cutout_queue check: `running` between start() and
+   * stop() while the model can be had, `waiting-for-model` while it cannot.
+   * The job loop catches what a claim throws, and anything else it throws
+   * is an unhandled rejection that ends the process, so a running queue is
+   * a working one.
    */
-  get running(): boolean {
-    return this.runner !== undefined;
+  get state(): CutoutQueueState {
+    return this.current;
   }
 
   /** Starts working through pending rows with `runner`. */
   start(runner: CutoutRunner): void {
     if (this.runner) throw new Error('The cutout queue is already running');
+    this.transition({ type: 'start' });
     this.runner = runner;
     const halt = new AbortController();
     this.halt = halt;
@@ -144,6 +158,7 @@ export class CutoutQueue {
     const startedAt = Date.now();
     const listener = this.listener;
     const loop = this.loop;
+    this.transition({ type: 'stop' });
     this.halt?.abort();
     this.halt = undefined;
     this.listener = undefined;
@@ -226,8 +241,9 @@ export class CutoutQueue {
 
   // Waits for the runner's model before any claim, so no lease is held
   // through a download. False when halted, or when it failed (after waiting
-  // MODEL_RETRY_MS): pending rows wait for the model rather than fail
-  // without it. The model logs why; this logs that the queue waits.
+  // MODEL_RETRY_MS, or less when woken): pending rows wait for the model
+  // rather than fail without it, in waiting-for-model, and the next ready
+  // ends the wait, so the queue drains without a restart.
   private async runnerReady(
     runner: CutoutRunner,
     halt: AbortSignal,
@@ -239,17 +255,51 @@ export class CutoutQueue {
       halt.addEventListener('abort', onHalt);
     });
     try {
-      return (await Promise.race([runner.ready(), halted])) !== 'halted';
+      if ((await Promise.race([runner.ready(), halted])) === 'halted') {
+        return false;
+      }
+      this.transition({ type: 'model-ready' });
+      return true;
     } catch (error) {
-      this.deps.logger.warn(
-        { err: error },
-        `Cutout queue cannot run the model; pending cutouts wait, trying again in ${MODEL_RETRY_MS / 60_000} min`,
+      this.transition(
+        { type: 'model-unavailable', kind: modelUnavailableKind(error) },
+        error,
       );
     } finally {
       halt.removeEventListener('abort', onHalt);
     }
     await this.sleep(MODEL_RETRY_MS, halt);
     return false;
+  }
+
+  // The one place the queue's state moves; logs each edge that matters and
+  // captures a model failure once per kind and outage (`error`: the
+  // runner's rejection, for a model-unavailable event).
+  private transition(event: CutoutQueueEvent, error?: unknown): void {
+    const { logger, metrics } = this.deps;
+    const before = this.current;
+    const { state, capture, recoveredAfterMs } = queueTransition(
+      before,
+      event,
+      Date.now(),
+    );
+    this.current = state;
+    if (state.name === 'waiting-for-model') {
+      const retry = `trying again in ${MODEL_RETRY_MS / 60_000} min`;
+      const fix = MODEL_UNAVAILABLE_FIX[state.kind];
+      logger.warn(
+        { err: error },
+        before.name === 'waiting-for-model' && !capture
+          ? `Cutout queue still waiting for the model (${state.kind}); ${retry}`
+          : `Cutout queue waiting for the model (${state.kind}); pending cutouts wait, ${retry}. Fix: ${fix}`,
+      );
+      if (capture) metrics.captureCutoutModelUnavailable(state.kind, error);
+    }
+    if (recoveredAfterMs !== undefined) {
+      logger.info(
+        `Cutout model available after ${Math.round(recoveredAfterMs / 1000)} s waiting; draining pending cutouts`,
+      );
+    }
   }
 
   // Answers how the job ended, for its metric (and a failure's error, for

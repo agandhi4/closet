@@ -3,7 +3,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { file } from '../../src/db/schema';
 import { imageUrl } from '../../src/web/files/image-url';
 import { readPhotoRef } from '../../src/web/files/queries';
-import { fakeRunner, halfMask, storedCutout } from './cutouts';
+import { ModelDownloadError } from '../../src/cutout/model';
+import { eventually, fakeRunner, halfMask, storedCutout } from './cutouts';
 import {
   createGarment,
   garmentRow,
@@ -78,7 +79,7 @@ describe('cutouts: upload, page and polling', () => {
     const html = unescapeHtml(res.body);
     expect(html).toMatch(
       new RegExp(
-        `<div id="garment-photo" hx-get="/wardrobe/${id}/cutout" hx-trigger="every 2s" hx-swap="outerHTML" hx-indicator="#garment-photo-status">`,
+        `<div id="garment-photo" hx-get="/wardrobe/${id}/cutout\\?poll=1" hx-trigger="every 2s" hx-swap="outerHTML" hx-indicator="#garment-photo-status">`,
       ),
     );
     expect(html).toContain('Removing background…');
@@ -89,6 +90,93 @@ describe('cutouts: upload, page and polling', () => {
     expect(html).toContain("import('photo-input')");
     expectNativePostForms(res);
     expectNoRawI18nKeys(res);
+  });
+
+  // #689: a queue that cannot run its model leaves the photo pending for
+  // as long as that lasts; an open page must not poll it every 2 s forever.
+  // A busy but working queue (a bulk upload) must keep polling, so the
+  // cutout still lands on the page.
+  describe('the pending poll', () => {
+    const pollOf = (id: number) => async (n: number) => {
+      const res = await t.inject({
+        method: 'GET',
+        url: `/wardrobe/${id}/cutout?poll=${n}`,
+        headers: HX_FRAGMENT,
+      });
+      expectFragment(res);
+      return unescapeHtml(res.body);
+    };
+    const polls = (id: number, n: number, every: string) =>
+      `hx-get="/wardrobe/${id}/cutout?poll=${n + 1}" hx-trigger="every ${every}"`;
+
+    it('backs off from 2 s to 10 s, then stops at 2 min with the queued line while the model is unavailable, and never refuses a poll count', async () => {
+      const id = await createGarment(t, { name: 'Waiting shirt' });
+      await uploadPhoto(t, id, await jpegPhoto());
+      const runner = fakeRunner();
+      runner.ready = () =>
+        Promise.reject(new ModelDownloadError('Model download failed'));
+      t.cutouts.start(runner);
+      await eventually('the queue to wait for the model', () =>
+        Promise.resolve(t.cutouts.state.name === 'waiting-for-model'),
+      );
+      const poll = pollOf(id);
+
+      // 15 polls 2 s apart (30 s), then 9 polls 10 s apart (to 120 s).
+      for (const [n, every] of [
+        [14, '2s'],
+        [15, '10s'],
+        [23, '10s'],
+      ] as const) {
+        const html = await poll(n);
+        expect(html).toContain(polls(id, n, every));
+        expect(html).toContain('Removing background…');
+      }
+      const capped = await poll(24);
+      expect(capped).toContain('<div id="garment-photo">');
+      expect(capped).not.toContain('hx-trigger');
+      expect(capped).toContain(
+        'Background removal is queued and will finish later.',
+      );
+      expect(capped).not.toContain('Removing background…');
+      // URL state is a fallback, never a 400: a count past the clamp (a page
+      // left open for hours) or one no fragment writes still answers.
+      for (const odd of ['1001', '99999999999999999999', 'soon', '-1']) {
+        const res = await t.inject({
+          method: 'GET',
+          url: `/wardrobe/${id}/cutout?poll=${odd}`,
+          headers: HX_FRAGMENT,
+        });
+        expectFragment(res);
+      }
+    });
+
+    it('keeps polling every 10 s past 2 min while the queue runs, busy with a job', async () => {
+      const id = await createGarment(t, { name: 'Busy shirt' });
+      await uploadPhoto(t, id, await jpegPhoto());
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let running = false;
+      t.cutouts.start(
+        fakeRunner(async () => {
+          running = true;
+          await released;
+          return halfMask();
+        }),
+      );
+      await eventually('a job to run', () => Promise.resolve(running));
+      expect(t.cutouts.state).toEqual({ name: 'running' });
+
+      for (const n of [24, 40]) {
+        const html = await pollOf(id)(n);
+        expect(html).toContain(polls(id, n, '10s'));
+        expect(html).toContain('Removing background…');
+        expect(html).not.toContain('will finish later');
+      }
+      release();
+      await t.cutouts.whenIdle();
+    });
   });
 
   it('answers a refused photo with the error page, storing nothing', async () => {

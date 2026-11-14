@@ -12,7 +12,7 @@ import {
   saveEditedGarmentCutout,
   turnGarmentPhoto,
 } from './garment-actions';
-import { GarmentPhotoView } from './garment-page';
+import { GarmentPhotoView, pollCount } from './garment-page';
 import { batchEnd } from './draft-redirects';
 import { nextDraft } from './draft-queue';
 import { refuseOtherWardrobesDraft } from './render-form';
@@ -29,7 +29,11 @@ import {
   stagePhotoUploads,
   type WardrobeDeps,
 } from './writes';
-import { DiscardDraftBody, RotateBody } from './garment-schemas';
+import {
+  CutoutPollQuery,
+  DiscardDraftBody,
+  RotateBody,
+} from './garment-schemas';
 import { GarmentParams, OwnerQuery } from '../schemas';
 
 /**
@@ -116,12 +120,13 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // The garment page's photo while its cutout is pending polls this
-  // (hx-trigger every 2s) and swaps it in; the answer stops polling once
-  // the cutout is ready or failed.
+  // The garment page's photo while its cutout is pending polls this on a
+  // backoff (cutoutPollDelay) and swaps it in; the answer stops polling
+  // once the cutout is ready or failed, or the polls reach their cap while
+  // this server's queue waits for its model.
   app.get(
     '/wardrobe/:id/cutout',
-    { schema: { params: GarmentParams, querystring: OwnerQuery } },
+    { schema: { params: GarmentParams, querystring: CutoutPollQuery } },
     async (request, reply) => {
       const { access, viewOwner, garment } = await authorize.garment(
         request,
@@ -133,6 +138,8 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           garment={garment}
           viewOwner={viewOwner}
           canEdit={access.canManage}
+          poll={pollCount(request.query.poll)}
+          modelUnavailable={options.cutouts.state.name === 'waiting-for-model'}
         />,
       );
     },

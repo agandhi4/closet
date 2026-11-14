@@ -6,6 +6,7 @@ import {
   inArray,
   isNull,
   lt,
+  min,
   or,
   type SQL,
   sql,
@@ -13,6 +14,7 @@ import {
 import type { Db, Queryable } from '../db/client';
 import { ownersLockCte } from '../db/owner-lock';
 import { file, garment } from '../db/schema';
+import type { PendingCutouts } from '../metrics/metrics';
 import { currentRequest } from '../request-context';
 import { CUTOUT_TIMEOUT_MS } from './runner';
 import {
@@ -376,13 +378,16 @@ export function claimNextCutout(
   });
 }
 
-/** Photos waiting for the queue, a job in flight included: its depth metric. */
-export async function countPendingCutouts(db: Db): Promise<number> {
+/**
+ * Photos waiting for the queue, a job in flight included, and when the
+ * oldest was requested: its depth and age metrics (Metrics.trackCutoutQueue).
+ */
+export async function countPendingCutouts(db: Db): Promise<PendingCutouts> {
   const [row] = await db
-    .select({ pending: count() })
+    .select({ depth: count(), oldestRequestedAt: min(file.cutoutRequestedAt) })
     .from(file)
     .where(eq(file.cutoutStatus, 'pending'));
-  return row.pending;
+  return row;
 }
 
 /** Stored names of failed cutouts with fewer than `maxAttempts` runs. */

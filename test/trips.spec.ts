@@ -9,6 +9,7 @@ import {
 } from './support/e2e-session';
 import {
   cachedPaths,
+  closeSwitchedContext,
   dropSessionCaches,
   holdWarmList,
   networkSwitch,
@@ -271,7 +272,7 @@ test.describe('Trips', () => {
           ),
         ).not.toContainText('Saved');
       } finally {
-        await context.close();
+        await closeSwitchedContext(context);
       }
     });
   });

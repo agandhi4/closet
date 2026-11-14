@@ -27,6 +27,17 @@ export const RotateBody = Type.Object({
   direction: Type.Union([Type.Literal('left'), Type.Literal('right')]),
 });
 
+/**
+ * GET /wardrobe/:id/cutout: `poll`, how many polls the page made
+ * (cutoutPollDelay, garment-page.tsx). URL state only our own fragment
+ * writes; a page cached before it existed sends none. A string here, read by
+ * `pollCount` (garment-page.tsx): URL state is a fallback, never a 400.
+ */
+export const CutoutPollQuery = Type.Object({
+  ...OwnerQuery.properties,
+  poll: Type.Optional(Type.String()),
+});
+
 /** The page flags that show a toast once (stripped from the URL by the page). */
 export const GarmentPageQuery = Type.Object({
   ...OwnerQuery.properties,
