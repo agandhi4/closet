@@ -8,6 +8,7 @@ import {
   isReplay,
   replayNote,
   replayRefused,
+  requestTap,
 } from '../offline-writes';
 import { navigateTo, renderFragment, renderPage } from '../render';
 import { DEFAULT_OCCASION } from '../../wardrobe/occasions';
@@ -19,7 +20,12 @@ import {
 import { selectScalars } from '../../db/select-scalars';
 import { OutfitListQuery, parseOutfitList } from '../outfits/outfit-list';
 import { savedOutfitsSql } from '../outfits/queries';
-import { IsoDateSchema, OccasionSchema, RowId } from '../schemas';
+import {
+  IsoDateSchema,
+  OccasionSchema,
+  RowId,
+  TapInstantSchema,
+} from '../schemas';
 import { safeReturnTo } from '../security/return-to';
 import { actorOf } from '../sharing/access';
 import { viewContext } from '../view-context';
@@ -93,6 +99,9 @@ const WornBody = Type.Union([
     // Where a plain post goes back to (WornControl's page), through
     // safeReturnTo; else the posted week (pills cached before #359).
     returnTo: Type.Optional(Type.String({ maxLength: 2048 })),
+    // The tap's instant (#676), posted by the outbox's replay: the wears'
+    // worn_at, for a same-day wash's order (requestTap).
+    at: Type.Optional(TapInstantSchema),
   }),
   Type.Null(),
 ]);
@@ -372,6 +381,7 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         worn: posted === undefined ? undefined : posted === '1',
         at: now,
         today,
+        tap: requestTap(request, request.body?.at, config.timeZone),
       });
       if (outcome === 'future') {
         logger.info(`Calendar entry ${id}: not marked worn, its day is ahead`);

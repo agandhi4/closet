@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { addDays } from '../../src/calendar-date';
+import { addDays, instantAt } from '../../src/calendar-date';
 import {
   garment,
   garmentWear,
@@ -473,6 +473,72 @@ describe('wears, washes and away', () => {
       .from(garment)
       .where(eq(garment.id, strangers));
     expect(row.lastWashedOn).toBeNull();
+  });
+
+  // #676: `at` orders a wear and a wash of one day; the server judges it.
+  it('stores a posted `at` on its day, caps one after now, and drops one off its day', async () => {
+    const day = addDays(t.today(), -1);
+    const at = (onDay: string, hour: number) =>
+      instantAt(onDay, hour, t.timeZone).toISOString();
+    const wornAtOf = async (id: number) =>
+      (
+        await t.db
+          .select({ wornAt: garmentWear.wornAt })
+          .from(garmentWear)
+          .where(eq(garmentWear.garmentId, id))
+      ).map((row) => row.wornAt?.toISOString() ?? null);
+    const washedAtOf = async (id: number) =>
+      (
+        await t.db
+          .select({ washedAt: garment.washedAt })
+          .from(garment)
+          .where(eq(garment.id, id))
+      )[0].washedAt;
+
+    const tee = await createGarment(t, { name: 'Timed tee' });
+    const worn = await t.api(token, {
+      method: 'PUT',
+      url: `/api/v1/garments/${tee}/wears/${day}`,
+      payload: { at: at(day, 19) },
+    });
+    expect(worn.statusCode, worn.body).toBe(200);
+    expect(await wornAtOf(tee)).toEqual([at(day, 19)]);
+    const washed = await t.api(token, {
+      method: 'POST',
+      url: `/api/v1/garments/${tee}/washes`,
+      payload: { day, at: at(day, 9) },
+    });
+    expect(washed.json()).toEqual({ day, changed: true });
+    expect((await washedAtOf(tee))?.toISOString()).toBe(at(day, 9));
+
+    // A fast client clock: an hour ahead is stored as the server's now.
+    const fast = await createGarment(t, { name: 'Fast-clock tee' });
+    const before = Date.now();
+    await t.api(token, {
+      method: 'POST',
+      url: `/api/v1/garments/${fast}/washes`,
+      payload: {
+        day: t.today(),
+        at: new Date(before + 3_600_000).toISOString(),
+      },
+    });
+    const capped = (await washedAtOf(fast))!.getTime();
+    expect(capped).toBeGreaterThanOrEqual(before);
+    expect(capped).toBeLessThanOrEqual(Date.now());
+
+    // Off its day (a wrong clock): the day rule, no instant.
+    const offDay = await createGarment(t, { name: 'Off-day tee' });
+    const laundry = await t.api(token, {
+      method: 'POST',
+      url: '/api/v1/garments/washes',
+      payload: {
+        garmentIds: [offDay],
+        day,
+        at: at(addDays(day, -2), 19),
+      },
+    });
+    expect(laundry.json()).toEqual({ washed: [offDay] });
+    expect(await washedAtOf(offDay)).toBeNull();
   });
 
   it('puts a garment away with a note and back, set-state', async () => {

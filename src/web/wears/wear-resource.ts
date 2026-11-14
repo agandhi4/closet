@@ -7,7 +7,8 @@ import type { WearRow } from './queries';
  * A wear as the changes feed carries it (#196b-1, GET /changes): the
  * owner's record that a garment was worn on a day. A garment's counts
  * (worn, since its wash, last worn) are the client's to derive from these
- * and the garment's `care.lastWashedOn`: a wear never moves the garment's
+ * and the garment's `care.lastWashedOn` and `care.washedAt`
+ * (src/wardrobe/availability.ts's wearsSinceWash): a wear never moves the garment's
  * revision (decisions 2026-11-13, the feed's garment).
  */
 export const SyncedWear = Type.Object(
@@ -17,6 +18,13 @@ export const SyncedWear = Type.Object(
     day: IsoDateSchema,
     /** The calendar entry it was logged from; absent for a garment's own "Wore today". */
     calendarEntryId: Type.Optional(Type.Integer()),
+    wornAt: Type.Optional(
+      Type.String({
+        format: 'date-time',
+        description:
+          "When on `day` it was worn, if known: after the garment's `care.washedAt` that day, it counts toward the next wash",
+      }),
+    ),
   },
   {
     title: 'SyncedWear',
@@ -31,5 +39,6 @@ export function toSyncedWear(wear: WearRow): Static<typeof SyncedWear> {
     garmentId: wear.garmentId,
     day: wear.day,
     calendarEntryId: wear.outfitCalendarId,
+    wornAt: wear.wornAt?.toISOString(),
   });
 }

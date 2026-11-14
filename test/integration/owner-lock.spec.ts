@@ -1281,6 +1281,7 @@ describe('the owner lock', () => {
         ownerId: t.owner.id,
         day: t.today(),
         worn: true,
+        wornAt: null,
       });
       await addRepair(t.db, t.owner.id, doomed, {
         day: t.today(),

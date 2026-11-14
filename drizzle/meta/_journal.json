@@ -393,6 +393,13 @@
       "when": 1794615029892,
       "tag": "0055_everyday-garment-types",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1794623943309,
+      "tag": "0056_wash-and-wear-instants",
+      "breakpoints": true
     }
   ]
 }
