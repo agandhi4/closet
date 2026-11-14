@@ -59,7 +59,7 @@ The boot log says `Order mail: on (Fastmail, every 5 min, N trusted senders)`; e
 
 **Rotating the secret.** Set a new `ACCESS_TOKEN_SECRET` (`openssl rand -hex 32`) in `closet.env`, redeploy, then `docker exec closet npm run push:revoke-all`: the rotation signed everyone out, and a device left closed would otherwise keep receiving its account's reminders until it next opened the app (the login page drops its browser subscription then). After the restart, not before: a session still open re-sends its subscription on its next page. Everyone signs in again and re-enables notifications and reminders on the profile. Personal access tokens are unaffected (Request security, Session revocation).
 
-**Rolling back past 0057 (#678).** 0057 keys the weather caches by zone, and an image from before it upserts on `(latitude, longitude)`, which no longer has a unique constraint: its forecasts would fail to save. Before starting the older image, on the database (the caches refill on the next asks; `trip.time_zone` is harmless to keep and is used again on the next roll forward):
+**Rolling back past 0057 (#678).** 0057 keys the weather caches by zone, and an image from before it upserts on `(latitude, longitude)`, which no longer has a unique constraint: its forecasts would fail to save. Before starting the older image, on the database (the caches refill on the next asks), after rolling back every later migration the same way (Migrations and rollback, below):
 
 ```sql
 BEGIN;
@@ -69,14 +69,28 @@ ALTER TABLE weather_forecast DROP CONSTRAINT weather_forecast_pkey, DROP COLUMN 
   ADD CONSTRAINT weather_forecast_pkey PRIMARY KEY (latitude, longitude);
 ALTER TABLE weather_normals DROP CONSTRAINT weather_normals_pkey, DROP COLUMN time_zone,
   ADD CONSTRAINT weather_normals_pkey PRIMARY KEY (latitude, longitude);
+ALTER TABLE trip DROP CONSTRAINT trip_time_zone_check, DROP COLUMN time_zone;
+-- 0057's row (its journal when): without this the older image refuses to boot (#651).
+DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1794628538738;
 COMMIT;
 ```
 
-Rolling forward again needs 0057 to run again: delete its row from `drizzle.__drizzle_migrations` (the newest), drop `trip.time_zone` and `trip_time_zone_check`, then deploy.
+Rolling forward again is a plain deploy: 0057 runs again on the next boot.
 
 **No deploy overlap for 0057.** Until an old container stops, its forecast and normals upserts would fail against the new keys, but there is no such window: `container_name: closet` makes `docker compose up -d` stop and remove the old container before the new one starts and migrates (One container at a time, above). That is this repo's documented behaviour; the compose file itself is homelab's (`stacks/closet/README.md`) and is not readable from here, so a change there to start-before-stop would bring the window back: the old build's saves fail (logged, the caches refill) until it stops, nothing else is lost.
 
 Deploy now, data fixes and production's paths: homelab `stacks/closet/README.md`.
+
+## Migrations and rollback
+
+The boot migrates (Changing the schema in `AGENTS.md`), and drizzle records each migration in `drizzle.__drizzle_migrations` by its journal `when` (`created_at`). Since #651 the boot, the CLIs and readiness compare that history with the image's own `drizzle/` journal (`schemaState`, `src/db/migrate.ts`):
+
+- **Behind** (the image has newer migrations): the server applies them at boot; the CLIs exit 1 (`The database is N migration(s) behind this build`) until it has.
+- **Ahead** (the database's newest row is a migration the image does not have): the image is older than the database, typically a rollback to a previous `sha-` tag after a deploy that migrated. The boot refuses with the fatal line `The database's newest migration (journal when <ms>, generated <date>) is not in this build: the image is older than the database...`, before writing anything; the container restarts in a loop until fixed. The CLIs exit 1 with the same line, and a running server whose database a newer build migrated reads `migrations` down (`schema: "ahead"`). The `when` names the migration: find it in the newer build's `drizzle/meta/_journal.json`.
+
+**Rolling back to an older image** is therefore one of two things. Either restore the pre-migration dump (below), the simple and complete one, losing what was written since; or, for each migration newer than the older image's newest, newest first, run its documented down steps (Rolling back past 0057 is one) and delete its row from `drizzle.__drizzle_migrations`. Once the newest row is one the older image knows, it is current to it and boots; the next deploy of the newer image applies the deleted ones again. Deleting a row without undoing its schema change is never a rollback: the older image then boots on a schema it does not know, which is what the refusal exists to prevent. A migration without written down steps is rolled back only by the dump.
+
+**A deploy with pending migrations takes a dump first.** Whenever the incoming image has migrations the database has not applied (its `drizzle/meta/_journal.json` has a `when` newer than `select max(created_at) from drizzle.__drizzle_migrations`), the deploy runs `pg_dump -Fc closet_db` into a dated file before starting the new container, and keeps it until the next deploy with migrations replaces it. Several migrations are destructive (0041 drops `muse_look`, 0045 six plan tables) and the hourly autoupdater applies them with nobody present, so the dump is the rollback the night's cluster-wide dumpall is too coarse and too old for. Restore it with `pg_restore --clean --if-exists -d closet_db <file>` with the container stopped, then start the older image. The deploy script lives in homelab: this rule is tracked in homelab.
 
 ## Permissions
 
@@ -125,7 +139,7 @@ The nightly reconciliation never deletes a photo set that has no `file` row: it 
 `GET /health/live` checks nothing (the phones' connectivity heartbeat). `GET /health/ready` (alias `/healthz`) is what the image's `HEALTHCHECK` (every 30 s, 60 s start period), the smoke boot and devkit's contract probe read: 200 `{"status": "up", "version": "<sha7>", "checks": {...}}`, or 503 `"down"` when a required check is down. It is limited to 60 a minute per address. Each down check names this section as its `fix`, and the log line (logger `Health`, `Readiness: ...`) says why:
 
 - **`database`** (required): the pool's one statement did not answer in 3 s or failed. Check the Postgres server and `CLOSET_DB_HOST`; the app recovers by itself once it answers.
-- **`migrations`** (required): the database's newest Drizzle migration is older than this build's, so it was restored or repointed after the boot. Restart the container: the boot migrates.
+- **`migrations`** (required): `schema: "behind"`, the database's newest Drizzle migration is older than this build's, so it was restored or repointed after the boot: restart the container, the boot migrates. `schema: "ahead"`, a newer build migrated the database under this one: deploy that build, or roll the schema back (Migrations and rollback).
 - **`storage`** (required): a directory the process writes (`DATA_PATH`, `MODELS_PATH`) refused a create and unlink as uid 1000; its `fix` is the chown and the log line names the directory and the error code. Or `DATA_PATH` lost the marker the boot claimed, or holds another install's: its `fix` points to Photo storage marker (no database statement: the pairing is checked at boot). Probed at most once every 5 s: see Permissions.
 - **`cron_jobs`** (optional): a timer's run has been in flight over 30 minutes (`stuck` names it). Its last `cron-` lines in Loki say where it hangs; a restart starts it afresh.
 - **`cutout_queue`** (optional): the background-removal queue is not running (in production, the process is shutting down), or it waits for a model it cannot have: `reason` says why and `fix` what to do (`download`: huggingface.co refused or unreachable; `checksum`: the file in `MODELS_PATH` is not the pinned model, `npm run cutout:fetch-model`; `permission`: see Permissions; `binding`: onnxruntime-node has no native binding for this platform, the image must be linux/amd64; `other`: the `Cutout queue waiting for the model` log line). Photos stay pending meanwhile (the garment page stops polling after 2 minutes and says it will finish later) and are cut out as soon as the model loads, without a restart; `cutout_queue_oldest_age_seconds` shows how long they have waited.
