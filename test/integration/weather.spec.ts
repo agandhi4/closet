@@ -534,6 +534,12 @@ describe('weather', () => {
     // tab root), so it renders the line itself from the weather read its
     // ideas are matched with: no second request, no second read.
     it('Today renders the line in the page, the one the summary answers, from one read', async () => {
+      // An outfit's worth of closet: an empty one is Today's first-run
+      // path (#666), with no ideas and the city only after a garment.
+      const outfit = [
+        await createGarment(t, { name: 'Tee', category: 'tops' }),
+        await createGarment(t, { name: 'Jeans', category: 'bottoms' }),
+      ];
       const hits = stub.hits.length;
       const today = await t.inject({ method: 'GET', url: '/' });
       expectFullPage(today);
@@ -554,6 +560,13 @@ describe('weather', () => {
       // The session, then the settings and forecast together.
       expect((await recordQueries(() => summary())).statements).toBe(2);
       expect(stub.hits).toHaveLength(hits);
+      for (const id of outfit) {
+        const removed = await t.inject({
+          method: 'DELETE',
+          url: `/wardrobe/${id}`,
+        });
+        expect(removed.statusCode).toBeLessThan(400);
+      }
     });
 
     it('reads in °F when the user asks', async () => {

@@ -9,7 +9,7 @@ import { categoryRole, type GarmentRole } from '../../wardrobe/properties';
 import { type SignablePhotoRef, imageUrl } from '../files/image-url';
 import { viewerTrigger } from '../files/photo-viewer';
 import { GarmentMark, markLabel } from '../layout/garment-mark';
-import { HangerIcon } from '../layout/parts';
+import { GarmentSilhouette } from '../layout/parts';
 import { t } from '../i18n';
 import { categoryLabel } from '../wardrobe/garment';
 import { isPieceToBuy } from './references';
@@ -337,7 +337,8 @@ function CollageFace(props: {
       data-collage-piece={garment.category}
       class={`${props.class} aspect-square min-w-0 max-w-full rounded-box bg-base-100 flex flex-col items-center justify-center gap-1 text-muted p-1`}
     >
-      <HangerIcon
+      <GarmentSilhouette
+        category={garment.category}
         class={`${props.labelled ? 'size-6' : 'size-4'} max-w-full max-h-full`}
         strokeWidth="1.5"
       />

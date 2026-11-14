@@ -16,18 +16,20 @@ import { Dock } from '../layout/dock';
 import { PAIR_GRID } from '../layout/columns';
 import { PageMain } from '../layout/page-main';
 import { Layout } from '../layout/layout';
+import { HangerIcon } from '../layout/parts';
 import { OutfitCollage, outfitLabel } from '../outfits/collage';
 import type { NeedsToDecide } from '../wishlist/inbox';
 import { roundReviewPath, roundWhat } from '../wishlist/round-text';
 import type { MuseRound } from '../wishlist/rounds';
 import { WISHLIST_PATH } from '../wardrobe/urls';
+import { AddSheet, OPEN_ADD_SHEET } from '../wardrobe/wardrobe-header';
 import { EntrySelfie } from '../selfies/views';
 import { WornControl } from '../wears/worn-control';
 import { SnapStrip, SnapStripsInit, snapItem } from '../strip/snap-strip';
 import type { ViewContext } from '../view-context';
 import { UserWeatherLine } from '../weather/views';
 import { PlanWeekForm } from '../week-plan/views';
-import type { IdeasRow, PlannedRow, TodayModel } from './today';
+import type { FirstRun, IdeasRow, PlannedRow, TodayModel } from './today';
 import { TODAY_PATH, todayIdeasUrl, WEAR_THIS_PATH } from './urls';
 
 /**
@@ -46,6 +48,12 @@ import { TODAY_PATH, todayIdeasUrl, WEAR_THIS_PATH } from './urls';
  * read its ideas are matched with, where the stale-while-revalidate pages
  * load it after them (WeatherSlot): one request and one weather read
  * fewer on every open of the app (#158).
+ *
+ * Until the closet can be dressed as an outfit (`model.firstRun`, #666)
+ * the page is the first-run path instead: a welcome and one primary
+ * action, "Add your first garment", opening the add sheet (camera first);
+ * the weather line (the city) once a garment is in; no plan controls and
+ * no ideas until then, as they could plan nothing.
  */
 export function TodayPage(props: {
   ctx: ViewContext;
@@ -54,11 +62,13 @@ export function TodayPage(props: {
   now: Date;
 }) {
   const { ctx, model } = props;
+  const firstRun = model.firstRun ?? null;
   return (
     <Layout ctx={ctx} title={t('today.TITLE')}>
       <AppBar ctx={ctx} title={dayLabel(model.today)} />
       <PageMain width="wide" class="p-4 pt-20 pb-24 flex flex-col gap-4">
-        {model.weather && (
+        {firstRun && <FirstRunCard stage={firstRun} />}
+        {model.weather && firstRun !== 'empty' && (
           <UserWeatherLine
             weather={model.weather}
             timeZone={props.timeZone}
@@ -85,19 +95,69 @@ export function TodayPage(props: {
           </div>
         )}
         <SnapStripsInit />
-        <div class="flex flex-wrap items-center gap-2">
-          <a
-            href={`/calendar/plan?for=day:${model.today}`}
-            class="btn btn-ghost btn-sm"
-          >
-            + {t('today.PLAN_ANOTHER')}
-          </a>
-          {/* The week ahead (#16): lands on the calendar with what it planned. */}
-          <PlanWeekForm small />
-        </div>
+        {!firstRun && (
+          <div class="flex flex-wrap items-center gap-2">
+            <a
+              href={`/calendar/plan?for=day:${model.today}`}
+              class="btn btn-ghost btn-sm"
+            >
+              + {t('today.PLAN_ANOTHER')}
+            </a>
+            {/* The week ahead (#16): lands on the calendar with what it planned. */}
+            <PlanWeekForm small />
+          </div>
+        )}
       </PageMain>
+      {firstRun && (
+        <AddSheet
+          tab="closet"
+          viewOwner={undefined}
+          canEdit
+          newCapsule={false}
+        />
+      )}
       <Dock ctx={ctx} />
     </Layout>
+  );
+}
+
+/**
+ * The first-run path's card (#666): the welcome and "Add your first
+ * garment" on an empty closet; once garments are in but no outfit's worth,
+ * what is missing and "Add a garment". Its button opens the add sheet in
+ * place (a dialog, no navigation), so the camera is one more tap.
+ */
+function FirstRunCard({ stage }: { stage: FirstRun }) {
+  const empty = stage === 'empty';
+  return (
+    <section
+      class="card bg-base-100 shadow-sm"
+      data-first-run={stage}
+      aria-labelledby="first-run-title"
+    >
+      <div class="card-body p-4 gap-3 items-center text-center">
+        <HangerIcon class="size-12 text-muted" strokeWidth="1.5" />
+        <h2 id="first-run-title" class="card-title">
+          {t(
+            empty
+              ? 'today.firstRun.WELCOME_TITLE'
+              : 'today.firstRun.INCOMPLETE_TITLE',
+          )}
+        </h2>
+        <p class="text-sm text-muted">
+          {t(empty ? 'today.firstRun.WELCOME' : 'today.firstRun.INCOMPLETE')}
+        </p>
+        <button
+          type="button"
+          class="btn btn-primary"
+          aria-haspopup="dialog"
+          onclick={OPEN_ADD_SHEET}
+          data-first-run-add=""
+        >
+          {t(empty ? 'today.firstRun.ADD_FIRST' : 'today.firstRun.ADD_MORE')}
+        </button>
+      </div>
+    </section>
   );
 }
 
