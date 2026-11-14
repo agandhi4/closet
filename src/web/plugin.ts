@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import type { CutoutQueueState } from '../cutout/queue-state';
 import type { Db } from '../db/client';
 import { registerApi } from './api/plugin';
 import { createSessionHook } from './auth/require-session';
@@ -103,10 +104,10 @@ export interface WebOptions {
    */
   photos: Photos;
   /**
-   * The background-removal queue, woken when a photo is queued; whether
-   * it runs is /health/ready's cutout_queue check.
+   * The background-removal queue, woken when a photo is queued; its state
+   * (running, or waiting for the model) is /health/ready's cutout_queue check.
    */
-  cutouts: { wake(): void; readonly running: boolean };
+  cutouts: { wake(): void; readonly state: CutoutQueueState };
   /**
    * The timers serve() started, adopted after createApp() built this
    * (src/maintenance/scheduled.ts): /health/ready's cron_jobs check.

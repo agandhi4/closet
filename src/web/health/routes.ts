@@ -67,7 +67,7 @@ export const healthRoutes: FastifyPluginCallback<WebOptions> = (
       ...(await checkDatabase(() => lastMigrationAt(db), buildSchemaAt, log)),
       storage: await storage(),
       cron_jobs: checkJobs(jobs.stuck()),
-      cutout_queue: checkCutoutQueue(cutouts.running),
+      cutout_queue: checkCutoutQueue(cutouts.state),
     });
     return reply
       .status(body.status === 'up' ? 200 : 503)

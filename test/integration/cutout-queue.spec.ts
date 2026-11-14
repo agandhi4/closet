@@ -2,9 +2,12 @@ import { eq, sql } from 'drizzle-orm';
 import sharp from 'sharp';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { settlesWithin } from '../../src/cutout/deadline';
+import { ModelChecksumError, ModelDownloadError } from '../../src/cutout/model';
 import { CUTOUT_LEASE_MS } from '../../src/cutout/queries';
 import { retryFailedCutouts } from '../../src/cutout/queue';
+import { MODEL_UNAVAILABLE_FIX } from '../../src/cutout/queue-state';
 import { file } from '../../src/db/schema';
+import type { Readiness } from '../../src/web/health/checks';
 import {
   alphaAt,
   eventually,
@@ -471,20 +474,16 @@ describe('cutout queue', () => {
   it('claims nothing while the runner cannot ready its model, and still stops promptly', async () => {
     const { fileName } = await queuedPhoto('Modelless shirt');
     const runner = fakeRunner();
-    runner.ready = () => Promise.reject(new Error('Model download failed'));
+    runner.ready = () =>
+      Promise.reject(new ModelDownloadError('Model download failed'));
 
     t.cutouts.start(runner);
-    await eventually('the queue to give up on the model', () =>
-      Promise.resolve(
-        t.logs
-          .messagesWithError('warn', 'Cutout')
-          .includes(
-            'Cutout queue cannot run the model; pending cutouts wait, trying again in 5 min: Model download failed',
-          ),
-      ),
+    await eventually('the queue to wait for the model', () =>
+      Promise.resolve(t.cutouts.state.name === 'waiting-for-model'),
     );
     // Its five-minute wait ends with the queue.
     expect(await settlesWithin(t.cutouts.stop(), 2_000)).toBe(true);
+    expect(t.cutouts.state).toEqual({ name: 'stopped' });
 
     expect(runner.calls).toBe(0);
     expect(await photoRow(t, fileName)).toMatchObject({
@@ -492,12 +491,85 @@ describe('cutout queue', () => {
       cutoutAttempts: 0,
       ...NO_LEASE,
     });
-    // With the model back, the photo runs.
-    t.cutouts.start(fakeRunner());
+  });
+
+  // #689: a model that cannot load used to read `up` with every photo
+  // pending forever and a warning every 5 min as the only sign.
+  it('waits for a model it cannot have visibly, once per kind, and drains when it can without a restart', async () => {
+    const { fileName } = await queuedPhoto('Patient shirt');
+    // The lines are counted per outage: none from an earlier spec's queue.
+    t.logs.clear();
+    const refusals = [
+      new ModelDownloadError(
+        'Model download failed: HTTP 403 from models.test',
+      ),
+      new ModelDownloadError(
+        'Model download failed: HTTP 403 from models.test',
+      ),
+      new ModelChecksumError('/models/m.onnx', 'aa', 'bb'),
+    ];
+    let readies = 0;
+    const runner = fakeRunner();
+    runner.ready = () => {
+      const refusal = refusals[readies];
+      readies += 1;
+      return refusal ? Promise.reject(refusal) : Promise.resolve();
+    };
+    const cutoutQueue = async () => {
+      const res = await t.inject({ method: 'GET', url: '/health/ready' });
+      // Optional: the app stays up while photos wait.
+      expect(res.statusCode).toBe(200);
+      return res.json<Readiness>().checks.cutout_queue;
+    };
+
+    t.cutouts.start(runner);
+    await eventually('the first refusal', () =>
+      Promise.resolve(t.cutouts.state.name === 'waiting-for-model'),
+    );
+    expect(await cutoutQueue()).toEqual({
+      status: 'down',
+      required: false,
+      reason: 'download',
+      fix: MODEL_UNAVAILABLE_FIX.download,
+    });
+    // Each retry (woken here rather than after 5 min) is refused again.
+    for (const tries of [2, 3]) {
+      t.cutouts.wake();
+      await eventually(`try ${tries}`, () =>
+        Promise.resolve(readies === tries),
+      );
+    }
+    await eventually('the checksum refusal', () =>
+      Promise.resolve(
+        t.cutouts.state.name === 'waiting-for-model' &&
+          t.cutouts.state.kind === 'checksum',
+      ),
+    );
+    expect(await cutoutQueue()).toMatchObject({ reason: 'checksum' });
+    expect(runner.calls).toBe(0);
+    // One warning with the fix, the one captured, per kind; a retry of a
+    // kind already seen says only that it still waits.
+    const warnings = t.logs.messages('warn', 'Cutout');
+    expect(warnings.filter((line) => line.includes('. Fix: '))).toEqual([
+      `Cutout queue waiting for the model (download); pending cutouts wait, trying again in 5 min. Fix: ${MODEL_UNAVAILABLE_FIX.download}`,
+      `Cutout queue waiting for the model (checksum); pending cutouts wait, trying again in 5 min. Fix: ${MODEL_UNAVAILABLE_FIX.checksum}`,
+    ]);
+    expect(warnings).toContain(
+      'Cutout queue still waiting for the model (download); trying again in 5 min',
+    );
+
+    // The model is back: the next look drains the queue.
     await t.cutouts.whenIdle();
     expect(await photoRow(t, fileName)).toMatchObject({
       cutoutStatus: 'ready',
+      ...NO_LEASE,
     });
+    expect(await cutoutQueue()).toEqual({ status: 'up', required: false });
+    expect(t.logs.messages('info', 'Cutout')).toContainEqual(
+      expect.stringMatching(
+        /^Cutout model available after \d+ s waiting; draining pending cutouts$/,
+      ),
+    );
   });
 
   it('the nightly retry requeues failed cutouts under three attempts only', async () => {

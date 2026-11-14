@@ -106,8 +106,22 @@ describe('checkJobs and checkCutoutQueue', () => {
       ...down(false),
       stuck: ['Week re-plan'],
     });
-    expect(checkCutoutQueue(true)).toEqual(up(false));
-    expect(checkCutoutQueue(false)).toMatchObject(down(false));
+    expect(checkCutoutQueue({ name: 'running' })).toEqual(up(false));
+    expect(checkCutoutQueue({ name: 'stopped' })).toMatchObject(down(false));
+    // Waiting for the model: the kind and its own fix, never the error.
+    expect(
+      checkCutoutQueue({
+        name: 'waiting-for-model',
+        kind: 'checksum',
+        since: 0,
+        captured: ['download', 'checksum'],
+      }),
+    ).toEqual({
+      status: 'down',
+      required: false,
+      reason: 'checksum',
+      fix: 'the file in MODELS_PATH is not the pinned model: run npm run cutout:fetch-model to replace it; see docs/operations.md#health',
+    });
   });
 });
 

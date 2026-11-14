@@ -95,11 +95,18 @@ async function run(id: number, rgb: Uint8Array): Promise<void> {
 
 async function handle(message: ChildRequest): Promise<void> {
   try {
-    if (message.type === 'load') {
-      loaded = load(message);
-      await loaded;
-    } else {
-      await run(message.id, message.rgb);
+    switch (message.type) {
+      case 'probe':
+        // Reaching here means the binding loaded with this module.
+        reply({ type: 'probed' });
+        return;
+      case 'load':
+        loaded = load(message);
+        await loaded;
+        return;
+      case 'run':
+        await run(message.id, message.rgb);
+        return;
     }
   } catch (error) {
     reply({

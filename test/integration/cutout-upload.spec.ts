@@ -78,7 +78,7 @@ describe('cutouts: upload, page and polling', () => {
     const html = unescapeHtml(res.body);
     expect(html).toMatch(
       new RegExp(
-        `<div id="garment-photo" hx-get="/wardrobe/${id}/cutout" hx-trigger="every 2s" hx-swap="outerHTML" hx-indicator="#garment-photo-status">`,
+        `<div id="garment-photo" hx-get="/wardrobe/${id}/cutout\\?poll=1" hx-trigger="every 2s" hx-swap="outerHTML" hx-indicator="#garment-photo-status">`,
       ),
     );
     expect(html).toContain('Removing background…');
@@ -89,6 +89,49 @@ describe('cutouts: upload, page and polling', () => {
     expect(html).toContain("import('photo-input')");
     expectNativePostForms(res);
     expectNoRawI18nKeys(res);
+  });
+
+  // #689: a queue that cannot run its model leaves the photo pending for
+  // as long as that lasts; an open page must not poll it every 2 s forever.
+  it('backs the pending poll off from 2 s to 10 s, then stops at 2 min with the queued line', async () => {
+    const id = await createGarment(t, { name: 'Waiting shirt' });
+    await uploadPhoto(t, id, await jpegPhoto());
+    const poll = async (n: number) => {
+      const res = await t.inject({
+        method: 'GET',
+        url: `/wardrobe/${id}/cutout?poll=${n}`,
+        headers: HX_FRAGMENT,
+      });
+      expectFragment(res);
+      return unescapeHtml(res.body);
+    };
+
+    // 15 polls 2 s apart (30 s), then 9 polls 10 s apart (to 120 s).
+    for (const [n, every] of [
+      [14, '2s'],
+      [15, '10s'],
+      [23, '10s'],
+    ] as const) {
+      const html = await poll(n);
+      expect(html).toContain(
+        `hx-get="/wardrobe/${id}/cutout?poll=${n + 1}" hx-trigger="every ${every}"`,
+      );
+      expect(html).toContain('Removing background…');
+    }
+    const capped = await poll(24);
+    expect(capped).toContain('<div id="garment-photo">');
+    expect(capped).not.toContain('hx-trigger');
+    expect(capped).toContain(
+      'Background removal is queued and will finish later.',
+    );
+    expect(capped).not.toContain('Removing background…');
+    // A count no fragment writes is refused, not guessed at.
+    const bad = await t.inject({
+      method: 'GET',
+      url: `/wardrobe/${id}/cutout?poll=soon`,
+      headers: HX_FRAGMENT,
+    });
+    expect(bad.statusCode).toBe(400);
   });
 
   it('answers a refused photo with the error page, storing nothing', async () => {
