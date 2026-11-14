@@ -71,7 +71,9 @@ export function CalendarPage(props: {
       <PageMain width="agenda" class="p-4 pt-20 pb-24">
         <CalendarTabs active="week" />
         <WeatherSlot ctx={ctx} days={{ from: first, to: last }} />
-        {props.banner && <PlannedWeekBanner banner={props.banner} />}
+        {props.banner && (
+          <PlannedWeekBanner banner={props.banner} shown={{ first, last }} />
+        )}
         {props.canDress && <PlanWeekForm class="mb-3" small />}
         <nav
           class="flex items-center justify-between gap-2"
