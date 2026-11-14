@@ -43,6 +43,7 @@ import {
   revalidationOutcome,
   sentToLogin,
   servesStaleWhileRevalidate,
+  PAGES_CACHE,
 } from '../../src/web/page-cache';
 import {
   isWarmedDetailPage,
@@ -190,9 +191,6 @@ async function answerShare(request: Request): Promise<Response> {
 }
 
 const FALLBACK_HTML_URL = '/offline.html';
-// v2 since 2026-09-26: copies are stamped and owned (pageStore below);
-// pages-v1 held neither and is retired on activate.
-const PAGES_CACHE = 'pages-v2';
 // v2 since 2026-09-28 (#226): dropped with the session. images-v1 outlived
 // every sign-out, so it may hold a previous account's photos; it is retired
 // on activate.
@@ -1476,7 +1474,8 @@ async function endFetchedSession(
 /**
  * The server's warm list, once the session caches are claimed for its
  * account (it says whose it is, like a page): undefined, with nothing
- * stored, when it cannot be had or a drop overtook it. A list refused for
+ * stored, when it cannot be had or a drop overtook it (which asks for one
+ * more run). A list refused for
  * want of a session means it ended away from this device: the session's
  * caches go (endFetchedSession).
  */
@@ -1510,7 +1509,21 @@ async function fetchWarmList(
     return undefined;
   }
   const claimed = await claimPageCache(account, since, WARM_LIST_PATH, event);
-  return claimed ? { list, account } : undefined;
+  if (!claimed) {
+    // claimPageCache refuses only an answer from an older generation: a drop
+    // overtook the fetch (the first signed-in page claiming the cache from
+    // the sign-in page's empty owner is one, #812). No WARM_PAGES may follow
+    // to ask again, so the run goes once more, and the next one reads its own
+    // generation: it repeats only when another drop lands in its fetch.
+    if (generation !== since) {
+      console.info(
+        `[sw] ${WARM_LIST_PATH} (warm) overtaken by a drop: warming again`,
+      );
+      warmAgain = true;
+    }
+    return undefined;
+  }
+  return { list, account };
 }
 
 /**

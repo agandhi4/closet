@@ -550,6 +550,11 @@ describe('trips', () => {
         /name="packed" value="\d+"[^>]*checked/,
       );
       expect(packingRow(html, jeans)).not.toMatch(/name="packed"[^>]*checked/);
+      // The outbox adds its queued ticks to the server's number (#658):
+      // the line carries it and the string to fill, and shows it untouched.
+      expect(html).toMatch(
+        /data-packed-served="2"\s+data-packed-count="\{packed\} of 5 packed/,
+      );
     });
 
     it('keeps packed marks through edits that keep the garment on the list', async () => {
@@ -679,6 +684,9 @@ describe('trips', () => {
       );
       expect(res.statusCode).toBe(200);
       expect(res.body).toContain('1 of 3 packed');
+      expect(unescapeHtml(res.body)).toMatch(
+        /data-packed-served="1"\s+data-packed-count="\{packed\} of 3 packed"/,
+      );
       expect(await labels(first)).toEqual([
         'Phone charger ✓',
         'Toiletries',

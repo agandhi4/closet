@@ -6,6 +6,8 @@ import {
   goesThroughOutbox,
   isChecklist,
   isReplayRequest,
+  offlineNotice,
+  packedCount,
   OUTBOX_MAX_PENDING,
   type OutboxStore,
   QUEUEABLE_ROUTES,
@@ -415,5 +417,44 @@ describe('sharedUntilRejected', () => {
     await expect(open()).resolves.toBe(2);
     await expect(open()).resolves.toBe(2);
     expect(calls).toBe(2);
+  });
+});
+
+describe('offlineNotice', () => {
+  it.each<[string, QueueableKind[], string]>([
+    ['a page that queues nothing', [], 'none'],
+    ['wears', ['wear'], 'wears'],
+    ['an entry marked worn', ['entry'], 'wears'],
+    ['washes', ['wash'], 'washes'],
+    ['packing ticks', ['packed', 'item'], 'ticks'],
+    ['ticks beside a worn mark', ['packed', 'entry'], 'changes'],
+  ])('%s', (_name, kinds, notice) => {
+    expect(offlineNotice(kinds)).toBe(notice);
+  });
+});
+
+describe('packedCount', () => {
+  it('keeps the server count while nothing is queued', () => {
+    expect(
+      packedCount(2, [
+        { served: true, queued: undefined },
+        { served: false, queued: undefined },
+      ]),
+    ).toBe(2);
+  });
+
+  it('adds the net of the queued ticks', () => {
+    expect(
+      packedCount(2, [
+        { served: false, queued: true },
+        { served: true, queued: false },
+        { served: false, queued: true },
+        { served: true, queued: true },
+      ]),
+    ).toBe(3);
+  });
+
+  it('ignores a queued record that agrees with the server', () => {
+    expect(packedCount(1, [{ served: true, queued: true }])).toBe(1);
   });
 });

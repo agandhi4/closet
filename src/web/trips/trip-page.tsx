@@ -15,7 +15,12 @@ import { DayHeading } from '../layout/day-heading';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { HangerIcon, SavedToast, StripFlags } from '../layout/parts';
-import { queuedTarget } from '../../offline-writes';
+import {
+  type OfflineNotice,
+  offlineNotice,
+  type QueueableKind,
+  queuedTarget,
+} from '../../offline-writes';
 import { collagePieces, OutfitCollage } from '../outfits/collage';
 import { OutboxPending, outboxRegion } from '../outbox';
 import type { ViewContext } from '../view-context';
@@ -58,6 +63,24 @@ export interface TripPageModel extends TripModel {
 
 const PACKED_SUMMARY_ID = 'trip-packed-summary';
 const ITEMS_SUMMARY_ID = 'trip-items-summary';
+
+const NOTICE_TEXT = {
+  none: 'offlineNotice.NONE',
+  wears: 'offlineNotice.WEARS',
+  washes: 'offlineNotice.WASHES',
+  ticks: 'offlineNotice.TICKS',
+  changes: 'offlineNotice.CHANGES',
+} as const satisfies Record<OfflineNotice, string>;
+
+/** The kinds this page's controls queue offline: what the notice derives from. */
+function queuedKinds(model: TripPageModel): QueueableKind[] {
+  return [
+    ...(model.packing.garments > 0 ? (['packed'] as const) : []),
+    ...(model.items.length > 0 ? (['item'] as const) : []),
+    ...(model.wornToday.size > 0 ? (['entry'] as const) : []),
+  ];
+}
+
 const FLAGS = ['created', 'picked', 'copied'] as const;
 
 export function TripPage(props: { ctx: ViewContext; model: TripPageModel }) {
@@ -89,7 +112,7 @@ export function TripPage(props: { ctx: ViewContext; model: TripPageModel }) {
           class="alert alert-warning alert-soft py-2 text-sm"
           role="note"
         >
-          {t('trips.OFFLINE')}
+          {t(NOTICE_TEXT[offlineNotice(queuedKinds(model))])}
         </p>
         {ctx.weatherEnabled && <TripWeatherSection model={model} />}
         <OutfitsSection model={model} />
@@ -355,11 +378,20 @@ export function PackedSummary(props: {
       hx-swap-oob={props.oob ? 'true' : undefined}
       data-packed={packing.packed}
     >
-      {t('trips.PACKED_SUMMARY', {
-        packed: packing.packed,
-        garments: packing.garments,
-        pieces: packing.pieces,
-      })}
+      <span
+        data-packed-served={packing.packed}
+        data-packed-count={t('trips.PACKED_SUMMARY', {
+          packed: '{packed}',
+          garments: packing.garments,
+          pieces: packing.pieces,
+        })}
+      >
+        {t('trips.PACKED_SUMMARY', {
+          packed: packing.packed,
+          garments: packing.garments,
+          pieces: packing.pieces,
+        })}
+      </span>
       {packing.warned > 0 && (
         <span class="text-warning">
           {' '}
@@ -512,7 +544,15 @@ export function ItemsSummary(props: {
       class="text-sm text-base-content/70"
       hx-swap-oob={props.oob ? 'true' : undefined}
     >
-      {t('trips.ITEMS_SUMMARY', { packed, count: props.items.length })}
+      <span
+        data-packed-served={packed}
+        data-packed-count={t('trips.ITEMS_SUMMARY', {
+          packed: '{packed}',
+          count: props.items.length,
+        })}
+      >
+        {t('trips.ITEMS_SUMMARY', { packed, count: props.items.length })}
+      </span>
     </p>
   );
 }
