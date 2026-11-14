@@ -595,10 +595,12 @@ function OwnerMenuItems({ model }: { model: GarmentPageModel }) {
 }
 
 // The pending photo's poll (#689): every 2 s for its first 30 s (a cutout
-// takes 4 to 7 s), then every 10 s, and after 2 min none: a queue that
-// waits for its model, or a long one, finishes later, and an open page must
-// not poll it forever. Counted in polls, which the URL carries (`poll`), so
-// the server needs no clock and no state; a reload starts over.
+// takes 4 to 7 s), then every 10 s. Past 2 min it stops only while the
+// queue waits for a model it cannot have: that photo finishes later, and an
+// open page must not poll it forever; a working queue that is merely busy
+// (a bulk upload) keeps the 10 s poll, so its cutout still lands on the
+// page. Counted in polls, which the URL carries (`poll`), so the server
+// needs no clock and no per-page state; a reload starts over.
 const FAST_POLL_SECONDS = 2;
 const FAST_PHASE_SECONDS = 30;
 const SLOW_POLL_SECONDS = 10;
@@ -607,15 +609,20 @@ const FAST_POLLS = FAST_PHASE_SECONDS / FAST_POLL_SECONDS;
 
 /**
  * The seconds until poll number `poll + 1`, or undefined once the polls so
- * far have waited POLL_CAP_SECONDS: the fragment then stops polling.
+ * far have waited POLL_CAP_SECONDS while `modelUnavailable` (the queue is
+ * waiting-for-model): the fragment then stops polling.
  */
-export function cutoutPollDelay(poll: number): number | undefined {
+export function cutoutPollDelay(
+  poll: number,
+  modelUnavailable: boolean,
+): number | undefined {
   const waited =
     poll <= FAST_POLLS
       ? poll * FAST_POLL_SECONDS
       : FAST_PHASE_SECONDS + (poll - FAST_POLLS) * SLOW_POLL_SECONDS;
-  if (waited >= POLL_CAP_SECONDS) return undefined;
-  return waited < FAST_PHASE_SECONDS ? FAST_POLL_SECONDS : SLOW_POLL_SECONDS;
+  if (waited < FAST_PHASE_SECONDS) return FAST_POLL_SECONDS;
+  if (waited >= POLL_CAP_SECONDS && modelUnavailable) return undefined;
+  return SLOW_POLL_SECONDS;
 }
 
 /**
@@ -623,17 +630,20 @@ export function cutoutPollDelay(poll: number): number | undefined {
  * plinth at 4:5, with the mask editor's pencil, and where the cutout
  * stands: pending polls GET /wardrobe/:id/cutout?poll=N on the backoff of
  * cutoutPollDelay (this component again, swapped over itself; the answer
- * without the trigger ends the polling: ready, failed, or the cap, which
- * says it will finish later), failed offers "Try again". Its own
+ * without the trigger ends the polling: ready, failed, or the cap while
+ * the model is unavailable, which says it will finish later), failed offers
+ * "Try again". Its own
  * hx-indicator keeps the polls off the app bar's spinner. Without a photo,
  * its role's silhouette, and for whoever may add one the button that opens
- * the photo sheet. `poll`: how many polls led here (0 on the page itself).
+ * the photo sheet. `poll`: how many polls led here (0 on the page itself);
+ * `modelUnavailable`: the queue's state, read by the poll's route only.
  */
 export function GarmentPhotoView(props: {
   garment: GarmentDetail;
   viewOwner: number | undefined;
   canEdit: boolean;
   poll?: number;
+  modelUnavailable?: boolean;
 }) {
   const { garment, viewOwner, canEdit } = props;
   const photo = garment.photo;
@@ -708,9 +718,10 @@ function nextPoll(props: {
   garment: GarmentDetail;
   viewOwner: number | undefined;
   poll?: number;
+  modelUnavailable?: boolean;
 }) {
   const poll = props.poll ?? 0;
-  const delay = cutoutPollDelay(poll);
+  const delay = cutoutPollDelay(poll, props.modelUnavailable === true);
   if (delay === undefined) return undefined;
   return {
     'hx-get': garmentUrl(props.garment.id, props.viewOwner, '/cutout', {

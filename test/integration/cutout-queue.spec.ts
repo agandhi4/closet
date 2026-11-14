@@ -546,6 +546,11 @@ describe('cutout queue', () => {
       ),
     );
     expect(await cutoutQueue()).toMatchObject({ reason: 'checksum' });
+    // Readiness reads the queue's state in memory: it never asks the runner
+    // (whose ready() is what forks the binding probe's model process).
+    const triesBefore = readies;
+    for (let call = 0; call < 5; call++) await cutoutQueue();
+    expect(readies).toBe(triesBefore);
     expect(runner.calls).toBe(0);
     // One warning with the fix, the one captured, per kind; a retry of a
     // kind already seen says only that it still waits.

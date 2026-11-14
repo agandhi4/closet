@@ -122,7 +122,8 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   // The garment page's photo while its cutout is pending polls this on a
   // backoff (cutoutPollDelay) and swaps it in; the answer stops polling
-  // once the cutout is ready or failed, or the polls reach their cap.
+  // once the cutout is ready or failed, or the polls reach their cap while
+  // this server's queue waits for its model.
   app.get(
     '/wardrobe/:id/cutout',
     { schema: { params: GarmentParams, querystring: CutoutPollQuery } },
@@ -138,6 +139,7 @@ export const photoRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           viewOwner={viewOwner}
           canEdit={access.canManage}
           poll={request.query.poll}
+          modelUnavailable={options.cutouts.state.name === 'waiting-for-model'}
         />,
       );
     },
