@@ -58,6 +58,7 @@ import {
   type OutboxStore,
   type QueueableKind,
   queueableKindOf,
+  reasonTextName,
   REPLAY_HEADER,
   REPLAY_TIMEOUT_MS,
   type ReplayFailure,
@@ -155,14 +156,6 @@ const ACTION_TEXT: Record<QueueableKind, string> = {
   entry: 'textOutboxActionEntry',
   packed: 'textOutboxActionPacked',
   item: 'textOutboxActionPacked',
-};
-
-const REASON_TEXT: Record<ReplayFailure, string> = {
-  gone: 'textOutboxReasonGone',
-  'too-old': 'textOutboxReasonTooOld',
-  future: 'textOutboxReasonFuture',
-  account: 'textOutboxReasonAccount',
-  refused: 'textOutboxReasonRefused',
 };
 
 // ---- The page ---------------------------------------------------------------
@@ -574,7 +567,7 @@ function noticeText(record: OutboxRecord): string {
   return text(isStuck(record) ? 'textOutboxStuck' : 'textOutboxNotSaved')
     .replace('{label}', () => record.label)
     .replace('{action}', () => text(ACTION_TEXT[record.kind]))
-    .replace('{reason}', () => text(REASON_TEXT[record.reason ?? 'refused']));
+    .replace('{reason}', () => text(reasonTextName(record.reason)));
 }
 
 /**
@@ -1006,7 +999,10 @@ async function replayAll(
     },
   };
   try {
-    const end = await replayQueue(queued, driver);
+    // The heartbeat saw the server answer again: the stuck ones get their turn.
+    const end = await replayQueue(queued, driver, {
+      serverAnswering: reason === 'online',
+    });
     if (end.end !== 'backoff') signedOut = end.end === 'no-session';
     if (end.end === 'backoff') {
       result.retryInMs = end.retryInMs;

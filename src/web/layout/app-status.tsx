@@ -117,6 +117,7 @@ function outboxText(): Record<`data-text-outbox-${string}`, string> {
     'reason-future': t('outbox.reason.FUTURE'),
     'reason-account': t('outbox.reason.ACCOUNT'),
     'reason-refused': t('outbox.reason.REFUSED'),
+    'reason-server': t('outbox.reason.SERVER'),
   };
   return Object.fromEntries(
     Object.entries(text).map(([name, value]) => [

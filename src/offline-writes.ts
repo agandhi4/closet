@@ -298,7 +298,7 @@ export async function enqueue<R extends StoredRecord>(
 }
 
 /** Why a queued write was not saved: the notice's reason. */
-export type ReplayFailure = 'gone' | 'refused' | ReplayRefusal;
+export type ReplayFailure = 'gone' | 'refused' | 'server' | ReplayRefusal;
 
 /** What the outbox does with a record after its replay's answer. */
 export type ReplayVerdict =
@@ -332,13 +332,40 @@ const VERDICT_OF_STATUS: Readonly<Partial<Record<number, ReplayVerdict>>> = {
   0: SIGNED_OUT,
   401: SIGNED_OUT,
   404: { verdict: 'failed', reason: 'gone' },
-  // 503 is the busy page (#643), the server saying it is unavailable, not
-  // a record it choked on.
+  // 502, 503 and 504 are the proxy or the busy page (#643) saying the server
+  // is unavailable (a restart, a deploy), not a record it choked on: only a
+  // 500 or another 5xx counts toward stuck.
   408: UNAVAILABLE,
+  502: UNAVAILABLE,
   503: UNAVAILABLE,
+  504: UNAVAILABLE,
   410: { verdict: 'saved', changed: false },
   429: UNAVAILABLE,
 };
+
+/**
+ * The notice's `data-text-outbox-*` name for a failure's reason. `server` is
+ * legacy: the #860 client settled a record as failed with it (it is no
+ * longer produced, a 5xx makes a record stuck), and such records are still
+ * in IndexedDB until dismissed.
+ */
+export function reasonTextName(reason: ReplayFailure | undefined): string {
+  switch (reason) {
+    case 'gone':
+      return 'textOutboxReasonGone';
+    case 'too-old':
+      return 'textOutboxReasonTooOld';
+    case 'future':
+      return 'textOutboxReasonFuture';
+    case 'account':
+      return 'textOutboxReasonAccount';
+    case 'server':
+      return 'textOutboxReasonServer';
+    case 'refused':
+    case undefined:
+      return 'textOutboxReasonRefused';
+  }
+}
 
 /**
  * A replay's answer (src/web/offline-writes.ts): 204 saved, 401 signed out,
@@ -599,12 +626,16 @@ export type ReplayEnd =
  *   its key ends it.
  * - A record that stays queued holds its key for the rest of the drain: no
  *   record with that key is sent past it. Other keys go on.
- * - The network, a timeout, 408, 429 and 503 stop the drain and spend
- *   nothing; a 401 stops it and keeps everything.
+ * - A drain that follows the server answering again (`serverAnswering`: the
+ *   heartbeat's probe succeeding after a non-online spell) tries every
+ *   stuck record in its turn.
+ * - The network, a timeout, 408, 429, 502, 503 and 504 stop the drain and
+ *   spend nothing; a 401 stops it and keeps everything.
  */
 export async function replayQueue<R extends ReplayRecord>(
   queued: readonly R[],
   driver: ReplayDriver<R>,
+  { serverAnswering = false } = {},
 ): Promise<ReplayEnd> {
   let held = new Set<string>();
   let anySaved = false;
@@ -665,7 +696,7 @@ export async function replayQueue<R extends ReplayRecord>(
     if (held.has(record.key)) continue;
     if (isStuck(record)) {
       const stuckFor = driver.now() - (record.stuckAt ?? 0);
-      if (stuckFor < STUCK_RETRY_MS) {
+      if (!serverAnswering && stuckFor < STUCK_RETRY_MS) {
         held.add(record.key);
         parked.push(record);
         wait(STUCK_RETRY_MS - stuckFor);

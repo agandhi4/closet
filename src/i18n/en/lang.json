@@ -197,7 +197,8 @@
       "TOO_OLD": "too long ago: add it from the calendar",
       "FUTURE": "that day has not come yet",
       "ACCOUNT": "it was saved while signed in as someone else",
-      "REFUSED": "it could not be saved"
+      "REFUSED": "it could not be saved",
+      "SERVER": "the server kept answering with an error"
     }
   },
   "NEWER_PAGE_AVAILABLE": "Newer version of this page",
@@ -1689,9 +1690,6 @@
     "ORDERED_ON": "ordered {date}",
     "ADD_TO_CLOSET": "Add to closet",
     "DISMISS": "Dismiss",
-    "STUCK": "{label}, {action}: not saved yet, the server keeps answering with an error.",
-    "TRY_AGAIN": "Try again",
-    "DISCARD_WRITE": "Discard",
     "FROM_ORDER": "From your orders: saving adds it to your closet and takes it off the list.",
     "PAGE_UNAVAILABLE": "The product page couldn't be read just now, so these are the details from your order email. Add a photo after saving."
   },

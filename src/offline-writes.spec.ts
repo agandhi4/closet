@@ -16,6 +16,7 @@ import {
   queuedTarget,
   queuedWritesGoneAtClaim,
   REPLAY_WINDOW_DAYS,
+  reasonTextName,
   replayVerdict,
   type ReplayDriver,
   type ReplayRecord,
@@ -318,10 +319,13 @@ describe('replayVerdict', () => {
     // for saved.
     [200, null, { verdict: 'failed', reason: 'refused' }],
     [500, null, { verdict: 'retry', cause: 'server' }],
-    [502, null, { verdict: 'retry', cause: 'server' }],
-    // The busy page (#643), a timeout and a rate limit say nothing about
-    // the record: they never spend its budget.
+    [501, null, { verdict: 'retry', cause: 'server' }],
+    // The proxy's 502 and 504 (a restart), the busy page (#643), a timeout
+    // and a rate limit say nothing about the record: they never count
+    // toward stuck.
+    [502, null, { verdict: 'retry', cause: 'unreachable' }],
     [503, null, { verdict: 'retry', cause: 'unreachable' }],
+    [504, null, { verdict: 'retry', cause: 'unreachable' }],
     [408, null, { verdict: 'retry', cause: 'unreachable' }],
     [429, null, { verdict: 'retry', cause: 'unreachable' }],
   ] as const)('reads %i (%s)', (status, outcome, verdict) => {
@@ -368,7 +372,7 @@ describe('replayQueue: a 5xx never fails a record, it makes it stuck', () => {
         [...stored.values()].filter((r) => r.state === 'pending'),
         driver,
       );
-    return { stored, sent, drain, clock };
+    return { stored, sent, drain, clock, driver };
   }
 
   it('a lone poisoned record ends stuck, not failed, and is then left alone', async () => {
@@ -479,6 +483,27 @@ describe('replayQueue: a 5xx never fails a record, it makes it stuck', () => {
     expect((await w.drain()).end).toBe('backoff');
     expect(w.sent).toEqual(['a']);
     expect(w.stored.get('a')?.serverErrors).toBeUndefined();
+  });
+
+  it('a drain after the server answered again tries every stuck record in its turn', async () => {
+    const w = world(
+      [
+        { ...row('bad'), serverErrors: 3, stuckAt: 0 },
+        { ...row('later'), serverErrors: 3, stuckAt: 0 },
+      ],
+      (id) => (id === 'later' ? OK : SERVER),
+      { now: 1000 },
+    );
+    const retried = await replayQueue([...w.stored.values()], w.driver, {
+      serverAnswering: true,
+    });
+    expect(w.sent).toEqual(['bad', 'later']);
+    expect(retried.end).toBe('backoff');
+    expect(w.stored.get('bad')).toMatchObject({
+      serverErrors: 4,
+      stuckAt: 1000,
+    });
+    expect(w.stored.has('later')).toBe(false);
   });
 
   it('a refusal fails the record as before', async () => {
@@ -646,5 +671,20 @@ describe('packedCount', () => {
 
   it('ignores a queued record that agrees with the server', () => {
     expect(packedCount(1, [{ served: true, queued: true }])).toBe(1);
+  });
+});
+
+describe('reasonTextName', () => {
+  it.each([
+    ['gone', 'textOutboxReasonGone'],
+    ['too-old', 'textOutboxReasonTooOld'],
+    ['future', 'textOutboxReasonFuture'],
+    ['account', 'textOutboxReasonAccount'],
+    ['refused', 'textOutboxReasonRefused'],
+    // A record the #860 client settled as failed, still in IndexedDB.
+    ['server', 'textOutboxReasonServer'],
+    [undefined, 'textOutboxReasonRefused'],
+  ] as const)('names %s', (reason, name) => {
+    expect(reasonTextName(reason)).toBe(name);
   });
 });
