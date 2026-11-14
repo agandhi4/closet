@@ -278,12 +278,29 @@ function errorKind(error: Error): string {
 }
 
 /**
+ * A client that cut an upload off before its closing boundary. busboy raises
+ * a bare Error (no statusCode, so it would be a 500) with this message, and
+ * @fastify/multipart 10 passes it on; the 9.x parser ended the form quietly.
+ */
+function isTruncatedUpload(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message === 'Unexpected end of multipart data'
+  );
+}
+
+/**
  * The HttpError an error is answered as: its own, or the one a driver
  * failure we recognise stands for (a lock wait past the owner lock's
  * timeout, the database out of reach).
  */
 function chosenAnswer(error: unknown): HttpError | undefined {
   if (error instanceof HttpError) return error;
+  if (isTruncatedUpload(error)) {
+    return new HttpError(400, t('refusal.request.unreadable'), {
+      logDetail: 'truncated multipart upload',
+    });
+  }
   if (isLockTimeout(error)) return new OwnerLockTimeout('a write');
   if (isPoolExhausted(error)) return new DatabasePoolBusy();
   if (isDatabaseUnavailable(error)) return new DatabaseUnavailable(error);
