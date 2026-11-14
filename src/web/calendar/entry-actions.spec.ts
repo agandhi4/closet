@@ -247,6 +247,13 @@ describe('the entry path for its owner', () => {
     vi.mocked(deleteEntry).mockResolvedValue({
       selfies: ['abc.jpg'],
       oneOffRemoved: null,
+      entry: {
+        outfitId: OUTFIT,
+        day: DAY,
+        occasion: 'work',
+        plannedBy: 'user',
+        worn: false,
+      },
     });
     await removeEntry(deps, owner, ENTRY);
     expect(deleteVariants).toHaveBeenCalledOnce();

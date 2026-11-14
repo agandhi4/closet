@@ -359,6 +359,12 @@ export const PAGE_WRITES: Readonly<
     api: ['createCalendarEntry', 'replaceCalendarEntryOutfit'],
   },
   'POST /calendar/:id/delete': { api: 'deleteCalendarEntry' },
+  // Undo's post (#686): the page's toast carries the removed entry's fields;
+  // a client restores by createCalendarEntry with what it just deleted.
+  'POST /calendar/restore': {
+    webOnly:
+      'the toast Undo of a removal: a native client undoes with createCalendarEntry',
+  },
   'POST /calendar/:id/worn': { api: 'setCalendarEntryWorn' },
   'POST /calendar/:id/selfie': { api: 'setCalendarEntrySelfie' },
   'POST /selfies/:id/delete': { api: 'deleteSelfie' },

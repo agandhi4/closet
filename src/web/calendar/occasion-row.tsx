@@ -9,6 +9,7 @@ import type { IsoDate } from '../../calendar-date';
 import type { CalendarEntry, EntryView } from './calendar-view';
 import { occasionLabel } from '../date-labels';
 import { OPEN_PLAN_SHEET, planSheetChoice } from './plan-sheet';
+import { removalIsReversible } from './restore';
 import { dayUrl, planPageUrl } from './urls';
 
 /**
@@ -136,8 +137,9 @@ function OccasionLabel({ occasion }: { occasion: Occasion }) {
  * The row's one menu, at its end (#636): a phone row carries two direct
  * actions (this and the worn pill), not a 24 px × above the pill's Undo.
  * "Change outfit" (not once worn: a worn entry is the record of that day
- * and keeps its outfit), then Remove, confirmed first; htmx swaps in the
- * week it was on. Buttons only: a form inside a daisyUI menu item loses
+ * and keeps its outfit), then Remove: at once with Undo in the toast
+ * when that restores it exactly, else asked first by the confirm sheet
+ * (removalIsReversible, #686); htmx swaps in the week it was on. Buttons only: a form inside a daisyUI menu item loses
  * its styling (the outfit page's ⋯ menu).
  */
 function EntryMenu(props: { entry: CalendarEntry; name: string }) {
@@ -173,7 +175,11 @@ function EntryMenu(props: { entry: CalendarEntry; name: string }) {
             class="text-error"
             hx-post={remove}
             hx-vals={JSON.stringify({ week: entry.day })}
-            hx-confirm={t('CALENDAR_DELETE_CONFIRM')}
+            hx-confirm={
+              removalIsReversible(entry)
+                ? undefined
+                : t('CALENDAR_DELETE_CONFIRM')
+            }
             data-needs-network=""
             data-remove-entry={entry.id}
           >

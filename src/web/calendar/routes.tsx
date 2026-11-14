@@ -62,9 +62,11 @@ import {
   CALENDAR_MONTH_PATH,
   CALENDAR_PATH,
   CALENDAR_PLAN_PATH,
+  CALENDAR_RESTORE_PATH,
   weekUrl,
 } from './urls';
 import { weekContext } from './week-context';
+import { restorable } from './restore';
 import { BY_PERSON } from '../write-origin';
 
 /**
@@ -348,19 +350,65 @@ export const calendarRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     },
   );
 
-  // The chip's form (hx-confirm): htmx swaps the page to the week the chip
-  // was on; the same form posted natively gets the 303 there.
+  // The row's Remove (#686): an unworn entry whose outfit survives it goes at
+  // once and the toast offers Undo (POST /calendar/restore); a worn entry
+  // (its wears and selfie go) and one that takes a one-off outfit with it
+  // are asked first, by the row's sheet (`data-confirm`, confirm-sheet.js),
+  // not here. htmx swaps the page to the week the chip was on; the same form
+  // posted natively gets the 303 there.
   app.post(
     '/calendar/:id/delete',
     { schema: { params: EntryParams, body: WeekBody } },
     async (request, reply) => {
-      await removeEntry(
+      const removed = await removeEntry(
         { db, photos, logger },
         actorOf(request),
         request.params.id,
       );
-      const target = weekUrl(request.body?.week);
-      if (request.headers['hx-request']) return navigateTo(reply, target);
+      const week = request.body?.week;
+      const target = weekUrl(week);
+      if (request.headers['hx-request']) {
+        announce(reply, t('CALENDAR_REMOVED'), restorable(removed, week));
+        return navigateTo(reply, target);
+      }
+      return reply.redirect(target, 303);
+    },
+  );
+
+  // Undo of the delete above: the entry back on its day for its occasion,
+  // as the planner's pick when it was one. The outfit it held was kept (the
+  // sheet guards a one-off), so it is still there unless deleted since: 404.
+  app.post(
+    CALENDAR_RESTORE_PATH,
+    {
+      schema: {
+        body: Type.Object({
+          date: IsoDateSchema,
+          outfitId: RowId,
+          occasion: OccasionSchema,
+          plannedBy: Type.Union([Type.Literal('auto'), Type.Literal('user')]),
+          week: Type.Optional(IsoDateSchema),
+        }),
+      },
+    },
+    async (request, reply) => {
+      const actor = actorOf(request);
+      const { date, outfitId, occasion, plannedBy, week } = request.body;
+      const entry = { outfitId, day: date, occasion };
+      const scheduled = await planOutfit(
+        db,
+        actor,
+        entry,
+        plannedBy === 'auto' ? 'planner' : BY_PERSON,
+      );
+      logger.info(
+        `Calendar entry ${scheduled.entryId} restored (${plannedBy}) by user ${actor.userId} (Undo)`,
+      );
+      const target = weekUrl(week ?? date);
+      if (request.headers['hx-request']) {
+        announce(reply, t('CALENDAR_RESTORED'));
+        return navigateTo(reply, target);
+      }
       return reply.redirect(target, 303);
     },
   );

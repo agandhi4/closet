@@ -14,13 +14,19 @@ const REFUSED_WHILE_LEAVING =
 
 /**
  * Collects what went wrong in the page while a spec runs, for it to assert
- * none: uncaught errors, and with `console`, console errors too.
+ * none: uncaught errors, and with `console`, console errors too, and any
+ * native dialog (alert, confirm, prompt): the app asks through its own
+ * sheet (public/js/confirm-sheet.js, #686), so one is dismissed and counted.
  */
 export function pageErrors(
   page: Page,
   options: { console?: boolean } = {},
 ): string[] {
   const errors: string[] = [];
+  page.on('dialog', (dialog) => {
+    errors.push(`native ${dialog.type()} dialog: ${dialog.message()}`);
+    void dialog.dismiss();
+  });
   page.on('pageerror', (error) => {
     if (REFUSED_WHILE_LEAVING.test(error.stack ?? error.message)) return;
     errors.push(error.message);

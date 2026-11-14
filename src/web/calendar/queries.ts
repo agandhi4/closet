@@ -638,6 +638,19 @@ export async function ownEntryDay(
   return row?.day;
 }
 
+/** What deleteEntry removed: the entry as it stood (what Undo restores) and what went with it. */
+export interface DeletedEntry {
+  selfies: string[];
+  oneOffRemoved: number | null;
+  entry: {
+    outfitId: number;
+    day: IsoDate;
+    occasion: Occasion;
+    plannedBy: PlannedBy;
+    worn: boolean;
+  };
+}
+
 /**
  * Deletes the owner's entry, the user saying it was wrong: its wears go
  * with it (garment_wear's foreign key) and so does its selfie, row here
@@ -669,7 +682,7 @@ export function deleteEntry(
   db: Queryable,
   id: number,
   ownerId: number,
-): Promise<{ selfies: string[]; oneOffRemoved: number | null } | EntryMiss> {
+): Promise<DeletedEntry | EntryMiss> {
   return ownerTransaction(db, ownerId, 'deleteEntry', async (tx) => {
     const selfies = await deleteEntrySelfie(tx, id, ownerId);
     // The target aliased and every column qualified: the RETURNING's
@@ -682,12 +695,18 @@ export function deleteEntry(
       rows: [deleted],
     } = await tx.execute<{
       outfit_id: number;
+      day: IsoDate;
+      occasion: Occasion;
+      planned_by: PlannedBy;
+      worn: boolean;
       created: boolean;
       one_off: boolean;
     }>(sql`
       delete from ${outfitCalendar} as ${entry}
       where ${entry.id} = ${id} and ${entry.ownerId} = ${ownerId}
-      returning ${entry.outfitId} as outfit_id,
+      returning ${entry.outfitId} as outfit_id, ${entry.day}::text as day,
+        ${entry.occasion} as occasion, ${entry.plannedBy} as planned_by,
+        ${entry.wornAt} is not null as worn,
         coalesce(${entry.outfitCreated}, false) as created,
         coalesce((select ${held.origin} in (${sql.join(
           ONE_OFF_ORIGINS.map((o) => sql`${o}`),
@@ -701,6 +720,13 @@ export function deleteEntry(
     return {
       selfies,
       oneOffRemoved: removed ? deleted.outfit_id : null,
+      entry: {
+        outfitId: deleted.outfit_id,
+        day: deleted.day,
+        occasion: deleted.occasion,
+        plannedBy: deleted.planned_by,
+        worn: deleted.worn,
+      },
     };
   });
 }

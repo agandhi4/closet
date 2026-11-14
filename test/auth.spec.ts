@@ -96,7 +96,8 @@ test('register through the form, sign out from Profile, sign back in', async ({
   await expect(page.locator('[role="alert"]')).toHaveText(
     'Incorrect email or password',
   );
-  await expect(page.locator('form')).toHaveCount(1);
+  // The confirm sheet's backdrop is a form of every page.
+  await expect(page.locator('form:not(.modal-backdrop)')).toHaveCount(1);
   await expect(page.locator('#email')).toHaveValue(email);
 
   // The refused post's page kept the returnTo: signing in lands on the

@@ -9,10 +9,11 @@ import { outfitNotFound } from '../outfits/outfit-actions';
 import { NotFound } from '../refusals';
 import type { Actor } from '../sharing/access';
 import { type EntryWornOutcome, setEntryWorn } from '../wears/queries';
-import type { WriteOrigin } from '../write-origin';
+import type { Chooser } from './planned-by';
 import type { CalendarEntry } from './calendar-view';
 import {
   deleteEntry,
+  type DeletedEntry,
   findEntry,
   type ScheduledEntry,
   scheduleOutfit,
@@ -44,7 +45,7 @@ export async function planOutfit(
   db: Db,
   actor: Actor,
   entry: { outfitId: number; day: IsoDate; occasion: Occasion },
-  madeBy: WriteOrigin,
+  madeBy: Chooser,
 ): Promise<ScheduledEntry> {
   const scheduled = await scheduleOutfit(db, {
     ownerId: actor.userId,
@@ -98,13 +99,14 @@ export async function requireEntry(
  * made for it once nothing holds it (deleteEntry, one transaction, Undo's
  * rule: #659), then the selfie's bytes,
  * which no transaction holds (AGENTS.md Gotchas, "The DB cascade deletes
- * rows, never bytes").
+ * rows, never bytes"). Answers what was removed: the page route's Undo
+ * restores from it.
  */
 export async function removeEntry(
   { db, photos, logger }: { db: Db; photos: Photos; logger: Logger },
   actor: Actor,
   id: number,
-): Promise<void> {
+): Promise<DeletedEntry> {
   const outcome = await deleteEntry(db, id, actor.userId);
   if (outcome === 'not-found') throw calendarEntryNotFound();
   // Only after commit: an unlink cannot be rolled back.
@@ -122,4 +124,5 @@ export async function removeEntry(
   logger.info(
     `Calendar entry ${id} deleted by user ${actor.userId}${selfie}${planner}`,
   );
+  return outcome;
 }

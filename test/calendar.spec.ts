@@ -28,7 +28,8 @@ test('the outfit page plans the outfit from its sheet and lands on that week; Pl
     headers: SAME_ORIGIN,
   });
   expect(res.ok()).toBe(true);
-  await page.goto(res.url());
+  const outfitUrl = res.url();
+  await page.goto(outfitUrl);
 
   await page.getByRole('button', { name: 'Plan', exact: true }).click();
   const sheet = page.locator('#outfit-plan-sheet');
@@ -134,5 +135,46 @@ test('the outfit page plans the outfit from its sheet and lands on that week; Pl
     page: document.documentElement.scrollWidth - window.innerWidth,
   }));
   expect(overflow).toEqual({ row: 0, page: 0 });
+
+  // #686: removing an entry acts at once and Undo, in the toast, puts it
+  // back; deleting an outfit asks in the app's own sheet (pageErrors fails
+  // any native dialog), which Cancel and Escape leave alone and the
+  // keyboard can reach.
+  const sheetRow = page.locator('[data-occasion]', {
+    hasText: 'Sheet outfit',
+  });
+  await sheetRow.getByText('Change', { exact: true }).click();
+  await sheetRow.getByRole('button', { name: 'Remove from calendar' }).click();
+  await expect(sheetRow).toHaveCount(0);
+  const status = page.locator('#toast-host');
+  await expect(status).toContainText('Removed from the calendar');
+  await status.getByRole('button', { name: 'Undo' }).click();
+  await expect(sheetRow).toHaveCount(1);
+  await expect(status).toContainText('Put back on the calendar');
+
+  await page.goto(outfitUrl);
+  const menu = page.locator('summary', { hasText: '⋯' });
+  const confirmSheet = page.locator('#confirm-sheet');
+  await menu.click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(confirmSheet).toBeVisible();
+  await expect(confirmSheet).toContainText(
+    'Are you sure you want to delete this?',
+  );
+  await expect(
+    confirmSheet.getByRole('button', { name: 'Cancel' }).first(),
+  ).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(confirmSheet).toBeHidden();
+  await expect(
+    page.getByRole('button', { name: 'Delete', exact: true }),
+  ).toBeFocused();
+  await expect(page).toHaveURL(outfitUrl);
+
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await confirmSheet
+    .getByRole('button', { name: 'Delete', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/outfits(\?|$)/);
   expect(errors).toEqual([]);
 });

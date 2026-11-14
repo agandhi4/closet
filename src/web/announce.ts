@@ -10,9 +10,22 @@ import { hxTrigger } from '../htmx/trigger';
  */
 export const STATUS_EVENT = 'closet:status';
 
+/**
+ * A reversible write's Undo, a button in the toast (public/js/toast.js):
+ * its tap posts `fields` to `action` (htmx, same origin, the answer's own
+ * navigation) and the toast stays long enough to be reached.
+ */
+export interface StatusUndo {
+  /** The button's words. */
+  label: string;
+  action: string;
+  fields: Record<string, string>;
+}
+
 /** The event's detail. */
 export interface StatusMessage {
   message: string;
+  undo?: StatusUndo;
 }
 
 /**
@@ -21,7 +34,11 @@ export interface StatusMessage {
  * src/web/layout/parts.tsx): a live region inserted with the swap is not
  * reliably read, the persistent one is. Call before sending the answer.
  */
-export function announce(reply: FastifyReply, message: string): FastifyReply {
-  const detail: StatusMessage = { message };
+export function announce(
+  reply: FastifyReply,
+  message: string,
+  undo?: StatusUndo,
+): FastifyReply {
+  const detail: StatusMessage = { message, undo };
   return reply.header('HX-Trigger', hxTrigger(STATUS_EVENT, detail));
 }
