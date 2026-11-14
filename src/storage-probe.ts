@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /**
@@ -17,9 +17,15 @@ export interface ProbeFs {
     options: { flag: 'wx' },
   ) => Promise<void>;
   rm: (path: string, options: { force: true }) => Promise<void>;
+  readdir: (directory: string) => Promise<string[]>;
 }
 
-const nodeFs: ProbeFs = { mkdir, writeFile, rm };
+const nodeFs: ProbeFs = { mkdir, writeFile, rm, readdir };
+
+const PROBE_PREFIX = `.write-probe-${process.pid}-`;
+let probeCounter = 0;
+/** The probe files being written now: never another probe's to clean up. */
+const inFlight = new Set<string>();
 
 /**
  * Whether this process can write a directory it needs at runtime: DATA_PATH
@@ -38,9 +44,12 @@ const nodeFs: ProbeFs = { mkdir, writeFile, rm };
  * the first upload or download would hit. The probe file is a dotfile:
  * reconciliation and the /file routes only ever see stored photo names.
  *
- * The file is named for this process, not randomly: a write that hangs on a
- * stalled share (the readiness check gives up on it, checks.ts) may never
- * unlink, and the next probe removes that leftover before writing its own.
+ * Each probe's file is named for this process and a counter, so probes of
+ * one directory (DATA_PATH and MODELS_PATH may be the same; the boot probe
+ * and the readiness check overlap) never share a file. A write that hangs
+ * on a stalled share may never unlink: the next probe removes this
+ * process's probe files that no in-flight probe owns (a restarted
+ * container often reuses the pid, so its predecessor's are cleaned too).
  */
 export type WriteProbe = { writable: true } | { writable: false; code: string };
 
@@ -48,10 +57,16 @@ export async function probeWritable(
   directory: string,
   fs: ProbeFs = nodeFs,
 ): Promise<WriteProbe> {
-  const probe = join(directory, `.write-probe-${process.pid}`);
+  const name = `${PROBE_PREFIX}${++probeCounter}`;
+  const probe = join(directory, name);
+  inFlight.add(name);
   try {
     await fs.mkdir(directory, { recursive: true });
-    await fs.rm(probe, { force: true });
+    for (const stale of await fs.readdir(directory)) {
+      if (stale.startsWith(PROBE_PREFIX) && !inFlight.has(stale)) {
+        await fs.rm(join(directory, stale), { force: true });
+      }
+    }
     // `wx`: never truncate or follow anything already at that name.
     await fs.writeFile(probe, new Uint8Array(PROBE_BYTES), { flag: 'wx' });
     await fs.rm(probe, { force: true });
@@ -64,6 +79,8 @@ export async function probeWritable(
       writable: false,
       code: String((error as NodeJS.ErrnoException).code),
     };
+  } finally {
+    inFlight.delete(name);
   }
 }
 

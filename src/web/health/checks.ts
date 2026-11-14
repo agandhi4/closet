@@ -141,9 +141,13 @@ export interface StorageCheckDeps {
  * HEALTHCHECK, the smoke's poll and anyone within HEALTH_LIMIT share it),
  * and concurrent callers await the same probe. Each directory's probe is
  * bounded by `timeoutMs` (code `TIMEOUT`: a stalled NFS share never answers),
- * which is under the TTL, so the cached verdict always settles and the first
- * call past the window starts a fresh probe even if the old write never
- * returns. A problem is logged when it appears or changes, not per probe.
+ * which is under the TTL, so the cached verdict always settles. A timed-out
+ * probe cannot be cancelled, so at most ONE is in flight per directory: while
+ * it is pending, later windows report TIMEOUT at once and start nothing (each
+ * abandoned fs call would hold one of libuv's four pool threads, and a few
+ * stall every fs call and DNS lookup in the process); a new probe starts only
+ * after the pending one settles. A problem is logged when it appears or
+ * changes, not per probe.
  */
 export function createStorageCheck({
   directories,
@@ -158,7 +162,17 @@ export function createStorageCheck({
 }: StorageCheckDeps): () => Promise<HealthCheck> {
   let cached: { at: number; verdict: Promise<HealthCheck> } | undefined;
   let reported = '';
+  const pending = new Map<string, Promise<WriteProbe>>();
   const bounded = (directory: string): Promise<WriteProbe> => {
+    if (pending.has(directory)) {
+      return Promise.resolve({ writable: false, code: 'TIMEOUT' });
+    }
+    const started = probe(directory);
+    const forget = (): void => {
+      pending.delete(directory);
+    };
+    pending.set(directory, started);
+    started.then(forget, forget);
     let timer: NodeJS.Timeout | undefined;
     const expired = new Promise<WriteProbe>((resolve) => {
       timer = setTimeout(
@@ -166,13 +180,13 @@ export function createStorageCheck({
         timeoutMs,
       );
     });
-    return Promise.race([probe(directory), expired]).finally(() =>
-      clearTimeout(timer),
-    );
+    return Promise.race([started, expired]).finally(() => clearTimeout(timer));
   };
   const run = async (): Promise<HealthCheck> => {
-    const [results, problem] = await Promise.all([
-      Promise.all(directories.map(bounded)),
+    // One probe per distinct directory (DATA_PATH may equal MODELS_PATH).
+    const distinct = [...new Set(directories)];
+    const [probed, problem] = await Promise.all([
+      Promise.all(distinct.map(bounded)),
       // identityProblem never rejects for the disk's sake; anything else
       // still reads as down, never as a rejected readiness check.
       identity().catch((error: unknown) => {
@@ -183,6 +197,9 @@ export function createStorageCheck({
         return 'the storage marker could not be checked';
       }),
     ]);
+    const results = directories.map(
+      (directory) => probed[distinct.indexOf(directory)],
+    );
     const messages: string[] = [];
     const unwritable: StorageFailure[] = [];
     directories.forEach((directory, i) => {
