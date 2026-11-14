@@ -35,6 +35,8 @@ The tiers and their commands are in the root `AGENTS.md` (Commands, Test tiers).
                        on a free port, or Playwright's SENTRY_STUB_PORT; recordErrors, an in-memory
                        ErrorTracker for unit specs),
                        page-errors.ts (pageErrors: what a spec asserts went wrong in the page),
+                       heic-stub-worker.ts (the HEIC decoder's stand-in thread, steered by the
+                       uploaded bytes: block, hang, crash, out of heap; src/web/files/AGENTS.md),
                        touch-targets.ts (the phone's sizing, #636: no field under 16 px, no control's
                        hit box under 44 px; the trips scenario runs it at 390 px with hasTouch),
                        webkit-limits.ts (why a spec skips in the Safari projects),

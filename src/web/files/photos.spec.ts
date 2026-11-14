@@ -1,5 +1,4 @@
 import type { MultipartFile } from '@fastify/multipart';
-import heicDecode from 'heic-decode';
 import { existsSync, readdirSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -15,16 +14,32 @@ import {
 import { transition } from '../../cutout/state';
 import type { Db } from '../../db/client';
 import { HttpError } from '../errors';
+import {
+  HeicDecodeError,
+  type HeicDecoding,
+  type HeicPixels,
+} from './heic-decoder';
 import { captureLogs } from '../../../test/support/log-capture';
 import { unkeyedPhoto, variantFileName } from './image-variant';
 import { MAX_INPUT_PIXELS, Photos } from './photos';
 import { findPhotoByShareableId, findVariantKey } from './queries';
 import { PhotoStorage } from './storage';
 
-// libheif is WASM and there is no HEIC fixture; the decode branch is about
-// what goes in and what comes out of the decoder, not the codec.
-vi.mock('heic-decode', () => ({ default: { all: vi.fn() } }));
-const heicMock = vi.mocked(heicDecode.all);
+// The HEIC decoder's thread is heic-decoder.spec.ts's: here a fake reads
+// the part as the real one does and answers what `heicAnswer` says, so the
+// decode branch is about what goes in and what comes out, not the codec.
+const heicAnswer =
+  vi.fn<(container: Buffer, maxPixels: number) => Promise<HeicPixels>>();
+const heic: HeicDecoding = {
+  decode: async (read, maxPixels) => heicAnswer(await read(), maxPixels),
+  close: () => Promise.resolve(),
+};
+const heicPixels = (width: number, height: number) =>
+  Promise.resolve({
+    width,
+    height,
+    pixels: Buffer.alloc(width * height * 4, 200),
+  });
 
 // The row queries Photos makes; the integration tier runs them for real.
 vi.mock('./queries', () => ({
@@ -194,11 +209,17 @@ const build = ({ watermarkEnabled = false } = {}) => {
     stores.push(name);
     return store(name, stream);
   });
-  const photos = new Photos(storage, db, logger, {
-    maxHeicBytes: MAX_HEIC_BYTES,
-    watermarkIconPath: join(dataPath, 'icon.png'),
-    watermarkEnabled,
-  });
+  const photos = new Photos(
+    storage,
+    db,
+    logger,
+    {
+      maxHeicBytes: MAX_HEIC_BYTES,
+      watermarkIconPath: join(dataPath, 'icon.png'),
+      watermarkEnabled,
+    },
+    heic,
+  );
   return photos;
 };
 
@@ -662,28 +683,10 @@ describe('Photos.storeUpload', () => {
       fieldname: 'photo',
     }) as unknown as MultipartFile;
 
-  /** heic-decode's view of a container holding one width x height image. */
-  const heicContainer = (width: number, height: number) =>
-    Object.assign(
-      [
-        {
-          width,
-          height,
-          decode: () =>
-            Promise.resolve({
-              width,
-              height,
-              data: new Uint8ClampedArray(width * height * 4).fill(200),
-            }),
-        },
-      ],
-      { dispose: vi.fn() },
-    );
-
   // Braced: Vitest runs a function returned from beforeEach as its cleanup,
   // and mockReset() returns the mock itself.
   beforeEach(() => {
-    heicMock.mockReset();
+    heicAnswer.mockReset();
   });
 
   it('returns the row to insert, with a fresh share id, and stores original and thumb', async () => {
@@ -715,12 +718,12 @@ describe('Photos.storeUpload', () => {
 
   it('decodes image/heic to pixels and stores webp original and thumb', async () => {
     const photos = build();
-    heicMock.mockResolvedValue(heicContainer(600, 400));
+    heicAnswer.mockReturnValue(heicPixels(600, 400));
     const bytes = Buffer.from('pretend heic container');
 
     const row = await photos.storeUpload(part(bytes, 'image/heic'), 7);
 
-    expect(heicMock).toHaveBeenCalledWith({ buffer: bytes });
+    expect(heicAnswer).toHaveBeenCalledWith(bytes, MAX_INPUT_PIXELS);
     const original = await sharp(await stored(row.fileName)).metadata();
     expect(original.format).toBe('webp');
     expect(original.width).toBe(600);
@@ -729,27 +732,31 @@ describe('Photos.storeUpload', () => {
 
   it('recognises a .heic sent as application/octet-stream by its name', async () => {
     const photos = build();
-    heicMock.mockResolvedValue(heicContainer(60, 40));
+    heicAnswer.mockReturnValue(heicPixels(60, 40));
     await photos.storeUpload(
       part(Buffer.from('x'), 'application/octet-stream', 'IMG_0001.HEIC'),
       7,
     );
-    expect(heicMock).toHaveBeenCalledTimes(1);
+    expect(heicAnswer).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects undecodable HEIC bytes with a 400 and stores nothing', async () => {
-    const photos = build();
-    heicMock.mockRejectedValue(
-      new TypeError('input buffer is not a HEIC image'),
-    );
-    const refused = photos.storeUpload(
-      part(Buffer.from('not heic'), 'image/heif'),
-      7,
-    );
-    await expect(refused).rejects.toBeInstanceOf(HttpError);
-    await expect(refused).rejects.toMatchObject({ statusCode: 400 });
-    expect(photoFiles()).toEqual([]);
-  });
+  it.each(['undecodable', 'timeout', 'crashed'] as const)(
+    'answers a decode %s with the bad-photo 400 and stores nothing',
+    async (reason) => {
+      const photos = build();
+      heicAnswer.mockRejectedValue(new HeicDecodeError(reason, 'the fake'));
+      const refused = photos.storeUpload(
+        part(Buffer.from('not heic'), 'image/heif'),
+        7,
+      );
+      await expect(refused).rejects.toBeInstanceOf(HttpError);
+      await expect(refused).rejects.toMatchObject({
+        statusCode: 400,
+        message: 'Unreadable image',
+      });
+      expect(photoFiles()).toEqual([]);
+    },
+  );
 
   it('rejects a HEIC part over MAX_HEIC_BYTES with a 413 without decoding', async () => {
     const photos = build();
@@ -759,13 +766,15 @@ describe('Photos.storeUpload', () => {
         7,
       ),
     ).rejects.toMatchObject({ statusCode: 413 });
-    expect(heicMock).not.toHaveBeenCalled();
+    expect(heicAnswer).not.toHaveBeenCalled();
     expect(photoFiles()).toEqual([]);
   });
 
   it('refuses a HEIC declaring more pixels than MAX_INPUT_PIXELS with a 400', async () => {
     const photos = build();
-    heicMock.mockResolvedValue(heicContainer(10_000, 10_000));
+    heicAnswer.mockRejectedValue(
+      new HeicDecodeError('too-large', '10000x10000'),
+    );
     await expect(
       photos.storeUpload(part(Buffer.from('x'), 'image/heic'), 7),
     ).rejects.toMatchObject({ statusCode: 400, message: 'Image too large' });
@@ -808,7 +817,7 @@ describe('Photos.inputPixels', () => {
   });
 
   beforeEach(() => {
-    heicMock.mockReset();
+    heicAnswer.mockReset();
   });
 
   it("reads an image's pixel count from its header", async () => {
@@ -823,18 +832,20 @@ describe('Photos.inputPixels', () => {
     );
   });
 
-  it("reads a HEIC's from its container without decoding a pixel", async () => {
-    const decode = vi.fn();
-    heicMock.mockResolvedValue(
-      Object.assign([{ width: 4032, height: 3024, decode }], {
-        dispose: vi.fn(),
-      }),
-    );
+  it('never hands a fetched HEIC to the decoder: an unreadable 400 (#699)', async () => {
+    const photos = build();
+    const heicSource = () => ({
+      ...source(Buffer.from('....ftypheic'), 'image/heic', 'IMG_1.heic'),
+      fetched: true as const,
+    });
 
-    await expect(
-      build().inputPixels(source(Buffer.from('x'), 'image/heic')),
-    ).resolves.toBe(4032 * 3024);
-    expect(decode).not.toHaveBeenCalled();
+    await expect(photos.inputPixels(heicSource())).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    await expect(photos.preview(heicSource())).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    expect(heicAnswer).not.toHaveBeenCalled();
   });
 
   it('refuses past MAX_INPUT_PIXELS as a decode would, from the header', async () => {

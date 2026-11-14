@@ -13,6 +13,8 @@ import {
   BEARER_REFUSAL_LIMIT,
   createWeatherLimits,
   LINK_IMPORT_LIMIT,
+  PHOTO_UPLOAD_LIMIT,
+  photoUploadHook,
   SIGN_IN_LIMIT,
 } from './security/rate-limit';
 import type { SessionTokens } from './auth/tokens';
@@ -185,6 +187,15 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   app.addHook(
     'preValidation',
     createSessionHook(logger, options.config.siteUrl),
+  );
+  // Every upload route's PHOTO_UPLOAD_LIMIT, the page's and the API's on one
+  // checker; a multipart body anywhere else is a 415 (rate-limit.ts).
+  app.addHook(
+    'preHandler',
+    photoUploadHook(
+      app.createRateLimit(PHOTO_UPLOAD_LIMIT),
+      logger.child({ logger: 'Security' }),
+    ),
   );
   // The budgets a page and its API twin share, one checker each: the two
   // sign-in doors' SIGN_IN_LIMIT (src/web/auth/sign-in.ts), the bearer

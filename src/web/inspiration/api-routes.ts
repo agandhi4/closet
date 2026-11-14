@@ -137,6 +137,7 @@ export const lookApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
   app.post(
     '/looks',
     {
+      config: { photoUpload: true },
       schema: {
         operationId: 'createLook',
         tags: ['inspiration'],
@@ -294,6 +295,7 @@ export const lookApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
   app.put(
     `${LOOK_PATH}/photo`,
     {
+      config: { photoUpload: true },
       schema: {
         operationId: 'replaceLookPhoto',
         tags: ['inspiration'],

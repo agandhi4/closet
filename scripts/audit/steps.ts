@@ -8,6 +8,7 @@ import {
   LINK_IMPORT_LIMIT,
   MCP_LIMIT,
   MCP_LINK_IMPORT_LIMIT,
+  PHOTO_UPLOAD_LIMIT,
   VITALS_LIMIT,
   WEATHER_LOCATION_LIMIT,
   WEATHER_SEARCH_LIMIT,
@@ -112,6 +113,11 @@ const LIMIT = {
   clientErrors: auditLimit(
     'client errors: POST /errors/client (Theo)',
     CLIENT_ERROR_LIMIT,
+  ),
+  // Every upload a step makes, its prepare's included (#699).
+  photoUpload: auditLimit(
+    'photo uploads: every upload route (Theo)',
+    PHOTO_UPLOAD_LIMIT,
   ),
 } as const;
 
@@ -1609,6 +1615,7 @@ const writes: Step[] = [
     name: 'Add from a photo (upload)',
     kind: 'action',
     route: 'POST /wardrobe/new/photo',
+    limits: [LIMIT.photoUpload],
     prepare: (f) => photoUpload(f),
     request: (_f, body) => ({
       method: 'POST',
@@ -1622,6 +1629,7 @@ const writes: Step[] = [
     name: 'Add form with a pending photo',
     kind: 'page',
     route: ROUTE.addSheet,
+    limits: [LIMIT.photoUpload],
     prepare: async (f) => {
       const res = await f.send(
         {
@@ -1675,6 +1683,7 @@ const writes: Step[] = [
     name: 'Save with a pending photo',
     kind: 'action',
     route: ROUTE.createGarment,
+    limits: [LIMIT.photoUpload],
     prepare: (f) => uploadedPhoto(f),
     request: (_f, photo: string) =>
       post('/wardrobe', {
@@ -1691,6 +1700,7 @@ const writes: Step[] = [
     name: 'Add several photos (a batch of drafts)',
     kind: 'action',
     route: 'POST /wardrobe/new/photo',
+    limits: [LIMIT.photoUpload],
     prepare: async (f) => {
       await clearDrafts(f);
       return photoUpload(f, 'photo', 2);
@@ -1707,6 +1717,7 @@ const writes: Step[] = [
     name: 'A draft’s form',
     kind: 'page',
     route: ROUTE.addSheet,
+    limits: [LIMIT.photoUpload],
     prepare: async (f) => {
       await clearDrafts(f);
       return uploadedPhoto(f, 2);
@@ -1720,6 +1731,7 @@ const writes: Step[] = [
     name: 'Save a draft',
     kind: 'action',
     route: ROUTE.createGarment,
+    limits: [LIMIT.photoUpload],
     prepare: async (f) => {
       await clearDrafts(f);
       return uploadedPhoto(f, 2);
@@ -1737,6 +1749,7 @@ const writes: Step[] = [
     name: 'Discard a draft',
     kind: 'action',
     route: 'POST /wardrobe/new/drafts/discard',
+    limits: [LIMIT.photoUpload],
     prepare: async (f) => {
       await clearDrafts(f);
       return uploadedPhoto(f, 2);
@@ -1752,6 +1765,7 @@ const writes: Step[] = [
     name: 'Upload a photo',
     kind: 'action',
     route: 'POST /wardrobe/:id/photo',
+    limits: [LIMIT.photoUpload],
     prepare: (f) => photoUpload(f),
     request: (f, body) => ({
       method: 'POST',
@@ -1765,6 +1779,7 @@ const writes: Step[] = [
     name: 'Save a mask edit',
     kind: 'action',
     route: 'POST /wardrobe/:id/nobg',
+    limits: [LIMIT.photoUpload],
     prepare: (f) => photoUpload(f, 'nobgPhoto'),
     request: (f, body) => ({
       method: 'POST',
@@ -1979,6 +1994,7 @@ const writes: Step[] = [
     name: 'Add a selfie',
     kind: 'action',
     route: 'POST /calendar/:id/selfie',
+    limits: [LIMIT.photoUpload],
     prepare: (f) => photoUpload(f),
     request: (f, body) => ({
       method: 'POST',
@@ -1992,6 +2008,7 @@ const writes: Step[] = [
     name: 'Remove a selfie',
     kind: 'action',
     route: 'POST /selfies/:id/delete',
+    limits: [LIMIT.photoUpload],
     prepare: async (f) => {
       await f.send(
         {
@@ -3142,6 +3159,7 @@ const jobs: Step[] = [
     name: 'Cutout of an uploaded photo',
     kind: 'job',
     target: 'job cutout',
+    limits: [LIMIT.photoUpload],
     prepare: async (f) => {
       await f.send(
         {

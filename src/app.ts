@@ -16,7 +16,7 @@ import { createDb, type Db, dbConfig } from './db/client';
 import { runMigrations } from './db/migrate';
 import type { Logger } from './logger';
 import { JobRoster } from './maintenance/scheduled';
-import { CUTOUT_STOP_MS } from './shutdown-budget';
+import { CUTOUT_STOP_MS, HEIC_DECODER_STOP_MS } from './shutdown-budget';
 import { createErrorTracker, type ErrorTracker } from './metrics/error-tracker';
 import { registerHttpMetrics } from './metrics/http';
 import { Metrics } from './metrics/metrics';
@@ -32,6 +32,7 @@ import { createSessionTokens } from './web/auth/tokens';
 import { createErrorHandler, DatabaseOutage, HttpError } from './web/errors';
 import { configurePhotoUrls } from './web/files/image-url';
 import { configurePasswordHashing } from './web/auth/passwords';
+import type { HeicDecoderOptions } from './web/files/heic-decoder';
 import { createPhotos, type Photos, photosConfig } from './web/files/photos';
 import { t } from './web/i18n';
 import { loggableUrl } from './web/loggable-url';
@@ -148,6 +149,11 @@ export interface AppOptions {
    * id routes with it; production never passes it.
    */
   onRoute?: (route: RouteOptions) => void;
+  /**
+   * The HEIC decoder's stand-ins (a stub thread, shorter bounds:
+   * test/support/heic-stub-worker.ts); production never passes them.
+   */
+  heicDecoder?: HeicDecoderOptions;
 }
 
 function buildInfoFor(config: Config): BuildInfo {
@@ -232,6 +238,7 @@ export async function createApp(
     photosConfig(config),
     db,
     logger.child({ logger: 'Photos' }),
+    options.heicDecoder,
   ).catch(async (error: unknown) => {
     await db.$client.end();
     throw error;
@@ -308,11 +315,13 @@ export async function createApp(
   // running needs the pool to record itself, a refresh to save its row.
   // The error tracker last, so a failure on the way out is still sent.
   app.addHook('onClose', async () => {
-    // Both bounded by CUTOUT_STOP_MS: a refresh is an outbound fetch and
-    // must not outlast docker stop's grace (src/shutdown-budget.ts).
+    // All inside CUTOUT_STOP_MS: a refresh is an outbound fetch and must
+    // not outlast docker stop's grace (src/shutdown-budget.ts); the HEIC
+    // thread is terminated, never waited out.
     await Promise.all([
       cutouts.stop(),
       weather && settlesWithin(weather.settled(), CUTOUT_STOP_MS),
+      settlesWithin(photos.close(), HEIC_DECODER_STOP_MS),
     ]);
     await db.$client.end();
     await errors.close();

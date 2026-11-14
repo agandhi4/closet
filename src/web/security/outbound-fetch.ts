@@ -81,18 +81,12 @@ const FETCH_TIMEOUT_MS = 10_000;
 const MAX_URL_LENGTH = 2048;
 
 // SVG is left out: it is a document, not a photo, and the photo pipeline
-// has no use for it.
+// has no use for it. HEIC and HEIF too (#699): shops do not serve them,
+// and their decode is the costliest the server does, so a stranger's site
+// never gets to ask for one (Photos never decodes fetched bytes as HEIC).
 const MEDIA_TYPES: Readonly<Record<ContentKind, readonly string[]>> = {
   html: ['text/html', 'application/xhtml+xml'],
-  image: [
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-    'image/gif',
-    'image/avif',
-    'image/heic',
-    'image/heif',
-  ],
+  image: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'],
   json: ['application/json'],
 };
 const ACCEPT_HEADERS: Readonly<Record<ContentKind, string>> = {

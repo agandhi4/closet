@@ -162,20 +162,24 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<
   // page's photo is prepared on the phone first, a shared one as it came.
   // The confirmation also posts the share's `url` and `title`
   // (addUploadedInspiration checks them).
-  app.post(INSPIRATION_PATH, async (request, reply) => {
-    const { id } = await addUploadedInspiration(
-      deps,
-      sessionUserId(request),
-      request.parts({
-        limits: {
-          files: 1,
-          fileSize: SHARE_PHOTO_MAX_BYTES,
-          fieldSize: LINK_INPUT_MAX,
-        },
-      }),
-    );
-    return reply.redirect(inspirationUrl(id), 303);
-  });
+  app.post(
+    INSPIRATION_PATH,
+    { config: { photoUpload: true } },
+    async (request, reply) => {
+      const { id } = await addUploadedInspiration(
+        deps,
+        sessionUserId(request),
+        request.parts({
+          limits: {
+            files: 1,
+            fileSize: SHARE_PHOTO_MAX_BYTES,
+            fieldSize: LINK_INPUT_MAX,
+          },
+        }),
+      );
+      return reply.redirect(inspirationUrl(id), 303);
+    },
+  );
 
   // The share target when no service worker answered it (share-fallback.ts):
   // writes nothing, so it is the same-origin hook's one `stateless`
@@ -274,7 +278,7 @@ export const inspirationRoutes: FastifyPluginCallbackTypebox<
 
   app.post(
     `${LOOK_ROUTE}/photo`,
-    { schema: { params: LookParams } },
+    { config: { photoUpload: true }, schema: { params: LookParams } },
     async (request, reply) => {
       const { id } = request.params;
       await attachInspirationPhoto(

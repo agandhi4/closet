@@ -1,10 +1,13 @@
-import heicDecode from 'heic-decode';
 import { Readable } from 'node:stream';
+import { finished } from 'node:stream/promises';
 import { HttpError } from '../errors';
+import { t } from '../i18n';
+import { HeicDecodeError, type HeicDecoding } from './heic-decoder';
 
 // sharp's bundled libvips has no HEIC decoder, so iPhone photos (and the
-// HEIC option on Android) are decoded here first and handed to sharp as raw
-// RGBA pixels. heic-decode needs the whole container in memory, hence the
+// HEIC option on Android) are decoded first and handed to sharp as raw
+// RGBA pixels: by heic-decode on HeicDecoder's thread, never on the event
+// loop (#699). heic-decode needs the whole container in memory, hence the
 // byte cap; its pixels are allocated only after the dimensions are checked
 // against the pixel limit sharp applies to every other upload.
 //
@@ -44,56 +47,50 @@ export function isHeicUpload({
   );
 }
 
+/** The decoder is full or stopping: try again shortly (HeicDecoder, 'busy' and 'closed'). */
+function heicBusy(error: HeicDecodeError): HttpError {
+  return new HttpError(503, t('SERVER_BUSY'), {
+    logDetail: error.message,
+    retryAfterSeconds: 5,
+  });
+}
+
 /**
- * Buffers the stream up to `maxBytes` and decodes its primary image. Rejects
- * with a 413 HttpError past the byte cap, and with imageTooLarge() past
- * `maxPixels` before any pixel is allocated (a small file can declare a
- * 20000x20000 grid); whatever heic-decode throws for undecodable bytes is
- * passed through for the caller to map to a client error. The stream is
- * fully drained on every path: an unconsumed multipart part hangs the
- * request (see Photos.storeImage).
+ * Buffers the stream up to `maxBytes` and decodes its primary image on the
+ * decoder's thread. Rejects with a 413 HttpError past the byte cap, with
+ * imageTooLarge() past `maxPixels` before any pixel is allocated (a small
+ * file can declare a 20000x20000 grid), and with a 503 when the decoder
+ * has no room, before the bytes are buffered; any other HeicDecodeError
+ * (undecodable, past its deadline, a crashed thread) is passed through for
+ * the caller to map to a client error. The stream is fully drained on
+ * every path: an unconsumed multipart part hangs the request (see
+ * Photos.storeImage).
  */
 export async function decodeHeic(
   stream: Readable,
   maxBytes: number,
   maxPixels: number,
+  decoder: HeicDecoding,
 ): Promise<DecodedHeic> {
-  const images = await heicDecode.all({
-    buffer: await readHeic(stream, maxBytes),
-  });
   try {
-    // The primary image, as heic-decode's default export picks it.
-    const [primary] = images;
-    if (primary.width * primary.height > maxPixels) throw imageTooLarge();
-    const { width, height, data } = await primary.decode();
+    const { width, height, pixels } = await decoder.decode(
+      () => readHeic(stream, maxBytes),
+      maxPixels,
+    );
     return {
-      pixels: Readable.from(
-        Buffer.from(data.buffer, data.byteOffset, data.byteLength),
-      ),
+      pixels: Readable.from([pixels]),
       raw: { width, height, channels: 4 },
     };
-  } finally {
-    images.dispose();
-  }
-}
-
-/**
- * The primary image's pixel count from the container, decoding none of
- * them: what decodeHeic would allocate. The same 413 past `maxBytes`; what
- * heic-decode throws for undecodable bytes is passed through.
- */
-export async function heicPixelCount(
-  stream: Readable,
-  maxBytes: number,
-): Promise<number> {
-  const images = await heicDecode.all({
-    buffer: await readHeic(stream, maxBytes),
-  });
-  try {
-    const [primary] = images;
-    return primary.width * primary.height;
-  } finally {
-    images.dispose();
+  } catch (error) {
+    if (!(error instanceof HeicDecodeError)) throw error;
+    if (error.reason === 'too-large') throw imageTooLarge();
+    if (error.reason === 'busy' || error.reason === 'closed') {
+      // Refused before `read` ran (or after it buffered): drained here.
+      stream.resume();
+      await finished(stream);
+      throw heicBusy(error);
+    }
+    throw error;
   }
 }
 
