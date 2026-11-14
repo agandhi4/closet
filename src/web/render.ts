@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { JSX } from 'hono/jsx/jsx-runtime';
+import { ASSET_VERSION_HEADER } from '../static-build';
 import { FRAGMENT_VARY, isFragmentRequest } from '../htmx/fragment-request';
 import { timeRender } from '../metrics/request-timing';
 import { PAGE_ACCOUNT_HEADER } from './page-cache';
@@ -99,6 +100,13 @@ function send(
   // (src/web/page-cache.ts): it keeps one account's pages at a time.
   const { auth } = reply.request;
   if (auth) reply.header(PAGE_ACCOUNT_HEADER, String(auth.user.id));
+  // The static build its `?v=` URLs name: the worker serves an older build's
+  // stored copy only while that build's precache is installed
+  // (src/static-build.ts, #656). Static paths have no context
+  // and render no page.
+  if (reply.locals) {
+    reply.header(ASSET_VERSION_HEADER, reply.locals.appVersion);
+  }
   // An account's page: no shared cache may store it, and a browser's copy
   // is revalidated before use. no-cache, not no-store, keeps the
   // back-forward cache. A route's own stricter policy (the token page's

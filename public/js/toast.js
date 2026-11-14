@@ -14,7 +14,8 @@ const host = () => document.getElementById('toast-host');
 /**
  * @param {{ text: string, kind?: 'info'|'success'|'warning', ttlMs?: number,
  *           action?: { label: string, onClick: () => void } }} options
- * @returns {{ dismiss: () => void, element: HTMLElement }}
+ * @returns {{ dismiss: () => void, element: HTMLElement, label: HTMLElement,
+ *             button: HTMLButtonElement | null }}
  */
 export function showToast({ text, kind = 'info', ttlMs, action }) {
   const element = document.createElement('div');
@@ -27,8 +28,9 @@ export function showToast({ text, kind = 'info', ttlMs, action }) {
 
   const dismiss = () => element.remove();
 
+  let button = null;
   if (action) {
-    const button = document.createElement('button');
+    button = document.createElement('button');
     button.type = 'button';
     button.className = 'btn btn-sm btn-primary';
     button.textContent = action.label;
@@ -41,5 +43,5 @@ export function showToast({ text, kind = 'info', ttlMs, action }) {
   if (ttlMs) setTimeout(dismiss, ttlMs);
 
   host()?.append(element);
-  return { dismiss, element };
+  return { dismiss, element, label, button };
 }

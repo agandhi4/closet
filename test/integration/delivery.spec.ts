@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ASSET_VERSION_HEADER } from '../../src/static-build';
 import { PUBLIC_DIR } from '../../src/static-assets';
 import { REPLAY_TIMEOUT_MS } from '../../src/offline-writes';
 import { createGarment, jpegPhoto, uploadPhoto } from './garments';
@@ -424,6 +425,14 @@ describe('delivery (PWA_ENABLED=true)', () => {
       });
       expect(theirs.headers['x-page-account']).not.toBe(String(t.owner.id));
       expect(theirs.headers['x-page-account']).toMatch(/^\d+$/);
+    });
+
+    // The worker serves an older build's stored page only while that
+    // build's precache is installed (src/static-build.ts, #656).
+    it('names the build its ?v= URLs name on every page', async () => {
+      const page = await t.inject({ method: 'GET', url: '/outfits' });
+      expect(page.headers[ASSET_VERSION_HEADER.toLowerCase()]).toBe(RELEASE);
+      expect(page.body).toContain(`?v=${RELEASE}`);
     });
 
     it('names no account on a signed-out render', async () => {

@@ -20,8 +20,7 @@
     // The CSS entry of `npm run generate:tailwind`: its @import and @plugin lines use tailwindcss
     // and daisyui.
     "views/assets/main.css",
-    // Tool configs read by workbox-cli and lhci, which have no knip plugin.
-    "workbox-config.js",
+    // Tool config read by lhci, which has no knip plugin.
     "lighthouserc.js",
     // Forked or loaded by path from the specs (the cutout runner's specs,
     // test/support/legacy-migrations.ts).

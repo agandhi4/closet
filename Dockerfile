@@ -19,7 +19,6 @@ COPY src ./src
 COPY views ./views
 COPY public ./public
 COPY tsconfig*.json ./
-COPY workbox-config.js .
 COPY scripts ./scripts
 
 # No .git in the build context, so public/build.json records only the build time; the release
