@@ -1,4 +1,4 @@
-import { test as base } from '@playwright/test';
+import { test as base } from './fixtures';
 import { CUTOUT_STUB_ORIGIN } from './cutout-stub';
 
 /**

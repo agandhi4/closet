@@ -1,10 +1,5 @@
-import {
-  expect,
-  type Locator,
-  type Page,
-  type Route,
-  test,
-} from '@playwright/test';
+import { type Locator, type Page, type Route } from '@playwright/test';
+import { expect, test } from './support/fixtures';
 import { REPLAY_TIMEOUT_MS } from '../src/offline-writes';
 import { t as text } from '../src/web/i18n';
 import { SAME_ORIGIN, signIn } from './support/e2e-session';

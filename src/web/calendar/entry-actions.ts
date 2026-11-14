@@ -9,10 +9,11 @@ import { outfitNotFound } from '../outfits/outfit-actions';
 import { NotFound } from '../refusals';
 import type { Actor } from '../sharing/access';
 import { type EntryWornOutcome, setEntryWorn } from '../wears/queries';
-import type { WriteOrigin } from '../write-origin';
+import type { Chooser } from './planned-by';
 import type { CalendarEntry } from './calendar-view';
 import {
   deleteEntry,
+  type DeletedEntry,
   findEntry,
   type ScheduledEntry,
   scheduleOutfit,
@@ -44,7 +45,7 @@ export async function planOutfit(
   db: Db,
   actor: Actor,
   entry: { outfitId: number; day: IsoDate; occasion: Occasion },
-  madeBy: WriteOrigin,
+  madeBy: Chooser,
 ): Promise<ScheduledEntry> {
   const scheduled = await scheduleOutfit(db, {
     ownerId: actor.userId,
@@ -98,15 +99,24 @@ export async function requireEntry(
  * made for it once nothing holds it (deleteEntry, one transaction, Undo's
  * rule: #659), then the selfie's bytes,
  * which no transaction holds (AGENTS.md Gotchas, "The DB cascade deletes
- * rows, never bytes").
+ * rows, never bytes"). Answers what was removed: the page route's Undo
+ * restores from it, or 'needs-confirmation' (nothing deleted) when `asksFirst`
+ * and Undo could not restore it.
  */
 export async function removeEntry(
   { db, photos, logger }: { db: Db; photos: Photos; logger: Logger },
   actor: Actor,
   id: number,
-): Promise<void> {
-  const outcome = await deleteEntry(db, id, actor.userId);
+  { asksFirst = false }: { asksFirst?: boolean } = {},
+): Promise<DeletedEntry | 'needs-confirmation'> {
+  const outcome = await deleteEntry(db, id, actor.userId, { asksFirst });
   if (outcome === 'not-found') throw calendarEntryNotFound();
+  if (outcome === 'needs-confirmation') {
+    logger.info(
+      `Calendar entry ${id} not deleted for user ${actor.userId}: asks first (worn, an agent's or a one-off)`,
+    );
+    return outcome;
+  }
   // Only after commit: an unlink cannot be rolled back.
   for (const fileName of outcome.selfies) {
     await photos.deleteVariants(unkeyedPhoto(fileName));
@@ -122,4 +132,5 @@ export async function removeEntry(
   logger.info(
     `Calendar entry ${id} deleted by user ${actor.userId}${selfie}${planner}`,
   );
+  return outcome;
 }

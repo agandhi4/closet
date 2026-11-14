@@ -638,6 +638,19 @@ export async function ownEntryDay(
   return row?.day;
 }
 
+/** What deleteEntry removed: the entry as it stood (what Undo restores) and what went with it. */
+export interface DeletedEntry {
+  selfies: string[];
+  oneOffRemoved: number | null;
+  entry: {
+    outfitId: number;
+    day: IsoDate;
+    occasion: Occasion;
+    plannedBy: PlannedBy;
+    worn: boolean;
+  };
+}
+
 /**
  * Deletes the owner's entry, the user saying it was wrong: its wears go
  * with it (garment_wear's foreign key) and so does its selfie, row here
@@ -658,6 +671,10 @@ export async function ownEntryDay(
  * entry, one the planner reused, and any `person` or `agent` outfit stay,
  * as in Change.
  *
+ * `asksFirst`: a delete Undo could not restore (worn, an agent's, a one-off it
+ * created) rolls back and answers 'needs-confirmation' until the caller
+ * confirmed (removeEntry).
+ *
  * Two statements inside the lock, no look-up first (#165): the selfie's
  * delete is scoped to the owner, so for another's or a missing entry it
  * finds nothing, and the entry's own delete (which locks its row) answers
@@ -665,11 +682,29 @@ export async function ownEntryDay(
  * created that one-off (read in the RETURNING). The selfie goes first, while the entry still points at
  * it. Two more only for a one-off.
  */
-export function deleteEntry(
+export async function deleteEntry(
   db: Queryable,
   id: number,
   ownerId: number,
-): Promise<{ selfies: string[]; oneOffRemoved: number | null } | EntryMiss> {
+  { asksFirst = false }: { asksFirst?: boolean } = {},
+): Promise<DeletedEntry | EntryMiss | 'needs-confirmation'> {
+  try {
+    return await deleteEntryAsking(db, id, ownerId, asksFirst);
+  } catch (error) {
+    if (error instanceof NeedsConfirmation) return 'needs-confirmation';
+    throw error;
+  }
+}
+
+/** Thrown inside deleteEntry's transaction to roll the delete back: Undo could not restore this one. */
+class NeedsConfirmation extends Error {}
+
+function deleteEntryAsking(
+  db: Queryable,
+  id: number,
+  ownerId: number,
+  asksFirst: boolean,
+) {
   return ownerTransaction(db, ownerId, 'deleteEntry', async (tx) => {
     const selfies = await deleteEntrySelfie(tx, id, ownerId);
     // The target aliased and every column qualified: the RETURNING's
@@ -682,18 +717,35 @@ export function deleteEntry(
       rows: [deleted],
     } = await tx.execute<{
       outfit_id: number;
+      day: IsoDate;
+      occasion: Occasion;
+      planned_by: PlannedBy;
+      worn: boolean;
       created: boolean;
       one_off: boolean;
     }>(sql`
       delete from ${outfitCalendar} as ${entry}
       where ${entry.id} = ${id} and ${entry.ownerId} = ${ownerId}
-      returning ${entry.outfitId} as outfit_id,
+      returning ${entry.outfitId} as outfit_id, ${entry.day}::text as day,
+        ${entry.occasion} as occasion, ${entry.plannedBy} as planned_by,
+        ${entry.wornAt} is not null as worn,
         coalesce(${entry.outfitCreated}, false) as created,
         coalesce((select ${held.origin} in (${sql.join(
           ONE_OFF_ORIGINS.map((o) => sql`${o}`),
           sql`, `,
         )}) from ${outfit} as ${held} where ${held.id} = ${entry.outfitId}), false) as one_off`);
     if (!deleted) return 'not-found';
+    // The server, not the page the tap came from, decides whether this goes
+    // without asking (#686): the row may have been worn or become a one-off
+    // since. Rolled back, so nothing (not even the selfie row) is gone.
+    if (
+      asksFirst &&
+      (deleted.worn ||
+        deleted.planned_by === 'agent' ||
+        (deleted.created && deleted.one_off))
+    ) {
+      throw new NeedsConfirmation();
+    }
     const removed =
       deleted.created &&
       deleted.one_off &&
@@ -701,6 +753,13 @@ export function deleteEntry(
     return {
       selfies,
       oneOffRemoved: removed ? deleted.outfit_id : null,
+      entry: {
+        outfitId: deleted.outfit_id,
+        day: deleted.day,
+        occasion: deleted.occasion,
+        plannedBy: deleted.planned_by,
+        worn: deleted.worn,
+      },
     };
   });
 }
