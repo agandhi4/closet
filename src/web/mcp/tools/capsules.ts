@@ -7,7 +7,8 @@ import { listCapsules } from '../../capsules/queries';
 import { GRID_PAGE_SIZE } from '../../wardrobe/grid-page-size';
 import { CLOSET_FILTERS, garmentSummaries } from '../../wardrobe/queries';
 import { actorOf, defineTool, wardrobeFor } from '../tool';
-import { ownerIdInput, rowId } from './common';
+import { gridCursorText } from '../../wardrobe/grid-cursor';
+import { ownerIdInput, pageCursorInput, readPageCursor, rowId } from './common';
 import { summaryOut } from './garments';
 
 export const capsuleTools = [
@@ -30,11 +31,11 @@ export const capsuleTools = [
   defineTool({
     name: 'get_capsule',
     title: 'Get a capsule',
-    description: `A capsule's name, notes and its garments in the closet, newest first, ${GRID_PAGE_SIZE} a page: pass the answer's \`next\` as \`before\` for the next page.`,
+    description: `A capsule's name, notes and its garments in the closet, newest first, ${GRID_PAGE_SIZE} a page: pass the answer's \`next\` (a string, null on the last page) back as \`before\` for the next.`,
     input: z.object({
       id: rowId().describe('The capsule id, from list_capsules.'),
       ownerId: ownerIdInput,
-      before: rowId().optional().describe('The previous page’s `next`.'),
+      before: pageCursorInput,
     }),
     writes: false,
     async run({ id, ownerId, before }, ctx) {
@@ -48,12 +49,12 @@ export const capsuleTools = [
         ctx.db,
         access.ownerId,
         { ...CLOSET_FILTERS, capsule: id },
-        { before, limit: GRID_PAGE_SIZE },
+        { before: readPageCursor(before), limit: GRID_PAGE_SIZE },
       );
       return {
         ...capsule,
         garments: page.garments.map(summaryOut),
-        next: page.before ?? null,
+        next: page.before === undefined ? null : gridCursorText(page.before),
       };
     },
   }),

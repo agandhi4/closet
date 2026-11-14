@@ -4,7 +4,6 @@ import {
   type Column,
   desc,
   eq,
-  ilike,
   inArray,
   isNotNull,
   isNull,
@@ -43,6 +42,13 @@ import {
 import { dirtyCopiesSql, needsWash } from '../wears/queries';
 import { compareSizes } from './garment';
 import { GRID_PAGE_SIZE } from './grid-page-size';
+import type { GridCursor } from './grid-cursor';
+import {
+  type KeywordRank,
+  keywordMatch,
+  keywordRank,
+  keywordTokens,
+} from './keyword-search';
 import { type RepairEntry, repairLogSql } from './repairs';
 import {
   type GarmentScope,
@@ -130,13 +136,8 @@ export interface GarmentTile {
 
 export interface GridPage {
   tiles: GarmentTile[];
-  /** The last tile's id when there are more: the next page is `id < before`. */
-  before: number | undefined;
-}
-
-/** A LIKE pattern matching `text` anywhere, its own wildcards taken literally. */
-function containsPattern(text: string): string {
-  return `%${text.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+  /** Where the last tile left off when there are more (gridOrder). */
+  before: GridCursor | undefined;
 }
 
 export function gridWhere(
@@ -159,19 +160,66 @@ export function gridWhere(
   if (filters.color) {
     conditions.push(arrayContains(garment.colors, [filters.color]));
   }
-  if (filters.keyword) {
-    // Case-insensitive; the keyword's % and _ are matched as themselves
-    // (Postgres' default LIKE escape is the backslash).
-    const pattern = containsPattern(filters.keyword);
-    conditions.push(
-      or(
-        ilike(garment.name, pattern),
-        ilike(garment.notes, pattern),
-        ilike(garment.brand, pattern),
-      ),
-    );
-  }
+  const tokens = keywordTokens(filters.keyword);
+  if (tokens.length > 0) conditions.push(keywordMatch(garment, tokens));
   return and(...conditions);
+}
+
+/**
+ * The grid's order and keyset, shared by gridPage and garmentSummaries:
+ * newest first, `id < before.id` for the next page. A keyword search sorts
+ * by keywordRank first (a notes-only match after the rest), newest first
+ * within each rank, so the next page is "a later rank, or the same rank and
+ * an older id", the rank the one the cursor carries (GridCursor: never read
+ * from the cursor's row). `rank` is selected beside each row for the next
+ * cursor; 0 without a keyword, whose order ignores a cursor's rank.
+ */
+function gridOrder(
+  filters: GridFilters,
+  before: GridCursor | undefined,
+): { rank: SQL<KeywordRank>; after: SQL | undefined; orderBy: SQL[] } {
+  const tokens = keywordTokens(filters.keyword);
+  if (tokens.length === 0) {
+    return {
+      rank: sql<KeywordRank>`0`,
+      after: before === undefined ? undefined : lt(garment.id, before.id),
+      orderBy: [desc(garment.id)],
+    };
+  }
+  const rank = keywordRank(garment, tokens);
+  return {
+    rank,
+    after:
+      before === undefined
+        ? undefined
+        : or(
+            sql`${rank} > ${before.rank}`,
+            and(sql`${rank} = ${before.rank}`, lt(garment.id, before.id)),
+          ),
+    orderBy: [rank, desc(garment.id)],
+  };
+}
+
+/**
+ * A page of gridOrder's rows (`size` of them, fetched with one more to tell
+ * whether there are more): each without the `rank` selected beside it, and
+ * the cursor of the last when there are more.
+ */
+function keysetPage<Row extends { id: number; rank: KeywordRank }>(
+  fetched: Row[],
+  size: number,
+): {
+  rows: (Omit<Row, 'rank' | 'id'> & { id: number })[];
+  before?: GridCursor;
+} {
+  const page = fetched.slice(0, size).map(({ rank, id, ...row }) => ({
+    row: { id, ...row },
+    cursor: { rank, id },
+  }));
+  return {
+    rows: page.map(({ row }) => row),
+    before: fetched.length > size ? page.at(-1)!.cursor : undefined,
+  };
 }
 
 /** The property filters (#12) as conditions. */
@@ -213,7 +261,7 @@ export async function gridPage(
   db: Db,
   ownerId: number,
   filters: GridFilters,
-  options: { before?: number; ownerView: boolean; pick?: number },
+  options: { before?: GridCursor; ownerView: boolean; pick?: number },
 ): Promise<GridPage> {
   const { before, ownerView, pick } = options;
   // Not computed at all for a share. Each is a correlated count of the
@@ -226,19 +274,16 @@ export async function gridPage(
   const member = sql<
     boolean | null
   >`${pick === undefined ? sql`null` : inCapsule(pick)}`;
+  const { rank, after, orderBy } = gridOrder(filters, before);
   const rows = await db
-    .select({ ...tileColumns, ...own, member })
+    .select({ ...tileColumns, ...own, member, rank })
     .from(garment)
     .leftJoin(file, eq(file.id, garment.photoId))
-    .where(
-      and(
-        gridWhere(ownerId, filters),
-        before === undefined ? undefined : lt(garment.id, before),
-      ),
-    )
-    .orderBy(desc(garment.id))
+    .where(and(gridWhere(ownerId, filters), after))
+    .orderBy(...orderBy)
     .limit(GRID_PAGE_SIZE + 1);
-  const tiles = rows.slice(0, GRID_PAGE_SIZE).map(
+  const { rows: page, before: next } = keysetPage(rows, GRID_PAGE_SIZE);
+  const tiles = page.map(
     ({ dirty, away, member, photo, ...row }): GarmentTile => ({
       ...row,
       photo: plinthPhoto(photo),
@@ -246,10 +291,7 @@ export async function gridPage(
       ...(member !== null && { member }),
     }),
   );
-  return {
-    tiles,
-    before: rows.length > GRID_PAGE_SIZE ? tiles.at(-1)!.id : undefined,
-  };
+  return { tiles, before: next };
 }
 
 /** No filter: the closet (inCloset). */
@@ -293,8 +335,8 @@ export async function garmentSummaries(
   db: Db,
   ownerId: number,
   filters: GridFilters,
-  options: { before?: number; limit: number },
-): Promise<{ garments: GarmentSummary[]; before: number | undefined }>;
+  options: { before?: GridCursor; limit: number },
+): Promise<{ garments: GarmentSummary[]; before: GridCursor | undefined }>;
 /** Without a `limit`: every match, no page and so no `before`. */
 export async function garmentSummaries(
   db: Db,
@@ -305,9 +347,10 @@ export async function garmentSummaries(
   db: Db,
   ownerId: number,
   filters: GridFilters,
-  options: { before?: number; limit?: number } = {},
-): Promise<{ garments: GarmentSummary[]; before?: number }> {
+  options: { before?: GridCursor; limit?: number } = {},
+): Promise<{ garments: GarmentSummary[]; before?: GridCursor }> {
   const { before, limit } = options;
+  const { rank, after, orderBy } = gridOrder(filters, before);
   const query = db
     .select({
       id: garment.id,
@@ -326,24 +369,18 @@ export async function garmentSummaries(
       sourceUrl: garment.sourceUrl,
       status: garment.status,
       photo: photoWithCutoutJson,
+      rank,
     })
     .from(garment)
     .leftJoin(file, eq(file.id, garment.photoId))
-    .where(
-      and(
-        gridWhere(ownerId, filters),
-        before === undefined ? undefined : lt(garment.id, before),
-      ),
-    )
-    .orderBy(desc(garment.id))
+    .where(and(gridWhere(ownerId, filters), after))
+    .orderBy(...orderBy)
     .$dynamic();
-  if (limit === undefined) return { garments: await query };
-  const rows = await query.limit(limit + 1);
-  const garments = rows.slice(0, limit);
-  return {
-    garments,
-    before: rows.length > limit ? garments.at(-1)!.id : undefined,
-  };
+  if (limit === undefined) {
+    return { garments: keysetPage(await query, Infinity).rows };
+  }
+  const page = keysetPage(await query.limit(limit + 1), limit);
+  return { garments: page.rows, before: page.before };
 }
 
 /** How many garments match the filters (the grid's result count). */

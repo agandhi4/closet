@@ -10,7 +10,8 @@ import { signIn } from './support/e2e-session';
  * (`capture=environment`), the chosen photo
  * is prepared on the phone and posted, the new garment form opens with it,
  * and saving lands on the garment with its cutout under way (held pending
- * until the page has shown it, test/support/cutout-stub.ts).
+ * until the page has shown it, test/support/cutout-stub.ts); then the
+ * search box finds it by two of its words in any order (#673).
  */
 
 test.use({ viewport: { width: 390, height: 844 } });
@@ -70,7 +71,7 @@ test('the camera row takes a photo, the form opens with it, and saving lands on 
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);
 
-  await page.locator('input[name="name"]').fill('Camera shirt');
+  await page.locator('input[name="name"]').fill('Blue camera shirt');
   await page.locator('#garment-category').fill('shirt');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
 
@@ -88,7 +89,22 @@ test('the camera row takes a photo, the form opens with it, and saving lands on 
 
   // The grid shows the new garment once, with its photo.
   await page.goto('/wardrobe');
-  await expect(
-    page.locator('#wardrobe-grid').getByText('Camera shirt'),
-  ).toHaveCount(1);
+  const grid = page.locator('#wardrobe-grid');
+  await expect(grid.getByText('Camera shirt')).toHaveCount(1);
+
+  // Typing two of its words, in another order than its name's, finds it.
+  // The field is collapsed to its icon until tapped, as a finger does.
+  await page.getByRole('search').locator('label').click();
+  const search = page.getByRole('textbox', { name: 'Search' });
+  await expect(search).toBeFocused();
+  await search.fill('shirt blue');
+  const searched = page.waitForResponse(
+    (res) =>
+      new URL(res.url()).searchParams.get('keyword') === 'shirt blue' &&
+      res.ok(),
+  );
+  await search.press('Enter');
+  await searched;
+  await expect(grid.getByText('Blue camera shirt')).toBeVisible();
+  await expect(page.locator('[data-tile]')).toHaveCount(1);
 });

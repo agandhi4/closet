@@ -35,6 +35,7 @@ import type { ViewContext } from '../view-context';
 import { WeatherSlot } from '../weather/views';
 import { categoryLabel } from './garment';
 import { type LabelledProperty, valueLabel } from './labels';
+import { type GridCursor, gridCursorText } from './grid-cursor';
 import type { FilterOptions, GarmentTile, GridPage } from './queries';
 import {
   capsuleUrl,
@@ -479,7 +480,7 @@ function Grid({ model }: { model: WardrobeModel }) {
 /**
  * One page of tiles and, when there are more, the sentinel that fetches the
  * next: when it scrolls into view htmx requests GET /wardrobe/tiles with the
- * same filters and `before` the last tile's id, and replaces the sentinel
+ * same filters and `before` where the last tile left off (GridCursor), and replaces the sentinel
  * with that page (whose own sentinel continues). The tiles route answers
  * with this component alone.
  */
@@ -543,7 +544,7 @@ export function GarmentTiles(props: {
 export function tilesUrl(
   viewOwner: number | undefined,
   search: GridSearch,
-  before: number,
+  before: GridCursor,
   mode: { selecting: boolean; picking?: Picking } = { selecting: false },
 ): string {
   return wardrobeUrl(
@@ -552,7 +553,7 @@ export function tilesUrl(
       ...searchParams(search),
       select: mode.selecting && !mode.picking ? '1' : undefined,
       pick: mode.picking?.capsuleId,
-      before,
+      before: gridCursorText(before),
     },
     '/wardrobe/tiles',
   );

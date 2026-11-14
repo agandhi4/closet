@@ -81,20 +81,42 @@ export function ListOf<
 /**
  * A keyset cursor over row ids, newest first (the grid's `before`, #192a):
  * base64url, so a client treats it as opaque and a later keyset (a sort key
- * with the id) can change it without a new parameter.
+ * with the id) can change it without a new parameter. A ranked list (the
+ * grid's keyword search, #673: a rank, then newest first) prefixes the
+ * rank; rank 0 is spelled as the plain id cursor, so one minted before the
+ * list ranked still reads.
  */
-const ID_CURSOR = /^id:([1-9]\d{0,9})$/;
+const ID_CURSOR = /^(?:rank:([1-9]):)?id:([1-9]\d{0,9})$/;
+
+export function rankedIdCursor({ rank, id }: { rank: number; id: number }) {
+  const ranked = rank === 0 ? '' : `rank:${rank}:`;
+  return Buffer.from(`${ranked}id:${id}`).toString('base64url');
+}
+
+/**
+ * The rank and id a rankedIdCursor names, the rank one of `ranks`; any
+ * other string is a 400 `validation`.
+ */
+export function readRankedIdCursor<Rank extends number>(
+  cursor: string,
+  ranks: readonly Rank[],
+): { rank: Rank; id: number } {
+  const match = ID_CURSOR.exec(Buffer.from(cursor, 'base64url').toString());
+  const id = match ? Number(match[2]) : 0;
+  const rank = ranks.find((value) => value === Number(match?.[1] ?? 0));
+  if (rank === undefined || id < 1 || id > ROW_ID_MAX) {
+    throw new HttpError(400, t('api.BAD_CURSOR'));
+  }
+  return { rank, id };
+}
 
 export function idCursor(id: number): string {
-  return Buffer.from(`id:${id}`).toString('base64url');
+  return rankedIdCursor({ rank: 0, id });
 }
 
 /** The id an idCursor names; any other string is a 400 `validation`. */
 export function readIdCursor(cursor: string): number {
-  const match = ID_CURSOR.exec(Buffer.from(cursor, 'base64url').toString());
-  const id = match ? Number(match[1]) : 0;
-  if (id < 1 || id > ROW_ID_MAX) throw new HttpError(400, t('api.BAD_CURSOR'));
-  return id;
+  return readRankedIdCursor(cursor, [0]).id;
 }
 
 /**

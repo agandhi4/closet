@@ -30,6 +30,7 @@ import {
   type GarmentSummary,
   garmentSummaries,
 } from '../../wardrobe/queries';
+import { gridCursorText } from '../../wardrobe/grid-cursor';
 import { GRID_PAGE_SIZE } from '../../wardrobe/grid-page-size';
 import { closetLookalikes } from '../../wardrobe/lookalikes';
 import { repairLogSql } from '../../wardrobe/repairs';
@@ -54,7 +55,14 @@ import {
   type ToolContext,
   wardrobeFor,
 } from '../tool';
-import { centsPriceInput, isoDate, ownerIdInput, rowId } from './common';
+import {
+  centsPriceInput,
+  isoDate,
+  ownerIdInput,
+  pageCursorInput,
+  readPageCursor,
+  rowId,
+} from './common';
 import {
   garmentIn,
   garmentPhotoIn,
@@ -262,7 +270,9 @@ const SearchInput = z.object({
     .string()
     .max(NAME_MAX)
     .optional()
-    .describe('Matches the name, brand and notes.'),
+    .describe(
+      'Words, each matching the name, brand, colour, type, category or notes (punctuation ignored: "jcrew" finds J.Crew); notes-only matches come last.',
+    ),
   category: z
     .string()
     .max(CATEGORY_MAX)
@@ -307,7 +317,7 @@ const SearchInput = z.object({
     .describe(
       'Also garments no longer in the closet (archived). The wishlist is list_wishlist.',
     ),
-  before: rowId().optional().describe('The previous page’s `next`.'),
+  before: pageCursorInput,
 });
 /**
  * get_wardrobe's garment: what it is and, on the caller's own wardrobe,
@@ -338,7 +348,7 @@ export const garmentTools = [
   defineTool({
     name: 'search_garments',
     title: 'Search garments',
-    description: `Searches a wardrobe's closet like its grid (never the wishlist: list_wishlist): every filter optional, newest first, ${GRID_PAGE_SIZE} a page (pass the answer's \`next\` as \`before\` for the next). Answers each garment's id, name, category, role, type, brand, colours, size, warmth, formality, quantity, condition, price and status; get_garment has the rest.`,
+    description: `Searches a wardrobe's closet like its grid (never the wishlist: list_wishlist): every filter optional, newest first, ${GRID_PAGE_SIZE} a page: pass the answer's \`next\` (a string, null on the last page) back as \`before\` for the next. Answers each garment's id, name, category, role, type, brand, colours, size, warmth, formality, quantity, condition, price and status; get_garment has the rest.`,
     input: SearchInput,
     writes: false,
     async run(args, ctx) {
@@ -348,11 +358,15 @@ export const garmentTools = [
         {
           ownerId: args.ownerId,
           filters: searchFilters(args),
-          before: args.before,
+          before: readPageCursor(args.before),
           limit: GRID_PAGE_SIZE,
         },
       );
-      return { total, garments: garments.map(summaryOut), next };
+      return {
+        total,
+        garments: garments.map(summaryOut),
+        next: next === null ? null : gridCursorText(next),
+      };
     },
   }),
 

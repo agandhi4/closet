@@ -1,6 +1,11 @@
 import * as z from 'zod';
 import { OCCASIONS } from '../../../wardrobe/occasions';
 import { ROW_ID_MAX } from '../../schemas';
+import {
+  GRID_CURSOR_PATTERN,
+  type GridCursor,
+  readGridCursor,
+} from '../../wardrobe/grid-cursor';
 
 /**
  * Input pieces the tools share. Ids are Postgres serials (32-bit), as the
@@ -15,6 +20,28 @@ export const ownerIdInput = rowId()
   .describe(
     "A wardrobe shared with you: its owner's id, from list_shared_wardrobes. Omit for your own.",
   );
+
+/**
+ * A garment list's page cursor (search_garments, get_capsule): the previous
+ * answer's `next`, a string (GridCursor's text), or a bare id as answers
+ * before #784 gave it, which is the same cursor (rank 0).
+ */
+export const pageCursorInput = z
+  .union([rowId(), z.string().regex(GRID_CURSOR_PATTERN)])
+  .optional()
+  .describe(
+    "The previous page's `next`, passed back as it came (a bare garment id also reads).",
+  );
+
+/** The cursor pageCursorInput names; a rank no page answers is a 400. */
+export function readPageCursor(
+  before: number | string | undefined,
+): GridCursor | undefined {
+  if (before === undefined) return undefined;
+  return typeof before === 'number'
+    ? { rank: 0, id: before }
+    : readGridCursor(before);
+}
 
 /** A calendar day, 'YYYY-MM-DD' (a real date, like the routes' IsoDateSchema). */
 export const isoDate = () => z.iso.date();

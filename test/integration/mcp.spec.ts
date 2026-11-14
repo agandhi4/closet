@@ -407,6 +407,33 @@ describe('the MCP endpoint', () => {
       expect(blue.garments.map((g) => g.name)).toEqual(['Raw Denim']);
     });
 
+    // One paging contract for search_garments and get_capsule (#784):
+    // `next` is a string, and a bare id (as answers once gave it) is the same
+    // rank-0 cursor; a rank no page answers is refused.
+    it('search_garments pages from a string cursor or a bare id alike', async () => {
+      const page = (before: number | string) =>
+        tool<{ garments: Garment[]; next: string | null }>(
+          t,
+          token,
+          'search_garments',
+          { before },
+        );
+      const all = await tool<{ garments: Garment[] }>(
+        t,
+        token,
+        'search_garments',
+      );
+      const [newest, ...rest] = all.garments.map((g) => g.id);
+      const numeric = await page(newest);
+      expect(numeric.garments.map((g) => g.id)).toEqual(rest);
+      expect(numeric.next).toBeNull();
+      expect(await page(String(newest))).toEqual(numeric);
+      const refused = await callTool(t, token, 'search_garments', {
+        before: `2.${newest}`,
+      });
+      expect(refused.isError).toBe(true);
+    });
+
     it('search_garments refuses a type without its category, or of another', async () => {
       expect(
         (await callTool(t, token, 'search_garments', { type: 'jeans' })).value

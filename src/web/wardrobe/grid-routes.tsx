@@ -1,5 +1,6 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import type { CapsuleRef } from '../capsules/queries';
+import { readGridCursor } from './grid-cursor';
 import { capsuleNotFound } from '../capsules/capsule-actions';
 import {
   findType,
@@ -272,7 +273,7 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const search = gridSearch(request.query, access.isOwner);
       const pick = access.canManage ? request.query.pick : undefined;
       const page = await gridPage(db, access.ownerId, gridFilters(search), {
-        before: request.query.before,
+        before: readGridCursor(request.query.before),
         ownerView: access.isOwner,
         pick,
       });
