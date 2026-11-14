@@ -65,6 +65,7 @@ function closet(key: string, counts: Partial<Record<GarmentRole, number>>) {
           role,
           warmth: pick(WARMTHS),
           waterResistant: random.chance(0.15),
+          rainGear: false,
         },
         idleDays: random.chance(0.2) ? null : Math.floor(random.next() * 90),
       });
@@ -271,7 +272,7 @@ describe('the layer, drawn like the other roles (#646)', () => {
     colors: ['grey'],
     pattern: 'solid',
     formality: 2,
-    weather: { role, warmth, waterResistant: false },
+    weather: { role, warmth, waterResistant: false, rainGear: false },
     idleDays,
   });
   const pool = [

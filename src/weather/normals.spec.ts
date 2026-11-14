@@ -126,16 +126,23 @@ describe('a typical day', () => {
     expect(needs.layer).toBe(true);
     expect(needs.rain).toBe(false);
     expect(needs.feelsLike.max).toBe(15);
-    const tee: MatchGarment = { role: 'top', warmth: 2, waterResistant: false };
+    const tee: MatchGarment = {
+      role: 'top',
+      warmth: 2,
+      waterResistant: false,
+      rainGear: false,
+    };
     const jacket: MatchGarment = {
       role: 'layer',
       warmth: 3,
       waterResistant: false,
+      rainGear: false,
     };
     const jeans: MatchGarment = {
       role: 'bottom',
       warmth: 3,
       waterResistant: false,
+      rainGear: false,
     };
     expect(assessOutfit(needs, [tee, jacket, jeans]).fits).toBe(true);
     expect(assessOutfit(needs, [tee, jeans]).problems).toContain('needs-layer');

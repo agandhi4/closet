@@ -32,7 +32,7 @@ import { type DayForecast, RAIN_CHANCE } from './forecast';
  *    both ends want a tee.
  * 5. Rain in the window (any hour at RAIN_CHANCE or more) asks for a
  *    water-resistant layer, footwear or accessory, unless the umbrella
- *    answers it (WeatherNeeds.umbrella: a warm window, or the owner's
+ *    answers it (WeatherNeeds.umbrella: warm rain hours, or the owner's
  *    water-resistant accessory, withRainGear): then it is advice for the
  *    day, "Take the umbrella", and no outfit is judged on it (#648).
  */
@@ -79,19 +79,20 @@ export function limbTarget(feelsLike: number): Warmth {
 }
 
 /**
+ * Above this feels-like (°C, about 72 °F) at every rain hour, rain is the
+ * umbrella's, not the outfit's: the only water-resistant garments a closet
+ * usually has are a shell and boots, and asking for one at 30 °C dressed
+ * every July rain idea in the same shell over the one top light enough to go
+ * under it (#648, real-days.spec.ts). Judged on the rain hours, not the
+ * window's warmest: rain in a cool morning of a warm day still wants a shell.
+ */
+export const SHELL_CEILING = 22;
+
+/**
  * What the cold would welcome on legs and feet, uncapped (1-5): the bound
  * for "too warm". `limbTarget`'s cap only lets ordinary gear meet the cold
  * side; it must not make insulated boots too warm for a winter day (#645).
  */
-/**
- * Above this feels-like (°C, about 72 °F) at the window's warmest hour, rain
- * is the umbrella's, not the outfit's: the only water-resistant garments a
- * closet usually has are a shell and boots, and asking for one at 30 °C
- * dressed every July rain idea in the same shell over the one top light
- * enough to go under it (#648, real-days.spec.ts).
- */
-export const SHELL_CEILING = 22;
-
 function limbCeiling(feelsLike: number): Warmth {
   return clamp(Math.round((33 - feelsLike) / 7), 1, 5) as Warmth;
 }
@@ -119,7 +120,7 @@ export interface WeatherNeeds {
   rain: boolean;
   /**
    * The rain is met outside the outfit ("Take the umbrella", advice for the
-   * day, never a card's problem): a warm window (SHELL_CEILING) or the
+   * day, never a card's problem): warm rain hours (SHELL_CEILING) or the
    * owner's water-resistant accessory (withRainGear). False without rain;
    * with rain and false, the outfit wants water resistance.
    */
@@ -147,7 +148,10 @@ export function weatherNeeds(
   const max = Math.max(...feels);
   const middle = (min + max) / 2;
   const layer = torsoTarget(min) - torsoTarget(max) >= LAYER_STEPS;
-  const rain = hours.some((h) => h.precipitationChance >= RAIN_CHANCE);
+  const rainFeels = hours
+    .filter((h) => h.precipitationChance >= RAIN_CHANCE)
+    .map((h) => h.feelsLike + offset);
+  const rain = rainFeels.length > 0;
   return {
     occasion,
     window,
@@ -158,7 +162,7 @@ export function weatherNeeds(
     limbsCeiling: limbCeiling(middle),
     layer,
     rain,
-    umbrella: rain && max > SHELL_CEILING,
+    umbrella: rain && Math.min(...rainFeels) > SHELL_CEILING,
   };
 }
 
@@ -174,9 +178,7 @@ export function withRainGear(
   closet: readonly MatchGarment[],
 ): WeatherNeeds {
   if (!needs.rain || needs.umbrella) return needs;
-  const carried = closet.some(
-    (g) => g.role === 'accessory' && g.waterResistant,
-  );
+  const carried = closet.some((g) => g.rainGear);
   return carried ? { ...needs, umbrella: true } : needs;
 }
 
@@ -191,6 +193,11 @@ export interface MatchGarment {
   /** 1-5: the garment's own, else its type's preset, else its role's middle. */
   warmth: Warmth;
   waterResistant: boolean;
+  /**
+   * Keeps rain off the wearer beside the outfit: a water-resistant hat or
+   * cap (RAIN_GEAR_TYPES). A water-resistant watch or belt is not.
+   */
+  rainGear: boolean;
 }
 
 /** The garment columns matchGarment reads (a garment row has them all). */
@@ -215,6 +222,9 @@ const ROLE_WARMTH: Readonly<Record<GarmentRole, Warmth>> = {
   none: 1,
 };
 
+/** Accessory types that shed rain; there is no umbrella type yet. */
+const RAIN_GEAR_TYPES: readonly string[] = ['hat', 'cap'];
+
 /**
  * A garment for the matching. Nothing is required (plan section 6): an
  * unknown warmth is the type's preset (with its weight step: a 6 oz tee is
@@ -226,6 +236,11 @@ export function matchGarment(garment: GarmentWeatherFields): MatchGarment {
     role,
     warmth: garment.warmth ?? presetsFor(garment).warmth ?? ROLE_WARMTH[role],
     waterResistant: garment.waterResistant,
+    rainGear:
+      role === 'accessory' &&
+      garment.waterResistant &&
+      garment.type !== null &&
+      RAIN_GEAR_TYPES.includes(garment.type),
   };
 }
 

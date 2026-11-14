@@ -7,6 +7,7 @@ import {
   limbTarget,
   type MatchGarment,
   matchGarment,
+  needsWaterResistance,
   SHELL_CEILING,
   torsoTarget,
   type WeatherNeeds,
@@ -55,7 +56,8 @@ const g = (
   role: GarmentRole,
   warmth: Warmth,
   waterResistant = false,
-): MatchGarment => ({ role, warmth, waterResistant });
+  rainGear = false,
+): MatchGarment => ({ role, warmth, waterResistant, rainGear });
 
 const TEE = g('top', 2);
 const TANK = g('top', 1);
@@ -180,6 +182,13 @@ describe('weather matching', () => {
       expect(mild.umbrella).toBe(false);
     });
 
+    it('keeps the cool-rain requirement when only the cool morning rains (12 to 24 °C)', () => {
+      const work = needs(day(12, 24, [8, 9, 10]), 'all-day');
+      expect(work.feelsLike.max).toBeGreaterThan(SHELL_CEILING);
+      expect(work).toMatchObject({ rain: true, umbrella: false });
+      expect(needsWaterResistance(work)).toBe(true);
+    });
+
     it('dresses a morning workout for the morning', () => {
       const workout = needs(JULY, 'workout');
       expect(workout.window).toEqual({ from: 6, to: 9 });
@@ -260,12 +269,28 @@ describe('weather matching', () => {
     it('leaves it to the umbrella when the closet has a water-resistant accessory', () => {
       const work = withRainGear(needs(OCTOBER_RAIN, 'work'), [
         RAIN_JACKET,
-        g('accessory', 1, true),
+        g('accessory', 1, true, true),
       ]);
       expect(work.umbrella).toBe(true);
       expect(assessOutfit(work, [TEE, JACKET, JEANS, SNEAKERS]).fits).toBe(
         true,
       );
+    });
+
+    it('counts only a water-resistant hat or cap as rain gear, not a watch', () => {
+      const accessory = (type: string) =>
+        matchGarment({
+          category: 'accessories',
+          type,
+          fabricWeight: null,
+          warmth: null,
+          waterResistant: true,
+        });
+      expect(accessory('cap').rainGear).toBe(true);
+      expect(accessory('watch').rainGear).toBe(false);
+      const work = needs(OCTOBER_RAIN, 'work');
+      expect(withRainGear(work, [accessory('watch')]).umbrella).toBe(false);
+      expect(withRainGear(work, [accessory('hat')]).umbrella).toBe(true);
     });
 
     it('does not count a water-resistant bag', () => {
@@ -383,6 +408,7 @@ describe('weather matching', () => {
         role: 'top',
         warmth: 4,
         waterResistant: false,
+        rainGear: false,
       });
     });
 
@@ -397,7 +423,12 @@ describe('weather matching', () => {
           warmth: null,
           waterResistant: true,
         }),
-      ).toEqual({ role: 'layer', warmth: 5, waterResistant: true });
+      ).toEqual({
+        role: 'layer',
+        warmth: 5,
+        waterResistant: true,
+        rainGear: false,
+      });
     });
 
     it("falls back to the role's usual warmth without a type", () => {

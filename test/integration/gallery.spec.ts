@@ -1090,6 +1090,7 @@ describe('outfit gallery with the weather', () => {
         payload: {
           name: 'Rain hat',
           category: 'accessories',
+          type: 'hat',
           props: '1',
           color: ['black'],
           waterResistant: 'true',
