@@ -397,7 +397,9 @@ describe('the weekly auto-plan', () => {
       const res = await post('/calendar/plan-week');
       expect(res.statusCode).toBe(303);
       const planId = Number(
-        /^\/calendar\?planned=(\d+)$/.exec(String(res.headers.location))![1],
+        /^\/calendar\?week=2026-10-04&planned=(\d+)#day-2026-10-05$/.exec(
+          String(res.headers.location),
+        )![1],
       );
       const entries = await weekEntries();
       expect(entries.map((e) => e.slot).sort()).toEqual(TEMPLATE_SLOTS);
@@ -458,6 +460,49 @@ describe('the weekly auto-plan', () => {
       expect(
         unescapeHtml((await get('/calendar?planned=none')).body),
       ).toContain('Nothing new to plan');
+    });
+
+    it('lands on the week and the day the plan starts, and each banner row links to its day with a thumb (#683)', async () => {
+      // Friday noon in New York: the plan starts today, in the shown week.
+      vi.setSystemTime(new Date('2026-10-09T16:00:00Z'));
+      const friday = await post('/calendar/plan-week');
+      expect(friday.statusCode).toBe(303);
+      expect(friday.headers.location).toMatch(
+        /^\/calendar\?week=2026-10-04&planned=\d+#day-2026-10-09$/,
+      );
+      const fridayPlan = Number(
+        /planned=(\d+)/.exec(String(friday.headers.location))![1],
+      );
+      await post(`/calendar/plan-week/${fridayPlan}/undo`);
+      expect(await weekEntries()).toHaveLength(0);
+
+      // Saturday 23:30: both of Saturday's windows are over, so the plan
+      // starts on Sunday, a week the current one does not show.
+      vi.setSystemTime(new Date('2026-10-11T03:30:00Z'));
+      const res = await post('/calendar/plan-week');
+      const location = String(res.headers.location);
+      expect(location).toMatch(
+        /^\/calendar\?week=2026-10-11&planned=\d+#day-2026-10-11$/,
+      );
+      const planId = Number(/planned=(\d+)/.exec(location)![1]);
+
+      const shown = unescapeHtml((await get(location)).body);
+      const banner = /data-planned-entries[\s\S]*?<\/ul>/.exec(shown)![0];
+      expect(banner.match(/<a href="#day-2026-10-\d\d"/g)).toHaveLength(7);
+      expect(banner.match(/data-collage="thumb"/g)).toHaveLength(7);
+
+      // Another week's banner: the rows open the week holding their day.
+      const elsewhere = unescapeHtml(
+        (await get(`/calendar?week=2026-10-04&planned=${planId}`)).body,
+      );
+      expect(elsewhere).toContain(
+        'href="/calendar?week=2026-10-11#day-2026-10-11"',
+      );
+
+      // Undo still removes the batch from that page.
+      const undo = await post(`/calendar/plan-week/${planId}/undo`);
+      expect(undo.headers.location).toBe('/calendar?undone=7');
+      expect(await weekEntries()).toHaveLength(0);
     });
 
     it('leaves slots the person filled, and a day their outfit dresses', async () => {

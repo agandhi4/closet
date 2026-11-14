@@ -4,6 +4,9 @@
  * the Profile, saved under it.
  */
 
+import { CALENDAR_PATH, dayAnchor } from '../calendar/urls';
+import { type IsoDate, startOfWeek } from '../../calendar-date';
+
 export const PLAN_WEEK_PATH = '/calendar/plan-week';
 
 /** Undo of one "Plan my week". */
@@ -11,9 +14,18 @@ export function undoWeekPlanUrl(weekPlanId: number): string {
   return `${PLAN_WEEK_PATH}/${weekPlanId}/undo`;
 }
 
-/** The week after a plan, with its banner: the batch, or 'none' when nothing was left to plan. */
-export function plannedWeekUrl(planned: number | 'none'): string {
-  return `/calendar?${PLANNED_FLAG}=${planned}`;
+/**
+ * What a plan answers: the week holding the batch's first planned day,
+ * scrolled to that day, with the banner (`?planned=`); the current week
+ * with the banner alone when nothing was left to plan ('none').
+ */
+export function plannedWeekUrl(
+  planned: number | 'none',
+  firstDay?: IsoDate,
+): string {
+  const flag = `${PLANNED_FLAG}=${planned}`;
+  if (!firstDay) return `${CALENDAR_PATH}?${flag}`;
+  return `${CALENDAR_PATH}?week=${startOfWeek(firstDay)}&${flag}#${dayAnchor(firstDay)}`;
 }
 
 /** The calendar's one-shot flags: the banner after a plan, the toast after an undo. */
