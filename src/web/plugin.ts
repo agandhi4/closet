@@ -8,6 +8,7 @@ import { tokenRoutes } from './auth/token-routes';
 import { sizesRoutes } from './sizes/routes';
 import { mcpRoutes } from './mcp/routes';
 import {
+  BEARER_REFUSAL_LIMIT,
   createWeatherLimits,
   LINK_IMPORT_LIMIT,
   SIGN_IN_LIMIT,
@@ -179,7 +180,8 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
     createSessionHook(logger, options.config.siteUrl),
   );
   // The budgets a page and its API twin share, one checker each: the two
-  // sign-in doors' SIGN_IN_LIMIT (src/web/auth/sign-in.ts), the link
+  // sign-in doors' SIGN_IN_LIMIT (src/web/auth/sign-in.ts), the bearer
+  // surfaces' BEARER_REFUSAL_LIMIT (/mcp and /api, bearer-gate.ts), the link
   // imports' LINK_IMPORT_LIMIT (the page's import and photo choice, the
   // API's import), and the inspiration paste's own LINK_IMPORT_LIMIT (the
   // page's, the API's look link import), and the weather's search and
@@ -187,6 +189,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   const shared = {
     ...options,
     signInLimit: app.createRateLimit(SIGN_IN_LIMIT),
+    bearerRefusalLimit: app.createRateLimit(BEARER_REFUSAL_LIMIT),
     linkImportLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
     inspirationLinkLimit: app.createRateLimit(LINK_IMPORT_LIMIT),
     weatherLimits: createWeatherLimits(app),
@@ -234,7 +237,7 @@ export const webPlugin: FastifyPluginAsync<WebOptions> = async (
   if (weather) await app.register(weatherRoutes, { ...shared, weather });
   // The bearer surfaces (src/web/surface.ts): the session gate above passes
   // them, each authenticates its own kind of token.
-  await app.register(mcpRoutes, options);
+  await app.register(mcpRoutes, shared);
   await registerApi(app, shared);
   const { vapid } = options.config;
   if (vapid && options.push) {

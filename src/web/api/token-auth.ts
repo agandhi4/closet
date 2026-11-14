@@ -4,20 +4,15 @@ import type {
   HookHandlerDoneFunction,
 } from 'fastify';
 import { TOKEN_PREFIX } from '../../credential-names';
-import type { Db } from '../../db/client';
-import type { Logger } from '../../logger';
-import { presentedBearer } from '../auth/bearer';
-import { authenticateToken } from '../auth/personal-tokens';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
-import { loggableUrl } from '../loggable-url';
-import { rememberShareReadAhead, shareToReadAhead } from '../sharing/access';
 
 /**
  * The API's credential (#190): a `device` token in `Authorization: Bearer`,
  * never the cookie (the root hook never resolves it on this surface) and
- * never the query string. An `mcp` token is refused here as an unknown one
- * is, so a leaked agent token cannot drive the API (#189).
+ * never the query string, checked by the bearer gate shared with /mcp
+ * (src/web/auth/bearer-gate.ts). An `mcp` token is refused here as an
+ * unknown one is, so a leaked agent token cannot drive the API (#189).
  */
 
 /**
@@ -28,51 +23,6 @@ import { rememberShareReadAhead, shareToReadAhead } from '../sharing/access';
  */
 export function signInAgain(): HttpError {
   return new HttpError(401, t('api.SIGN_IN_AGAIN'));
-}
-
-/**
- * The onRequest hook of every non-public API route (after refuseQueryToken):
- * before Fastify reads or parses the body, so an unauthenticated request is
- * a 401 whatever it sent, never a 400 for malformed JSON or a 413 for a body
- * past the limit, and a stranger's body is never read at all. One indexed
- * read (authenticateToken, with the `?ownerId=` share read ahead), plus the
- * last-use write once a minute. Logs the refusal's reason and the client
- * address, never the token.
- */
-export function createDeviceTokenHook({
-  db,
-  logger,
-}: {
-  db: Db;
-  logger: Logger;
-}) {
-  return async function requireDeviceToken(
-    request: FastifyRequest,
-  ): Promise<void> {
-    if (request.routeOptions.config.public === true) return;
-    const presented = presentedBearer(request);
-    // A grantee's `?ownerId=` share rides in the token's read (#170), as a
-    // page's rides in the session's: the access check costs no statement.
-    const auth =
-      'token' in presented
-        ? await authenticateToken(db, presented.token, 'device', {
-            shareOf: shareToReadAhead(request),
-          })
-        : undefined;
-    if (!auth) {
-      const reason =
-        'token' in presented
-          ? 'unknown, revoked or non-device token'
-          : presented.refused;
-      logger.warn(
-        `API ${request.method} ${loggableUrl(request)} refused: ${reason} from ${request.ip}`,
-      );
-      throw signInAgain();
-    }
-    const { share, ...accessToken } = auth;
-    request.accessToken = accessToken;
-    if (share) rememberShareReadAhead(request, share);
-  };
 }
 
 /** Query keys a client might put a token under, in any case. */
