@@ -7,6 +7,7 @@ import {
   tripGarmentPacked,
   tripItem,
   tripOutfit,
+  weatherForecast,
 } from '../../src/db/schema';
 import { addDays } from '../../src/calendar-date';
 import { deleteOutfit } from '../../src/web/outfits/queries';
@@ -1161,6 +1162,66 @@ describe('trips', () => {
         `/outfits/ideas?for=trip:${id}:${addDays(today, 1)}`,
       );
       expect(located.body).toContain('data-ideas-weather');
+    });
+
+    describe('a cached forecast without the trip day (#678)', () => {
+      // Across the date line the destination's forecast can start a day
+      // after home's today; the gallery reads the destination's typical day.
+      const tokyoTripDay = async () => {
+        const today = t.today();
+        const day = addDays(today, 1);
+        const id = await newTrip({ startsOn: day, endsOn: addDays(today, 2) });
+        const set = await post(`/trips/${id}/destination`, {
+          name: 'Tokyo, Japan',
+          latitude: '35.6895',
+          longitude: '139.69171',
+          timeZone: 'Asia/Tokyo',
+        });
+        expect(set.statusCode).toBe(303);
+        expect((await get(`/trips/${id}/weather`)).statusCode).toBe(200);
+        const [cached] = await t.db
+          .select()
+          .from(weatherForecast)
+          .where(eq(weatherForecast.timeZone, 'Asia/Tokyo'));
+        const ideas = () => get(`/outfits/ideas?for=trip:${id}:${day}`);
+        return { day, cached, ideas };
+      };
+      const dropDay = (
+        cached: typeof weatherForecast.$inferSelect,
+        day: string,
+      ) =>
+        t.db
+          .update(weatherForecast)
+          .set({
+            forecast: {
+              ...cached.forecast!,
+              days: cached.forecast!.days.filter((d) => d.day !== day),
+            },
+          })
+          .where(eq(weatherForecast.timeZone, 'Asia/Tokyo'));
+
+      it('reads the destination’s typical day, not no weather', async () => {
+        const { day, cached, ideas } = await tokyoTripDay();
+        await dropDay(cached, day);
+        const res = await ideas();
+        expect(res.body).toContain('data-ideas-weather="typical"');
+      });
+
+      it('reads it too when a stale forecast, kept while the provider is down, no longer covers the day', async () => {
+        const { day, cached, ideas } = await tokyoTripDay();
+        await dropDay(cached, day);
+        await t.db
+          .update(weatherForecast)
+          .set({ fetchedAt: new Date(Date.now() - 3 * 60 * 60 * 1000) })
+          .where(eq(weatherForecast.timeZone, 'Asia/Tokyo'));
+        stub.fail(true);
+        try {
+          const res = await ideas();
+          expect(res.body).toContain('data-ideas-weather="typical"');
+        } finally {
+          stub.fail(false);
+        }
+      });
     });
   });
 

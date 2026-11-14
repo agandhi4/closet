@@ -74,6 +74,8 @@ COMMIT;
 
 Rolling forward again needs 0057 to run again: delete its row from `drizzle.__drizzle_migrations` (the newest), drop `trip.time_zone` and `trip_time_zone_check`, then deploy.
 
+**No deploy overlap for 0057.** Until an old container stops, its forecast and normals upserts would fail against the new keys, but there is no such window: `container_name: closet` makes `docker compose up -d` stop and remove the old container before the new one starts and migrates (One container at a time, above). That is this repo's documented behaviour; the compose file itself is homelab's (`stacks/closet/README.md`) and is not readable from here, so a change there to start-before-stop would bring the window back: the old build's saves fail (logged, the caches refill) until it stops, nothing else is lost.
+
 Deploy now, data fixes and production's paths: homelab `stacks/closet/README.md`.
 
 ## Permissions
