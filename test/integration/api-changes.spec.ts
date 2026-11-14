@@ -5,11 +5,13 @@ import {
   garment,
   garmentWear,
   outfit,
+  syncEpoch,
   user,
   wardrobeShare,
   weekPlan,
   weekPlanEntry,
 } from '../../src/db/schema';
+import { bumpSyncEpoch } from '../../src/db/sync-epoch';
 import { deviceToken, expectProblem } from './api';
 import { jpegPhoto } from './garments';
 import {
@@ -145,6 +147,15 @@ async function wear(token: string, garmentId: number): Promise<number> {
     .where(eq(garmentWear.garmentId, garmentId));
   return row.id;
 }
+
+/** A cursor's JSON, to forge one from (cursor.ts' format). */
+const cursorFields = (cursor: string) =>
+  JSON.parse(Buffer.from(cursor, 'base64url').toString()) as Record<
+    string,
+    unknown
+  >;
+const encodeCursor = (fields: Record<string, unknown>) =>
+  Buffer.from(JSON.stringify(fields)).toString('base64url');
 
 const revisionOf = async (userId: number) =>
   (
@@ -695,12 +706,8 @@ describe('the cursor', () => {
     await newGarment(a.device, 'Mine');
     const own = await newGarment(b.device, 'Theirs');
     const cursorOfA = (await syncAll(a.device, { limit: 100 })).cursor;
-    const fields = JSON.parse(
-      Buffer.from(cursorOfA, 'base64url').toString(),
-    ) as Record<string, unknown>;
-    const encoded = (json: Record<string, unknown>) =>
-      Buffer.from(JSON.stringify(json)).toString('base64url');
-    const unnamed = encoded({ ...fields, u: undefined });
+    const fields = cursorFields(cursorOfA);
+    const unnamed = encodeCursor({ ...fields, u: undefined });
     // The device switched accounts: a's cursor, presented by b.
     for (const [token, cursor] of [
       [b.device, cursorOfA],
@@ -717,7 +724,7 @@ describe('the cursor', () => {
       await api(
         b.device,
         'GET',
-        `/changes?cursor=${encoded({ ...fields, u: String(b.id) })}`,
+        `/changes?cursor=${encodeCursor({ ...fields, u: String(b.id) })}`,
       ),
       400,
       'validation',
@@ -784,6 +791,72 @@ describe('the cursor', () => {
       410,
       'cursor_expired',
     );
+  });
+
+  it('is a 410 past the wardrobe it reads: a revision above its current one is another history (#652)', async () => {
+    const a = await account('changes-ahead@example.com');
+    await newGarment(a.device, 'Kept');
+    const fields = cursorFields(
+      (await syncAll(a.device, { limit: 100 })).cursor,
+    );
+    const ahead = encodeCursor({
+      ...fields,
+      w: { [a.id]: [(await revisionOf(a.id)) + 1, 2, '', 0, 0, 0] },
+    });
+    expectProblem(
+      await api(a.device, 'GET', `/changes?cursor=${ahead}`),
+      410,
+      'cursor_expired',
+    );
+  });
+
+  it('belongs to the epoch it was answered under: after a bump it is a 410 and a full sync starts the new one; one from before epochs is current until the first bump (#652)', async () => {
+    const a = await account('changes-epoch@example.com');
+    const kept = await newGarment(a.device, 'Kept');
+    const synced = await syncAll(a.device, { limit: 100 });
+    const fields = cursorFields(synced.cursor);
+    const beforeEpochs = encodeCursor({ ...fields, e: undefined });
+    expect(await changes(a.device, { cursor: beforeEpochs })).toMatchObject({
+      changes: [],
+      more: false,
+    });
+
+    const epoch = await bumpSyncEpoch(t.db);
+    expect(epoch).not.toBe(fields.e);
+    for (const cursor of [synced.cursor, beforeEpochs]) {
+      expectProblem(
+        await api(a.device, 'GET', `/changes?cursor=${cursor}`),
+        410,
+        'cursor_expired',
+      );
+    }
+    const fresh = await syncAll(a.device, { limit: 100 });
+    expect(changeKeys(fresh.pages)).toEqual([`garment:${kept}`]);
+    expect(fresh.pages[0].snapshot).toEqual({ wardrobes: [a.id] });
+    expect(cursorFields(fresh.cursor).e).toBe(epoch);
+    expect(await changes(a.device, { cursor: fresh.cursor })).toMatchObject({
+      changes: [],
+      more: false,
+    });
+  });
+
+  it("without its sync_epoch row the feed is a 500 naming that row, logged once; a deleted account is the token check's 401", async () => {
+    const a = await account('changes-no-epoch@example.com');
+    const [saved] = await t.db.delete(syncEpoch).returning();
+    try {
+      const logged = t.logs.records.length;
+      const res = await api(a.device, 'GET', '/changes');
+      expect(res.statusCode).toBe(500);
+      const lines = t.logs.records
+        .slice(logged)
+        .filter((record) => record.err?.message?.includes('sync_epoch'));
+      expect(lines).toHaveLength(1);
+    } finally {
+      await t.db.insert(syncEpoch).values(saved);
+    }
+
+    await asFixture(t.db, (tx) => tx.delete(user).where(eq(user.id, a.id)));
+    expect((await api(a.device, 'GET', '/changes')).statusCode).toBe(401);
   });
 });
 

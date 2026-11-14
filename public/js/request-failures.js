@@ -31,6 +31,9 @@
 import { showToast } from 'toast';
 
 const FAILED_EVENT = 'closet:request-failed';
+// The server's ask-first refusal (askFirst, src/web/announce.ts): confirm-sheet.js
+// owns it, so it is not toasted as a failure.
+const CONFIRM_EVENT = 'closet:confirm';
 const QUEUE_FORM = 'form[data-offline-queue]';
 const FAILURE_TOAST_MS = 6_000;
 
@@ -39,8 +42,13 @@ const text = (name) => document.getElementById('app-status')?.dataset[name];
 /** Every answer of this app names its request (src/request-context.ts). */
 const isOurs = (xhr) => xhr.getResponseHeader('X-Request-ID') !== null;
 
-const carriesFailure = (xhr) =>
-  xhr.getResponseHeader('HX-Trigger')?.includes(`"${FAILED_EVENT}"`) ?? false;
+const carriesTrigger = (xhr, event) =>
+  xhr.getResponseHeader('HX-Trigger')?.includes(`"${event}"`) ?? false;
+
+// An answer whose own trigger says what to show (the failure toast, or the
+// confirm sheet) gets no generic message on top.
+const saysItself = (xhr) =>
+  carriesTrigger(xhr, FAILED_EVENT) || carriesTrigger(xhr, CONFIRM_EVENT);
 
 let shown;
 
@@ -69,7 +77,7 @@ document.addEventListener(FAILED_EVENT, (event) => {
 
 document.addEventListener('htmx:responseError', (event) => {
   const { boosted, xhr } = event.detail;
-  if (carriesFailure(xhr) || (boosted && isOurs(xhr))) return;
+  if (saysItself(xhr) || (boosted && isOurs(xhr))) return;
   console.warn(`[request-failures] a ${xhr.status} that is not this app's`);
   toastFailure(text('textRequestFailed'));
 });

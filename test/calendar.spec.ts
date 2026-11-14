@@ -152,6 +152,40 @@ test('the outfit page plans the outfit from its sheet and lands on that week; Pl
   await expect(sheetRow).toHaveCount(1);
   await expect(status).toContainText('Put back on the calendar');
 
+  // #891: a page drawn before the entry was worn (in another request) sent
+  // its Remove without asking; the server's 409 opens the sheet and that is
+  // all the person sees (no failure toast), and its yes deletes.
+  const savedOutfitId = /\/outfits\/(\d+)/.exec(outfitUrl)?.[1];
+  expect(savedOutfitId).toBeDefined();
+  const past = await page.request.post('/calendar', {
+    form: { outfitId: `${savedOutfitId}`, date: '2020-10-07' },
+    headers: SAME_ORIGIN,
+  });
+  expect(past.ok()).toBe(true);
+  await page.goto('/calendar?week=2020-10-07');
+  const staleRow = page.locator('[data-occasion]');
+  const staleId = await staleRow
+    .locator('[data-remove-entry]')
+    .getAttribute('data-remove-entry');
+  const worn = await page.request.post(`/calendar/${staleId}/worn`, {
+    form: { week: '2020-10-07', worn: '1' },
+    headers: SAME_ORIGIN,
+  });
+  expect(worn.ok()).toBe(true);
+  const staleSheet = page.locator('#confirm-sheet');
+  await staleRow.getByText('Change', { exact: true }).click();
+  await staleRow.getByRole('button', { name: 'Remove from calendar' }).click();
+  await expect(staleSheet).toBeVisible();
+  await expect(staleSheet).toContainText('Remove this scheduled outfit?');
+  await expect(status).not.toContainText('That did not go through');
+  await staleSheet.locator('[data-confirm-accept]').click();
+  await expect(staleRow).toHaveCount(0);
+  // The 409 is the browser's and htmx's own console line, expected here.
+  expect(errors.splice(0)).toEqual([
+    expect.stringContaining('409'),
+    expect.stringContaining(`/calendar/${staleId}/delete`),
+  ]);
+
   await page.goto(outfitUrl);
   const menu = page.locator('summary', { hasText: '⋯' });
   const confirmSheet = page.locator('#confirm-sheet');
