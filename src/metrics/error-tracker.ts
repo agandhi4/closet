@@ -129,21 +129,7 @@ export async function createErrorTracker({
     // Errors only, every one of them; no tracing, no sessions, no client
     // reports. Bugsink supports none of the rest (finplat's settings).
     sampleRate: 1,
-    // v11 replaced sendDefaultPii with dataCollection, whose unset default
-    // collects more; every category stays off, as v10's default was.
-    dataCollection: {
-      userInfo: false,
-      cookies: false,
-      httpHeaders: { request: false, response: false },
-      httpBodies: [],
-      urlQueryParams: false,
-      genAI: { inputs: false, outputs: false },
-      databaseQueryData: false,
-      queues: false,
-      graphQL: { document: false, variables: false },
-    },
-    // v11 defaults this on; off keeps a non-Error capture's event as v10 sent it.
-    attachStacktrace: false,
+    sendDefaultPii: false,
     sendClientReports: false,
     maxBreadcrumbs: 0,
     stackParser: defaultStackParser,
