@@ -67,6 +67,7 @@ describe('web layer', () => {
       expect(res.body).toContain('>There is no page at this address</p>');
       // The avatar: the account's initial, opening Profile.
       expect(res.body).toContain('<a href="/auth/profile" id="avatar"');
+      expect(res.body).toContain('<nav class="dock"');
     });
 
     it('is the 404 page signed out too, not a login redirect', async () => {

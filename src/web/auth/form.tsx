@@ -196,13 +196,23 @@ export interface FieldsetProps {
    * itself swaps nothing).
    */
   validateUrl?: string;
+  /**
+   * No frame of its own: the caller's card is the frame (the sign-in
+   * pages' `SignedOutFrame`), since a browser draws a legend straddling a
+   * fieldset's border, over the card's edge.
+   */
+  bare?: boolean;
   children: Child;
 }
 
 export function Fieldset(props: FieldsetProps) {
   return (
     <fieldset
-      class="fieldset bg-base-200 border-base-300 rounded-box w-xs border p-4"
+      class={
+        props.bare
+          ? 'fieldset'
+          : 'fieldset bg-base-200 border-base-300 rounded-box w-xs border p-4'
+      }
       hx-post={props.validateUrl}
       hx-trigger={props.validateUrl ? 'change' : undefined}
       hx-swap={props.validateUrl ? 'none' : undefined}
@@ -219,11 +229,8 @@ export function Fieldset(props: FieldsetProps) {
  * the very click that would have re-run it. The server validates the
  * submission anyway.
  */
-export function SubmitButton(props: {
-  label: string;
-  variant?: 'neutral' | 'error';
-}) {
-  const color = props.variant === 'error' ? 'btn-error' : 'btn-neutral';
+export function SubmitButton(props: { label: string; variant?: 'error' }) {
+  const color = props.variant === 'error' ? 'btn-error' : 'btn-primary';
   return (
     <button type="submit" class={`btn ${color} mt-4`}>
       {props.label}

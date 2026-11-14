@@ -3,6 +3,7 @@ import { todayIn } from '../../calendar-date';
 import { jsonForScript } from '../html';
 import { type StringKey, t } from '../i18n';
 import { AppBar } from '../layout/app-bar';
+import { BrandMark } from '../layout/brand-mark';
 import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { ProfileSection } from '../layout/parts';
@@ -66,19 +67,19 @@ function AccountShell(props: {
   returnTo?: string;
   /**
    * A public entry page's (sign in, register) link preview: the og tags
-   * and the schema.org WebPage, both named by `title`.
+   * and the schema.org WebPage, both named by `ogTitle`, which stays meta
+   * only: the h1 is `title`.
    */
-  description?: string;
+  preview?: { ogTitle: string; description: string };
   children: Child;
 }) {
-  const { description } = props;
-  const preview = description !== undefined;
+  const { preview } = props;
   return (
     <Layout
       ctx={props.ctx}
-      title={props.title}
-      ogTitle={preview ? props.title : undefined}
-      ogDescription={description}
+      title={preview?.ogTitle ?? props.title}
+      ogTitle={preview?.ogTitle}
+      ogDescription={preview?.description}
     >
       <AppBar
         ctx={props.ctx}
@@ -93,10 +94,11 @@ function AccountShell(props: {
         {preview && (
           <WebPageData
             ctx={props.ctx}
-            name={props.title}
-            description={description}
+            name={preview.ogTitle}
+            description={preview.description}
           />
         )}
+        {!props.ctx.user && <BrandMark ctx={props.ctx} />}
         {props.children}
       </main>
       <Dock ctx={props.ctx} />
@@ -135,13 +137,14 @@ export function LoginPage(props: {
   returnTo: string;
 }) {
   const { ctx } = props;
-  const title = t('LOGIN_OG_TITLE', { appName: ctx.appName });
-  const description = t('LOGIN_OG_DESC', { appName: ctx.appName });
   return (
     <AccountShell
       ctx={ctx}
-      title={title}
-      description={description}
+      title={t('LOGIN_TITLE')}
+      preview={{
+        ogTitle: t('LOGIN_OG_TITLE', { appName: ctx.appName }),
+        description: t('LOGIN_OG_DESC', { appName: ctx.appName }),
+      }}
       returnTo={props.returnTo}
     >
       {/* Signed out only: a signed-in visitor opening this page keeps
@@ -150,24 +153,33 @@ export function LoginPage(props: {
       {props.failed && <ErrorAlert message={t('LOGIN_FAILED')} />}
       <PostForm action="/auth/login" endsSession>
         <ReturnToField returnTo={props.returnTo} />
-        <Fieldset legend={t('LOGIN')}>
-          <Field
-            id="email"
-            label={t('EMAIL')}
-            type="email"
-            autocomplete="username"
-            value={props.failed?.email}
-          />
-          <Field
-            id="password"
-            label={t('PASSWORD')}
-            type="password"
-            autocomplete="current-password"
-          />
-          <SubmitButton label={t('LOGIN')} />
-        </Fieldset>
+        <SignedOutFrame>
+          <Fieldset legend={t('LOGIN')} bare>
+            <Field
+              id="email"
+              label={t('EMAIL')}
+              type="email"
+              autocomplete="username"
+              value={props.failed?.email}
+            />
+            <Field
+              id="password"
+              label={t('PASSWORD')}
+              type="password"
+              autocomplete="current-password"
+            />
+            <SubmitButton label={t('LOGIN')} />
+          </Fieldset>
+        </SignedOutFrame>
       </PostForm>
     </AccountShell>
+  );
+}
+
+/** The sign-in forms' card: the frame their `bare` Fieldset leaves to it. */
+function SignedOutFrame(props: { children: Child }) {
+  return (
+    <div class="card card-border bg-base-200 w-xs p-4">{props.children}</div>
   );
 }
 
@@ -209,7 +221,7 @@ export const REGISTER_FIELDS = [
 /** The registration fieldset; POST /auth/validate/register refills its messages. */
 function RegisterFields({ input = {}, errors = {} }: RegisterFormState) {
   return (
-    <Fieldset legend={t('REGISTER')} validateUrl="/auth/validate/register">
+    <Fieldset legend={t('REGISTER')} validateUrl="/auth/validate/register" bare>
       <Field
         id="email"
         label={t('EMAIL')}
@@ -242,18 +254,21 @@ export function RegisterPage(
   props: { ctx: ViewContext; returnTo: string } & RegisterFormState,
 ) {
   const { ctx } = props;
-  const title = t('REGISTER_OG_TITLE', { appName: ctx.appName });
-  const description = t('REGISTER_OG_DESC', { appName: ctx.appName });
   return (
     <AccountShell
       ctx={ctx}
-      title={title}
-      description={description}
+      title={t('REGISTER')}
+      preview={{
+        ogTitle: t('REGISTER_OG_TITLE', { appName: ctx.appName }),
+        description: t('REGISTER_OG_DESC', { appName: ctx.appName }),
+      }}
       returnTo={props.returnTo}
     >
       <PostForm action="/auth/register" endsSession>
         <ReturnToField returnTo={props.returnTo} />
-        <RegisterFields input={props.input} errors={props.errors} />
+        <SignedOutFrame>
+          <RegisterFields input={props.input} errors={props.errors} />
+        </SignedOutFrame>
       </PostForm>
     </AccountShell>
   );

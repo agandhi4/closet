@@ -32,6 +32,21 @@ test('register through the form, sign out from Profile, sign back in', async ({
   await expect(page).toHaveURL(/\/auth\/login$/);
   await expect(page.locator('body')).toContainText(APP_NAME);
 
+  // The signed-out shell at phone width (#662): the mark, no dead dock, the
+  // one primary button, nothing wider than the screen.
+  const desktop = page.viewportSize();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Sign in');
+  await expect(page.locator('main img[src^="/assets/icon"]')).toBeVisible();
+  await expect(page.locator('.dock')).toHaveCount(0);
+  await expect(page.locator('main .btn-primary')).toHaveCount(1);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  if (desktop) await page.setViewportSize(desktop);
+
   const email = `register-form-${Date.now()}@example.com`;
   await page.goto('/auth/register');
   await page.locator('#email').fill(email);
