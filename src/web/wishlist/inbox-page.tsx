@@ -1,6 +1,7 @@
 import type { Child } from 'hono/jsx';
 import type { OutfitCount } from '../../wardrobe/goes-with';
 import { unlocksText } from '../gallery/goes-with';
+import { AgentBadge } from '../agent-badge';
 import { t } from '../i18n';
 import { CANDIDATE_GRID, PAIR_GRID } from '../layout/columns';
 import { Dock } from '../layout/dock';
@@ -412,6 +413,7 @@ function OwnWishlist({ model }: { model: InboxModel }) {
             attributes={{ 'data-own': String(item.id) }}
           >
             {item.suggested && <FromAgent agent={null} />}
+            <AgentBadge agent={item.agent} byMuse={item.suggested} />
             {[item.brand, categoryLabel(item.category)]
               .filter(Boolean)
               .join(' · ')}

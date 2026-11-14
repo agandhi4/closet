@@ -1,6 +1,7 @@
 import type { Child } from 'hono/jsx';
 import type { Idea } from '../../wardrobe/generator';
 import type { Occasion } from '../../wardrobe/occasions';
+import { AgentBadge } from '../agent-badge';
 import { PostForm } from '../auth/form';
 import type { IsoDate } from '../../calendar-date';
 import { type CalendarEntry, entryPieces } from '../calendar/calendar-view';
@@ -301,6 +302,7 @@ function PlannedCard(props: {
         </a>
         <div class="flex items-center gap-2">
           <h3 class="font-semibold text-sm line-clamp-2 flex-1">{name}</h3>
+          <AgentBadge agent={entry.agent} />
           {/* The mirror photo, or the camera to take it: taking one marks
               the entry worn (#19). */}
           <EntrySelfie

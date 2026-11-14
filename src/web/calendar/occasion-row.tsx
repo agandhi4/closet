@@ -1,4 +1,5 @@
 import type { Occasion } from '../../wardrobe/occasions';
+import { AgentBadge } from '../agent-badge';
 import { t } from '../i18n';
 import { OutfitCollage, outfitLabel } from '../outfits/collage';
 import { EntrySelfie } from '../selfies/views';
@@ -56,6 +57,7 @@ export function OccasionRow(props: {
             {t('weekPlan.AUTO')}
           </span>
         )}
+        <AgentBadge agent={entry.agent} />
         <EntryMenu entry={entry} name={name} />
       </div>
       <div class="flex items-center gap-2 lg:flex-wrap">

@@ -279,6 +279,13 @@ function listFilter(list: OutfitList): SQL {
  */
 export type GarmentOutfit = Pick<OutfitSummary, 'id' | 'name' | 'garments'>;
 
+/** A Saved-tab tile (savedOutfitsSql): the outfit, and its agent when one made it (#822). */
+export type SavedOutfit = GarmentOutfit & {
+  agent: AgentLabel | null;
+  /** One of Muse's proposals the owner kept: its own provenance, no badge. */
+  proposed: boolean;
+};
+
 /** The garment page's "In N outfits" (#84): how many, and the newest few. */
 export interface GarmentOutfits {
   count: number;
@@ -331,13 +338,15 @@ export function outfitGarmentsSql({
 export function savedOutfitsSql(
   ownerId: number,
   list: OutfitList,
-): SQL<GarmentOutfit[]> {
-  return sql<GarmentOutfit[]>`(
+): SQL<SavedOutfit[]> {
+  return sql<SavedOutfit[]>`(
     select coalesce(
       json_agg(
         json_build_object(
           'id', ${outfit.id},
           'name', ${outfit.name},
+          'agent', ${outfitAgentSql},
+          'proposed', ${outfit.proposedAt} is not null,
           'garments', ${outfitGarmentsSql()}
         )
         order by ${outfit.id} desc

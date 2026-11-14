@@ -99,6 +99,8 @@ interface OwnItem {
   photo: SignablePhotoRef | null;
   /** A suggestion outside any need: "From Muse" (until phase 3's singles). */
   suggested: boolean;
+  /** The agent that added it, as the reader may see it (#822); a plain item's badge. */
+  agent: AgentLabel | null;
   dismissedAt: string | null;
   dismissedReason: DismissReason | null;
   replaces: GarmentRef | null;
@@ -232,7 +234,7 @@ export const OPEN_PICKS = sql`(${wanted()} and ${garment.suggestionGroupId} in (
 ))`;
 
 /** The wishlist garments outside any need: the owner's own items, and a lone suggestion. */
-function ownItemsSql(ownerId: number): SQL<OwnItem[]> {
+function ownItemsSql(ownerId: number, viewer: AgentViewer): SQL<OwnItem[]> {
   return sql<OwnItem[]>`(
     select coalesce(json_agg(json_build_object(
       'id', ${garment.id},
@@ -243,6 +245,7 @@ function ownItemsSql(ownerId: number): SQL<OwnItem[]> {
       'sourceUrl', ${garment.sourceUrl},
       'photo', ${photoRefJson},
       'suggested', ${garment.suggestedAt} is not null,
+      'agent', ${agentLabelSql(garment.addedByTokenId, viewer)},
       'dismissedAt', ${garment.dismissedAt},
       'dismissedReason', ${garment.dismissedReason},
       'replaces', case when ${replacedGarment.id} is null then null else json_build_object(
@@ -407,7 +410,9 @@ export async function readInbox(
 ): Promise<Inbox & { searchMs: number; counted: number }> {
   const row = await selectScalars(db, {
     needs: needsSql(ownerId, inInbox, { viewerId, ownsWardrobe: isOwner }),
-    own: groupsOnly ? undefined : ownItemsSql(ownerId),
+    own: groupsOnly
+      ? undefined
+      : ownItemsSql(ownerId, { viewerId, ownsWardrobe: isOwner }),
     sharedWardrobes: switcher ? sharedWardrobesSql(viewerId) : undefined,
     brandSizes: isOwner && !groupsOnly ? brandSizesSql(ownerId) : undefined,
     unlocks: isOwner ? goesWithManyInputsSql(ownerId, OPEN_PICKS) : undefined,
