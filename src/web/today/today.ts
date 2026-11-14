@@ -148,7 +148,7 @@ async function readDay(
     weather:
       ownWeather || !deps.weather
         ? undefined
-        : weatherWithForecastSql(ownerId, now),
+        : weatherWithForecastSql(ownerId, now, deps.weather.timeZone),
     worn: worn ? somethingWornSql(ownerId, today) : undefined,
     needs: needs ? needsToDecideSql(ownerId) : undefined,
     round: needs ? museRoundSql(ownerId) : undefined,

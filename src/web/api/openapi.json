@@ -14655,7 +14655,7 @@
             "application/json": {
               "schema": {
                 "title": "PlaceInput",
-                "description": "A place from GET /weather/places: its label as the name, and its coordinates (rounded to ~1 km before they are kept)",
+                "description": "A place from GET /weather/places: its label as the name, its coordinates (rounded to ~1 km before they are kept) and its `timeZone` (a trip reads its days in it; one omitted or unknown is the household's)",
                 "type": "object",
                 "required": [
                   "name",
@@ -14677,12 +14677,16 @@
                     "minimum": -180,
                     "maximum": 180,
                     "type": "number"
+                  },
+                  "timeZone": {
+                    "maxLength": 64,
+                    "type": "string"
                   }
                 }
               }
             }
           },
-          "description": "A place from GET /weather/places: its label as the name, and its coordinates (rounded to ~1 km before they are kept)"
+          "description": "A place from GET /weather/places: its label as the name, its coordinates (rounded to ~1 km before they are kept) and its `timeZone` (a trip reads its days in it; one omitted or unknown is the household's)"
         },
         "parameters": [
           {
@@ -30882,7 +30886,8 @@
                         "required": [
                           "label",
                           "latitude",
-                          "longitude"
+                          "longitude",
+                          "timeZone"
                         ],
                         "properties": {
                           "label": {
@@ -30896,6 +30901,17 @@
                           "longitude": {
                             "description": "Rounded to 2 decimals (~1 km)",
                             "type": "number"
+                          },
+                          "timeZone": {
+                            "description": "Its IANA time zone (\"Asia/Tokyo\"); null when the search named none. Send it as the `timeZone` you set: a trip's days and hours are asked in it",
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         }
                       }
@@ -30942,7 +30958,7 @@
             "application/json": {
               "schema": {
                 "title": "PlaceInput",
-                "description": "A place from GET /weather/places: its label as the name, and its coordinates (rounded to ~1 km before they are kept)",
+                "description": "A place from GET /weather/places: its label as the name, its coordinates (rounded to ~1 km before they are kept) and its `timeZone` (a trip reads its days in it; one omitted or unknown is the household's)",
                 "type": "object",
                 "required": [
                   "name",
@@ -30964,12 +30980,16 @@
                     "minimum": -180,
                     "maximum": 180,
                     "type": "number"
+                  },
+                  "timeZone": {
+                    "maxLength": 64,
+                    "type": "string"
                   }
                 }
               }
             }
           },
-          "description": "A place from GET /weather/places: its label as the name, and its coordinates (rounded to ~1 km before they are kept)"
+          "description": "A place from GET /weather/places: its label as the name, its coordinates (rounded to ~1 km before they are kept) and its `timeZone` (a trip reads its days in it; one omitted or unknown is the household's)"
         },
         "responses": {
           "200": {

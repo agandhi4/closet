@@ -59,6 +59,21 @@ The boot log says `Order mail: on (Fastmail, every 5 min, N trusted senders)`; e
 
 **Rotating the secret.** Set a new `ACCESS_TOKEN_SECRET` (`openssl rand -hex 32`) in `closet.env`, redeploy, then `docker exec closet npm run push:revoke-all`: the rotation signed everyone out, and a device left closed would otherwise keep receiving its account's reminders until it next opened the app (the login page drops its browser subscription then). After the restart, not before: a session still open re-sends its subscription on its next page. Everyone signs in again and re-enables notifications and reminders on the profile. Personal access tokens are unaffected (Request security, Session revocation).
 
+**Rolling back past 0057 (#678).** 0057 keys the weather caches by zone, and an image from before it upserts on `(latitude, longitude)`, which no longer has a unique constraint: its forecasts would fail to save. Before starting the older image, on the database (the caches refill on the next asks; `trip.time_zone` is harmless to keep and is used again on the next roll forward):
+
+```sql
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+TRUNCATE weather_forecast, weather_normals;
+ALTER TABLE weather_forecast DROP CONSTRAINT weather_forecast_pkey, DROP COLUMN time_zone,
+  ADD CONSTRAINT weather_forecast_pkey PRIMARY KEY (latitude, longitude);
+ALTER TABLE weather_normals DROP CONSTRAINT weather_normals_pkey, DROP COLUMN time_zone,
+  ADD CONSTRAINT weather_normals_pkey PRIMARY KEY (latitude, longitude);
+COMMIT;
+```
+
+Rolling forward again needs 0057 to run again: delete its row from `drizzle.__drizzle_migrations` (the newest), drop `trip.time_zone` and `trip_time_zone_check`, then deploy.
+
 Deploy now, data fixes and production's paths: homelab `stacks/closet/README.md`.
 
 ## Permissions

@@ -11,7 +11,7 @@ import {
   withRainGear,
 } from '../../weather/match';
 import { type DayNormals, normalsOn, typicalDay } from '../../weather/normals';
-import type { Location } from '../../weather/location';
+import { type ZonedLocation, zonedIn } from '../../weather/location';
 import type { TemperatureUnit } from '../../weather/temperature';
 import { addDays, type IsoDate } from '../../calendar-date';
 import {
@@ -45,6 +45,15 @@ import type { TripRow } from './queries';
  * Read by the trip page's fragment and get_trip; never rendered into the
  * page itself (a forecast refreshed hourly would make the page wait on
  * Open-Meteo).
+ *
+ * A trip day is a civil date at the destination (#678): the forecast and the
+ * normals are asked in the destination's zone (trip.location.timeZone, set
+ * with the place; APP_TIMEZONE for a trip located before), so the all-day
+ * window is its 8 to 22. Which days are left is still home's today (the
+ * known limit: "today while travelling is home's", docs/decisions.md), so
+ * across the date line the forecast can lack a trip day the span holds:
+ * home's today in Tokyo is already over, home's fifteenth day in Honolulu
+ * not yet forecast. Such a day shows its typical weather, never a hole.
  */
 
 export interface TripWeatherDay {
@@ -130,16 +139,27 @@ export async function tripForecast(
   if (trip.endsOn < today) return { kind: 'over' };
   const { location } = trip;
   if (!location) return { kind: 'no-location' };
+  const place = zonedIn(location, deps.weather.timeZone);
   const { within, later } = tripSpan(trip, today);
-  const { prefs, cached, normals } = await readWeather(
-    deps,
-    ownerId,
-    location,
-    { forecast: within !== null, normals: later !== null },
-  );
+  const read = await readWeather(deps, ownerId, place, {
+    forecast: within !== null,
+    normals: later !== null,
+  });
+  const { prefs, cached } = read;
   const { offset, unit } = prefs;
-  const days = forecastDays(cached, within, offset);
-  const typical = typicalDays(normals, later, trip.endsOn, offset);
+  const { days, missing } = forecastDays(cached, within, offset);
+  // A day the destination's forecast lacks (the date line) reads the
+  // normals too; their row was read with the forecast's only when later
+  // days needed them, else it is read now, once.
+  const normals =
+    missing.length > 0 && later === null
+      ? await deps.weather.normalsFor(place)
+      : read.normals;
+  const typical = typicalDays(
+    normals,
+    [...missing, ...laterDays(later, trip.endsOn)],
+    offset,
+  );
   // The rain gear on the trip's packing list (planned to come, packed or
   // not, whatever its state at home), read once and only when a day asks for
   // water resistance; none on the list means the days need it (rainGearFor).
@@ -172,7 +192,7 @@ export async function tripForecast(
 async function readWeather(
   deps: { db: Db; weather: WeatherService },
   ownerId: number,
-  location: Location,
+  location: ZonedLocation,
   needs: { forecast: boolean; normals: boolean },
 ): Promise<{
   prefs: TemperaturePrefs;
@@ -199,14 +219,19 @@ async function readWeather(
   return { prefs: readTemperaturePrefs(read.prefs), cached, normals };
 }
 
-/** The forecast's days in `span`, each with what it asks. */
+/**
+ * The forecast's days in `span`, each with what it asks, and the span's days
+ * it lacks (the destination's forecast starts on its own today); none
+ * without a forecast, whose days are `unavailable` instead.
+ */
 function forecastDays(
   cached: CachedForecast | null,
   span: DaySpan | null,
   offset: number,
-): TripWeatherDay[] {
+): { days: TripWeatherDay[]; missing: IsoDate[] } {
   const days: TripWeatherDay[] = [];
-  if (!cached || !span) return days;
+  const missing: IsoDate[] = [];
+  if (!cached || !span) return { days, missing };
   for (let day = span.first; day <= span.last; day = addDays(day, 1)) {
     const found = forecastDay(cached.forecast, day);
     if (found) {
@@ -214,21 +239,31 @@ function forecastDays(
         forecast: found,
         needs: weatherNeeds(found, 'all-day', offset),
       });
+    } else {
+      missing.push(day);
     }
+  }
+  return { days, missing };
+}
+
+/** The trip's days from `later` to `last`, both included. */
+function laterDays(later: TripForecastLater | null, last: IsoDate): IsoDate[] {
+  const days: IsoDate[] = [];
+  for (let day = later?.day; day && day <= last; day = addDays(day, 1)) {
+    days.push(day);
   }
   return days;
 }
 
-/** The days from `later` to `last` with normals, each with what a typical day asks. */
+/** The `wanted` days with normals, each with what a typical day asks. */
 function typicalDays(
   cached: CachedNormals | null,
-  later: TripForecastLater | null,
-  last: IsoDate,
+  wanted: readonly IsoDate[],
   offset: number,
 ): TripTypicalDay[] {
   const days: TripTypicalDay[] = [];
-  if (!cached || !later) return days;
-  for (let day = later.day; day <= last; day = addDays(day, 1)) {
+  if (!cached) return days;
+  for (const day of wanted) {
     const dayNormals = normalsOn(cached.normals, day);
     if (dayNormals) {
       days.push({

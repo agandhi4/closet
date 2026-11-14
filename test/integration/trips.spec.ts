@@ -1011,16 +1011,23 @@ describe('trips', () => {
       expect(unescapeHtml(search.body)).toContain(
         'Austin, Texas, United States',
       );
+      // The pick posts the answer's zone beside its coordinates (#678).
+      expect(search.body).toContain('name="timeZone" value="America/Chicago"');
       // The request log names the route, never the typed city.
       expect(JSON.stringify(t.logs.records)).not.toContain('q=austin');
       const set = await post(`/trips/${id}/destination`, {
         name: 'Austin, Texas, United States',
         latitude: '30.26715',
         longitude: '-97.74306',
+        timeZone: 'America/Chicago',
       });
       expect(set.statusCode).toBe(303);
       const [row] = await t.db.select().from(trip).where(eq(trip.id, id));
-      expect(row).toMatchObject({ latitude: 30.27, longitude: -97.74 });
+      expect(row).toMatchObject({
+        latitude: 30.27,
+        longitude: -97.74,
+        timeZone: 'America/Chicago',
+      });
       const res = await get(`/trips/${id}/weather`);
       expectFragment(res);
       const html = unescapeHtml(res.body);
@@ -1029,9 +1036,12 @@ describe('trips', () => {
       );
       expect(shown).toEqual([3, 4, 5, 6, 7].map((n) => addDays(t.today(), n)));
       expect(html).toContain(`/outfits/ideas?for=trip:${id}:${shown[0]}`);
+      // Asked in the destination's zone, never the household's.
       expect(
-        stub.hits.some((hit) =>
-          hit.includes('latitude=30.27&longitude=-97.74'),
+        stub.hits.some(
+          (hit) =>
+            hit.includes('latitude=30.27&longitude=-97.74') &&
+            hit.includes('timezone=America%2FChicago'),
         ),
       ).toBe(true);
       // A new destination name clears the location it no longer describes.
@@ -1042,10 +1052,12 @@ describe('trips', () => {
         endsOn: shown[4],
       });
       const [renamed] = await t.db.select().from(trip).where(eq(trip.id, id));
+      // The zone goes with the place it described.
       expect(renamed).toMatchObject({
         destination: 'Dallas',
         latitude: null,
         longitude: null,
+        timeZone: null,
       });
       // Someone else's trip is not found, weather routes included.
       const cookie = await t.register('trip-weather-stranger@example.com');

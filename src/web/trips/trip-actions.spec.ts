@@ -106,7 +106,7 @@ const fields = {
 const ticks = { tripId: TRIP, packed: [1], unpacked: [] };
 const place = {
   name: 'Austin',
-  location: { latitude: 30.3, longitude: -97.7 },
+  location: { latitude: 30.3, longitude: -97.7, timeZone: 'America/Chicago' },
 };
 
 /** Each path, called as `actor`, with its query answering the miss another user's id gets. */

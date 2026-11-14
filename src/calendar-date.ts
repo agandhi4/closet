@@ -49,11 +49,26 @@ export function parseYearMonth(
 
 /** True when Intl knows the IANA zone name (APP_TIMEZONE is checked at boot). */
 export function isValidTimeZone(timeZone: string): boolean {
+  return canonicalTimeZone(timeZone) !== null;
+}
+
+// An IANA name ("Asia/Tokyo", "UTC"), never an offset: Intl takes "+09:00"
+// too, which no DST rule follows.
+const ZONE_NAME = /^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)*$/;
+
+/**
+ * The zone's name as Intl spells it ("asia/tokyo" and "Asia/Tokyo" are one
+ * zone, "GMT" is "UTC"), or null for a name Intl does not know. The one
+ * spelling a stored, requested or echoed zone is compared in (#678: a
+ * trip's destination zone from the geocoding answer, the forecast's echo).
+ */
+export function canonicalTimeZone(timeZone: string): string | null {
+  if (!ZONE_NAME.test(timeZone)) return null;
   try {
-    new Intl.DateTimeFormat('en-US', { timeZone });
-    return true;
+    return new Intl.DateTimeFormat('en-US', { timeZone }).resolvedOptions()
+      .timeZone;
   } catch {
-    return false;
+    return null;
   }
 }
 

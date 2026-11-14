@@ -128,6 +128,7 @@ function weekAt(feelsLike: (day: IsoDate) => number): DayForecast[] {
  */
 function fakeWeather(days: () => DayForecast[]): WeatherService {
   return {
+    timeZone: 'America/New_York',
     forecastFor: () =>
       Promise.resolve({
         forecast: { timeZone: 'America/New_York', days: days() },

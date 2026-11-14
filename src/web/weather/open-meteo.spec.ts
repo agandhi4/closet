@@ -28,6 +28,17 @@ function fetcherAnswering(body: unknown) {
   return { fetcher, calls };
 }
 
+const NEW_YORK = {
+  latitude: 40.69,
+  longitude: -74,
+  timeZone: 'America/New_York',
+};
+const AUSTIN = {
+  latitude: 30.27,
+  longitude: -97.74,
+  timeZone: 'America/Chicago',
+};
+
 const ANSWER = {
   latitude: 40.6875,
   longitude: -73.97,
@@ -48,13 +59,10 @@ const ANSWER = {
 };
 
 describe('the Open-Meteo client', () => {
-  it('asks the fixed host for the rounded location, in the household zone', async () => {
+  it("asks the fixed host for the rounded location, in the place's zone", async () => {
     const { fetcher, calls } = fetcherAnswering(ANSWER);
-    const client = createOpenMeteoClient({
-      fetcher,
-      timeZone: 'America/New_York',
-    });
-    await client.forecast({ latitude: 40.69, longitude: -74 });
+    const client = createOpenMeteoClient({ fetcher });
+    await client.forecast(NEW_YORK);
     const [{ url, request }] = calls;
     const sent = new URL(url);
     expect(`${sent.origin}${sent.pathname}`).toBe(OPEN_METEO.forecast);
@@ -70,9 +78,8 @@ describe('the Open-Meteo client', () => {
   it('normalizes the answer, leaving out what is missing', async () => {
     const client = createOpenMeteoClient({
       fetcher: fetcherAnswering(ANSWER).fetcher,
-      timeZone: 'America/New_York',
     });
-    expect(await client.forecast({ latitude: 40.69, longitude: -74 })).toEqual({
+    expect(await client.forecast(NEW_YORK)).toEqual({
       timeZone: 'America/New_York',
       days: [
         {
@@ -97,6 +104,36 @@ describe('the Open-Meteo client', () => {
     });
   });
 
+  it("asks a destination's forecast in its own zone, and refuses another zone's answer (#678)", async () => {
+    const tokyo = {
+      latitude: 35.68,
+      longitude: 139.69,
+      timeZone: 'Asia/Tokyo',
+    };
+    const { fetcher, calls } = fetcherAnswering({
+      ...ANSWER,
+      timezone: 'Asia/Tokyo',
+    });
+    const forecast = await createOpenMeteoClient({ fetcher }).forecast(tokyo);
+    expect(new URL(calls[0].url).searchParams.get('timezone')).toBe(
+      'Asia/Tokyo',
+    );
+    expect(forecast.timeZone).toBe('Asia/Tokyo');
+    // The echo goes through the requested zone's canonicaliser: GMT is UTC.
+    const utc = createOpenMeteoClient({
+      fetcher: fetcherAnswering({ ...ANSWER, timezone: 'GMT' }).fetcher,
+    });
+    await expect(
+      utc.forecast({ ...tokyo, timeZone: 'UTC' }),
+    ).resolves.toMatchObject({ timeZone: 'UTC' });
+    const elsewhere = createOpenMeteoClient({
+      fetcher: fetcherAnswering(ANSWER).fetcher,
+    });
+    await expect(elsewhere.forecast(tokyo)).rejects.toBeInstanceOf(
+      WeatherResponseError,
+    );
+  });
+
   it('refuses an answer that is not the documented shape', async () => {
     for (const body of [
       'not json',
@@ -108,11 +145,10 @@ describe('the Open-Meteo client', () => {
     ]) {
       const client = createOpenMeteoClient({
         fetcher: fetcherAnswering(body).fetcher,
-        timeZone: 'America/New_York',
       });
-      await expect(
-        client.forecast({ latitude: 40.69, longitude: -74 }),
-      ).rejects.toBeInstanceOf(WeatherResponseError);
+      await expect(client.forecast(NEW_YORK)).rejects.toBeInstanceOf(
+        WeatherResponseError,
+      );
     }
   });
 
@@ -125,18 +161,36 @@ describe('the Open-Meteo client', () => {
           longitude: -74.00597,
           admin1: 'New York',
           country: 'United States',
+          timezone: 'America/New_York',
         },
+        // The zone canonicalised; one Intl does not know, or an offset, is none.
+        {
+          name: 'Tokyo',
+          latitude: 35.6895,
+          longitude: 139.69171,
+          country: 'Japan',
+          timezone: 'asia/tokyo',
+        },
+        { name: 'Elsewhere', latitude: 1, longitude: 1, timezone: '+09:00' },
         { name: 'Nowhere', latitude: 95, longitude: 0 },
       ],
     });
-    const client = createOpenMeteoClient({
-      fetcher,
-      timeZone: 'America/New_York',
-    });
+    const client = createOpenMeteoClient({ fetcher });
     expect(await client.searchPlaces('new york')).toEqual([
       {
         label: 'New York, United States',
         location: { latitude: 40.71, longitude: -74.01 },
+        timeZone: 'America/New_York',
+      },
+      {
+        label: 'Tokyo, Japan',
+        location: { latitude: 35.69, longitude: 139.69 },
+        timeZone: 'Asia/Tokyo',
+      },
+      {
+        label: 'Elsewhere',
+        location: { latitude: 1, longitude: 1 },
+        timeZone: null,
       },
     ]);
     expect(calls[0].request.hosts).toEqual(['geocoding-api.open-meteo.com']);
@@ -146,7 +200,6 @@ describe('the Open-Meteo client', () => {
   it('answers no places when nothing matched', async () => {
     const client = createOpenMeteoClient({
       fetcher: fetcherAnswering({ generationtime_ms: 0.4 }).fetcher,
-      timeZone: 'America/New_York',
     });
     expect(await client.searchPlaces('atlantis')).toEqual([]);
   });
@@ -158,6 +211,7 @@ describe('the Open-Meteo client', () => {
     const ARCHIVE = {
       latitude: 30.27,
       longitude: -97.74,
+      timezone: 'America/Chicago',
       daily: {
         time: ['2015-12-31', '2016-07-01', '2016-07-02', '2016-07-03'],
         temperature_2m_max: [10, 35, 33, null],
@@ -168,13 +222,13 @@ describe('the Open-Meteo client', () => {
       },
     };
 
-    it('asks the fixed archive host for whole years at the rounded location, in the household zone', async () => {
+    it("asks the fixed archive host for whole years at the rounded location, in the place's zone", async () => {
       const { fetcher, calls } = fetcherAnswering(ARCHIVE);
-      const client = createOpenMeteoClient({
-        fetcher,
-        timeZone: 'America/New_York',
-      });
-      await client.normals({ latitude: 30.27, longitude: -97.7 }, YEARS);
+      const client = createOpenMeteoClient({ fetcher });
+      await client.normals(
+        { latitude: 30.27, longitude: -97.7, timeZone: 'America/Chicago' },
+        YEARS,
+      );
       const [{ url, request }] = calls;
       const sent = new URL(url);
       expect(`${sent.origin}${sent.pathname}`).toBe(OPEN_METEO.archive);
@@ -185,7 +239,7 @@ describe('the Open-Meteo client', () => {
         end_date: '2025-12-31',
         daily:
           'temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum',
-        timezone: 'America/New_York',
+        timezone: 'America/Chicago',
       });
       expect(request).toEqual({
         accept: ['json'],
@@ -196,12 +250,8 @@ describe('the Open-Meteo client', () => {
     it('averages the complete days of those years', async () => {
       const client = createOpenMeteoClient({
         fetcher: fetcherAnswering(ARCHIVE).fetcher,
-        timeZone: 'America/New_York',
       });
-      const normals = await client.normals(
-        { latitude: 30.27, longitude: -97.74 },
-        YEARS,
-      );
+      const normals = await client.normals(AUSTIN, YEARS);
       expect(normals.years).toEqual(YEARS);
       // 1 and 2 July only: 3 July has no high, 31 December 2015 is outside.
       expect(normals.days['07-02']).toEqual({
@@ -232,11 +282,10 @@ describe('the Open-Meteo client', () => {
       ]) {
         const client = createOpenMeteoClient({
           fetcher: fetcherAnswering(body).fetcher,
-          timeZone: 'America/New_York',
         });
-        await expect(
-          client.normals({ latitude: 30.27, longitude: -97.74 }, YEARS),
-        ).rejects.toBeInstanceOf(WeatherResponseError);
+        await expect(client.normals(AUSTIN, YEARS)).rejects.toBeInstanceOf(
+          WeatherResponseError,
+        );
       }
     });
   });

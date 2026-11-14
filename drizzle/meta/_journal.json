@@ -400,6 +400,13 @@
       "when": 1794623943309,
       "tag": "0056_wash-and-wear-instants",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1794628538738,
+      "tag": "0057_destination-time-zone",
+      "breakpoints": true
     }
   ]
 }

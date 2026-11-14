@@ -42,3 +42,45 @@ export function roundedLocation(
 export function locationLabel({ latitude, longitude }: Location): string {
   return `${latitude.toFixed(COORDINATE_DECIMALS)},${longitude.toFixed(COORDINATE_DECIMALS)}`;
 }
+
+/**
+ * A location with the IANA zone its weather is asked and kept in (#678):
+ * APP_TIMEZONE for the home and the phone's location, the destination's own
+ * for a trip, so a trip day is a civil date there and an occasion's hours
+ * are its hours. The weather caches' key: one cell asked in two zones is two
+ * answers (their days and hours differ).
+ */
+export interface ZonedLocation extends Location {
+  /** Canonical (canonicalTimeZone, src/calendar-date.ts). */
+  timeZone: string;
+}
+
+/**
+ * A place picked from the geocoding search (a trip's destination): its
+ * location and the zone the answer named, null when it named none Intl
+ * knows or the place was picked before #678.
+ */
+export interface PickedLocation extends Location {
+  timeZone: string | null;
+}
+
+/**
+ * The place in its own zone, or in `fallback` (APP_TIMEZONE) while it has
+ * none: a trip located before #678, or one whose geocoding answer named no
+ * zone Intl knows.
+ */
+export function zonedIn(
+  place: Location & { timeZone?: string | null },
+  fallback: string,
+): ZonedLocation {
+  return {
+    latitude: place.latitude,
+    longitude: place.longitude,
+    timeZone: place.timeZone ?? fallback,
+  };
+}
+
+/** `35.68,139.69 Asia/Tokyo`: the cache's key and its log lines' place. */
+export function zonedLabel(place: ZonedLocation): string {
+  return `${locationLabel(place)} ${place.timeZone}`;
+}
