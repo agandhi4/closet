@@ -823,6 +823,12 @@ describe('trips', () => {
       ).toBe(303);
       const page = unescapeHtml((await get(`/trips/${id}`)).body);
       expect(page.match(/✓ Worn/g)).toHaveLength(1);
+      // Today is a day of the trip: the home screen says Away, linking to it (#684).
+      expect(unescapeHtml((await get('/')).body)).toMatch(
+        new RegExp(
+          `href="/trips/${id}"[^>]*data-away="${id}"[^>]*>\\s*Away: Twice\\s*<`,
+        ),
+      );
     });
 
     it('plans the trip outfit today and marks it worn through the calendar, once', async () => {
@@ -1008,6 +1014,110 @@ describe('trips', () => {
   });
 
   describe('the destination’s forecast', () => {
+    it('creates a trip at the place its form picked: the forecast on first view; a failed search still creates it unlocated (#684)', async () => {
+      const form = unescapeHtml((await get('/trips/new')).body);
+      expect(form).toContain('hx-get="/trips/new/places"');
+      const fragment = (url: string) =>
+        t.inject({ method: 'GET', url, headers: HX_FRAGMENT });
+      t.logs.clear();
+      const search = await fragment('/trips/new/places?destination=austin');
+      expectFragment(search);
+      // Each place is picked by a GET into the form, never a nested form.
+      expect(search.body).not.toContain('<form');
+      const pick = /hx-get="(\/trips\/new\/place\?[^"]+)"/.exec(
+        unescapeHtml(search.body),
+      )![1];
+      const picked = await fragment(pick);
+      expectFragment(picked);
+      const field = (name: string) =>
+        new RegExp(`name="${name}" value="([^"]*)"`).exec(
+          unescapeHtml(picked.body),
+        )![1];
+      // The name is read-only beside the coordinates and zone it names.
+      expect(picked.body).toMatch(
+        /readonly[^>]*name="destination"|name="destination"[^>]*readonly/,
+      );
+      const label = field('destination');
+      expect(label).toBe('Austin, Texas, United States');
+      expect(field('timeZone')).toBe('America/Chicago');
+      // Neither the search's place nor the pick's is logged.
+      expect(JSON.stringify(t.logs.records)).not.toMatch(/austin|30\.27/i);
+
+      const id = await newTrip({
+        destination: label,
+        latitude: field('latitude'),
+        longitude: field('longitude'),
+        timeZone: field('timeZone'),
+      });
+      const [row] = await t.db.select().from(trip).where(eq(trip.id, id));
+      expect(row).toMatchObject({
+        destination: label,
+        latitude: 30.27,
+        longitude: -97.74,
+        timeZone: 'America/Chicago',
+      });
+      expect(t.logs.messages('info', 'Web')).toContainEqual(
+        expect.stringMatching(
+          new RegExp(
+            `^Trip ${id} created by user \\d+: .*, destination located$`,
+          ),
+        ),
+      );
+      const page = unescapeHtml((await get(`/trips/${id}`)).body);
+      expect(page).toMatch(/<button type="submit"[^>]*>\s*Change\s*</);
+      const weather = await get(`/trips/${id}/weather`);
+      expectFragment(weather);
+      expect(weather.body).toContain('data-trip-weather="forecast"');
+      expect(weather.body.match(/data-weather-day="/g)).toHaveLength(5);
+
+      // Change puts the text back, editable, without searching again.
+      const hits = stub.hits.length;
+      const change = /hx-get="(\/trips\/new\/destination\?[^"]+)"/.exec(
+        unescapeHtml(picked.body),
+      )![1];
+      const text = unescapeHtml((await fragment(change)).body);
+      expect(text).toContain(`value="${label}"`);
+      expect(text).not.toContain('readonly');
+      expect(text).not.toContain('name="latitude"');
+      expect(stub.hits.length).toBe(hits);
+
+      // A failed search says so in the picker; saving still creates the trip, unlocated.
+      stub.fail(true);
+      try {
+        const failed = await fragment('/trips/new/places?destination=austin');
+        expect(failed.statusCode).toBe(200);
+        expect(failed.body).toContain('The search did not work just now.');
+      } finally {
+        stub.fail(false);
+      }
+      const unlocated = await newTrip({ destination: 'Austin' });
+      const [plain] = await t.db
+        .select()
+        .from(trip)
+        .where(eq(trip.id, unlocated));
+      expect(plain).toMatchObject({ destination: 'Austin', latitude: null });
+      // Too short to search is no places, never a 400 htmx would not show.
+      const searches = stub.hits.length;
+      const short = await fragment('/trips/new/places?destination=a');
+      expect(short.statusCode).toBe(200);
+      expect(short.body).toContain('No place by that name.');
+      expect(stub.hits.length).toBe(searches);
+      // A place without its coordinates, or without a name, is refused whole.
+      const partials: Fields[] = [
+        { destination: label, latitude: '30.27' },
+        { destination: ' ', latitude: '30.27', longitude: '-97.74' },
+      ];
+      for (const partial of partials) {
+        const refused = await post('/trips', {
+          name: 'Half a place',
+          startsOn: addDays(t.today(), 3),
+          endsOn: addDays(t.today(), 4),
+          ...partial,
+        });
+        expect(refused.statusCode, JSON.stringify(partial)).toBe(400);
+      }
+    });
+
     it('finds the destination through the weather’s search and shows its days within the forecast', async () => {
       const id = await newTrip({ destination: 'Austin' });
       const before = await get(`/trips/${id}/weather`);

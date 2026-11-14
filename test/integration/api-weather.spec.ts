@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { addDays, type IsoDate } from '../../src/calendar-date';
 import {
@@ -609,6 +609,25 @@ describe("a trip's weather", () => {
     expect(nulled.statusCode).toBe(200);
     expect(nulled.json<{ timeZone: string | null }>().timeZone).toBeNull();
     expect((await api('PUT', '/weather/home', sentBack)).statusCode).toBe(200);
+    // Created at a picked place (#684): located with the trip, its label the destination.
+    const placed = await api('POST', '/trips', {
+      name: 'Tokyo again',
+      destination: 'tokyo',
+      startsOn: addDays(REFERENCE_ANCHOR, 2),
+      endsOn: addDays(REFERENCE_ANCHOR, 3),
+      place: home,
+    });
+    expect(placed.statusCode, placed.body).toBe(201);
+    const [located] = await t.db
+      .select()
+      .from(trip)
+      .where(eq(trip.id, placed.json<{ id: number }>().id));
+    expect(located).toMatchObject({
+      destination: place.label,
+      latitude: 35.69,
+      longitude: 139.69,
+      timeZone: 'Asia/Tokyo',
+    });
     // Home again for the sections below.
     await api('PUT', '/weather/home', { name: 'Fort Greene', ...PRECISE });
   });
@@ -738,9 +757,25 @@ describe('one answer to the rain on every surface (#759)', () => {
         mcpWeather.days[0].outfit,
       ].map(pick);
     };
-    // "Plan my week" for the rainy day, undone so it can be asked again.
+    // "Plan my week" for the rainy day, undone so it can be asked again. The
+    // owner's trips (this one, earlier specs') moved off the week meanwhile:
+    // the planner skips a trip's days (#684), and the rain is the same at home.
+    const shiftTrips = (days: number) =>
+      asFixture(t.db, (tx) =>
+        tx
+          .update(trip)
+          .set({
+            startsOn: sql`${trip.startsOn} + ${days}::int`,
+            endsOn: sql`${trip.endsOn} + ${days}::int`,
+          })
+          .where(eq(trip.ownerId, t.owner.id)),
+      );
     const planProblems = async () => {
-      const planned = await api('POST', '/week-plans');
+      await shiftTrips(90);
+      // Back even when the plan throws: later steps read the trip on its days.
+      const planned = await api('POST', '/week-plans').finally(() =>
+        shiftTrips(-90),
+      );
       expect(planned.statusCode, planned.body).toBe(200);
       const plan = planned.json<{
         weekPlanId: number;
