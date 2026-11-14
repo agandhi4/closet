@@ -47,6 +47,7 @@ function entryOn(
     selfie: null,
     plannedBy: 'user',
     outfit: { id, name: `Outfit ${id}`, kept: true, garments: [] },
+    agent: null,
   };
 }
 

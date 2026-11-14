@@ -11,6 +11,7 @@ import {
   type WornOutfit,
 } from '../calendar/queries';
 import { pickIdea, type PickResult } from '../outfits/pick';
+import { BY_PERSON } from '../write-origin';
 
 /**
  * Today's reads (#15) and its one write of its own, "Wear this". The
@@ -114,6 +115,7 @@ export function wearIdea(
     const outfit = await pickIdea(tx, ownerId, {
       garmentIds: input.garmentIds,
       origin: 'idea',
+      madeBy: BY_PERSON,
     });
     if (outfit === 'not-found') return 'not-found';
     const worn = await wearOutfitOn(tx, {

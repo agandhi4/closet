@@ -24,6 +24,7 @@ import {
 import { ideasWith } from './ideas';
 import { pickGarments } from './pick';
 import { allowPair, avoidPair } from './queries';
+import { BY_PERSON } from '../write-origin';
 
 const CLASH_PATH = '/garments/:id/clashes/:otherId';
 
@@ -92,7 +93,7 @@ export const galleryApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
           source: 'idea',
           name: outfitText(name) ?? undefined,
           via: ` (API${client})`,
-          by: 'person',
+          madeBy: BY_PERSON,
         },
       );
       const { outfit } = picked;

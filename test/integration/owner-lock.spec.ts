@@ -82,6 +82,7 @@ import {
   waitForBlockedOn,
 } from './interleave';
 import { silentLogger } from './logger';
+import { BY_PERSON } from '../../src/web/write-origin';
 
 /**
  * The owner lock (#122, src/web/calendar/AGENTS.md): every writer of the
@@ -255,6 +256,7 @@ describe('the owner lock', () => {
     const saved = await pickIdea(t.db, t.owner.id, {
       garmentIds,
       origin: 'person',
+      madeBy: BY_PERSON,
     });
     if (saved === 'not-found') throw new Error('garments not found');
     return saved.id;
@@ -284,8 +286,9 @@ describe('the owner lock', () => {
       const weekPlanId = await createWeekPlan(tx, t.owner.id);
       const picked = await pickIdea(tx, t.owner.id, {
         garmentIds,
-        plan: { day, occasion, plannedBy: 'auto' },
+        plan: { day, occasion },
         origin: 'planner',
+        madeBy: BY_PERSON,
       });
       if (picked === 'not-found') throw new Error('garments not found');
       const [entry] = await tx
@@ -355,6 +358,7 @@ describe('the owner lock', () => {
             outfitId: chosen,
             day,
             occasion: 'evening',
+            chooser: BY_PERSON,
           }),
         () =>
           replaceEntryOutfit(
@@ -362,6 +366,7 @@ describe('the owner lock', () => {
             owner,
             { entryId, day, occasion: 'work' },
             { outfitId: chosen },
+            BY_PERSON,
           ).catch((refusal: unknown) => refusal),
       );
       expect(schedule).toMatchObject({ outcome: 'scheduled' });
@@ -394,6 +399,7 @@ describe('the owner lock', () => {
             owner,
             { entryId, day, occasion: 'work' },
             { outfitId: chosen },
+            BY_PERSON,
           ),
         () =>
           scheduleOutfit(t.db, {
@@ -401,6 +407,7 @@ describe('the owner lock', () => {
             outfitId: chosen,
             day,
             occasion: 'evening',
+            chooser: BY_PERSON,
           }),
       );
       expect(replace).toMatchObject({ outcome: 'replaced', outfitId: chosen });
@@ -428,6 +435,7 @@ describe('the owner lock', () => {
         outfitId,
         day,
         occasion,
+        chooser: BY_PERSON,
       });
       if (result === 'no-such-outfit' || result.outcome !== 'scheduled') {
         throw new Error(`outfit ${outfitId} not scheduled`);
@@ -445,9 +453,15 @@ describe('the owner lock', () => {
         'all-day',
       );
       const target = { entryId, day, occasion: 'all-day' as const };
-      const outcome = await replaceEntryOutfit(t.db, owner, target, {
-        outfitId,
-      });
+      const outcome = await replaceEntryOutfit(
+        t.db,
+        owner,
+        target,
+        {
+          outfitId,
+        },
+        BY_PERSON,
+      );
       expect(outcome).toMatchObject({
         outcome: 'unchanged',
         outfitId,
@@ -461,9 +475,15 @@ describe('the owner lock', () => {
       );
 
       // The person's own entry: nothing to take over.
-      const again = await replaceEntryOutfit(t.db, owner, target, {
-        outfitId,
-      });
+      const again = await replaceEntryOutfit(
+        t.db,
+        owner,
+        target,
+        {
+          outfitId,
+        },
+        BY_PERSON,
+      );
       expect(again).toMatchObject({ outcome: 'unchanged', adopted: false });
     });
 
@@ -476,6 +496,7 @@ describe('the owner lock', () => {
         owner,
         { entryId, day, occasion: 'work' },
         { garmentIds, origin: 'idea' },
+        BY_PERSON,
       );
       expect(outcome).toMatchObject({
         outcome: 'unchanged',
@@ -537,6 +558,7 @@ describe('the owner lock', () => {
             outfitId,
             day,
             occasion: 'all-day',
+            chooser: BY_PERSON,
           }),
         () => replanToday(deps, t.owner.id, new Date()),
       );
@@ -670,6 +692,7 @@ describe('the owner lock', () => {
             garmentIds: idea(),
             plan: { day, occasion: 'all-day' },
             origin: 'idea',
+            madeBy: BY_PERSON,
           }),
       );
       expect(archived).toMatchObject({ ok: true, to: 'archived' });
@@ -688,6 +711,7 @@ describe('the owner lock', () => {
             garmentIds: [doomed, bottoms[2], shoes[1]],
             plan: { day, occasion: 'all-day' },
             origin: 'idea',
+            madeBy: BY_PERSON,
           }),
       );
       // Deleted (it had no photo).
@@ -705,6 +729,7 @@ describe('the owner lock', () => {
             garmentIds: idea(),
             plan: { day, occasion: 'all-day' },
             origin: 'idea',
+            madeBy: BY_PERSON,
           }),
         () => setGarmentStatus(t.db, tops[2], t.owner.id, { event: 'archive' }),
       );
@@ -755,6 +780,7 @@ describe('the owner lock', () => {
           pickIdea(tx, t.owner.id, {
             garmentIds: [tops[0], bottoms[0]],
             origin: 'person',
+            madeBy: BY_PERSON,
           }),
         () => updateGarmentProperties(t.db, tops[0], t.owner.id, { warmth: 3 }),
       );
@@ -777,6 +803,7 @@ describe('the owner lock', () => {
           tripId,
           ownerId: t.owner.id,
           outfitId: doomed,
+          madeBy: BY_PERSON,
         }),
       ).toBe('added');
       // deleteOutfit holds the owner lock and cascades into the trip's
@@ -867,6 +894,7 @@ describe('the owner lock', () => {
             fields(),
             fileName,
             'closet',
+            BY_PERSON,
           ),
         'a discard': (saver, fileName) =>
           discardPendingPhoto(deps(), fileName, {
@@ -1032,6 +1060,7 @@ describe('the owner lock', () => {
             fields(),
             fileName,
             'closet',
+            BY_PERSON,
           );
         /** A third transaction holding the photo's name: a save stops behind its account locks. */
         const holdName = (fileName: string) =>
@@ -1253,6 +1282,7 @@ describe('the owner lock', () => {
         outfitId,
         day,
         occasion: 'all-day',
+        chooser: BY_PERSON,
       });
       const capsuleId = await createCapsule(t.db, t.owner.id, {
         name: `Cascade ${day}`,
@@ -1269,7 +1299,12 @@ describe('the owner lock', () => {
         endsOn: day,
         notes: null,
       });
-      await addTripOutfit(t.db, { tripId, ownerId: t.owner.id, outfitId });
+      await addTripOutfit(t.db, {
+        tripId,
+        ownerId: t.owner.id,
+        outfitId,
+        madeBy: BY_PERSON,
+      });
       await setPacked(t.db, {
         tripId,
         ownerId: t.owner.id,
@@ -1306,6 +1341,7 @@ describe('the owner lock', () => {
       await pickIdea(t.db, theirs, {
         garmentIds: [theirGarment],
         origin: 'person',
+        madeBy: BY_PERSON,
       });
       await saveWeekTemplate(t.db, theirs, [{ weekday: 1, occasion: 'work' }]);
       await deleteAccount(

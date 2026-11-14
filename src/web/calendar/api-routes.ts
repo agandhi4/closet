@@ -25,6 +25,7 @@ import {
 } from './entry-resource';
 import { findEntries, MAX_CALENDAR_DAYS } from './queries';
 import { replaceEntryOutfit, replaceMessage } from './replace';
+import { BY_PERSON } from '../write-origin';
 
 const EntryParams = Type.Object({ id: RowId });
 
@@ -108,11 +109,12 @@ export const calendarApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       const actor = actorOf(request);
       const { outfitId, day, clientId } = request.body;
       const occasion = request.body.occasion ?? DEFAULT_OCCASION;
-      const scheduled = await planOutfit(db, actor, {
-        outfitId,
-        day,
-        occasion,
-      });
+      const scheduled = await planOutfit(
+        db,
+        actor,
+        { outfitId, day, occasion },
+        BY_PERSON,
+      );
       const adopted =
         scheduled.outcome === 'already-scheduled' && scheduled.adopted;
       const client = clientId ? `, client id ${clientId.slice(0, 8)}` : '';
@@ -154,7 +156,13 @@ export const calendarApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       const actor = actorOf(request);
       const target = { entryId: request.params.id };
       const choice = entryOutfitChoice(request.body);
-      const replaced = await replaceEntryOutfit(db, actor, target, choice);
+      const replaced = await replaceEntryOutfit(
+        db,
+        actor,
+        target,
+        choice,
+        BY_PERSON,
+      );
       logger.info(replaceMessage(actor.userId, target, replaced, ' (API)'));
       return toEntryOutfitChanged(replaced, choice);
     },

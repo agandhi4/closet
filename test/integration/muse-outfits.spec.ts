@@ -64,7 +64,7 @@ describe('Muse’s outfits (#335)', () => {
         .update(outfit)
         .set({
           proposedAt: at,
-          proposedByTokenId: tokenId,
+          addedByTokenId: tokenId,
           proposalNote: `Why ${name}`,
           reaction,
           ownerNote: reaction === 'revise' ? 'Warmer, please' : null,

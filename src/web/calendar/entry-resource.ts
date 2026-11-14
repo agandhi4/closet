@@ -12,6 +12,7 @@ import {
 } from '../outfits/outfit-resource';
 import { IsoDateSchema, RowId } from '../schemas';
 import { SelfiePhoto, toSelfiePhoto } from '../selfies/selfie-resource';
+import { AgentResource, ownAgentName, toAgentResource } from '../write-origin';
 import type { CalendarEntry } from './calendar-view';
 import {
   type EntryRow,
@@ -38,8 +39,9 @@ export const CalendarEntryResource = Type.Object(
     worn: Type.Boolean(),
     plannedBy: CloneType(literals(PLANNED_BY), {
       description:
-        "`auto`: Plan my week's pick, which its daily re-plan may swap until you change, wear or plan it yourself; `user`: yours",
+        "`auto`: Plan my week's pick, which its daily re-plan may swap until you change, wear or plan it yourself; `agent`: your agent's over MCP (see `agent`), which the re-plan never touches; `user`: yours",
     }),
+    agent: Type.Optional(AgentResource),
     selfieId: Type.Optional(
       Type.Integer({ description: 'The outfit selfie taken of it' }),
     ),
@@ -70,6 +72,7 @@ export function toCalendarEntryResource(
     occasion: entry.occasion,
     worn: entry.worn,
     plannedBy: entry.plannedBy,
+    agent: toAgentResource(entry.agent, ownAgentName),
     ...(entry.selfie && {
       selfieId: entry.selfie.id,
       selfiePhoto: toSelfiePhoto(entry.selfie.photo),
@@ -96,6 +99,7 @@ export const SyncedCalendarEntry = Type.Object(
     occasion: Occasion,
     worn: Type.Boolean(),
     plannedBy: CalendarEntryResource.properties.plannedBy,
+    agent: CalendarEntryResource.properties.agent,
     outfitId: Type.Integer(),
   },
   {
@@ -114,6 +118,7 @@ export function toSyncedCalendarEntry(
     occasion: entry.occasion,
     worn: entry.worn,
     plannedBy: entry.plannedBy,
+    agent: toAgentResource(entry.agent, ownAgentName),
     outfitId: entry.outfitId,
   };
 }

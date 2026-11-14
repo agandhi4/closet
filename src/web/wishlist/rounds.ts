@@ -214,10 +214,10 @@ export async function quietRounds(
   }>(sql`
     with ${writes} as (
       select ${garment.ownerId} as owner_id, ${garment.suggestedAt} as at,
-        ${garment.suggestedByTokenId} as token_id
+        ${garment.addedByTokenId} as token_id
       from ${garment} where ${isNotNull(garment.suggestedAt)}
       union all
-      select ${outfit.ownerId}, ${outfit.proposedAt}, ${outfit.proposedByTokenId}
+      select ${outfit.ownerId}, ${outfit.proposedAt}, ${outfit.addedByTokenId}
       from ${outfit} where ${isNotNull(outfit.proposedAt)}
     ),
     ${newest} as (

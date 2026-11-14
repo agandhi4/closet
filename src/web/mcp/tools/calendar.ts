@@ -16,6 +16,7 @@ import { actorOf, defineTool, wardrobeFor } from '../tool';
 import { isoDate, ownerIdInput, rowId } from './common';
 import { type DayWeatherOf, reachesForecast, weatherOfDays } from './weather';
 import { garmentNotFound } from '../../wardrobe/garment-access';
+import { ownAgentName } from '../../write-origin';
 
 /**
  * The calendar and the wears are the caller's own records (src/web/wears):
@@ -27,7 +28,7 @@ export const calendarTools = [
   defineTool({
     name: 'get_calendar',
     title: 'Get my calendar',
-    description: `Your calendar from one day to another (inclusive, at most ${MAX_CALENDAR_DAYS} days): each entry's id, day, occasion (the part of the day: a day can hold several outfits, listed in occasion order), outfit, whether it was worn, whether you took an outfit selfie of it (a mirror photo; the photo itself is never given), and who planned it (plannedBy: user, or auto for "Plan my week"'s picks, which its daily re-plan may swap until you edit or wear them). Without dates: this week, from today. Days are the household's (its time zone). With weather on and a location set, an entry within the forecast also has the day's weather and what it asks of that occasion's outfit (as get_weather gives it).`,
+    description: `Your calendar from one day to another (inclusive, at most ${MAX_CALENDAR_DAYS} days): each entry's id, day, occasion (the part of the day: a day can hold several outfits, listed in occasion order), outfit, whether it was worn, whether you took an outfit selfie of it (a mirror photo; the photo itself is never given), and who planned it (plannedBy: user; auto for "Plan my week"'s picks, which its daily re-plan may swap until you edit or wear them; or agent for what an agent planned through these tools, with agent naming its token). Without dates: this week, from today. Days are the household's (its time zone). With weather on and a location set, an entry within the forecast also has the day's weather and what it asks of that occasion's outfit (as get_weather gives it).`,
     input: z.object({
       from: isoDate().optional().describe('First day, YYYY-MM-DD.'),
       to: isoDate().optional().describe('Last day, YYYY-MM-DD.'),
@@ -92,6 +93,7 @@ export const calendarTools = [
             // Whether a mirror photo was taken (#19); never the image.
             selfie: entry.selfie !== null,
             plannedBy: entry.plannedBy,
+            agent: entry.agent ? ownAgentName(entry.agent) : undefined,
             outfit: { id: entry.outfit.id, name: entry.outfit.name },
             weather: weatherOf?.(entry.day, entry.occasion),
           })),

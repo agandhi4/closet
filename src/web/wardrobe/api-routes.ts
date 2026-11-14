@@ -113,6 +113,7 @@ import {
   createGarmentOnce,
   type WardrobeDeps,
 } from './writes';
+import { BY_PERSON } from '../write-origin';
 
 const flag = (description: string) =>
   Type.Boolean({ default: false, description });
@@ -271,7 +272,10 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         access,
         todayIn(config.timeZone, new Date()),
       );
-      return toGarmentResource(garment, context);
+      return toGarmentResource(garment, context, {
+        viewerId: actorOf(request).userId,
+        ownerId: access.ownerId,
+      });
     },
   );
 
@@ -340,6 +344,7 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
           access.ownerId,
           form.fields,
           destination,
+          BY_PERSON,
           (await posted(db)).withGarment,
         );
       }
@@ -846,6 +851,7 @@ export const wardrobeApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         access,
         { ...fields, url: link, destination, type: properties?.type },
         'API',
+        BY_PERSON,
       );
       if (!saved.ok) throw refusedGarmentBody(saved.errors);
       return reply

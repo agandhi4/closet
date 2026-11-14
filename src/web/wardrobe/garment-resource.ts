@@ -36,6 +36,7 @@ import type {
 } from './queries';
 import type { RepairEntry } from './repairs';
 import type { SwappedCutout } from './writes';
+import { AgentResource, agentName, toAgentResource } from '../write-origin';
 
 /**
  * The API's garment resources (#192a; docs/plans/2026-11-12-json-api.md
@@ -228,6 +229,7 @@ const recordFields = {
   careLabel: CareLabel,
   /** The owner's repair and alteration log: only on their own wardrobe. */
   repairs: Type.Optional(Type.Array(Repair)),
+  agent: Type.Optional(AgentResource),
 };
 
 export const Garment = Type.Object(
@@ -267,7 +269,11 @@ export const SyncedGarment = Type.Object(
 );
 
 /** What a garment page's answer and the feed's share, nulls kept for withoutNulls. */
-function recordOf(garment: GarmentDetail, repairs: RepairEntry[] | null) {
+function recordOf(
+  garment: GarmentDetail,
+  repairs: RepairEntry[] | null,
+  viewer: GarmentViewer,
+) {
   return {
     id: garment.id,
     name: garment.name,
@@ -307,7 +313,14 @@ function recordOf(garment: GarmentDetail, repairs: RepairEntry[] | null) {
       notes: garment.washingDetails,
     }),
     repairs: repairs && repairs.map((entry) => withoutNulls({ ...entry })),
+    agent: toAgentResource(garment.agent, (stamp) => agentName(stamp, viewer)),
   };
+}
+
+/** Who reads the garment, in whose wardrobe: the agent's name is theirs to see (agentName). */
+export interface GarmentViewer {
+  viewerId: number;
+  ownerId: number;
 }
 
 /**
@@ -318,10 +331,11 @@ function recordOf(garment: GarmentDetail, repairs: RepairEntry[] | null) {
 export function toGarmentResource(
   garment: GarmentDetail,
   context: GarmentContext,
+  viewer: GarmentViewer,
 ): Garment {
   const { own } = context;
   return withoutNulls({
-    ...recordOf(garment, own ? own.repairs.entries : null),
+    ...recordOf(garment, own ? own.repairs.entries : null, viewer),
     capsules: context.capsules
       .filter((capsule) => capsule.member)
       .map(({ id, name }) => ({ id, name })),
@@ -336,9 +350,13 @@ export function toGarmentResource(
  */
 export function toSyncedGarment(
   garment: SyncedGarmentRow,
+  viewerId: number,
 ): Static<typeof SyncedGarment> {
   return withoutNulls({
-    ...recordOf(garment, garment.repairs),
+    ...recordOf(garment, garment.repairs, {
+      viewerId,
+      ownerId: garment.ownerId,
+    }),
     care:
       garment.repairs === null
         ? null

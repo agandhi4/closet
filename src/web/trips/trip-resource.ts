@@ -28,6 +28,7 @@ import {
   TRIP_NOTES_MAX,
   type TripField,
 } from './validation';
+import { AgentResource, ownAgentName, toAgentResource } from '../write-origin';
 
 /**
  * The API's trip resources and inputs (#194a; docs/plans/2026-11-12-json-
@@ -92,6 +93,7 @@ const TripOutfitResource = Type.Object(
     garments: Type.Array(OutfitGarmentResource),
     /** Its calendar entry marked worn today, while the trip is on. */
     wornTodayEntryId: Type.Optional(Type.Integer()),
+    agent: Type.Optional(AgentResource),
   },
   { title: 'TripOutfit' },
 );
@@ -229,6 +231,7 @@ export const SyncedTrip = Type.Object(
           outfitId: Type.Integer(),
           day: Type.Optional(IsoDateSchema),
           occasion: Type.Optional(literals(OCCASIONS)),
+          agent: Type.Optional(AgentResource),
         },
         { title: 'SyncedTripOutfit' },
       ),
@@ -255,7 +258,10 @@ export function toSyncedTrip(row: SyncedTripRow): Static<typeof SyncedTrip> {
     located: row.location !== null,
     startsOn: row.startsOn,
     endsOn: row.endsOn,
-    outfits: row.outfits.map((outfit) => withoutNulls(outfit)),
+    outfits: row.outfits.map(({ agent, ...outfit }) => ({
+      ...withoutNulls(outfit),
+      agent: toAgentResource(agent, ownAgentName),
+    })),
     extras: row.extras,
     packedGarmentIds: row.packedGarmentIds,
   };
@@ -294,6 +300,7 @@ function toTripOutfit(
       occasion: view.occasion,
       wornTodayEntryId: wornToday.get(view.id) ?? null,
     }),
+    agent: toAgentResource(view.agent, ownAgentName),
     garments: view.garments.map(toOutfitGarment),
   };
 }

@@ -11,7 +11,12 @@ import {
 } from '../../db/schema';
 import { selectScalars } from '../../db/select-scalars';
 import type { Occasion } from '../../wardrobe/occasions';
-import { DEFAULT_PLANNED_BY, type PlannedBy } from '../../wardrobe/week';
+import type { PlannedBy } from '../../wardrobe/week';
+import {
+  agentStampSql,
+  type AgentStamp,
+  type WriteOrigin,
+} from '../write-origin';
 import { ownerTransaction } from '../auth/queries';
 import { photoRefJson } from '../files/queries';
 import { refuseUnholdable } from '../outfits/gone-garments';
@@ -31,6 +36,13 @@ import {
 } from '../wears/queries';
 import type { IsoDate } from '../../calendar-date';
 import type { CalendarEntry } from './calendar-view';
+import {
+  type Chooser,
+  chooserOf,
+  choiceSet,
+  PERSONS_CHOICE_SET,
+  takeOverSql,
+} from './planned-by';
 
 /**
  * The calendar's reads and writes. Every one is scoped to the signed-in
@@ -45,6 +57,12 @@ import type { CalendarEntry } from './calendar-view';
  */
 
 export type EntryMiss = 'not-found';
+
+/** An agent's entry's agent (#682): planned_by says so even once its token is gone. */
+const entryAgentSql = agentStampSql(
+  outfitCalendar.plannedByTokenId,
+  sql`${outfitCalendar.plannedBy} = 'agent'`,
+);
 
 /**
  * The owner's entries from `first` to `last` (inclusive), by day then id,
@@ -85,6 +103,7 @@ export function entriesSql(
       'occasion', ${outfitCalendar.occasion},
       'worn', ${outfitCalendar.wornAt} is not null,
       'plannedBy', ${outfitCalendar.plannedBy},
+      'agent', ${entryAgentSql},
       'selfie', ${entrySelfieSql(outfitCalendar.id)},
       'outfit', json_build_object(
         'id', ${outfit.id},
@@ -195,8 +214,8 @@ export interface NewEntry {
   outfitId: number;
   day: IsoDate;
   occasion: Occasion;
-  /** The week planner's entries are 'auto' (#16); everything else is the person's (the default). */
-  plannedBy?: PlannedBy;
+  /** Who chose it (planned-by.ts): the planner, the agent or the person; required, so a new caller says. */
+  chooser: Chooser;
 }
 
 /**
@@ -289,11 +308,13 @@ export async function ownsOutfit(
  * day). Different outfits on one day are separate entries; changing the
  * outfit of an entry is setEntryOutfit's, through replaceEntryOutfit (#69).
  *
- * **The person planning what the week planner planned takes it over** (#77):
- * a `user` write that meets an `auto` entry of the same outfit on the day
- * sets it to `user` (and nothing else), so the re-plan and Undo leave the
- * choice the person just made; the planner's own `auto` write never
- * downgrades a person's entry. Both still answer 'already-scheduled'.
+ * **Choosing what a lower rank chose takes it over** (#77, #682;
+ * planned-by.ts's takeOverSql): a person's write that meets an `auto` or
+ * `agent` entry of the same outfit on the day makes it `user`, the agent's
+ * one meeting an `auto` entry makes it `agent` (and nothing else), so the
+ * re-plan and Undo leave the choice just made; the planner's own `auto`
+ * write never downgrades anyone's entry, nor the agent's a person's. Both
+ * still answer 'already-scheduled'.
  *
  * Under the owner lock (ownerTransaction: a savepoint in the caller's
  * transaction, the lock free when the caller took it already). Without it
@@ -317,6 +338,7 @@ export function insertEntry(
 
 async function upsertEntry(tx: Queryable, entry: NewEntry): Promise<Scheduled> {
   const outfitId = sql`${entry.outfitId}::int`;
+  const choice = chooserOf(entry.chooser);
   // A conflict the WHERE refuses returns no row, as does the insert of an
   // outfit that may not be held (outfitMayBeHeld): `toBuy` and `pending`,
   // read in the same snapshot, tell them apart.
@@ -329,12 +351,11 @@ async function upsertEntry(tx: Queryable, entry: NewEntry): Promise<Scheduled> {
     pending: boolean;
   }>(sql`
     with written as (
-      insert into ${outfitCalendar} (owner_id, day, outfit_id, occasion, planned_by)
+      insert into ${outfitCalendar} (owner_id, day, outfit_id, occasion, planned_by, planned_by_token_id)
       select ${entry.ownerId}::int, ${entry.day}::date, ${outfitId},
-        ${entry.occasion}::text, ${entry.plannedBy ?? DEFAULT_PLANNED_BY}::text
+        ${entry.occasion}::text, ${choice.plannedBy}::text, ${choice.plannedByTokenId}::int
       where ${outfitMayBeHeld(outfitId)}
-      on conflict (owner_id, day, outfit_id) do update set planned_by = 'user'
-        where ${outfitCalendar.plannedBy} = 'auto' and excluded.planned_by = 'user'
+      on conflict (owner_id, day, outfit_id) ${takeOverSql}
       returning ${outfitCalendar.id} as id, (xmax = 0) as inserted
     )
     select (select id from written) as id,
@@ -381,6 +402,7 @@ export interface EntryRow {
   outfitId: number;
   worn: boolean;
   plannedBy: PlannedBy;
+  agent: AgentStamp | null;
 }
 
 /** EntryRow's columns, `worn` as its stamp (readEntryRow). */
@@ -391,6 +413,7 @@ const ENTRY_COLUMNS = {
   outfitId: outfitCalendar.outfitId,
   wornAt: outfitCalendar.wornAt,
   plannedBy: outfitCalendar.plannedBy,
+  agent: entryAgentSql,
 };
 
 function readEntryRow({
@@ -453,15 +476,17 @@ export async function lockEntryToReplace(
  * replaceEntryOutfit (src/web/calendar/replace.ts) calls it, under the
  * owner lock, having locked the entry, refused a worn one and checked the
  * outfit is not on the day already (the unique key). The choice is the
- * person's from now on (planned_by 'user'), so the week's re-plan and Undo
- * leave it alone (#16), also when the outfit is the one the entry had (the
- * person choosing what the planner chose takes it over). An outfit that
+ * chooser's from now on (the person's, or the agent's with its token over
+ * MCP, #682; planned-by.ts), so the week's re-plan and Undo leave it alone
+ * (#16), also when the outfit is the one the entry had (choosing what the
+ * planner chose takes it over). An outfit that
  * may not be held is refused (refuseUnholdable), the entry unchanged.
  */
 export async function setEntryOutfit(
   tx: Queryable,
   entryId: number,
   outfitId: number,
+  origin: WriteOrigin,
 ): Promise<void> {
   const outfit = sql`${outfitId}::int`;
   const { rows } = await tx.execute<{
@@ -469,7 +494,7 @@ export async function setEntryOutfit(
     pending: boolean;
   }>(sql`
     with written as (
-      update ${outfitCalendar} set outfit_id = ${outfit}, planned_by = 'user'
+      update ${outfitCalendar} set outfit_id = ${outfit}, ${choiceSet(chooserOf(origin))}
       where ${outfitCalendar.id} = ${entryId} and ${outfitMayBeHeld(outfit)}
     )
     select ${holdRefusalColumns(outfit)}`);
@@ -548,7 +573,7 @@ export function wearOutfitOn(
  */
 async function planToWear(
   tx: Queryable,
-  entry: NewEntry,
+  entry: Omit<NewEntry, 'chooser'>,
 ): Promise<LockedEntry & { inserted: boolean }> {
   const outfitId = sql`${entry.outfitId}::int`;
   // As in upsertEntry: xmax is 0 on a row this statement inserted, and the
@@ -561,11 +586,11 @@ async function planToWear(
     pending: boolean;
   }>(sql`
     with written as (
-      insert into ${outfitCalendar} (owner_id, day, outfit_id, occasion, planned_by)
+      insert into ${outfitCalendar} (owner_id, day, outfit_id, occasion)
       select ${entry.ownerId}::int, ${entry.day}::date, ${outfitId},
-        ${entry.occasion}::text, ${entry.plannedBy ?? DEFAULT_PLANNED_BY}::text
+        ${entry.occasion}::text
       where ${outfitMayBeHeld(outfitId)}
-      on conflict (owner_id, day, outfit_id) do update set planned_by = 'user'
+      on conflict (owner_id, day, outfit_id) do update set ${PERSONS_CHOICE_SET}
       returning json_build_object(
         'id', ${outfitCalendar.id},
         'day', ${outfitCalendar.day},

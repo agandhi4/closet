@@ -66,6 +66,7 @@ import {
   TripOutfitParams,
   TripParams,
 } from './validation';
+import { BY_PERSON } from '../write-origin';
 
 /** A page of GET /trips unless asked: more trips than most households keep. */
 const TRIP_PAGE_SIZE = 50;
@@ -119,7 +120,12 @@ export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
     const slot = { tripId, day, occasion };
     if (garmentIds === undefined) {
       if (outfitId === undefined) throw outfitOrGarments();
-      const outcome = await planTripOutfit(db, actor, { ...slot, outfitId });
+      const outcome = await planTripOutfit(
+        db,
+        actor,
+        { ...slot, outfitId },
+        BY_PERSON,
+      );
       return { outfitId, outfitCreated: false, added: outcome === 'added' };
     }
     if (outfitId !== undefined) throw outfitOrGarments();
@@ -128,6 +134,7 @@ export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
       garmentIds,
       name: input.name?.trim() || undefined,
       origin: 'idea',
+      madeBy: BY_PERSON,
     });
     return {
       outfitId: picked.outfit.id,

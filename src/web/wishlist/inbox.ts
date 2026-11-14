@@ -294,7 +294,7 @@ export function suggestionContextSql(
     )
     from ${garment}
     left join ${personalAccessToken}
-      on ${eq(personalAccessToken.id, garment.suggestedByTokenId)}
+      on ${eq(personalAccessToken.id, garment.addedByTokenId)}
     where ${and(eq(garment.id, garmentId), eq(garment.ownerId, ownerId))}
   )`;
 }

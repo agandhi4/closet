@@ -11,6 +11,7 @@ import type { GarmentStatus } from '../../wardrobe/status';
 import type { SignablePhotoRef } from '../files/image-url';
 import { type CollageGarment, collagePieces } from '../outfits/collage';
 import type { DetachedLook, SelfieRef } from '../selfies/queries';
+import type { AgentStamp } from '../write-origin';
 import {
   addDays,
   addMonths,
@@ -53,8 +54,10 @@ export interface CalendarEntry {
   worn: boolean;
   /** The outfit selfie taken for it (#19), if any. */
   selfie: SelfieRef | null;
-  /** 'auto': the week planner's pick, still its to swap (#16). */
+  /** 'auto': the week planner's pick, still its to swap (#16); 'agent': the owner's agent's (#682). */
   plannedBy: PlannedBy;
+  /** Whose agent chose it (agentStampSql), null unless plannedBy is 'agent'. */
+  agent: AgentStamp | null;
   outfit: {
     id: number;
     name: string | null;

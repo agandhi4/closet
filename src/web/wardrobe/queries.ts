@@ -77,6 +77,8 @@ import type {
   GarmentPropertyFields,
   ProductFields,
 } from './garment-input';
+import type { WriteOrigin } from '../write-origin';
+import { type AgentStamp, agentStampSql } from '../write-origin';
 
 /**
  * Garments' reads and writes. Every query names the wardrobe (owner) it
@@ -540,6 +542,8 @@ export interface GarmentDetail
   suggestedAt: Date | null;
   suggestionGroupId: number | null;
   dismissedAt: Date | null;
+  /** The agent that made it over MCP (#682), null for a person's. */
+  agent: AgentStamp | null;
 }
 
 const detailColumns = {
@@ -583,6 +587,7 @@ const detailColumns = {
   suggestedAt: garment.suggestedAt,
   suggestionGroupId: garment.suggestionGroupId,
   dismissedAt: garment.dismissedAt,
+  agent: agentStampSql(garment.addedByTokenId),
   photo: photoWithCutoutJson,
 };
 
@@ -602,6 +607,8 @@ export async function findGarment(
 
 /** A garment as the changes feed reads it (garmentsByIds). */
 export interface SyncedGarmentRow extends GarmentDetail {
+  /** Whose wardrobe: the agent's name depends on it (agentName). */
+  ownerId: number;
   /** The owner's repair log; null on a wardrobe the viewer does not own. */
   repairs: RepairEntry[] | null;
 }
@@ -620,6 +627,7 @@ export function garmentsByIds(
   return db
     .select({
       ...detailColumns,
+      ownerId: garment.ownerId,
       repairs: sql<
         RepairEntry[] | null
       >`case when ${garment.ownerId} = ${viewerId} then ${repairLogSql(garment.id)} end`,
@@ -732,12 +740,17 @@ export async function insertGarment(
   fields: GarmentFields,
   photoId: number | null,
   status: EntryStatus,
+  madeBy: WriteOrigin,
 ): Promise<number> {
   const lock = ownerLockCte(tx, ownerId);
   const [row] = await tx
     .with(lock)
     .insert(garment)
-    .values(newGarment(tx, ownerId, fields, photoId, status, lock))
+    .values({
+      ...newGarment(tx, ownerId, fields, photoId, status, lock),
+      // The agent's token when an MCP tool made it (#682, write-origin.ts).
+      addedByTokenId: madeBy.agentTokenId,
+    })
     .returning({ id: garment.id });
   return row.id;
 }

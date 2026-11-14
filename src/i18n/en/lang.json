@@ -902,6 +902,10 @@
     "REMOVE": "Remove from wishlist",
     "CONFIRM_REMOVE": "Remove this from the wishlist? It will be deleted."
   },
+  "agent": {
+    "ANONYMOUS": "Agent",
+    "OF_PERSON": "{name}’s agent"
+  },
   "muse": {
     "READY": "Ready to buy",
     "PICKS": "Muse’s picks",

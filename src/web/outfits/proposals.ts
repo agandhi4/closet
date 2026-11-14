@@ -94,7 +94,7 @@ export function museOutfitsSql(ownerId: number): SQL<MuseOutfit[]> {
       'reaction', ${outfit.reaction},
       'ownerNote', ${outfit.ownerNote},
       'dismissedReason', ${outfit.dismissedReason},
-      'agent', (select ${personalAccessToken.name} from ${personalAccessToken} where ${eq(personalAccessToken.id, outfit.proposedByTokenId)}),
+      'agent', (select ${personalAccessToken.name} from ${personalAccessToken} where ${eq(personalAccessToken.id, outfit.addedByTokenId)}),
       'pieces', ${musePiecesSql()}
     ) order by ${outfit.proposedAt} desc, ${outfit.id} desc), '[]')
     from ${outfit}

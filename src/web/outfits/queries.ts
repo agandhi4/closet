@@ -30,12 +30,18 @@ import type { LookReaction } from '../../wardrobe/look-reaction';
 import type { GarmentStatus } from '../../wardrobe/status';
 import type { OutfitDismissReason } from '../../wardrobe/suggestions';
 import type { OutfitOrigin } from '../../wardrobe/outfit-origin';
-import type { PlannedBy } from '../../wardrobe/week';
 import { ownerTransaction } from '../auth/queries';
 import type { SignablePhotoRef } from '../files/image-url';
 import { photoRefJson } from '../files/queries';
 import type { IsoDate } from '../../calendar-date';
+import { type Chooser, PERSONS_CHOICE } from '../calendar/planned-by';
 import { insertEntry, type ScheduleOutcome } from '../calendar/queries';
+import {
+  type AgentStamp,
+  agentStampSql,
+  BY_PERSON,
+  type WriteOrigin,
+} from '../write-origin';
 import { entrySelfieSql, type SelfieRef } from '../selfies/queries';
 import { prunePacked, tripsOfOutfit } from '../trips/packed';
 import { detachOutfitWears } from '../wears/queries';
@@ -112,12 +118,19 @@ export interface OutfitInput {
   notes?: string | null;
   slots: SlotInput[];
   /** "Add to calendar": plan the outfit on this day, for this occasion, in the same transaction. */
-  plan?: { day: IsoDate; occasion: Occasion; plannedBy?: PlannedBy };
+  plan?: { day: IsoDate; occasion: Occasion };
   /**
    * Who is saving (#659): a new outfit's origin, and how far a reuse
    * takes the existing one over (adoptOutfit). Every caller says it.
+   * `planner` also makes the plan's entry the planner's (`auto`).
    */
   origin: OutfitOrigin;
+  /**
+   * The person or the agent's token (#682): stamped on a new outfit and
+   * the plan's entry (the planner's entry takes no token). Required, so a
+   * new caller says.
+   */
+  madeBy: WriteOrigin;
 }
 
 /**
@@ -125,7 +138,7 @@ export interface OutfitInput {
  * and Styling post every row; the API may send only a name. Always a
  * person's (the outfit becomes `person`, lockForEdit).
  */
-export type OutfitEdit = Omit<OutfitInput, 'slots' | 'origin'> & {
+export type OutfitEdit = Omit<OutfitInput, 'slots' | 'origin' | 'madeBy'> & {
   slots?: SlotInput[];
 };
 
@@ -415,7 +428,7 @@ export function outfitDetailSql(
  */
 function proposalSql({ agent }: { agent: boolean }): SQL {
   const agentName = agent
-    ? sql`, 'agent', (select ${personalAccessToken.name} from ${personalAccessToken} where ${eq(personalAccessToken.id, outfit.proposedByTokenId)})`
+    ? sql`, 'agent', (select ${personalAccessToken.name} from ${personalAccessToken} where ${eq(personalAccessToken.id, outfit.addedByTokenId)})`
     : sql``;
   return sql`case when ${outfit.proposedAt} is null then null else json_build_object(
     'note', ${outfit.proposalNote},
@@ -434,6 +447,8 @@ export interface SyncedOutfitRow {
   /** Every row top to toe, an empty one with a null garment. */
   slots: SlotInput[];
   proposal: Omit<OutfitProposal, 'agent'> | null;
+  /** The agent that made it over MCP (#682), null for a person's. */
+  agent: AgentStamp | null;
 }
 
 /**
@@ -464,6 +479,7 @@ export function outfitsByIds(
       proposal: sql<
         SyncedOutfitRow['proposal']
       >`${proposalSql({ agent: false })}`,
+      agent: agentStampSql(outfit.addedByTokenId),
     })
     .from(outfit)
     .where(inArray(outfit.id, [...ids]));
@@ -791,9 +807,14 @@ type OutfitOnce = {
 async function insertOutfitOnce(
   tx: Queryable,
   ownerId: number,
-  fields: { name: string | null; notes: string | null; origin: OutfitOrigin },
+  fields: {
+    name: string | null;
+    notes: string | null;
+    origin: OutfitOrigin;
+    addedByTokenId: number | null;
+  },
   garmentIds: readonly number[],
-  proposal?: OutfitProposalInput,
+  proposal?: Omit<OutfitProposalInput, 'tokenId'>,
 ): Promise<OutfitOnce> {
   // Share links address outfits by this (the /share page).
   const shareableId = randomUUID();
@@ -806,13 +827,13 @@ async function insertOutfitOnce(
   }
   // A proposal is inserted marked (proposals.ts), waiting on the owner.
   const marked = proposal
-    ? sql`now(), ${proposal.tokenId}::int, ${proposal.note}::text, 'proposed'`
-    : sql`null, null, null, null`;
+    ? sql`now(), ${proposal.note}::text, 'proposed'`
+    : sql`null, null, null`;
   const { rows } = await tx.execute<OutfitOnce>(sql`
     with existing as (${sameGarmentsOutfit(tx, ownerId, garmentIds)}),
     created as (
-      insert into ${outfit} (shareable_id, owner_id, name, notes, origin, proposed_at, proposed_by_token_id, proposal_note, reaction)
-      select ${shareableId}::varchar, ${ownerId}::int, ${fields.name}::text, ${fields.notes}::text, ${fields.origin}::text, ${marked}
+      insert into ${outfit} (shareable_id, owner_id, name, notes, origin, proposed_by_token_id, proposed_at, proposal_note, reaction)
+      select ${shareableId}::varchar, ${ownerId}::int, ${fields.name}::text, ${fields.notes}::text, ${fields.origin}::text, ${fields.addedByTokenId}::int, ${marked}
       where not exists (select from existing)
       returning id, name
     )
@@ -820,6 +841,11 @@ async function insertOutfitOnce(
     union all
     select id, name, true as existing, pending, reaction from existing`);
   return rows[0];
+}
+
+/** Who chose a save's planned entry: the planner's saves are its picks (`auto`). */
+function planChooser(input: Pick<OutfitInput, 'origin' | 'madeBy'>): Chooser {
+  return input.origin === 'planner' ? 'planner' : input.madeBy;
 }
 
 /**
@@ -863,11 +889,12 @@ export function createOutfit(
         name: input.name ?? null,
         notes: input.notes ?? null,
         origin: input.origin,
+        addedByTokenId: input.madeBy.agentTokenId,
       },
       garmentIds,
     );
     if (saved.existing) {
-      return reuseOutfit(tx, ownerId, saved, input.plan, input.origin);
+      return reuseOutfit(tx, ownerId, saved, input);
     }
     await insertSlots(tx, saved.id, ownerId, input.slots);
     const schedule = input.plan
@@ -876,6 +903,7 @@ export function createOutfit(
             ownerId,
             outfitId: saved.id,
             ...input.plan,
+            chooser: planChooser(input),
           })
         ).outcome
       : undefined;
@@ -928,7 +956,12 @@ export function proposeOutfit(
     const saved = await insertOutfitOnce(
       tx,
       ownerId,
-      { name: input.name, notes: null, origin: 'agent' },
+      {
+        name: input.name,
+        notes: null,
+        origin: 'agent',
+        addedByTokenId: proposal.tokenId,
+      },
       garmentIds,
       proposal,
     );
@@ -967,9 +1000,9 @@ export async function reuseOutfit(
   tx: Queryable,
   ownerId: number,
   existing: { id: number; name: string | null; pending: boolean },
-  plan: OutfitInput['plan'],
-  origin: OutfitOrigin,
+  input: Pick<OutfitInput, 'plan' | 'origin' | 'madeBy'>,
 ): Promise<CreateResult> {
+  const { plan, origin } = input;
   const byPlanner = origin === 'planner';
   // A person's save of a proposal's garments makes it theirs (#335), before
   // any plan: a proposal not theirs may not be held (outfitMayBeHeld). The
@@ -981,7 +1014,12 @@ export async function reuseOutfit(
     (await adoptProposal(tx, ownerId, existing.id));
   const scheduled =
     plan &&
-    (await insertEntry(tx, { ownerId, outfitId: existing.id, ...plan }));
+    (await insertEntry(tx, {
+      ownerId,
+      outfitId: existing.id,
+      ...plan,
+      chooser: planChooser(input),
+    }));
   const outfitAdopted =
     !byPlanner && (await adoptOutfit(tx, ownerId, existing.id, origin)) > 0;
   const entryAdopted =
@@ -1038,8 +1076,15 @@ export function updateOutfit(
       await prunePacked(tx, await tripsOfOutfit(tx, id));
     }
     const schedule = input.plan
-      ? (await insertEntry(tx, { ownerId, outfitId: id, ...input.plan }))
-          .outcome
+      ? (
+          await insertEntry(tx, {
+            ownerId,
+            outfitId: id,
+            ...input.plan,
+            // An edit is always the person's (OutfitEdit).
+            chooser: BY_PERSON,
+          })
+        ).outcome
       : undefined;
     return {
       id,
@@ -1082,7 +1127,7 @@ async function lockForEdit(
     .where(isLocked(outfit.id));
   const claimed = tx
     .update(outfitCalendar)
-    .set({ plannedBy: 'user' })
+    .set(PERSONS_CHOICE)
     .where(
       and(
         isLocked(outfitCalendar.outfitId),

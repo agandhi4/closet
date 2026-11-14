@@ -25,6 +25,7 @@ import {
 } from './queries';
 import { piecesToBuy } from './references';
 import { DECLINE_NOTE_MAX, SlotCategory } from './schemas';
+import { AgentResource, ownAgentName, toAgentResource } from '../write-origin';
 
 /**
  * The API's outfit resources and inputs (#193a; docs/plans/2026-11-12-json-
@@ -206,6 +207,7 @@ export const SyncedOutfit = Type.Object(
         },
       ),
     ),
+    agent: Type.Optional(AgentResource),
   },
   {
     title: 'SyncedOutfit',
@@ -223,6 +225,7 @@ export function toSyncedOutfit(
     origin: row.origin,
     slots: row.slots.map((slot) => withoutNulls(slot)),
     ...(row.proposal && { proposal: withoutNulls(row.proposal) }),
+    agent: toAgentResource(row.agent, ownAgentName),
   };
 }
 

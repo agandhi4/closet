@@ -87,6 +87,7 @@ import {
   type StylingState,
 } from './urls';
 import { garmentNotFound } from '../wardrobe/garment-access';
+import { BY_PERSON } from '../write-origin';
 
 /**
  * Styling (#42): the outfit composer that replaced the builder. The page,
@@ -1160,6 +1161,7 @@ export const stylingRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       slots: garments.map((g) => ({ category: g.category, garmentId: g.id })),
       plan: input.schedule,
       origin: 'person',
+      madeBy: BY_PERSON,
     });
     const toBuy = piecesToBuy(garments).length;
     logger.info(

@@ -20,6 +20,7 @@ import { addDays } from '../../src/calendar-date';
 import { createGarment } from './garments';
 import { asFixture, createTestApp, type TestApp, userIdOf } from './harness';
 import { interleave } from './interleave';
+import { BY_PERSON } from '../../src/web/write-origin';
 
 /**
  * The sync triggers (#196a-2, drizzle/0052_sync-triggers.sql; plan
@@ -174,6 +175,7 @@ describe('the sync triggers', () => {
     const pick = await pickIdea(t.db, t.owner.id, {
       garmentIds: [shirt],
       origin: 'person',
+      madeBy: BY_PERSON,
     });
     if (pick === 'not-found') throw new Error('garment not found');
 
@@ -243,6 +245,7 @@ describe('the sync triggers', () => {
     const pick = await pickIdea(t.db, t.owner.id, {
       garmentIds: [doomed],
       origin: 'person',
+      madeBy: BY_PERSON,
     });
     if (pick === 'not-found') throw new Error('garment not found');
     const entry = await insertEntry(t.db, {
@@ -250,6 +253,7 @@ describe('the sync triggers', () => {
       outfitId: pick.id,
       day: addDays(t.today(), 3),
       occasion: 'all-day',
+      chooser: BY_PERSON,
     });
     if (entry.outcome !== 'scheduled') throw new Error('not scheduled');
 
