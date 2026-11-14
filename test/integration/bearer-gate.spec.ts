@@ -33,13 +33,30 @@ describe('the bearer gate', () => {
     await t.cleanup();
   });
 
+  /** The request ids each client address's requests got, from `x-request-id`. */
+  const requestIds = new Map<string, Set<string>>();
+  const track = async (
+    client: Record<string, string>,
+    pending: Promise<LightMyRequestResponse>,
+  ) => {
+    const res = await pending;
+    const address = client['x-forwarded-for'];
+    const ids = requestIds.get(address) ?? new Set<string>();
+    ids.add(String(res.headers['x-request-id']));
+    requestIds.set(address, ids);
+    return res;
+  };
+
   /** /mcp's tools/list from `client`, presenting `token` if any. */
   const mcp = (client: Record<string, string>, token?: string) =>
-    mcpRequest(t, token, 'tools/list', {}, client);
+    track(client, mcpRequest(t, token, 'tools/list', {}, client));
 
   /** /api's GET /me from `client`, presenting `token` if any. */
   const me = (client: Record<string, string>, token?: string) =>
-    t.api(token, { method: 'GET', url: '/api/v1/me', headers: client });
+    track(
+      client,
+      t.api(token, { method: 'GET', url: '/api/v1/me', headers: client }),
+    );
 
   /** One refusal of each kind the budget throttles, turn about per surface. */
   const refused = (client: Record<string, string>, n: number) => {
@@ -49,13 +66,16 @@ describe('the bearer gate', () => {
       { authorization: `Bearer ${UNKNOWN}` },
     ][n % 3];
     const request = { ...client, ...headers };
-    return n % 2
-      ? mcpRequest(t, undefined, 'tools/list', {}, request)
-      : t.api(undefined, {
-          method: 'GET',
-          url: '/api/v1/me',
-          headers: request,
-        });
+    return track(
+      client,
+      n % 2
+        ? mcpRequest(t, undefined, 'tools/list', {}, request)
+        : t.api(undefined, {
+            method: 'GET',
+            url: '/api/v1/me',
+            headers: request,
+          }),
+    );
   };
 
   /** Spends `client`'s whole refusal budget: every one a 401. */
@@ -63,6 +83,28 @@ describe('the bearer gate', () => {
     for (let n = 0; n < BEARER_REFUSAL_LIMIT.max; n += 1) {
       expect((await refused(client, n)).statusCode).toBe(401);
     }
+  };
+
+  /**
+   * The warn lines written while serving `client`'s requests, by their
+   * `request_id` (a line's text need not name the address). Every refusal also
+   * writes the summaries of other addresses whose window has ended, under its
+   * own request id, so a line naming another address is left out: an
+   * assertion over all warn lines depends on how long the run took.
+   */
+  const warnsFrom = (client: Record<string, string>) => {
+    const own = client['x-forwarded-for'];
+    const ids = requestIds.get(own) ?? new Set<string>();
+    return t.logs.records
+      .filter(
+        (record) =>
+          record.level === 'warn' &&
+          ids.has(String(record.request_id)) &&
+          !(record.msg.match(/\b198\.18\.\d+\.\d+\b/g) ?? []).some(
+            (address) => address !== own,
+          ),
+      )
+      .map((record) => record.msg);
   };
 
   const expectMcp401 = (res: LightMyRequestResponse) => {
@@ -111,9 +153,9 @@ describe('the bearer gate', () => {
     expect(Number(onApi.headers['retry-after'])).toBeGreaterThan(0);
 
     // The refusals past the budget are counted into a summary, not logged one by one.
-    expect(t.logs.messages('warn').join('\n')).not.toContain(
-      'Rate limit reached',
-    );
+    // The filter sees this client's lines: the budget's own, one each.
+    expect(warnsFrom(client)).toHaveLength(BEARER_REFUSAL_LIMIT.max);
+    expect(warnsFrom(client).join('\n')).not.toContain('Rate limit reached');
     // Another address has its own budget.
     expectMcp401(await mcp(uniqueClient()));
   });
@@ -165,9 +207,7 @@ describe('the bearer gate', () => {
     const address = client['x-forwarded-for'];
     const minted = await mintToken(t, t.owner.id, 'Phone', 'device');
     if (!minted.created) throw new Error('no device token');
-    // Other tests' addresses may have a summary due: only this one's lines count.
-    const lines = () =>
-      t.logs.messages('warn').filter((line) => line.includes(address));
+    const lines = () => warnsFrom(client);
     t.logs.clear();
     for (let n = 0; n < 50; n += 1) {
       expectMcp401(await mcp(client, minted.token));
@@ -196,11 +236,46 @@ describe('the bearer gate', () => {
   it('counts a throttled unknown credential in the summary too, still a 429', async () => {
     const client = uniqueClient();
     await exhaust(client);
+    // Control: the filter sees this client's under-budget refusal lines.
+    expect(warnsFrom(client)).toHaveLength(BEARER_REFUSAL_LIMIT.max);
     t.logs.clear();
     for (let n = 0; n < 5; n += 1) {
       expect((await mcp(client)).statusCode).toBe(429);
     }
-    expect(t.logs.messages('warn')).toEqual([]);
+    expect(warnsFrom(client)).toEqual([]);
+  });
+
+  it("does not count another address's summary, due once its window ends, as this address's line (#943)", async () => {
+    const window = BEARER_REFUSAL_LIMIT.timeWindow;
+    const earlier = uniqueClient();
+    const client = uniqueClient();
+    await exhaust(earlier);
+    for (let n = 0; n < 5; n += 1) {
+      expect((await mcp(earlier)).statusCode).toBe(429);
+    }
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // This address's window opens half a window later than the earlier one's.
+      vi.setSystemTime(Date.now() + window / 2);
+      await exhaust(client);
+      expect(warnsFrom(client)).toHaveLength(BEARER_REFUSAL_LIMIT.max);
+      t.logs.clear();
+      // The earlier window has ended and this one has not: the first refusal
+      // below writes the earlier address's summary.
+      vi.setSystemTime(Date.now() + (window * 7) / 10);
+      for (let n = 0; n < 5; n += 1) {
+        expect((await mcp(client)).statusCode).toBe(429);
+      }
+      expect(
+        t.logs
+          .messages('warn')
+          .some((line) => line.includes(earlier['x-forwarded-for'])),
+      ).toBe(true);
+      expect(warnsFrom(client)).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('never resets the count on a token that opens', async () => {
