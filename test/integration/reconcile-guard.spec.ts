@@ -31,7 +31,12 @@ describe('storage reconciliation guard', () => {
 
   const reconcile = (options?: ReconcileOptions) =>
     reconcileStorage(
-      { db: t.db, photos: t.photos, logger: silentLogger },
+      {
+        db: t.db,
+        photos: t.photos,
+        logger: silentLogger,
+        timeZone: t.timeZone,
+      },
       options,
     );
 
@@ -107,7 +112,7 @@ describe('storage reconciliation guard', () => {
     const report = await reconcile();
     expect(report).toMatchObject({
       storedPhotoSets: 2,
-      orphanedObjectsDeleted: 0,
+      orphanedSetsQuarantined: 0,
       orphanedRowsDeleted: 0,
     });
     expect(report.refused).toMatch(/file table is empty/);
@@ -123,7 +128,7 @@ describe('storage reconciliation guard', () => {
     const report = await reconcile();
     expect(report.storedPhotoSets).toBe(130);
     expect(report.refused).toMatch(/26 photo sets would go, more than 25/);
-    expect(report.orphanedObjectsDeleted).toBe(0);
+    expect(report.orphanedSetsQuarantined).toBe(0);
     expect(await storedPhotos()).toEqual(before);
   });
 
@@ -167,7 +172,7 @@ describe('storage reconciliation guard', () => {
 
     const report = await reconcile();
     expect(report.refused).toBeUndefined();
-    expect(report.orphanedObjectsDeleted).toBe(3);
+    expect(report.orphanedSetsQuarantined).toBe(3);
     const left = await storedPhotos();
     for (const name of stray) expect(left).not.toContain(name);
     expect(left).toHaveLength(4);
@@ -179,7 +184,7 @@ describe('storage reconciliation guard', () => {
 
     const report = await reconcile({ force: true });
     expect(report.refused).toBeUndefined();
-    expect(report.orphanedObjectsDeleted).toBe(6);
+    expect(report.orphanedSetsQuarantined).toBe(6);
     const left = await storedPhotos();
     for (const name of stray) expect(left).not.toContain(name);
     expect(await photoRowCount(t)).toBe(20);

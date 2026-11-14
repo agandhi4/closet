@@ -1,5 +1,12 @@
-import { randomUUID } from 'node:crypto';
-import { readdir, rm, utimes, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -10,9 +17,10 @@ import {
   type ReconcileOptions,
   type ReconciliationReport,
 } from '../../src/maintenance/reconcile';
-import { addDays } from '../../src/calendar-date';
+import { restoreFromTrash } from '../../src/maintenance/trash';
+import { addDays, todayIn } from '../../src/calendar-date';
 import { variantFileName } from '../../src/web/files/image-variant';
-import { STORAGE_MARKER } from '../../src/web/files/storage';
+import { STORAGE_MARKER, TRASH_DIR } from '../../src/web/files/storage';
 import {
   createGarment,
   jpegPhoto,
@@ -37,7 +45,12 @@ describe('storage reconciliation', () => {
   let t: TestApp;
   const reconcile = (options?: ReconcileOptions) =>
     reconcileStorage(
-      { db: t.db, photos: t.photos, logger: silentLogger },
+      {
+        db: t.db,
+        photos: t.photos,
+        logger: silentLogger,
+        timeZone: t.timeZone,
+      },
       options,
     );
 
@@ -121,7 +134,8 @@ describe('storage reconciliation', () => {
       storedObjects: objectsBefore,
       // live, lost (its thumb), staleOrphan, recentOrphan, staleRow
       storedPhotoSets: 5,
-      orphanedObjectsDeleted: 1,
+      orphanedSetsQuarantined: 1,
+      trashSetsPurged: 0,
       orphanedRowsDeleted: 1,
       missingOriginals: 1,
       // Link imports have their own pass (link-import.spec.ts).
@@ -148,6 +162,10 @@ describe('storage reconciliation', () => {
     for (const variant of ['original', 'nobg', 'thumb'] as const) {
       expect(files).not.toContain(variantFileName(staleOrphan, variant));
     }
+    // Quarantined, not deleted (#649).
+    expect((await t.photos.storage.trash()).map((set) => set.entry)).toContain(
+      staleOrphan,
+    );
     expect(files).not.toContain(staleRow);
     expect(files).not.toContain(variantFileName(staleRow, 'thumb'));
     expect(await readdir(t.dataPath)).toContain('notes.txt');
@@ -161,7 +179,7 @@ describe('storage reconciliation', () => {
     // A second pass finds nothing new to delete.
     const again = await reconcile();
     expect(again).toMatchObject({
-      orphanedObjectsDeleted: 0,
+      orphanedSetsQuarantined: 0,
       orphanedRowsDeleted: 0,
       missingOriginals: 1,
     });
@@ -192,7 +210,10 @@ describe('storage reconciliation', () => {
     );
 
   const reconcileLogged = (options?: ReconcileOptions) =>
-    reconcileStorage({ db: t.db, photos: t.photos, logger: t.logger }, options);
+    reconcileStorage(
+      { db: t.db, photos: t.photos, logger: t.logger, timeZone: t.timeZone },
+      options,
+    );
 
   it("deletes a live photo's day-old variants under another key than its row's", async () => {
     // Old as they are, the row's own files stay.
@@ -301,6 +322,140 @@ describe('storage reconciliation', () => {
       `Keeping every variant of ${fileName}: the files of its row's variant (key ${variantKey}) are not in storage`,
     );
   });
+
+  describe('the quarantine (#649)', () => {
+    const now = new Date();
+    const today = () => todayIn(t.timeZone, now);
+    const reconcileAt = (at: Date = now) =>
+      reconcileStorage(
+        {
+          db: t.db,
+          photos: t.photos,
+          logger: silentLogger,
+          timeZone: t.timeZone,
+        },
+        { now: at },
+      );
+    const hashOf = async (path: string) =>
+      createHash('sha256')
+        .update(await readFile(path))
+        .digest('hex');
+    const trashPath = (...parts: string[]) =>
+      join(t.dataPath, TRASH_DIR, ...parts);
+    const listed = async () => {
+      const names: string[] = [];
+      for await (const object of t.photos.storage.list()) {
+        names.push(object.name);
+      }
+      return names;
+    };
+
+    /** A two-day-old photo set with no row: what a database restore leaves. */
+    const restoredAway = async () => {
+      const baseName = `${randomUUID()}.webp`;
+      const names = (['original', 'nobg', 'thumb'] as const).map((variant) =>
+        variantFileName(baseName, variant),
+      );
+      for (const name of names) await writeAged(name, 2 * DAY_MS);
+      const hashes = await Promise.all(
+        names.map((name) => hashOf(join(t.dataPath, name))),
+      );
+      return { baseName, names, hashes };
+    };
+
+    it('moves a day-old set with no row to .trash/<today>/ with its bytes, and restores it', async () => {
+      const { baseName, names, hashes } = await restoredAway();
+
+      const report = await reconcileAt();
+      expect(report.refused).toBeUndefined();
+      expect(report.orphanedSetsQuarantined).toBe(1);
+      const afterRun = await listed();
+      for (const name of names) expect(afterRun).not.toContain(name);
+      for (const [i, name] of names.entries()) {
+        expect(await hashOf(trashPath(today(), baseName, name))).toBe(
+          hashes[i],
+        );
+      }
+      // The trash is not storage: nothing in it is an orphan again.
+      expect((await reconcileAt()).orphanedSetsQuarantined).toBe(0);
+
+      expect(
+        await restoreFromTrash(t.photos.storage, baseName, silentLogger),
+      ).toMatchObject({ restored: { day: today(), entry: baseName } });
+      expect(await listed()).toEqual(expect.arrayContaining(names));
+      for (const [i, name] of names.entries()) {
+        expect(await hashOf(join(t.dataPath, name))).toBe(hashes[i]);
+      }
+      expect(
+        (await t.photos.storage.trash()).some((set) => set.entry === baseName),
+      ).toBe(false);
+      await t.photos.deleteFiles(names);
+    });
+
+    it('never overwrites: a second set of a name gets its own entry, and a live set refuses the restore', async () => {
+      const { baseName, names, hashes } = await restoredAway();
+      const first = await t.photos.storage.quarantine(baseName, names, today());
+      for (const name of names) await writeAged(name, 2 * DAY_MS);
+      const second = await t.photos.storage.quarantine(
+        baseName,
+        names,
+        today(),
+      );
+      expect(first?.entry).toBe(baseName);
+      expect(second?.entry).toMatch(new RegExp(`^${baseName}~[0-9a-f]{8}$`));
+      expect(await hashOf(trashPath(today(), baseName, names[0]))).toBe(
+        hashes[0],
+      );
+
+      // Both match the base name: the operator names one.
+      expect(
+        await restoreFromTrash(t.photos.storage, baseName, silentLogger),
+      ).toHaveProperty('refused', expect.stringContaining('several'));
+      expect(
+        await restoreFromTrash(
+          t.photos.storage,
+          `${today()}/${second!.entry}`,
+          silentLogger,
+        ),
+      ).toHaveProperty('restored');
+      // Its set is live now, so the other copy may not land on it.
+      expect(
+        await restoreFromTrash(
+          t.photos.storage,
+          `${today()}/${baseName}`,
+          silentLogger,
+        ),
+      ).toHaveProperty('refused', expect.stringContaining('already holds'));
+      expect(await hashOf(trashPath(today(), baseName, names[0]))).toBe(
+        hashes[0],
+      );
+      await t.photos.deleteFiles(names);
+    });
+
+    it('purges trash days past the retention, never newer ones or foreign directories', async () => {
+      const expired = addDays(today(), -31);
+      const kept = addDays(today(), -30);
+      for (const day of [expired, kept]) {
+        await mkdir(trashPath(day, `${randomUUID()}.webp`), {
+          recursive: true,
+        });
+      }
+      await mkdir(trashPath('not-a-day'), { recursive: true });
+
+      const report = await reconcileAt();
+      expect(report.refused).toBeUndefined();
+      expect(report.trashSetsPurged).toBe(1);
+      const left = await readdir(trashPath());
+      expect(left).not.toContain(expired);
+      expect(left).toContain(kept);
+      expect(left).toContain('not-a-day');
+
+      // The clock is the run's: a day later the kept one is past it too.
+      const later = await reconcileAt(new Date(now.getTime() + DAY_MS));
+      expect(later.trashSetsPurged).toBe(1);
+      expect(await readdir(trashPath())).not.toContain(kept);
+    });
+  });
 });
 
 /**
@@ -385,13 +540,14 @@ describe('storage reconciliation and outfit selfies', () => {
     const report = await reconcileStorage({
       db: t.db,
       photos: t.photos,
+      timeZone: t.timeZone,
       logger: silentLogger,
     });
 
     expect(report.refused).toBeUndefined();
     expect(report).toMatchObject({
       orphanedRowsDeleted: 1,
-      orphanedObjectsDeleted: 0,
+      orphanedSetsQuarantined: 0,
       missingOriginals: 0,
     });
     const files = await readdir(t.dataPath);

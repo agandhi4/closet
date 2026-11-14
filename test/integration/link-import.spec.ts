@@ -696,7 +696,12 @@ describe('adding a garment from a link', () => {
 
     describe('reconciliation', () => {
       const reconcile = () =>
-        reconcileStorage({ db: t.db, photos: t.photos, logger: silentLogger });
+        reconcileStorage({
+          db: t.db,
+          photos: t.photos,
+          logger: silentLogger,
+          timeZone: t.timeZone,
+        });
 
       /** Every pending photo two days old: its row and its files. */
       const ageEveryPendingPhoto = async () => {
@@ -737,7 +742,7 @@ describe('adding a garment from a link', () => {
         const report = await reconcile();
         expect(report.refused).toBeUndefined();
         expect(report.pendingPhotosDeleted).toBe(abandoned.length);
-        expect(report.orphanedObjectsDeleted).toBe(0);
+        expect(report.orphanedSetsQuarantined).toBe(0);
         const stored = await storedOriginals();
         for (const photo of abandoned) expect(stored).not.toContain(photo);
         expect(stored).toContain(keptPhoto);
@@ -772,7 +777,7 @@ describe('adding a garment from a link', () => {
         expect(report).toMatchObject({
           pendingPhotosDeleted: 0,
           pendingRowsWithoutFiles: 1,
-          orphanedObjectsDeleted: 0,
+          orphanedSetsQuarantined: 0,
         });
         expect(await storedOriginals()).toContain(young);
         expect(await pendingOf(id)).toEqual([{ fileName: young }]);

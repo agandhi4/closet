@@ -82,10 +82,10 @@ Deploy now, data fixes and production's paths: homelab `stacks/closet/README.md`
 
 The image runs as `node`, **uid/gid 1000** (the Dockerfile's `USER`), never root. It writes exactly two directories, both host mounts in production, and a mount keeps the host's ownership, so both must be writable by uid 1000 on the host:
 
-| In the container              | What writes it                          |
-| ----------------------------- | --------------------------------------- |
-| `/app/data` (`DATA_PATH`)     | photos, `.incoming/`, `.closet-storage` |
-| `/app/models` (`MODELS_PATH`) | the model's download at first boot      |
+| In the container              | What writes it                                                                   |
+| ----------------------------- | -------------------------------------------------------------------------------- |
+| `/app/data` (`DATA_PATH`)     | photos, `.incoming/`, `.closet-storage`, `.trash/` (reconciliation's quarantine) |
+| `/app/models` (`MODELS_PATH`) | the model's download at first boot                                               |
 
 The opt-in `LOG_FILE` is not a third path the image owns: it must point into a mount you provide that uid 1000 can write (never under `DATA_PATH`). It never creates a directory; one that is missing or unwritable ends in a single `error` line on stdout and a file-less run, the console log unaffected.
 
@@ -107,6 +107,10 @@ docker run --rm --user 1000:1000 -v <data dir>:/d -v <models dir>:/m --entrypoin
 **The symptom** of an unmounted share, or a `DATA_PATH` pointing at the wrong directory, with photo rows in the database: the boot ends (the container restarts in a loop) with the fatal line `DATA_PATH has no .closet-storage marker: the photo share is not mounted, or DATA_PATH is the wrong directory (docs/operations.md#photo-storage-marker)`, and the marker is not written there (the warn line before it says how many rows' photos it found). A marker that cannot be read (a stale NFS handle, `EIO`, `EACCES`, or content that is not a marker) refuses the boot and turns `storage` down the same way, as `DATA_PATH storage unreadable: <code>`; a marker that is not one is never overwritten: check it, then delete it to let the boot adopt. The CLIs (`maintenance:reconcile`, `retrim-thumbs`, `seed`) exit 1 with the same line. A share unmounted, or another install's share mounted, under a running server turns `/health/ready`'s `storage` check down (pointing here) within 5 s, and the nightly reconciliation refuses and deletes nothing, pending photos included; so does a run that finds `file` rows and not one stored photo set, marker or not. `--force` overrides none of these.
 
 **Recovery.** Mount the share (check `mount` and the host directory behind `CLOSET_DATA_DIR`) and restart the container; nothing is to be fixed in the app. After restoring a share from a backup that lacks the marker, put the backup's `.closet-storage` back if you have it; otherwise the first boot adopts the restored directory as long as it holds the photos of 90% of the rows. A restored directory holding the photos of fewer than 90% of the rows is refused on purpose: restore the photos, or, if the household really lost them, re-adopt by hand (below) or remove the rows (`file` and what references them) before the boot. To re-adopt by hand (only once you have checked the directory is the right one), as uid 1000: `docker run --rm --user 1000:1000 -v <data dir>:/d --entrypoint sh ghcr.io/kashhq/closet:latest -c 'printf "{\"installId\":\"%s\",\"createdAt\":\"%s\"}\n" $(cat /proc/sys/kernel/random/uuid) $(date -u +%FT%TZ) > /d/.closet-storage'`, then restart. A running server compares the marker with the one it booted with, so restart after any change to it. The marker says the directory is a closet install's storage, not which database it belongs to: a share swapped with another install's before a boot is not detected.
+
+## Photo quarantine
+
+The nightly reconciliation never deletes a photo set that has no `file` row: it moves it into `DATA_PATH/.trash/<YYYY-MM-DD>/<uuid>.webp/` (a rename on the same filesystem; the day is `APP_TIMEZONE`'s) and deletes a day directory once it is more than 30 days old (#649). After restoring the database from a dump older than the photos, the photos added since land there the next night (log lines `Quarantined orphaned ...`, the report's `orphanedSetsQuarantined`). To put one back: `docker exec closet npm run maintenance:reconcile -- --restore-from-trash <uuid>.webp` (or `<day>/<entry>` when it was quarantined twice); it refuses when a live set of that name exists. Restore its `file` row too, or the next night quarantines it again. Keep `.trash` with the photos in a backup to keep those 30 days too.
 
 ## Health
 
