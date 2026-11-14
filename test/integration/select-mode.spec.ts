@@ -1,0 +1,201 @@
+import { randomUUID } from 'node:crypto';
+import { eq, inArray } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { capsuleGarment, garment } from '../../src/db/schema';
+import { GRID_PAGE_SIZE } from '../../src/web/wardrobe/grid-page-size';
+import {
+  asFixture,
+  createTestApp,
+  recordQueries,
+  type TestApp,
+  unescapeHtml,
+  userIdOf,
+} from './harness';
+import { expectNativePostForms, expectNoRawI18nKeys } from './pages';
+
+/**
+ * Select mode as one selection several verbs act on (#677): every verb
+ * answers back to select mode with what it acted on still checked, "Select
+ * all N" acts on every garment of the filters (not only the loaded page),
+ * and Archive, Mark washed and Add to capsule each call their writer once.
+ * Who may use each verb is the matrix's (authorization-wardrobe.routes.ts).
+ */
+describe('select mode verbs', () => {
+  let t: TestApp;
+  let ownerId: number;
+  /** Three tops to tag, archive and wash; GRID_PAGE_SIZE + 2 coats for "Select all". */
+  let tops: number[];
+  let coats: number[];
+  let capsuleId: number;
+
+  const post = (url: string, payload: Record<string, unknown>) =>
+    t.inject({ method: 'POST', url, payload });
+  const get = (url: string) => t.inject({ method: 'GET', url });
+  /** A post and the statements it sent (recordQueries). */
+  const recordedPost = async (
+    url: string,
+    payload: Record<string, unknown>,
+  ) => {
+    let res!: Awaited<ReturnType<typeof post>>;
+    const record = await recordQueries(async () => {
+      res = await post(url, payload);
+    });
+    return { res, statements: record.statements };
+  };
+  const checkedIds = (html: string) =>
+    [
+      ...unescapeHtml(html).matchAll(/name="ids" value="(\d+)" checked=""/g),
+    ].map((match) => Number(match[1]));
+  const rows = (garmentIds: number[]) =>
+    t.db
+      .select()
+      .from(garment)
+      .where(inArray(garment.id, garmentIds))
+      .orderBy(garment.id);
+
+  beforeAll(async () => {
+    t = await createTestApp();
+    ownerId = await userIdOf(t, 'owner@example.com');
+    const insert = (category: string, count: number, name: string) =>
+      asFixture(t.db, (tx) =>
+        tx
+          .insert(garment)
+          .values(
+            Array.from({ length: count }, (_, i) => ({
+              shareableId: randomUUID(),
+              ownerId,
+              name: `${name} ${i}`,
+              category,
+            })),
+          )
+          .returning({ id: garment.id }),
+      );
+    coats = (await insert('outerwear', GRID_PAGE_SIZE + 2, 'Coat')).map(
+      (row) => row.id,
+    );
+    tops = (await insert('tops', 3, 'Top')).map((row) => row.id);
+    const made = await post('/capsules', { name: 'Office' });
+    capsuleId = Number(/^\/capsules\/(\d+)/.exec(made.headers.location!)![1]);
+  });
+
+  afterAll(() => t?.cleanup());
+
+  it('keeps the selection across a property, so a second one needs no reselecting', async () => {
+    const warmth = await post('/wardrobe/bulk?category=tops', {
+      ids: tops,
+      property: 'warmth',
+      warmth: '2',
+    });
+    expect(warmth.statusCode).toBe(303);
+    const page = await get(warmth.headers.location!);
+    expect(page.statusCode).toBe(200);
+    expectNoRawI18nKeys(page);
+    expectNativePostForms(page);
+    // Still select mode, the same three checked, the bar counting them.
+    expect(checkedIds(page.body).sort()).toEqual([...tops].sort());
+    expect(page.body).toMatch(/data-select-count-value="true">3</);
+    expect(page.body).toContain('Set on 3 garments');
+
+    const formality = await post('/wardrobe/bulk?category=tops', {
+      ids: checkedIds(page.body),
+      property: 'formality',
+      formality: '3',
+    });
+    expect(checkedIds((await get(formality.headers.location!)).body)).toEqual(
+      expect.arrayContaining(tops),
+    );
+    for (const top of await rows(tops)) {
+      expect([top.warmth, top.formality]).toEqual([2, 3]);
+    }
+  });
+
+  it('offers "Select all N" with the filters’ count, and it acts on every page', async () => {
+    const html = (await get('/wardrobe?select=1&category=outerwear')).body;
+    expect(html).toContain(`Select all ${coats.length}`);
+    // The first page alone holds GRID_PAGE_SIZE tiles.
+    expect(html.match(/name="ids"/g)).toHaveLength(GRID_PAGE_SIZE);
+
+    // The post carries the filters and all=1, never the ids.
+    const res = await post('/wardrobe/bulk?category=outerwear', {
+      all: '1',
+      property: 'warmth',
+      warmth: '4',
+    });
+    expect(res.headers.location).toContain('all=1');
+    expect((await rows(coats)).map((coat) => coat.warmth)).toEqual(
+      coats.map(() => 4),
+    );
+    // Nothing outside the filters moved.
+    expect((await rows(tops)).map((top) => top.warmth)).toEqual([2, 2, 2]);
+    // Back with all selected: every tile checked, the bar says N.
+    const back = (await get(res.headers.location!)).body;
+    expect(checkedIds(back)).toHaveLength(GRID_PAGE_SIZE);
+    expect(back).toMatch(
+      new RegExp(`data-select-count-value="true">${coats.length}<`),
+    );
+  });
+
+  it('adds the selection to a capsule in one write, keeping it selected', async () => {
+    const { res, statements } = await recordedPost(
+      '/wardrobe/bulk/capsule?category=tops',
+      { ids: tops, capsuleId },
+    );
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toContain('bulkAdded=3');
+    expect(res.headers.location).toContain('select=1');
+    // The session, then setCapsuleMembers' begin, lock, insert, commit (nothing to remove).
+    expect(statements).toBe(5);
+    const members = await t.db
+      .select({ garmentId: capsuleGarment.garmentId })
+      .from(capsuleGarment)
+      .where(eq(capsuleGarment.capsuleId, capsuleId));
+    expect(members.map((row) => row.garmentId).sort()).toEqual(
+      [...tops].sort(),
+    );
+    const toast = (await get(res.headers.location!)).body;
+    expect(toast).toContain('3 garments added to the capsule');
+  });
+
+  it('marks the selection washed today', async () => {
+    const { res, statements } = await recordedPost('/wardrobe/bulk/washed', {
+      ids: tops.slice(0, 2),
+    });
+    expect(res.headers.location).toContain('bulkWashed=2');
+    // The session, then markWashed's one statement.
+    expect(statements).toBe(2);
+    expect((await rows(tops)).map((top) => top.lastWashedOn)).toEqual([
+      t.today(),
+      t.today(),
+      null,
+    ]);
+  });
+
+  it('archives the selection, which leaves the grid, and comes back with nothing checked', async () => {
+    const { res, statements } = await recordedPost(
+      '/wardrobe/bulk/archive?category=tops',
+      { ids: [tops[0]] },
+    );
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe(
+      '/wardrobe?category=tops&select=1&bulkArchived=1',
+    );
+    // The session, then setGarmentsStatus: begin, the locked read, the update, commit.
+    expect(statements).toBe(5);
+    expect((await rows([tops[0]]))[0].status).toBe('archived');
+    // An archived garment again is not counted.
+    const again = await post('/wardrobe/bulk/archive', { ids: [tops[0]] });
+    expect(again.headers.location).toContain('bulkArchived=0');
+    const page = (await get(res.headers.location!)).body;
+    expect(page).toContain('1 garment archived');
+    expect(page).not.toContain(`name="ids" value="${tops[0]}"`);
+  });
+
+  it('pluralizes every toast through i18n', async () => {
+    const one = await get('/wardrobe?bulkUpdated=1&bulkSkipped=0');
+    expectNoRawI18nKeys(one);
+    expect(one.body).toContain('Set on 1 garment');
+    expect(one.body).not.toContain('1 garments');
+    const washed = (await get('/wardrobe?bulkWashed=1')).body;
+    expect(washed).toContain('1 garment marked washed');
+  });
+});

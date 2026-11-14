@@ -18,9 +18,9 @@ Production reaches Postgres over a link that costs a round trip per statement (a
   - `drafts`: "N photos waiting · Continue" (#200, `draftsWaitingSql`), for an editor only;
   - `sharedWardrobes`: the app bar's switcher, on a full page only (a fragment swaps `#wardrobe-main` and the ⋯ menu, never the bar).
 
-  Select mode and the picker render none of it. They read only `capsules`, and only when a `?capsule=` or `?pick=` names one; plain select mode sends no context statement at all.
+  The picker reads only `capsules` (to refuse a foreign `?pick=` and name it); select mode reads `count` ("Select all N") and `capsules` (Add to capsule, and a foreign `?capsule=`), #677.
 
-- **So**: a page or fragment is 3 statements, select mode 2, the picker 3, a next page 2. Before #159 a page was 9 (8 reads in parallel, each its own round trip and pool connection) and the picker 10.
+- **So**: a page or fragment is 3 statements, select mode 3, the picker 3, a next page 2. Before #159 a page was 9 (8 reads in parallel, each its own round trip and pool connection) and the picker 10.
 
 Tagging mode is 2 statements. `nextToTag` reads the card with its count left as a window (`count(*) over ()`), the garments below the cursor sorted first. A tap's answer is 3 (`taggedGarment`, the chips and the count), or 4 when it writes (`select-and-tag.md`).
 
