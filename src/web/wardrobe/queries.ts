@@ -16,7 +16,6 @@ import {
   sql,
 } from 'drizzle-orm';
 import { alias, type PgUpdateSetSource } from 'drizzle-orm/pg-core';
-import { randomUUID } from 'node:crypto';
 import type { CutoutStatus } from '../../cutout/state';
 import type { Db, Queryable } from '../../db/client';
 import {
@@ -529,7 +528,8 @@ export interface GarmentDetail
     ProductFields,
     CareFields {
   id: number;
-  shareableId: string;
+  /** The public link's id (/share), null while not shared (#669). */
+  shareableId: string | null;
   status: GarmentStatus;
   /** A wishlist item's (or a bought one's) garment it replaces. */
   replacesGarmentId: number | null;
@@ -797,8 +797,8 @@ function newGarment(
   return {
     ...storedFields(tx, ownerId, fields),
     status,
-    // Share links address garments by this (the /share page).
-    shareableId: randomUUID(),
+    // No public link until Share is tapped (#669, setPublicShare): a new
+    // garment and a clone start unshared.
     ownerId: lockedOwnerId(lock),
     photoId,
   };

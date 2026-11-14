@@ -380,6 +380,26 @@ export const ROUTES: Route[] = [
       },
     }),
   ),
+  // The public link (#669): outfits are the owner's alone. No API twin yet (#959).
+  ...(['share', 'share/stop'] as const).map(
+    (verb): Route => ({
+      name: `POST /outfits/:id/${verb}`,
+      kind: 'write',
+      ok: 200,
+      secret: outfitName,
+      vias: BOTH,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/outfits/${f.outfitId}/${verb}${q}`,
+      }),
+      expect: {
+        owner: 'ok',
+        manager: 'notFound',
+        viewer: 'notFound',
+        stranger: 'notFound',
+      },
+    }),
+  ),
   {
     name: 'DELETE /outfits/:id',
     kind: 'write',

@@ -22,6 +22,7 @@ import {
 } from './garment-access';
 import {
   changeGarmentStatus,
+  setGarmentPublicShare,
   deleteOwnGarment,
   setGarmentCondition,
   updateGarment,
@@ -75,7 +76,7 @@ const GARMENT_PATH = '/wardrobe/:id';
 /**
  * One garment: the new form and its post, the properties fragment, the
  * garment page, the edit and clone forms and their posts, the condition
- * control, archive, restore and delete. Every route takes `?ownerId=` for a
+ * control, Share and Stop sharing, archive, restore and delete. Every route takes `?ownerId=` for a
  * shared wardrobe (garmentGuard). Adding from a link has its
  * own plugin (link-import/routes.tsx) that ends on the new form.
  */
@@ -568,6 +569,41 @@ export const garmentRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     `${GARMENT_PATH}/restore`,
     { schema: { params: GarmentParams, querystring: OwnerQuery } },
     (request, reply) => changeStatus(request, reply, 'restore'),
+  );
+
+  /**
+   * Share and Stop sharing the public link (#669; htmx hx-post from the ⋯
+   * menu and the page's "Shared publicly" panel): owner and MANAGE. Back to
+   * the garment page, which shows the link, or no longer does.
+   */
+  async function changePublicShare(
+    request: GarmentRequest,
+    reply: FastifyReply,
+    shared: boolean,
+  ): Promise<FastifyReply> {
+    const actor = actorOf(request);
+    const { viewOwner } = await setGarmentPublicShare(
+      db,
+      actor,
+      garmentAddress(request),
+      shared,
+    );
+    logger.info(
+      `Garment ${request.params.id} ${shared ? 'shared publicly' : 'no longer shared publicly'} by user ${actor.userId}`,
+    );
+    return navigateTo(reply, garmentUrl(request.params.id, viewOwner));
+  }
+
+  app.post(
+    `${GARMENT_PATH}/share`,
+    { schema: { params: GarmentParams, querystring: OwnerQuery } },
+    (request, reply) => changePublicShare(request, reply, true),
+  );
+
+  app.post(
+    `${GARMENT_PATH}/share/stop`,
+    { schema: { params: GarmentParams, querystring: OwnerQuery } },
+    (request, reply) => changePublicShare(request, reply, false),
   );
 
   // htmx (hx-delete): owner only (deleteOwnGarment). The delete answers the

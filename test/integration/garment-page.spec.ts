@@ -157,7 +157,8 @@ describe('the garment page', () => {
     expect(menu).toContain(`href="/wardrobe/${boots}/edit"`);
     expect(menu).toContain("getElementById('garment-photo-sheet')");
     expect(menu).toContain(`href="/wardrobe/${boots}/clone"`);
-    expect(menu).toContain('data-copy=');
+    // Not shared yet: Share makes the public link (#669).
+    expect(menu).toContain(`hx-post="/wardrobe/${boots}/share"`);
     expect(menu).toContain(`hx-post="/wardrobe/${boots}/archive"`);
     expect(menu).toContain(`hx-delete="/wardrobe/${boots}"`);
     // The menu is the app bar's; the page body holds no upload controls.

@@ -427,8 +427,8 @@ export const file = pgTable(
   'file',
   {
     id: serial('id').primaryKey(),
-    // A random UUID addressing the photo's share preview
-    // (/file/watermark/:shareableId), set by the app on insert.
+    // A random UUID set by the app on insert. Nothing reads it since the
+    // share preview is addressed by the shared item's id (#669); #960 drops it.
     shareableId: varchar('shareable_id', { length: 255 }).notNull(),
     fileName: varchar('file_name', { length: 255 }).notNull(),
     // An ISO timestamp as text, as MikroORM wrote it.
@@ -569,8 +569,9 @@ export const garment = pgTable(
   'garment',
   {
     id: serial('id').primaryKey(),
-    // A random UUID for share links (/share?shareableId=), set on insert.
-    shareableId: varchar('shareable_id', { length: 255 }).notNull(),
+    // The public share link's random UUID (/share?shareableId=): null until
+    // Share is tapped, null again after Stop sharing (#669, setPublicShare).
+    shareableId: varchar('shareable_id', { length: 255 }),
     // Free text, trimmed, null when blank (src/web/wardrobe/garment-input.ts).
     name: text('name'),
     // Trimmed and lower case: the filter value and the outfit builder's key.
@@ -1020,8 +1021,9 @@ export const outfit = pgTable(
   'outfit',
   {
     id: serial('id').primaryKey(),
-    // A random UUID for share links (/share?shareableId=), set on insert.
-    shareableId: varchar('shareable_id', { length: 255 }).notNull(),
+    // The public share link's random UUID (/share?shareableId=): null until
+    // Share is tapped, null again after Stop sharing (#669, setPublicShare).
+    shareableId: varchar('shareable_id', { length: 255 }),
     name: text('name'),
     notes: text('notes'),
     ownerId: integer('owner_id').notNull(),

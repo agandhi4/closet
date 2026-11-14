@@ -20,6 +20,7 @@ import type { CutoutRunner } from '../../src/cutout/runner';
 import type * as DbClientModule from '../../src/db/client';
 import type * as ImageUrlModule from '../../src/web/files/image-url';
 import type * as FileQueriesModule from '../../src/web/files/queries';
+import type * as ShareQueriesModule from '../../src/web/share/queries';
 import type * as LoggerModule from '../../src/logger';
 import type * as ReconcileModule from '../../src/maintenance/reconcile';
 import type * as SchemaModule from '../../src/db/schema';
@@ -86,6 +87,7 @@ interface Build {
   db: typeof DbClientModule;
   imageUrl: typeof ImageUrlModule;
   fileQueries: typeof FileQueriesModule;
+  shareQueries: typeof ShareQueriesModule;
   schema: typeof SchemaModule;
   seed: typeof SeedModule;
   calendar: typeof CalendarDateModule;
@@ -112,6 +114,7 @@ async function loadBuild(): Promise<Build> {
     db: await load('db/client.js'),
     imageUrl: await load('web/files/image-url.js'),
     fileQueries: await load('web/files/queries.js'),
+    shareQueries: await load('web/share/queries.js'),
     schema: await load('db/schema.js'),
     seed: await load('seed/seed.js'),
     calendar: await load('calendar-date.js'),
@@ -167,21 +170,21 @@ interface SeedIds {
   secondPageBefore: number;
   /**
    * Its photo: what its URLs name (imageUrl's, signed by the build's own
-   * module, so the steps request what a page renders) and its share id
-   * (the Open Graph image's).
+   * module, so the steps request what a page renders).
    */
   photo: {
     fileName: string;
     version: number;
     variantKey: string | null;
-    shareableId: string;
   };
+  /** Its public link, which the fixture shares (#669): the page's and the Open Graph image's. */
   garmentShareableId: string;
   /** The first item of his wishlist (the merino replacing T21). */
   wishlistId: number;
   /** The outfit worn most often, and its garments. */
   outfitId: number;
   outfitGarmentIds: number[];
+  /** Shared by the fixture too (#669). */
   outfitShareableId: string;
   capsuleId: number;
   /** A past entry, worn. */
@@ -772,16 +775,29 @@ async function findSeedIds(
     if (!rows[0]) throw new Error(`The seed has no ${what}`);
     return rows[0];
   };
+  // The seed shares nothing publicly (#669): Share, as the ⋯ menu does.
+  const shareOf = async (
+    kind: ShareQueriesModule.ShareableKind,
+    id: number,
+  ): Promise<string> => {
+    const shared = await build.shareQueries.setPublicShare(
+      db,
+      kind,
+      id,
+      theoId,
+      true,
+    );
+    if (!shared?.shareableId) throw new Error(`Could not share ${kind} ${id}`);
+    return shared.shareableId;
+  };
 
   const repaired = one(
     await db
       .select({
         garmentId: s.garment.id,
-        shareableId: s.garment.shareableId,
         fileName: s.file.fileName,
         version: s.file.version,
         variantKey: s.file.variantKey,
-        fileShareableId: s.file.shareableId,
       })
       .from(s.garmentRepair)
       .innerJoin(s.garment, eq(s.garment.id, s.garmentRepair.garmentId))
@@ -833,7 +849,6 @@ async function findSeedIds(
     await db
       .select({
         id: s.outfit.id,
-        shareableId: s.outfit.shareableId,
         worn: wornCount,
       })
       .from(s.outfit)
@@ -947,15 +962,14 @@ async function findSeedIds(
       fileName: repaired.fileName,
       version: repaired.version,
       variantKey: repaired.variantKey,
-      shareableId: repaired.fileShareableId,
     },
-    garmentShareableId: repaired.shareableId,
+    garmentShareableId: await shareOf('garment', repaired.garmentId),
     wishlistId: wish.id,
     outfitId: outfit.id,
     outfitGarmentIds: slots.flatMap((slot) =>
       slot.garmentId === null ? [] : [slot.garmentId],
     ),
-    outfitShareableId: outfit.shareableId,
+    outfitShareableId: await shareOf('outfit', outfit.id),
     capsuleId: capsule.id,
     wornEntryId: worn.id,
     selfie,

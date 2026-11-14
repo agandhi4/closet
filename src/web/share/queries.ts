@@ -1,5 +1,7 @@
-import { asc, eq, isNotNull } from 'drizzle-orm';
-import type { Db } from '../../db/client';
+import { randomUUID } from 'node:crypto';
+import { asc, eq, isNotNull, sql } from 'drizzle-orm';
+import type { Db, Queryable } from '../../db/client';
+import { OWNER_LOCKED, ownerLockSql } from '../../db/owner-lock';
 import { garment, outfit, outfitSlot } from '../../db/schema';
 import { PHOTO_REF_RELATION, readPhotoRef } from '../files/queries';
 
@@ -7,16 +9,51 @@ import { PHOTO_REF_RELATION, readPhotoRef } from '../files/queries';
  * The public share page's reads: a garment or an outfit by its share id,
  * whoever asks (a share link is a bearer link), with its owner's first name.
  * Never the email: the page is public and link-preview crawlers keep what
- * they read.
- * Photos carry their shareableId, which addresses the watermarked Open Graph
- * image (/file/watermark/:shareableId).
+ * they read. A row is found only while it is shared (#669): its
+ * shareable_id is null otherwise. The watermarked Open Graph image is
+ * addressed by the item's own share id too (/file/watermark/:shareableId,
+ * findPhotoByShareableId in src/web/files/queries.ts, which repeats
+ * findSharedOutfit's preview rule), never by a photo's.
  */
 
 const OWNER_COLUMNS = { columns: { firstName: true } } as const;
 
-const PHOTO_COLUMNS = {
-  columns: { ...PHOTO_REF_RELATION.columns, shareableId: true },
-} as const;
+const PHOTO_COLUMNS = PHOTO_REF_RELATION;
+
+/** What a public share link addresses, and the table holding its id. */
+const SHAREABLE = { garment, outfit } as const;
+export type ShareableKind = keyof typeof SHAREABLE;
+
+/**
+ * The one writer of a garment's or outfit's public link (#669): Share
+ * (`shared`) mints its id, Stop sharing nulls it, after which /share and
+ * the watermark answer 404 for it. Answers the id after the write, or
+ * undefined when `ownerId` has no such row (the caller's 404).
+ *
+ * Share and Stop serialise under the owner's lock, taken in the same
+ * UPDATE ... RETURNING: Share keeps an id already there (`coalesce`, which
+ * a second tap waiting on the first re-reads against the row it committed),
+ * so two taps racing answer one id, and only a Share after a Stop mints a
+ * new one; an old link never comes back.
+ */
+export async function setPublicShare(
+  db: Queryable,
+  kind: ShareableKind,
+  id: number,
+  ownerId: number,
+  shared: boolean,
+): Promise<{ shareableId: string | null } | undefined> {
+  const table = SHAREABLE[kind];
+  const value = shared
+    ? sql`coalesce(${table.shareableId}, ${randomUUID()}::varchar)`
+    : sql`null`;
+  const { rows } = await db.execute<{ shareableId: string | null }>(sql`
+    with ${ownerLockSql(db, ownerId)}
+    update ${table} set ${sql.identifier(table.shareableId.name)} = ${value}
+    where ${table.id} = ${id} and ${table.ownerId} = ${ownerId} and ${OWNER_LOCKED}
+    returning ${table.shareableId} as "shareableId"`);
+  return rows[0];
+}
 
 export async function findSharedGarment(db: Db, shareableId: string) {
   const row = await db.query.garment.findFirst({

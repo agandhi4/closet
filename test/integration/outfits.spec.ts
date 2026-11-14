@@ -182,7 +182,8 @@ describe('outfits', () => {
       expect(outfit.name).toBe('Brunch');
       expect(outfit.notes).toBe('Sunny');
       expect(outfit.ownerId).toBe(t.owner.id);
-      expect(outfit.shareableId).toMatch(/^[0-9a-f-]{36}$/);
+      // No public link until Share is tapped (#669).
+      expect(outfit.shareableId).toBeNull();
       expect(await savedSlots(id)).toEqual([
         { category: 'tops', garmentId: top },
         { category: 'footwear', garmentId: null },

@@ -14,7 +14,9 @@ import {
  * wardrobe, and the title's switcher opens it as a boosted swap (the
  * document and the service worker's page stay; the mark below proves it).
  * The share's lifecycle and permissions are
- * test/integration/share-lifecycle.spec.ts.
+ * test/integration/share-lifecycle.spec.ts. Then the owner's public link to
+ * one garment (#669): Share, opened signed out, Stop, and the link is gone
+ * (test/integration/share-page.spec.ts holds the rest).
  */
 
 async function markDocument(page: Page): Promise<void> {
@@ -31,13 +33,13 @@ async function expectSameDocument(page: Page): Promise<void> {
   ).toBe(true);
 }
 
-test('an invite opened signed out is accepted in one pass, and the shared wardrobe is a boosted swap', async ({
+test('an invite opened signed out is accepted in one pass, the shared wardrobe is a boosted swap, and a public link ends at Stop', async ({
   page,
   browser,
   playwright,
 }) => {
   await signIn(page, 'nav-switch-owner');
-  await createGarment(page, 'Shared coat');
+  const coatId = await createGarment(page, 'Shared coat');
   const invite = await page.request.post('/wardrobe-share/create-invite-link', {
     form: { permission: 'VIEW' },
     headers: { ...SAME_ORIGIN, 'hx-request': 'true' },
@@ -82,4 +84,34 @@ test('an invite opened signed out is accepted in one pass, and the shared wardro
   ).toBeVisible();
   await expectSameDocument(grantee);
   await granteeContext.close();
+
+  // The coat's public link (#669): none until Share, gone after Stop.
+  await page.goto(`/wardrobe/${coatId}`);
+  const panel = page.locator('[data-public-share]');
+  await expect(panel).toHaveCount(0);
+  // hx-confirm asks in the app's own sheet (public/js/confirm-sheet.js).
+  const confirmSheet = page.locator('#confirm-sheet');
+  await page.locator('#garment-menu summary').click();
+  await page
+    .locator('#garment-menu')
+    .getByRole('button', { name: 'Share', exact: true })
+    .click();
+  await confirmSheet.locator('[data-confirm-accept]').click();
+  await expect(panel).toBeVisible();
+  // The link is on SITE_URL (https in the PWA run): open its path here.
+  const link = new URL(await panel.locator('input').inputValue());
+  const visitorContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+  });
+  const visitor = await visitorContext.newPage();
+  await visitor.goto(`${link.pathname}${link.search}`);
+  await expect(visitor.getByText('Shared coat')).toBeVisible();
+
+  await panel.getByRole('button', { name: 'Stop sharing' }).click();
+  await confirmSheet.locator('[data-confirm-accept]').click();
+  await expect(panel).toHaveCount(0);
+  const gone = await visitor.goto(`${link.pathname}${link.search}`);
+  expect(gone?.status()).toBe(404);
+  await expect(visitor.getByText('Shared coat')).toHaveCount(0);
+  await visitorContext.close();
 });

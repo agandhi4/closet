@@ -1072,7 +1072,7 @@ const pages: Step[] = [
     kind: 'file',
     route: 'GET /file/watermark/:shareableId',
     request: (f) =>
-      get(`/file/watermark/${f.ids.photo.shareableId}`, { as: null }),
+      get(`/file/watermark/${f.ids.garmentShareableId}`, { as: null }),
     expect: 200,
   }),
   http({

@@ -13,7 +13,11 @@ import { Dock } from '../layout/dock';
 import { Layout } from '../layout/layout';
 import { GarmentThumb, SheetBackdrop } from '../layout/parts';
 import { EntrySelfie, SelfieView } from '../selfies/views';
-import { ShareLinkButton } from '../share/share-button';
+import {
+  type PublicShare,
+  PublicSharePanel,
+  ShareLinkButton,
+} from '../share/share-button';
 import { stylingUrl } from '../styling/urls';
 import type { ViewContext } from '../view-context';
 import { collagePieces, FootMark, OutfitCollage } from './collage';
@@ -50,7 +54,8 @@ const OPEN_PLAN_SHEET = `document.getElementById('${PLAN_SHEET_ID}').showModal()
  * calendar entries say, read rather than stored (plan section 1): the days
  * it is planned for, the days it was worn with their selfies (#19); then its
  * garments, each opening its page. Share and Delete are in the app bar's ⋯
- * menu. The owner's own page (outfits are private); the public share page
+ * menu; "Shared publicly" (its link and Stop) under the collage while
+ * shared. The owner's own page (outfits are private); the public share page
  * (src/web/share) shows the garments only, never the entries.
  */
 export function OutfitPage(props: {
@@ -109,6 +114,7 @@ export function OutfitPage(props: {
           <p class="text-muted text-sm italic">{t('OUTFIT_NO_GARMENTS')}</p>
         )}
         {toBuy.length > 0 && <ToBuySection pieces={toBuy} />}
+        <PublicSharePanel siteUrl={ctx.siteUrl} share={publicShareOf(outfit)} />
         <div class="flex gap-2">
           {mayBePlanned && (
             <button
@@ -149,6 +155,16 @@ export function OutfitPage(props: {
   );
 }
 
+/** The outfit's public link and where Share and Stop post (#669). */
+function publicShareOf(outfit: OutfitPageDetail): PublicShare {
+  return {
+    type: 'outfit',
+    shareableId: outfit.shareableId,
+    shareUrl: `${outfitUrl(outfit.id)}/share`,
+    stopUrl: `${outfitUrl(outfit.id)}/share/stop`,
+  };
+}
+
 /**
  * The ⋯ menu: Share (the public link) and Delete. Buttons only: a form
  * inside a daisyUI menu item loses its styling (the garment page's menu).
@@ -169,8 +185,7 @@ function OutfitMenu(props: { ctx: ViewContext; outfit: OutfitPageDetail }) {
         <li>
           <ShareLinkButton
             siteUrl={ctx.siteUrl}
-            type="outfit"
-            shareableId={outfit.shareableId}
+            share={publicShareOf(outfit)}
             variant="menu"
           />
         </li>

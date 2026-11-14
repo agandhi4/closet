@@ -6,6 +6,7 @@ import { HttpError } from '../errors';
 import type { EditedCutout } from '../files/photos';
 import { t } from '../i18n';
 import { NotFound } from '../refusals';
+import { setPublicShare } from '../share/queries';
 import type { Actor, AuthorizedWardrobe } from '../sharing/access';
 import {
   type AuthorizedGarment,
@@ -148,6 +149,30 @@ export async function tagGarment(
     throw garmentNotFound();
   }
   return { ...stored, changed };
+}
+
+/**
+ * Share (`shared`) or Stop sharing a garment's public link (#669,
+ * setPublicShare): owner and MANAGE, as the ⋯ menu's Share always was, so
+ * a link a grantee minted shows on the owner's page with Stop. Answers the
+ * link's id after the write.
+ */
+export async function setGarmentPublicShare(
+  db: Db,
+  actor: Actor,
+  address: GarmentAddress,
+  shared: boolean,
+): Promise<AuthorizedWardrobe & { shareableId: string | null }> {
+  const wardrobe = await garmentWardrobe(db, actor, address, 'manage');
+  const written = await setPublicShare(
+    db,
+    'garment',
+    address.id,
+    wardrobe.access.ownerId,
+    shared,
+  );
+  if (!written) throw garmentNotFound();
+  return { ...wardrobe, ...written };
 }
 
 /** Archive and Restore's 409 when the garment's status does not take the event. */

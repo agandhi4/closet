@@ -48,28 +48,51 @@ export function CopyableText(props: {
 }
 
 /**
- * Copies the public share link of a garment or outfit (the /share page,
- * src/web/share/routes.tsx) on SITE_URL, and flashes to say so. A `menu`
- * item is a plain button for a daisyUI menu (the garment page's ⋯ menu).
+ * A garment's or outfit's public link as its page offers it (#669): where
+ * Share and Stop sharing post, and the link's id, null while not shared.
+ */
+export interface PublicShare {
+  type: 'garment' | 'outfit';
+  shareableId: string | null;
+  shareUrl: string;
+  stopUrl: string;
+}
+
+/** A shared item's /share page (src/web/share/routes.tsx), on SITE_URL. */
+function publicLink(siteUrl: string, type: string, shareableId: string) {
+  const params = new URLSearchParams({ shareableId, type });
+  return `${siteUrl}/share?${params}`;
+}
+
+/**
+ * The ⋯ menu's Share: unshared, it makes the public link (htmx, confirmed;
+ * the page comes back with PublicSharePanel); shared, it copies the link
+ * and flashes to say so. A `menu` item is a plain button for a daisyUI
+ * menu (the garment page's ⋯ menu).
  */
 export function ShareLinkButton(props: {
   siteUrl: string;
-  type: 'garment' | 'outfit';
-  shareableId: string;
+  share: PublicShare;
   variant?: 'button' | 'menu';
 }) {
-  const params = new URLSearchParams({
-    shareableId: props.shareableId,
-    type: props.type,
-  });
+  const { share } = props;
   const resting =
     props.variant === 'menu' ? 'text-base-content' : 'btn-outline';
+  const action =
+    share.shareableId === null
+      ? {
+          'hx-post': share.shareUrl,
+          'hx-confirm': t('publicShare.CONFIRM_START'),
+        }
+      : {
+          'data-copy': publicLink(props.siteUrl, share.type, share.shareableId),
+          onclick: copyAndFlash(resting),
+        };
   return (
     <button
       type="button"
       class={props.variant === 'menu' ? resting : `btn btn-sm ${resting}`}
-      data-copy={`${props.siteUrl}/share?${params}`}
-      onclick={copyAndFlash(resting)}
+      {...action}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -87,5 +110,44 @@ export function ShareLinkButton(props: {
       </svg>
       {t('SHARE')}
     </button>
+  );
+}
+
+/**
+ * A shared item's "Shared publicly" panel on its page (#669), for whoever
+ * may stop it (the owner, and a MANAGE grantee of a garment): the link to
+ * copy and Stop sharing, so a link anyone minted shows until it is
+ * stopped. Nothing while not shared.
+ */
+export function PublicSharePanel(props: {
+  siteUrl: string;
+  share: PublicShare;
+}) {
+  const { share } = props;
+  if (share.shareableId === null) return null;
+  return (
+    <section
+      class="flex flex-col gap-2 rounded-box border border-base-300 p-3"
+      aria-label={t('publicShare.SHARED_PUBLICLY')}
+      data-public-share=""
+    >
+      <div class="flex items-center justify-between gap-2">
+        <h2 class="font-semibold">{t('publicShare.SHARED_PUBLICLY')}</h2>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm text-error"
+          hx-post={share.stopUrl}
+          hx-confirm={t('publicShare.CONFIRM_STOP')}
+        >
+          {t('publicShare.STOP')}
+        </button>
+      </div>
+      <p class="text-muted text-sm">{t('publicShare.HINT')}</p>
+      <CopyableText
+        value={publicLink(props.siteUrl, share.type, share.shareableId)}
+        size="sm"
+        label={t('publicShare.COPY')}
+      />
+    </section>
   );
 }
