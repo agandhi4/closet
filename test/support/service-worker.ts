@@ -29,11 +29,14 @@ export async function networkSwitch(context: BrowserContext) {
  * Closes a context that went through networkSwitch. The switch's handler
  * answers every request the context makes, and a device left offline with
  * queued writes keeps making them (the outbox's replays, the heartbeat). A
- * request whose handler is still awaiting its `abort()`/`fallback()` when the
- * context goes away gets "Target page, context or browser has been closed"
- * from it, and that rejection lands on `close()` (#867). Unrouting with
- * 'wait' first lets every pending handler finish while the context is alive,
- * and nothing intercepts after it, so close() has no handler left to fail.
+ * request whose handler is still awaiting its `abort()` when the context goes
+ * away gets "Target page, context or browser has been closed" from it, and
+ * that rejection lands on `close()` (#867). 'ignoreErrors' drops those
+ * in-flight handlers' errors instead, without waiting on them: 'wait' (#868)
+ * made teardown wait on every `abort()`'s browser round trip, which Playwright
+ * races only against the request's page or worker closing, so one that never
+ * answered hung the scenario until its timeout (#886). Nothing those handlers
+ * still do matters once the device is offline and closing.
  * setOffline(true) comes first: unrouting alone would put the device online
  * for a moment, and its queued ticks and wears would replay against the shared
  * e2e server, changing other scenarios' state. Chromium's own network kill
@@ -43,7 +46,7 @@ export async function closeSwitchedContext(
   context: BrowserContext,
 ): Promise<void> {
   await context.setOffline(true);
-  await context.unrouteAll({ behavior: 'wait' });
+  await context.unrouteAll({ behavior: 'ignoreErrors' });
   await context.close();
 }
 
