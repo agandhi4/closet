@@ -531,6 +531,15 @@ export function retryDelayMs(attempts: number): number {
 export const SERVER_ERROR_MAX_ATTEMPTS = 5;
 /** The span in which those answers must fall: an older first one starts the count over. */
 export const SERVER_ERROR_WINDOW_MS = 10 * 60_000;
+/**
+ * How long a properly answered record vouches for the server: a 5xx counts
+ * against its record only within this long of such an answer (before it, in
+ * this drain or an earlier one, or after it in this one). Shorter than the
+ * backoff's span to the fifth attempt (5 + 10 + 20 + 40 s of waiting, then
+ * 80), so an outage that starts right after a success cannot use up a
+ * record's budget on that success alone.
+ */
+export const SERVER_HEALTHY_WINDOW_MS = 60_000;
 
 /**
  * What a record remembers of the 5xx answers that counted against it
@@ -592,6 +601,10 @@ export interface ReplayDriver<R> {
   /** Whether the record was still queued, so the step applied. */
   settle(record: R, step: ReplayStep<R>): Promise<boolean>;
   now(): number;
+  /** When the server last answered a record of this account properly (any drain, any tab), if it did. */
+  lastHealthy(): Promise<number | undefined>;
+  /** Remembers a proper answer at `at`, durably: the next drain's evidence. */
+  markHealthy(at: number): Promise<void>;
 }
 
 export type ReplayEnd =
@@ -603,22 +616,31 @@ export type ReplayEnd =
  * One drain over the pending records, oldest first (the outbox's replayAll).
  *
  * A 5xx for a record is either the record's fault or the server's. It is the
- * record's only when the server answers another record properly: so the
- * first record that answers 5xx waits (the `suspect`) while the next one is
- * tried. If that one is saved or refused, the server is healthy and the
- * suspect's 5xx counts against its budget, failing it when spent, so the
- * records behind it are not held by one handler bug. If the next also
- * answers 5xx, or none follows, it is the server (a restart, a deploy):
+ * record's only when the server is shown to answer others properly, within
+ * SERVER_HEALTHY_WINDOW_MS of the 5xx: by a later record of this drain (the
+ * first record answering 5xx waits as the `suspect` while the next is
+ * tried), or, when none follows, by an answer before it, in this drain or an
+ * earlier one (`lastHealthy`, durable). Then the 5xx counts against the
+ * record's budget, failing it when spent, so one handler bug does not hold
+ * the records behind it. If the next record also answers 5xx, or there is no
+ * recent evidence, it is the server (a restart, a deploy) or unknown:
  * nobody's budget is spent and the drain backs off, so an outage never fails
- * a valid wear. A record with the suspect's key is never sent past it (the
- * order of one key). The network, a timeout, 408, 429 and 503 stop the drain
- * and spend nothing.
+ * a valid wear, and a lone record with no evidence keeps retrying and blocks
+ * nothing.
+ *
+ * Order: a record that stays pending (suspect, or counted within budget)
+ * holds its key for the rest of the drain: a record with that key is never
+ * sent past it, even once the server is vindicated. Records of other keys go
+ * on. The network, a timeout, 408, 429 and 503 stop the drain and spend
+ * nothing.
  */
 export async function replayQueue<R extends ReplayRecord>(
   queued: readonly R[],
   driver: ReplayDriver<R>,
 ): Promise<ReplayEnd> {
-  let suspect: R | undefined;
+  let suspect: { record: R; at: number } | undefined;
+  let healthyAt = await driver.lastHealthy();
+  const held = new Set<string>();
   let retryInMs: number | undefined;
   const wait = (attempts: number) => {
     retryInMs = Math.max(retryInMs ?? 0, retryDelayMs(attempts));
@@ -633,43 +655,50 @@ export async function replayQueue<R extends ReplayRecord>(
     wait(kept.attempts);
   };
   // The server answered a record properly: the suspect's 5xx was its own.
+  const answeredProperly = async () => {
+    healthyAt = driver.now();
+    await driver.markHealthy(healthyAt);
+    await vindicate();
+  };
   const vindicate = async () => {
     if (!suspect) return;
+    const { record } = suspect;
+    suspect = undefined;
     const { exhausted, budget } = spendServerError(
-      suspect,
+      record,
       'server',
       driver.now(),
     );
-    const counted = { ...suspect, ...budget, attempts: suspect.attempts + 1 };
+    const counted = { ...record, ...budget, attempts: record.attempts + 1 };
     if (exhausted) {
-      await driver.settle(suspect, {
+      held.delete(record.key);
+      await driver.settle(record, {
         step: 'failed',
         record: { ...counted, state: 'failed', reason: 'server' },
       });
     } else {
-      await driver.settle(suspect, {
+      await driver.settle(record, {
         step: 'kept',
         record: counted,
         why: 'server-error',
       });
       wait(counted.attempts);
     }
-    suspect = undefined;
   };
 
   for (const record of queued) {
-    if (suspect && record.key === suspect.key) continue;
+    if (held.has(record.key)) continue;
     if (await driver.skip(record)) continue;
     const answer = await driver.send(record);
     if (answer.verdict === 'saved') {
       await driver.settle(record, { step: 'saved', changed: answer.changed });
-      await vindicate();
+      await answeredProperly();
     } else if (answer.verdict === 'failed') {
       await driver.settle(record, {
         step: 'failed',
         record: { ...record, state: 'failed', reason: answer.reason },
       });
-      await vindicate();
+      await answeredProperly();
     } else if (!('cause' in answer)) {
       return { end: 'no-session' };
     } else if (answer.cause === UNREACHABLE) {
@@ -685,15 +714,23 @@ export async function replayQueue<R extends ReplayRecord>(
       wait(kept.attempts);
       return { end: 'backoff', retryInMs: retryInMs ?? 0 };
     } else if (suspect) {
-      await keepBackingOff(suspect);
+      await keepBackingOff(suspect.record);
       await keepBackingOff(record);
       return { end: 'backoff', retryInMs: retryInMs ?? 0 };
     } else {
-      suspect = record;
+      held.add(record.key);
+      suspect = { record, at: driver.now() };
     }
   }
-  // Nothing after it answered: no evidence it is the record, not the server.
-  if (suspect) await keepBackingOff(suspect);
+  if (suspect) {
+    // Nothing after it answered: only an answer shortly before it can show
+    // it is the record, not the server.
+    const vouched =
+      healthyAt !== undefined &&
+      suspect.at - healthyAt < SERVER_HEALTHY_WINDOW_MS;
+    if (vouched) await vindicate();
+    else await keepBackingOff(suspect.record);
+  }
   return retryInMs === undefined
     ? { end: 'done' }
     : { end: 'backoff', retryInMs };

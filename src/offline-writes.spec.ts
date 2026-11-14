@@ -23,6 +23,7 @@ import {
   type ReplayVerdict,
   SERVER_ERROR_WINDOW_MS,
   SERVER_ERROR_MAX_ATTEMPTS,
+  SERVER_HEALTHY_WINDOW_MS,
   retryDelayMs,
   routesThroughOutbox,
   sharedUntilRejected,
@@ -348,8 +349,15 @@ describe('replayQueue: a 5xx is a record’s fault only if the server answers ot
   ) {
     const sent: string[] = [];
     const stored = new Map(rows.map((r) => [r.id, r]));
+    // The durable evidence, as the page's store keeps it between drains.
+    const health: { at?: number } = {};
     const driver: ReplayDriver<Row> = {
       now: () => clock.now,
+      lastHealthy: () => Promise.resolve(health.at),
+      markHealthy(at) {
+        health.at = at;
+        return Promise.resolve();
+      },
       skip: () => Promise.resolve(false),
       send(record) {
         sent.push(record.id);
@@ -366,7 +374,7 @@ describe('replayQueue: a 5xx is a record’s fault only if the server answers ot
         [...stored.values()].filter((r) => r.state === 'pending'),
         driver,
       );
-    return { stored, sent, drain, clock };
+    return { stored, sent, drain, clock, health };
   }
 
   it('fails nothing while the whole server answers 5xx, for ten minutes', async () => {
@@ -449,6 +457,99 @@ describe('replayQueue: a 5xx is a record’s fault only if the server answers ot
       attempts: 1,
     });
     expect(w.stored.get('only')?.serverErrors).toBeUndefined();
+  });
+
+  describe('evidence from an earlier answer (#865)', () => {
+    it('counts a lone record’s 5xx when a neighbour was answered shortly before, in any drain', async () => {
+      const w = world([row('bad')], () => SERVER);
+      w.health.at = 0;
+      w.clock.now = SERVER_HEALTHY_WINDOW_MS - 1;
+      expect((await w.drain()).end).toBe('backoff');
+      expect(w.stored.get('bad')).toMatchObject({
+        state: 'pending',
+        serverErrors: 1,
+      });
+    });
+
+    it('does not count it once the answer is a window old', async () => {
+      const w = world([row('bad')], () => SERVER);
+      w.health.at = 0;
+      w.clock.now = SERVER_HEALTHY_WINDOW_MS;
+      await w.drain();
+      expect(w.stored.get('bad')?.serverErrors).toBeUndefined();
+    });
+
+    it('fails a lone poisoned record whose neighbours were answered shortly before each retry', async () => {
+      const w = world([row('bad')], () => SERVER);
+      for (let n = 0; n < SERVER_ERROR_MAX_ATTEMPTS; n += 1) {
+        w.clock.now = n * 90_000;
+        w.health.at = w.clock.now - 10_000;
+        await w.drain();
+      }
+      expect(w.stored.get('bad')).toMatchObject({
+        state: 'failed',
+        reason: 'server',
+      });
+    });
+
+    it('never counts an outage: two 5xx in a row stay uncounted whatever came before', async () => {
+      const w = world([row('a'), row('b')], () => SERVER);
+      w.health.at = 0;
+      expect((await w.drain()).end).toBe('backoff');
+      expect(
+        [...w.stored.values()].every((r) => r.serverErrors === undefined),
+      ).toBe(true);
+    });
+
+    it('records each proper answer, a refusal too', async () => {
+      const w = world([row('a')], () => ({
+        verdict: 'failed',
+        reason: 'gone',
+      }));
+      w.clock.now = 42;
+      await w.drain();
+      expect(w.health.at).toBe(42);
+    });
+  });
+
+  describe('order while a record waits (#866)', () => {
+    it('holds a vindicated suspect’s key but sends other keys behind it', async () => {
+      const w = world(
+        [row('bad', 'wear:1'), row('ok'), row('same', 'wear:1'), row('more')],
+        (id) => (id === 'bad' ? SERVER : OK),
+      );
+      await w.drain();
+      expect(w.sent).toEqual(['bad', 'ok', 'more']);
+      expect(w.stored.get('bad')).toMatchObject({ serverErrors: 1 });
+      expect([...w.stored.keys()].sort()).toEqual(['bad', 'same']);
+    });
+
+    it('holds the key of a record counted from earlier evidence too', async () => {
+      const w = world([row('bad', 'wear:1'), row('same', 'wear:1')], (id) =>
+        id === 'bad' ? SERVER : OK,
+      );
+      w.health.at = 0;
+      await w.drain();
+      expect(w.sent).toEqual(['bad']);
+    });
+
+    it('sends the key again once its record has failed', async () => {
+      const w = world(
+        [
+          {
+            ...row('bad', 'wear:1'),
+            serverErrors: SERVER_ERROR_MAX_ATTEMPTS - 1,
+            serverErrorSince: 0,
+          },
+          row('ok'),
+          row('newer', 'wear:1'),
+        ],
+        (id) => (id === 'bad' ? SERVER : OK),
+      );
+      await w.drain();
+      expect(w.sent).toEqual(['bad', 'ok', 'newer']);
+      expect(w.stored.get('bad')?.state).toBe('failed');
+    });
   });
 
   it('stops for a sign-in', async () => {

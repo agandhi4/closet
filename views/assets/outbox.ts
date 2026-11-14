@@ -75,6 +75,8 @@ import {
   openOutboxChannel,
   openOutboxDatabase,
   type OutboxChange,
+  readHealthyAt,
+  writeHealthyAt,
 } from './outbox-store';
 
 type Fields = Record<string, string | string[]>;
@@ -910,6 +912,25 @@ async function replayAll(
     `${record.key} (key ${record.id.slice(0, 8)})`;
   const driver: ReplayDriver<OutboxRecord> = {
     now: Date.now,
+    async lastHealthy() {
+      try {
+        return await readHealthyAt(account);
+      } catch (error) {
+        // No evidence is the safe reading: nothing is counted against a record.
+        console.warn(
+          '[outbox] could not read when the server last answered',
+          error,
+        );
+        return undefined;
+      }
+    },
+    async markHealthy(at) {
+      try {
+        await writeHealthyAt(account, at);
+      } catch (error) {
+        console.warn('[outbox] could not record a proper answer', error);
+      }
+    },
     async skip(record) {
       if (!replayUrl(record.path)) {
         await remove([record]);
