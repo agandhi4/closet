@@ -821,41 +821,38 @@ describe('the owner lock', () => {
       expect(added).toBe(1);
     });
 
-    // Account deletion's lock set holds every owner whose garment shows a
-    // photo the account uploaded (as a MANAGE grantee): the delete empties
-    // their photo_id. The uploader has the lower id, so a lock that read
-    // only the set's first row would leave the other owner unlocked, and
-    // the sync triggers would refuse the cascade.
-    it('an account deletion locks every owner of a garment showing its photo, not only the first', async () => {
+    // Account deletion locks only its own account because no other
+    // wardrobe can show a photo row of its: the photo foreign key is the
+    // pair (photo_id, owner_id) (#703). Before it, a MANAGE grantee's
+    // upload made such rows, and their deletion emptied the owner's garment.
+    it("refuses a garment showing another account's photo row", async () => {
       await t.register('lock-uploader@example.com');
       const uploader = await userIdOf(t, 'lock-uploader@example.com');
       const cookie = await t.register('lock-photo-owner@example.com');
-      const photoOwner = await userIdOf(t, 'lock-photo-owner@example.com');
-      expect(uploader).toBeLessThan(photoOwner);
       const shown = await createGarment(t, {
         name: 'Shown',
         category: 'tops',
         cookie,
       });
-      await asFixture(t.db, async (tx) => {
-        const photoId = await insertPhotoRow(tx, {
-          fileName: `${randomUUID()}.webp`,
-          shareableId: randomUUID(),
-          createdOn: new Date().toISOString(),
-          createdById: uploader,
-        });
-        await tx.update(garment).set({ photoId }).where(eq(garment.id, shown));
+      await expect(
+        asFixture(t.db, async (tx) => {
+          const photoId = await insertPhotoRow(tx, {
+            fileName: `${randomUUID()}.webp`,
+            shareableId: randomUUID(),
+            createdOn: new Date().toISOString(),
+            createdById: uploader,
+          });
+          await tx
+            .update(garment)
+            .set({ photoId })
+            .where(eq(garment.id, shown));
+        }),
+      ).rejects.toMatchObject({
+        cause: {
+          code: '23503',
+          constraint: 'garment_photo_id_owner_id_foreign',
+        },
       });
-
-      await deleteAccount(
-        { db: t.db, photos: t.photos, logger: t.logger },
-        uploader,
-      );
-      const [row] = await t.db
-        .select({ photoId: garment.photoId })
-        .from(garment)
-        .where(eq(garment.id, shown));
-      expect(row).toEqual({ photoId: null });
     });
 
     describe("a pending photo's taker against its account's deletion", () => {
@@ -1151,109 +1148,6 @@ describe('the owner lock', () => {
           ).toBe(1);
           expect(await stored(fileName)).toBe(true);
         });
-      });
-
-      // Two deletions whose lock sets overlap: the uploader's takes the
-      // owner showing its photo too. Each takes its whole set in one
-      // statement, in id order, so either may go first.
-      describe.each(['uploader', 'owner'] as const)(
-        "two deletions sharing an owner's lock, the %s's first",
-        (first) => {
-          it('take turns, never a deadlock', async () => {
-            await t.register(`two-uploader-${first}@example.com`);
-            const uploader = await userIdOf(
-              t,
-              `two-uploader-${first}@example.com`,
-            );
-            const cookie = await t.register(`two-owner-${first}@example.com`);
-            const owner = await userIdOf(t, `two-owner-${first}@example.com`);
-            const shown = await createGarment(t, {
-              name: 'Shown',
-              category: 'tops',
-              cookie,
-            });
-            const photoId = await asFixture(t.db, async (tx) => {
-              const id = await insertPhotoRow(tx, {
-                fileName: `${randomUUID()}.webp`,
-                shareableId: randomUUID(),
-                createdOn: new Date().toISOString(),
-                createdById: uploader,
-              });
-              await tx
-                .update(garment)
-                .set({ photoId: id })
-                .where(eq(garment.id, shown));
-              return id;
-            });
-            const [held, second] =
-              first === 'uploader' ? [uploader, owner] : [owner, uploader];
-            // The first deletion stops after its locks, at a photo row of
-            // its account's.
-            const row =
-              first === 'uploader'
-                ? await holdOpen((tx) =>
-                    tx
-                      .select({ id: file.id })
-                      .from(file)
-                      .where(eq(file.id, photoId))
-                      .for('update'),
-                  )
-                : await holdPhotoRowOf(owner);
-            const deletion = deleteAccountOf(held);
-            await waitForBlockedOn(t.db, row.pid);
-            const other = deleteAccountOf(second);
-            await waitForBlockedOn(t.db, row.pid, 2);
-            await row.release();
-            await Promise.all([deletion, other]);
-            expect(
-              await t.db.$count(user, inArray(user.id, [uploader, owner])),
-            ).toBe(0);
-            expect(await t.db.$count(file, eq(file.id, photoId))).toBe(0);
-          });
-        },
-      );
-
-      // The acceptance of #544: a garment comes to show the account's
-      // photo after its deletion's lock read the owner set (no writer
-      // makes such a row since #40; a fixture stands in). The deletes,
-      // under the locks, read the set again, find an owner they did not
-      // lock, and the deletion locks again with it. Folded into the lock's
-      // statement, the delete never saw the row, and the cascade emptied
-      // that owner's photo_id unlocked: the sync triggers refused it.
-      it('an account deletion locks again for an owner whose garment came to show its photo while it waited', async () => {
-        await t.register('grew-uploader@example.com');
-        const uploader = await userIdOf(t, 'grew-uploader@example.com');
-        const cookie = await t.register('grew-owner@example.com');
-        const owner = await userIdOf(t, 'grew-owner@example.com');
-        const shown = await createGarment(t, {
-          name: 'Shown later',
-          category: 'tops',
-          cookie,
-        });
-        const [, photos] = await interleave(
-          (tx) => lockOwner(tx, uploader),
-          () => deleteAccountOf(uploader),
-          () =>
-            t.db.transaction(async (tx) => {
-              await lockOwner(tx, owner);
-              const photoId = await insertPhotoRow(tx, {
-                fileName: `${randomUUID()}.webp`,
-                shareableId: randomUUID(),
-                createdOn: new Date().toISOString(),
-                createdById: uploader,
-              });
-              await tx
-                .update(garment)
-                .set({ photoId })
-                .where(eq(garment.id, shown));
-            }),
-        );
-        expect(photos).toBe(1);
-        const [row] = await t.db
-          .select({ photoId: garment.photoId })
-          .from(garment)
-          .where(eq(garment.id, shown));
-        expect(row).toEqual({ photoId: null });
       });
     });
   });

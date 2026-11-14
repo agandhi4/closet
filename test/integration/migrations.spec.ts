@@ -1,20 +1,26 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { asc, inArray, sql } from 'drizzle-orm';
+import { asc, eq, inArray, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MIGRATIONS_FOLDER } from '../../src/db/migrate';
 import {
+  file,
+  garment,
   GARMENT_WEAR_CLIENT_ID_UNIQUE,
+  inspiration,
   outfit,
   outfitCalendar,
   outfitSlot,
+  selfie,
   weekPlan,
   weekPlanEntry,
 } from '../../src/db/schema';
+import type { Queryable } from '../../src/db/client';
 import { SYNC_ROOTS } from '../../src/db/sync-tables';
 import { schemaDrift } from '../support/schema-drift';
 import { createGarment } from './garments';
+import { insertPhotoRow } from '../../src/web/files/queries';
 import { asFixture, createTestApp, TestApp, userIdOf } from './harness';
 
 /**
@@ -375,4 +381,117 @@ describe('migrations', () => {
       .sort();
     expect(moved).toEqual(['planner', 'proposal']);
   });
+
+  // 0065 gives each photo row to the owner of the row showing it, then
+  // pairs every photo foreign key with its owner (#703). Before #40 a
+  // MANAGE grantee's upload made a file row of the grantee's; the file
+  // runs here on such rows, rebuilt with the constraints as they were, in
+  // a transaction holding no owner lock (it writes no synced row).
+  it('gives a legacy photo row to its garment, selfie or look owner (0065), refusing one shown by two owners', async () => {
+    const granteeEmail = 'legacy-grantee@example.com';
+    await t.register(granteeEmail);
+    const grantee = await userIdOf(t, granteeEmail);
+    const owner = t.owner.id;
+    const coat = await createGarment(t, { name: 'Legacy coat' });
+    await t.db.execute(sql.raw(PHOTO_FOREIGN_KEYS_BEFORE_0065));
+    const photoOf = (tx: Queryable) =>
+      insertPhotoRow(tx, {
+        fileName: `${randomUUID()}.webp`,
+        shareableId: randomUUID(),
+        createdOn: new Date().toISOString(),
+        createdById: grantee,
+      });
+    const ids = await asFixture(t.db, async (tx) => {
+      const coatPhoto = await photoOf(tx);
+      await tx
+        .update(garment)
+        .set({ photoId: coatPhoto })
+        .where(eq(garment.id, coat));
+      const selfiePhoto = await photoOf(tx);
+      await tx
+        .insert(selfie)
+        .values({ ownerId: owner, day: t.today(), photoId: selfiePhoto });
+      const lookPhoto = await photoOf(tx);
+      await tx
+        .insert(inspiration)
+        .values({ ownerId: owner, photoId: lookPhoto });
+      // The grantee's own look: already theirs, left alone.
+      const ownPhoto = await photoOf(tx);
+      await tx
+        .insert(inspiration)
+        .values({ ownerId: grantee, photoId: ownPhoto });
+      return { coatPhoto, selfiePhoto, lookPhoto, ownPhoto };
+    });
+    const [{ revision: coatRevision }] = await t.db
+      .select({ revision: garment.revision })
+      .from(garment)
+      .where(eq(garment.id, coat));
+    const migration = await readFile(
+      join(MIGRATIONS_FOLDER, '0065_photo-belongs-to-its-owner.sql'),
+      'utf8',
+    );
+    const runMigration = () =>
+      t.db.transaction(async (tx) => {
+        for (const statement of migration.split('--> statement-breakpoint')) {
+          await tx.execute(sql.raw(statement));
+        }
+      });
+
+    // A photo shown by two owners' rows has no owner to give it: the boot
+    // aborts, the batch rolled back.
+    const [{ id: shared }] = await asFixture(t.db, (tx) =>
+      tx
+        .insert(selfie)
+        .values({ ownerId: grantee, day: t.today(), photoId: ids.coatPhoto })
+        .returning({ id: selfie.id }),
+    );
+    await expect(runMigration()).rejects.toMatchObject({
+      cause: {
+        message: `file rows shown by rows of different owners: ${ids.coatPhoto}`,
+      },
+    });
+    await asFixture(t.db, (tx) =>
+      tx.delete(selfie).where(eq(selfie.id, shared)),
+    );
+
+    await runMigration();
+    const owners = await t.db
+      .select({ id: file.id, createdById: file.createdById })
+      .from(file)
+      .where(inArray(file.id, Object.values(ids)));
+    expect(
+      Object.fromEntries(
+        Object.entries(ids).map(([key, id]) => [
+          key,
+          owners.find((row) => row.id === id)?.createdById,
+        ]),
+      ),
+    ).toEqual({
+      coatPhoto: owner,
+      selfiePhoto: owner,
+      lookPhoto: owner,
+      ownPhoto: grantee,
+    });
+    // No synced field moved: the feed has nothing to re-send.
+    const [after] = await t.db
+      .select({ revision: garment.revision })
+      .from(garment)
+      .where(eq(garment.id, coat));
+    expect(after.revision).toBe(coatRevision);
+    expect(await schemaDrift(t.db)).toEqual([]);
+  });
 });
+
+/**
+ * The photo foreign keys as 0065 found them (drizzle/0000, 0020, 0049),
+ * with its own constraints gone: the shape its spec runs it on.
+ */
+const PHOTO_FOREIGN_KEYS_BEFORE_0065 = `
+  ALTER TABLE garment DROP CONSTRAINT garment_photo_id_owner_id_foreign;
+  ALTER TABLE selfie DROP CONSTRAINT selfie_photo_id_owner_id_foreign;
+  ALTER TABLE inspiration DROP CONSTRAINT inspiration_photo_id_owner_id_foreign;
+  ALTER TABLE file DROP CONSTRAINT file_id_created_by_id_unique;
+  ALTER TABLE garment ADD CONSTRAINT garment_photo_id_foreign FOREIGN KEY (photo_id) REFERENCES file(id) ON DELETE set null ON UPDATE cascade;
+  ALTER TABLE selfie ADD CONSTRAINT selfie_photo_id_foreign FOREIGN KEY (photo_id) REFERENCES file(id) ON DELETE cascade ON UPDATE cascade;
+  ALTER TABLE inspiration ADD CONSTRAINT inspiration_photo_id_foreign FOREIGN KEY (photo_id) REFERENCES file(id) ON DELETE cascade ON UPDATE cascade;
+`;
