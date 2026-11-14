@@ -11,7 +11,6 @@ import {
   sql,
 } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
-import { randomUUID } from 'node:crypto';
 import type { Db, Queryable } from '../../db/client';
 import { selectScalars } from '../../db/select-scalars';
 import {
@@ -398,7 +397,8 @@ export function outfitsWithGarmentSql(
  * that made it over MCP (#682; null for the person's).
  */
 type OutfitDetail = OutfitSummary & {
-  shareableId: string;
+  /** The public link's id (/share), null while not shared (#669). */
+  shareableId: string | null;
   agent: AgentLabel | null;
 };
 
@@ -836,12 +836,11 @@ async function insertOutfitOnce(
   garmentIds: readonly number[],
   proposal?: Omit<OutfitProposalInput, 'tokenId'>,
 ): Promise<OutfitOnce> {
-  // Share links address outfits by this (the /share page).
-  const shareableId = randomUUID();
+  // No public link until Share is tapped (#669, setPublicShare).
   if (garmentIds.length === 0) {
     const [created] = await tx
       .insert(outfit)
-      .values({ shareableId, ownerId, ...fields })
+      .values({ ownerId, ...fields })
       .returning({ id: outfit.id, name: outfit.name });
     return { ...created, existing: false, pending: false, reaction: null };
   }
@@ -852,8 +851,8 @@ async function insertOutfitOnce(
   const { rows } = await tx.execute<OutfitOnce>(sql`
     with existing as (${sameGarmentsOutfit(tx, ownerId, garmentIds)}),
     created as (
-      insert into ${outfit} (shareable_id, owner_id, name, notes, origin, proposed_by_token_id, proposed_at, proposal_note, reaction)
-      select ${shareableId}::varchar, ${ownerId}::int, ${fields.name}::text, ${fields.notes}::text, ${fields.origin}::text, ${fields.addedByTokenId}::int, ${marked}
+      insert into ${outfit} (owner_id, name, notes, origin, proposed_by_token_id, proposed_at, proposal_note, reaction)
+      select ${ownerId}::int, ${fields.name}::text, ${fields.notes}::text, ${fields.origin}::text, ${fields.addedByTokenId}::int, ${marked}
       where not exists (select from existing)
       returning id, name
     )

@@ -54,7 +54,8 @@ describe('sessions', () => {
       ['/health/ready', 200],
       ['/healthz', 200],
       ['/manifest.json', 200],
-      ['/share?shareableId=nothing&type=garment', 200],
+      // An unknown link: the empty page, a 404, never a redirect to log in.
+      ['/share?shareableId=nothing&type=garment', 404],
     ])('public %s answers an anonymous visitor (%i)', async (url, status) => {
       const res = await t.inject({ method: 'GET', url, anonymous: true });
       expect(res.statusCode).toBe(status);

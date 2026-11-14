@@ -14,7 +14,7 @@ import {
 } from './share-page';
 
 // Navigation state from a link, never a 400: a missing or unknown value
-// renders the empty page, as a link to a deleted item does.
+// renders the empty page (a 404), as a link to a deleted or stopped item does.
 const ShareQuery = Type.Object({
   shareableId: Type.Optional(Type.String({ maxLength: 255 })),
   type: Type.Optional(Type.String()),
@@ -56,13 +56,15 @@ function sharePreview(
           photo: shared.outfit.garments.find((g) => g.photo)?.photo,
         };
   const owner = sharedBy(item.owner);
+  // The image is addressed by the item's share id, as the page is, so Stop
+  // sharing ends both (findPhotoByShareableId resolves the same photo).
   return {
     url: `${origin}/share?shareableId=${encodeURIComponent(shareableId)}&type=${shared.type}`,
     title: item.name ?? undefined,
     // Without a first name the layout's default description stands.
     description: owner && `${t('SHARED_BY')} ${owner}`,
     image: item.photo
-      ? `${origin}/file/watermark/${item.photo.shareableId}`
+      ? `${origin}/file/watermark/${encodeURIComponent(shareableId)}`
       : undefined,
   };
 }
@@ -71,8 +73,10 @@ function sharePreview(
  * GET /share?shareableId=&type=garment|outfit: the public landing page of a
  * share link (the garment page's and the outfit page's Share buttons build
  * it on SITE_URL). Public: the link is the credential, and crawlers fetch it
- * for the preview. The preview image is the first photo's watermarked
- * rendition (/file/watermark/:shareableId, src/web/files/routes.ts).
+ * for the preview. An item is found only while it is shared (#669). The
+ * preview image is the first photo's watermarked rendition, addressed by
+ * the item's own share id (/file/watermark/:shareableId,
+ * src/web/files/routes.ts).
  */
 export const shareRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   app,
@@ -89,6 +93,8 @@ export const shareRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         : undefined;
       const preview =
         shared && sharePreview(requestOrigin(request), shareableId, shared);
+      // Nothing shared under that id (never shared, stopped, deleted): the
+      // empty page as a 404, so a crawler drops the preview it kept (#669).
       return renderPage(
         reply,
         <SharePage
@@ -96,6 +102,7 @@ export const shareRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
           shared={shared}
           preview={preview}
         />,
+        { status: shared ? 200 : 404 },
       );
     },
   );

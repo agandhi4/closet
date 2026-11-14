@@ -323,7 +323,8 @@ describe('Saved outfits and the outfit page (R5)', () => {
       // Share and Delete are in the ⋯ menu.
       const menu = html.slice(html.indexOf('id="outfit-menu"'));
       expect(menu).toContain(`hx-delete="/outfits/${outfit}"`);
-      expect(menu).toContain('data-copy=');
+      // Not shared yet: Share makes the public link (#669).
+      expect(menu).toContain(`hx-post="/outfits/${outfit}/share"`);
     });
 
     it('shows the collage of its garments', async () => {

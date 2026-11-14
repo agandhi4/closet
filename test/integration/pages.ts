@@ -146,11 +146,22 @@ export async function createPageFixture(
   });
   expect(tagged.statusCode).toBe(303);
 
+  // A public link exists only once Share is tapped (#669).
+  for (const url of [
+    `/wardrobe/${garmentId}/share`,
+    `/outfits/${outfitId}/share`,
+  ]) {
+    const res = await t.inject({ method: 'POST', url, headers });
+    expect(res.statusCode, url).toBe(200);
+  }
   const garment = (await garmentRow(t, garmentId))!;
   const [outfit] = await t.db
     .select({ shareableId: outfitTable.shareableId })
     .from(outfitTable)
     .where(eq(outfitTable.id, outfitId));
+  if (!garment.shareableId || !outfit.shareableId) {
+    throw new Error('Share left the fixture without a public link');
+  }
   return {
     garmentId,
     wishlistId,

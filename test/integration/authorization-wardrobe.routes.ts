@@ -1043,6 +1043,27 @@ export const ROUTES: Route[] = [
       }),
     },
   },
+  // The public link (#669): the owner and a MANAGE grantee, as the ⋯
+  // menu's Share always was. No API twin yet (#959).
+  ...(['share', 'share/stop'] as const).map(
+    (verb): Route => ({
+      name: `POST /wardrobe/:id/${verb}`,
+      kind: 'write',
+      ok: 200,
+      secret: garmentName,
+      vias: BOTH,
+      request: (f, q) => ({
+        method: 'POST',
+        url: `/wardrobe/${f.garmentId}/${verb}${q}`,
+      }),
+      expect: {
+        owner: 'ok',
+        manager: ['notFound', 'ok'],
+        viewer: ['notFound', 'forbidden'],
+        stranger: 'notFound',
+      },
+    }),
+  ),
   {
     // Condition is a garment property: the owner and a MANAGE grantee.
     name: 'POST /wardrobe/:id/condition',

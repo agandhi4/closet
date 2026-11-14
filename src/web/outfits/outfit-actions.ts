@@ -4,6 +4,7 @@ import type { LookReaction } from '../../wardrobe/look-reaction';
 import { HttpError } from '../errors';
 import { t } from '../i18n';
 import { NotFound } from '../refusals';
+import { setPublicShare } from '../share/queries';
 import type { Actor } from '../sharing/access';
 import { newOutfitSlots } from './gone-garments';
 import { type OutfitContext, outfitContext } from './page-context';
@@ -76,6 +77,22 @@ export async function editOutfit(
   const saved = await updateOutfit(db, id, actor.userId, input);
   if (saved === 'not-found') throw outfitNotFound();
   return saved;
+}
+
+/**
+ * Share (`shared`) or Stop sharing the actor's outfit's public link (#669,
+ * setPublicShare): the owner's alone, as every outfit write. Answers the
+ * link's id after the write.
+ */
+export async function setOutfitPublicShare(
+  db: Db,
+  actor: Actor,
+  id: number,
+  shared: boolean,
+): Promise<{ shareableId: string | null }> {
+  const written = await setPublicShare(db, 'outfit', id, actor.userId, shared);
+  if (!written) throw outfitNotFound();
+  return written;
 }
 
 /**

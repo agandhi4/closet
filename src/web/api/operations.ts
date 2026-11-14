@@ -167,7 +167,9 @@ export function isOperationId(id: string): id is OperationId {
  */
 type EndpointIssue =
   /** Insights, sizes. */
-  '#195';
+  | '#195'
+  /** A garment's or outfit's public link: Share and Stop sharing (#669). */
+  | '#959';
 
 /**
  * A write's API twin: one operation, or each of the few a write that takes
@@ -278,6 +280,8 @@ export const PAGE_WRITES: Readonly<
   'DELETE /wardrobe/:id': { api: 'deleteGarment' },
   'POST /wardrobe/:id/archive': { api: 'setGarmentStatus' },
   'POST /wardrobe/:id/restore': { api: 'setGarmentStatus' },
+  'POST /wardrobe/:id/share': { pending: '#959' },
+  'POST /wardrobe/:id/share/stop': { pending: '#959' },
   'POST /wardrobe/:id/clone': { api: 'cloneGarment' },
   'POST /wardrobe/:id/copies': { api: 'addGarmentCopies' },
   'POST /wardrobe/:id/condition': { api: 'setGarmentCondition' },
@@ -312,6 +316,8 @@ export const PAGE_WRITES: Readonly<
   'POST /outfits': { api: 'createOutfit' },
   'POST /outfits/:id': { api: 'updateOutfit' },
   'DELETE /outfits/:id': { api: 'deleteOutfit' },
+  'POST /outfits/:id/share': { pending: '#959' },
+  'POST /outfits/:id/share/stop': { pending: '#959' },
   'POST /outfits/:id/love': { api: 'reactToOutfit' },
   'POST /outfits/:id/dismiss': { api: 'reactToOutfit' },
   'POST /outfits/:id/undo': { api: 'reactToOutfit' },

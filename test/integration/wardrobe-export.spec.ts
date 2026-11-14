@@ -130,6 +130,12 @@ describe('the wardrobe export', () => {
     plainId = await createGarment(t, { name: 'Plain tee' });
     fullId = await createGarment(t, { name: 'Full' });
     await uploadPhoto(t, fullId, await jpegPhoto(300, 400));
+    // Its public link (#669): none until shared.
+    const shared = await t.inject({
+      method: 'POST',
+      url: `/wardrobe/${fullId}/share`,
+    });
+    expect(shared.statusCode).toBe(200);
     // Its Muse need (#333): a name a spreadsheet would run, defused too.
     [{ id: needId }] = await t.db
       .insert(optionGroup)

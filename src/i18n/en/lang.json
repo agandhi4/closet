@@ -209,6 +209,14 @@
   "REFRESH": "Refresh",
   "APP_VERSION": "Version",
   "SHARED_BY": "Shared by",
+  "publicShare": {
+    "CONFIRM_START": "Make a public link? Anyone you send it to sees the name and photo, until you stop sharing.",
+    "SHARED_PUBLICLY": "Shared publicly",
+    "HINT": "Anyone with this link can see it, signed in or not.",
+    "COPY": "Copy",
+    "STOP": "Stop sharing",
+    "CONFIRM_STOP": "Stop sharing? The link stops working; sharing again makes a new one."
+  },
   "SELECT_AN_OUTFIT": "Select an outfit...",
   "UNTITLED_OUTFIT": "Untitled Outfit",
   "MONTH_JAN": "Jan",

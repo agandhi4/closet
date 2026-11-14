@@ -340,7 +340,8 @@ describe('garment edit, clone and archive', () => {
         notes: source.notes,
         status: 'closet',
       });
-      expect(clone.shareableId).not.toBe(source.shareableId);
+      // A clone starts unshared, whatever its source's link (#669).
+      expect(clone.shareableId).toBeNull();
 
       // Its own photo set: a new File row and new bytes, owned by Bob, while
       // the source's files stay where they were.
