@@ -404,6 +404,12 @@ export interface RefreshBackoff {
   failures: number;
   /** Epoch ms: the first run at or after it asks the key again. */
   retryAt: number;
+  /**
+   * The activation (its `activated-at`) whose refresh wrote it: a later
+   * deploy may have fixed the page, so a record from an earlier activation
+   * reads as none (parseRefreshBackoff) and the key is asked at once.
+   */
+  activatedAt: number;
 }
 
 /** The wait after a first failure, doubling with each one after it. */
@@ -414,13 +420,14 @@ export const REFRESH_BACKOFF_CAP_MS = 24 * 60 * 60_000;
 export function nextRefreshBackoff(
   previous: RefreshBackoff | undefined,
   now: number,
+  activatedAt: number,
 ): RefreshBackoff {
   const failures = (previous?.failures ?? 0) + 1;
   const wait = Math.min(
     REFRESH_BACKOFF_BASE_MS * 2 ** (failures - 1),
     REFRESH_BACKOFF_CAP_MS,
   );
-  return { failures, retryAt: now + wait };
+  return { failures, retryAt: now + wait, activatedAt };
 }
 
 /** Whether a due key sits this run out. */
@@ -448,15 +455,26 @@ function numberField(value: unknown, field: string): number | undefined {
   return typeof read === 'number' ? read : undefined;
 }
 
-/** A stored backoff record; missing or unreadable is none. */
+/**
+ * A stored backoff record, as the refresh of the activation at
+ * `activatedAt` sees it: missing, unreadable or written under another
+ * activation is none (expired, its failure count too).
+ */
 export function parseRefreshBackoff(
   text: string | undefined,
+  activatedAt: number,
 ): RefreshBackoff | undefined {
   const value = parseRecord(text);
   const failures = numberField(value, 'failures');
   const retryAt = numberField(value, 'retryAt');
-  if (failures === undefined || retryAt === undefined) return undefined;
-  return { failures, retryAt };
+  if (
+    failures === undefined ||
+    retryAt === undefined ||
+    numberField(value, 'activatedAt') !== activatedAt
+  ) {
+    return undefined;
+  }
+  return { failures, retryAt, activatedAt };
 }
 
 /**

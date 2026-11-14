@@ -482,7 +482,7 @@ describe('the refresh backoff', () => {
     const waits: number[] = [];
     let now = activated;
     for (let failure = 0; failure < 11; failure++) {
-      backoff = nextRefreshBackoff(backoff, now);
+      backoff = nextRefreshBackoff(backoff, now, activated);
       waits.push((backoff.retryAt - now) / MINUTE);
       now = backoff.retryAt;
     }
@@ -491,7 +491,7 @@ describe('the refresh backoff', () => {
   });
 
   it('passes a key over until its wait ends, then asks it again', () => {
-    const backoff = nextRefreshBackoff(undefined, activated);
+    const backoff = nextRefreshBackoff(undefined, activated, activated);
     expect(isBackingOff(backoff, activated + 5 * MINUTE - 1)).toBe(true);
     expect(isBackingOff(backoff, activated + 5 * MINUTE)).toBe(false);
     expect(isBackingOff(undefined, activated)).toBe(false);
@@ -500,8 +500,12 @@ describe('the refresh backoff', () => {
   it('skips the scan while every left key backs off, and is due once one ends', () => {
     const now = activated + MINUTE;
     const waiting = [
-      nextRefreshBackoff(undefined, now),
-      nextRefreshBackoff({ failures: 2, retryAt: now }, now),
+      nextRefreshBackoff(undefined, now, activated),
+      nextRefreshBackoff(
+        { failures: 2, retryAt: now, activatedAt: activated },
+        now,
+        activated,
+      ),
     ];
     const record = parseRefreshedRecord(
       JSON.stringify(refreshedRecord(now, waiting)),
@@ -528,11 +532,41 @@ describe('the refresh backoff', () => {
   it('reads the older record and treats unreadable ones as none', () => {
     expect(parseRefreshedRecord('12345')).toEqual({ at: 12345 });
     expect(parseRefreshedRecord('{')).toBeUndefined();
-    expect(parseRefreshBackoff('{"failures":2,"retryAt":9}')).toEqual({
-      failures: 2,
-      retryAt: 9,
+    expect(
+      parseRefreshBackoff('{"failures":2,"retryAt":9,"activatedAt":1}', 1),
+    ).toEqual({ failures: 2, retryAt: 9, activatedAt: 1 });
+    expect(parseRefreshBackoff('{"failures":"2"}', 1)).toBeUndefined();
+    expect(parseRefreshBackoff(undefined, 1)).toBeUndefined();
+  });
+
+  // A deploy may fix the failing page: its backoff must not outlive the
+  // activation that wrote it.
+  it('expires a backoff once another build activates', () => {
+    const buildA = activated;
+    let now = buildA + MINUTE;
+    let backoff: RefreshBackoff | undefined;
+    for (let failure = 0; failure < 10; failure++) {
+      backoff = nextRefreshBackoff(backoff, now, buildA);
+    }
+    const stored = JSON.stringify(backoff);
+    expect(backoff?.retryAt).toBe(now + 24 * 60 * MINUTE);
+    expect(isBackingOff(parseRefreshBackoff(stored, buildA), now)).toBe(true);
+
+    now += 2 * MINUTE;
+    const buildB = now;
+    const refreshed = refreshedRecord(
+      buildA + MINUTE,
+      backoff ? [backoff] : [],
+    );
+    // The next WARM_PAGES scans, and asks the key as if it never failed.
+    expect(refreshDue(refreshed, buildB, now)).toBe(true);
+    const underB = parseRefreshBackoff(stored, buildB);
+    expect(underB).toBeUndefined();
+    expect(isBackingOff(underB, now)).toBe(false);
+    expect(nextRefreshBackoff(underB, now, buildB)).toEqual({
+      failures: 1,
+      retryAt: now + 5 * MINUTE,
+      activatedAt: buildB,
     });
-    expect(parseRefreshBackoff('{"failures":"2"}')).toBeUndefined();
-    expect(parseRefreshBackoff(undefined)).toBeUndefined();
   });
 });

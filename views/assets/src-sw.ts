@@ -1260,7 +1260,7 @@ async function refreshOlderBuildPages(
   for (const key of due) {
     const record = backoffKeyOf(key.url);
     const backoff = backoffRecords.has(record)
-      ? parseRefreshBackoff(await (await cache.match(record))?.text())
+      ? parseRefreshBackoff(await (await cache.match(record))?.text(), since)
       : undefined;
     if (isBackingOff(backoff, startedAt)) waiting.push(backoff);
     else {
@@ -1279,9 +1279,12 @@ async function refreshOlderBuildPages(
       if (step.verdict === 'failed') {
         after.set(
           key.url,
-          nextRefreshBackoff(previous.get(key.url), Date.now()),
+          nextRefreshBackoff(previous.get(key.url), Date.now(), since),
         );
-      } else if (!('stop' in step) && previous.has(key.url)) {
+      } else if (
+        !('stop' in step) &&
+        backoffRecords.has(backoffKeyOf(key.url))
+      ) {
         after.set(key.url, undefined);
       }
       return step;
