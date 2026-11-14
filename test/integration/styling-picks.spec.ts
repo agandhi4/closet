@@ -287,8 +287,8 @@ describe('Styling: Include picks (#335)', () => {
       // A role the closet has nothing of still gets its row.
       expect(stripOf(page, 'footwear')).toEqual([boots]);
       expect(page.match(/data-mark="to-buy"/g)).toHaveLength(5);
-      // Opened on the closet's own, never on a piece to buy.
-      expect(carries(page, tee)).toBe(true);
+      // Opened on no garment at all, a piece to buy least of all.
+      expect(carries(page, tee)).toBe(false);
       expect(carries(page, blazerOne)).toBe(false);
     });
 

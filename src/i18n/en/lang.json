@@ -1293,6 +1293,7 @@
     "NEW": "Style an outfit",
     "STRIP_LABEL": "{role}: choose one",
     "PREVIEW": "The outfit",
+    "PREVIEW_EMPTY": "Nothing chosen yet: Shuffle draws an idea.",
     "FIT_OFFLINE": "Offline: the weather check needs a connection.",
     "LOCK": "Lock {role}",
     "NO_GARMENT": "None",

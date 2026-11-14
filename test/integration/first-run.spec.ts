@@ -99,9 +99,10 @@ describe('First run', () => {
     const trips = (await get('/trips')).body;
     const main = trips.slice(0, trips.indexOf('class="dock"'));
     expect(main).toContain('d="M10 6.40476');
-    // The dock's hanger draws at its siblings' weight.
+    // The dock's svg sets the tabs' weight; the paths must not override it.
+    expect(trips).not.toMatch(/<path d="M4\.12572[^>]*stroke-width/);
     expect(trips).toMatch(
-      /<path stroke-width="1\.5"[^>]*d="M4\.12572|<path d="M4\.12572[^>]*stroke-width="1\.5"/,
+      /<svg[^>]*stroke-width="1\.5"[^>]*>\s*<path d="M4\.12572/,
     );
   });
 });

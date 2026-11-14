@@ -16,6 +16,9 @@ import { MOBILE_WEBKIT_CANNOT_SWIPE } from './support/webkit-limits';
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
+/** An outline button's fill (daisyUI); a leading one's is the theme's colour. */
+const TRANSPARENT = 'rgba(0, 0, 0, 0)';
+
 const row = (page: Page, role: string) =>
   page.locator(`[data-styling-row="${role}"]`).first();
 
@@ -137,8 +140,36 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
   await page.goto('/styling');
   await expect(page.locator('h1')).toHaveText('Styling');
   await expect(page.locator('[data-styling-row]')).toHaveCount(3);
-  // The newest of each role, centred.
+  // Opens on "No garment" in every row, Shuffle leading (#665).
   const tops = row(page, 'top');
+  for (const role of ['top', 'bottom', 'footwear']) {
+    await expect(chosen(row(page, role))).toHaveValue('');
+  }
+  await expect(page.getByRole('button', { name: /Shuffle/ })).not.toHaveCSS(
+    'background-color',
+    TRANSPARENT,
+  );
+  await expect(
+    page.getByRole('button', { name: 'Save', exact: true }),
+  ).toHaveCSS('background-color', TRANSPARENT);
+  await test.step('one tap on Shuffle fills the rows with an idea', async () => {
+    await page.getByRole('button', { name: /Shuffle/ }).click();
+    for (const role of ['top', 'bottom', 'footwear']) {
+      await expect(chosen(row(page, role))).not.toHaveValue('');
+    }
+    // The emphasis follows the bar's own state, no swap of the bar: Save
+    // leads now, Shuffle steps back, the empty hint is gone.
+    const save = page.getByRole('button', { name: 'Save', exact: true });
+    await expect(save).not.toHaveCSS('background-color', TRANSPARENT);
+    await expect(page.getByRole('button', { name: /Shuffle/ })).toHaveCSS(
+      'background-color',
+      TRANSPARENT,
+    );
+    await expect(page.getByText('Nothing chosen yet')).toBeHidden();
+    await page.goto('/styling');
+  });
+  // Centre the newest tee for the steps below.
+  await tap(page, tops, String(g.newTee));
   await expect(chosen(tops)).toHaveValue(String(g.newTee));
   await expect(tops.locator('[data-selected]')).toHaveAttribute(
     'data-snap-value',
@@ -261,7 +292,10 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
       props: '1',
       warmth: '5',
     });
-    await createGarment(page, 'Thin tee', 'tops', { props: '1', warmth: '1' });
+    const thin = await createGarment(page, 'Thin tee', 'tops', {
+      props: '1',
+      warmth: '1',
+    });
     const home = await page.request.post('/weather/home', {
       form: {
         name: 'Fort Greene, New York, United States',
@@ -278,6 +312,12 @@ test('style an outfit: swipe, tap, lock, shuffle and save through the sheet', as
     const bar = page.locator('[data-styling-bar]');
     const layerSlot = bar.locator('#styling-preview [data-preview-slot="0"]');
     const fit = bar.locator('#styling-fit-line');
+    // Opens empty (#665): the bar says so and judges nothing; choosing the
+    // parka over a thin tee fills the slots and the fit line follows.
+    await expect(bar).toContainText('Nothing chosen yet');
+    await expect(fit).toBeEmpty();
+    await tap(page, row(page, 'layer'), String(parka));
+    await tap(page, row(page, 'top'), String(thin));
     await expect(layerSlot).toBeVisible();
     await expect(layerSlot).toHaveAttribute(
       'data-preview-garment',
