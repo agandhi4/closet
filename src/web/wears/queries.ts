@@ -617,6 +617,11 @@ export async function setWoreToday(
  * The garment page's Washed, the laundry page's batch, the API, MCP's
  * mark_washed and the seed's Sundays.
  *
+ * An archived garment may be washed (its own page offers Washed, e.g. before
+ * it is stored away), so the writer accepts it; a batch acting on "what the
+ * grid shows" passes `closetOnly` so a Select all over the archive does not
+ * wash what the user did not mean to (#816).
+ *
  * One statement: the owner lock, the garments named (owned), and the
  * update of only those whose wash moves, so a repeat tap writes no row
  * and sends no revision to the changes feed.
@@ -627,6 +632,7 @@ export async function markWashed(
   ids: number[],
   day: IsoDate,
   at: Date | null,
+  { closetOnly = false }: { closetOnly?: boolean } = {},
 ): Promise<{ id: number; changed: boolean }[]> {
   if (ids.length === 0) return [];
   const laterDay = sql`(${garment.lastWashedOn} is null or ${day}::date > ${garment.lastWashedOn})`;
@@ -635,7 +641,7 @@ export async function markWashed(
     with ${ownerLockSql(db, ownerId)},
     named as (
       select ${garment.id} as id from ${garment}
-      where ${and(eq(garment.ownerId, ownerId), inArray(garment.id, ids), ownedGarment())}
+      where ${and(eq(garment.ownerId, ownerId), inArray(garment.id, ids), closetOnly ? inCloset() : ownedGarment())}
         and ${OWNER_LOCKED}
     ),
     moved as (

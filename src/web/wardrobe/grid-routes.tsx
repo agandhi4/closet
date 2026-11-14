@@ -449,7 +449,9 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   );
 
   // Mark washed: the owner's own record (wears and washes are never a
-  // grantee's), today, as the laundry's batch (markWashed). Not queued
+  // grantee's), today, as the laundry's batch (markWashed). The closet's
+  // garments only: Select all on "Show archived" must not wash the archive
+  // (#816; a garment's own page still may). Not queued
   // offline like the laundry's: "Select all" is resolved here, so the
   // verbs need the server (data-needs-network on the bar).
   app.post(
@@ -468,6 +470,7 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
               ids,
               day,
               postedInstant(request, undefined, day, config.timeZone),
+              { closetOnly: true },
             )
           : [];
       logger.info(

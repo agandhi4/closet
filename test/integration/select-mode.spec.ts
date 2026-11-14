@@ -249,6 +249,33 @@ describe('select mode verbs', () => {
     expect(page).not.toContain(`name="ids" value="${tops[0]}"`);
   });
 
+  it('Select all on the archived view washes only the closet, and the toast counts those', async () => {
+    const [kept, shelved] = await asFixture(t.db, (tx) =>
+      tx
+        .insert(garment)
+        .values(
+          (['closet', 'archived'] as const).map((status) => ({
+            shareableId: randomUUID(),
+            ownerId,
+            name: `Scarf ${status}`,
+            category: 'accessories',
+            status,
+          })),
+        )
+        .returning({ id: garment.id }),
+    );
+    const res = await post(
+      '/wardrobe/bulk/washed?category=accessories&archived=true',
+      {
+        all: '1',
+      },
+    );
+    expect(res.headers.location).toContain('bulkWashed=1');
+    const [closet, archived] = await rows([kept.id, shelved.id]);
+    expect(closet.lastWashedOn).toBe(t.today());
+    expect(archived.lastWashedOn).toBeNull();
+  });
+
   it('pluralizes every toast through i18n', async () => {
     const one = await get('/wardrobe?bulkUpdated=1&bulkSkipped=0');
     expectNoRawI18nKeys(one);
