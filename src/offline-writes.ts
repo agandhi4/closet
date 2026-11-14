@@ -298,7 +298,7 @@ export async function enqueue<R extends StoredRecord>(
 }
 
 /** Why a queued write was not saved: the notice's reason. */
-export type ReplayFailure = 'gone' | 'refused' | ReplayRefusal;
+export type ReplayFailure = 'gone' | 'refused' | 'server' | ReplayRefusal;
 
 /** What the outbox does with a record after its replay's answer. */
 export type ReplayVerdict =
@@ -306,10 +306,17 @@ export type ReplayVerdict =
   | { verdict: 'saved'; changed: boolean }
   /** Refused for good: the record stays, failed, until dismissed. */
   | { verdict: 'failed'; reason: ReplayFailure }
-  /** The server may take it later (5xx, 408, 429): stop, back off. */
-  | { verdict: 'retry' }
+  /**
+   * The server may take it later: stop, back off. `server` is a 5xx that
+   * may be this record's own fault (it spends the budget, spendServerError);
+   * `unreachable` is the network, a timeout, 408, 429 or a 503, which say
+   * nothing about the record and never do.
+   */
+  | { verdict: 'retry'; cause: RetryCause }
   /** No session (401, or a redirect): stop, keep everything for the next sign-in. */
   | { verdict: 'signed-out' };
+
+export type RetryCause = 'server' | 'unreachable';
 
 function isRefusal(outcome: string | null): outcome is ReplayRefusal {
   return outcome === 'too-old' || outcome === 'future' || outcome === 'account';
@@ -320,9 +327,12 @@ const VERDICT_OF_STATUS: Readonly<Partial<Record<number, ReplayVerdict>>> = {
   0: { verdict: 'signed-out' },
   401: { verdict: 'signed-out' },
   404: { verdict: 'failed', reason: 'gone' },
-  408: { verdict: 'retry' },
+  // 503 is the busy page (#643), the server saying it is unavailable, not
+  // a record it choked on.
+  408: { verdict: 'retry', cause: 'unreachable' },
+  503: { verdict: 'retry', cause: 'unreachable' },
   410: { verdict: 'saved', changed: false },
-  429: { verdict: 'retry' },
+  429: { verdict: 'retry', cause: 'unreachable' },
 };
 
 /**
@@ -331,7 +341,7 @@ const VERDICT_OF_STATUS: Readonly<Partial<Record<number, ReplayVerdict>>> = {
  * client id names a wear that landed and was deleted since, #196a: the tap
  * was saved once and a later write undid it), a 409 refused for the reason
  * in `X-Closet-Outcome` (a wishlist item has none), a server error or rate
- * limit retried. A redirect (status 0: the outbox fetches with `redirect:
+ * limit retried (a 5xx within spendServerError). A redirect (status 0: the outbox fetches with `redirect:
  * 'manual'`, so it is opaque) is kept like a 401: the only one a queueable
  * route gives is the session gate's to the login page, for a client that
  * did not say it was a replay. Anything else (a 400, a 403) is refused: the
@@ -346,8 +356,12 @@ export function replayVerdict(
   if (status === 409 && isRefusal(outcome)) {
     return { verdict: 'failed', reason: outcome };
   }
-  if (status >= 500) return { verdict: 'retry' };
-  return VERDICT_OF_STATUS[status] ?? { verdict: 'failed', reason: 'refused' };
+  return (
+    VERDICT_OF_STATUS[status] ??
+    (status >= 500
+      ? { verdict: 'retry', cause: 'server' }
+      : { verdict: 'failed', reason: 'refused' })
+  );
 }
 
 /** What a page tells the user about offline, from the writes it queues. */
@@ -508,4 +522,63 @@ export function retryDelayMs(attempts: number): number {
     RETRY_FIRST_MS * 2 ** Math.max(attempts - 1, 0),
     RETRY_MAX_MS,
   );
+}
+
+/** 5xx answers a record may take before it settles as failed ("server"). */
+export const SERVER_ERROR_MAX_ATTEMPTS = 5;
+/** How long after its first 5xx a record may keep being retried. */
+export const SERVER_ERROR_MAX_AGE_MS = 10 * 60_000;
+
+/**
+ * What a record remembers of its 5xx answers (optional: a record queued by
+ * an older client has none, and starts a budget at its first one).
+ */
+export interface ServerErrorBudget {
+  serverErrors?: number;
+  serverErrorSince?: number;
+}
+
+/**
+ * A retry's answer applied to a record's budget: a 5xx spends it, anything
+ * else (`unreachable`) leaves it alone, so a flaky network or a busy server
+ * never fails a record. `exhausted` once the record has had
+ * SERVER_ERROR_MAX_ATTEMPTS 5xx answers, or the first is
+ * SERVER_ERROR_MAX_AGE_MS old: the outbox then settles it as failed so the
+ * drain moves on to the records behind it.
+ */
+export function spendServerError(
+  budget: ServerErrorBudget,
+  cause: RetryCause,
+  now: number,
+): ServerErrorBudget & { exhausted: boolean } {
+  if (cause === 'unreachable') return { ...budget, exhausted: false };
+  const serverErrors = (budget.serverErrors ?? 0) + 1;
+  const serverErrorSince = budget.serverErrorSince ?? now;
+  return {
+    serverErrors,
+    serverErrorSince,
+    exhausted:
+      serverErrors >= SERVER_ERROR_MAX_ATTEMPTS ||
+      now - serverErrorSince >= SERVER_ERROR_MAX_AGE_MS,
+  };
+}
+
+/**
+ * A record after a retry verdict: its attempt counted (drives the backoff)
+ * and its 5xx budget spent. An exhausted record is `failed` with the
+ * "server" reason and `stop` is false, so the drain goes on to the records
+ * queued behind it; otherwise `stop` is true (back off, keep the order).
+ */
+export function afterRetry<
+  R extends StoredRecord & ServerErrorBudget & { attempts: number },
+>(
+  record: R,
+  cause: RetryCause,
+  now: number,
+): { record: R & { reason?: ReplayFailure }; stop: boolean } {
+  const { exhausted, ...budget } = spendServerError(record, cause, now);
+  const next = { ...record, ...budget, attempts: record.attempts + 1 };
+  return exhausted
+    ? { record: { ...next, state: 'failed', reason: 'server' }, stop: false }
+    : { record: next, stop: true };
 }

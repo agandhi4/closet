@@ -62,6 +62,7 @@ import {
   REPLAY_TIMEOUT_MS,
   type ReplayFailure,
   type ReplayVerdict,
+  afterRetry,
   replayVerdict,
   retryDelayMs,
   routesThroughOutbox,
@@ -90,6 +91,9 @@ interface OutboxRecord {
   label: string;
   queuedAt: number;
   attempts: number;
+  /** 5xx answers so far and the first's time: absent on an older client's record. */
+  serverErrors?: number;
+  serverErrorSince?: number;
   state: 'pending' | 'failed';
   reason?: ReplayFailure;
 }
@@ -157,6 +161,7 @@ const REASON_TEXT: Record<ReplayFailure, string> = {
   future: 'textOutboxReasonFuture',
   account: 'textOutboxReasonAccount',
   refused: 'textOutboxReasonRefused',
+  server: 'textOutboxReasonServer',
 };
 
 // ---- The page ---------------------------------------------------------------
@@ -168,7 +173,7 @@ const text = (name: string) => appStatus()[name] ?? '';
 
 /** A string with a count: its `One` or `Many` form, `{count}` filled. */
 function counted(
-  name: 'Waiting' | 'Syncing' | 'Saved' | 'SignIn' | 'Discard',
+  name: 'Waiting' | 'Syncing' | 'Retrying' | 'Saved' | 'SignIn' | 'Discard',
   count: number,
 ): string {
   return text(`textOutbox${name}${count === 1 ? 'One' : 'Many'}`).replace(
@@ -341,7 +346,12 @@ function render(records: OutboxRecord[]): void {
   const waiting = records.filter(isPending).length;
   renderRegions(records);
   renderPackedCounts(records);
-  renderBanner(waiting);
+  // Online with a record that has been tried and not saved: the drain is
+  // waiting out its backoff (a 5xx, a timeout), which nothing else shows.
+  renderBanner(
+    waiting,
+    records.some((record) => isPending(record) && record.attempts > 0),
+  );
   renderNotice(records.filter((record) => record.state === 'failed'));
   guardFull(waiting);
 }
@@ -482,7 +492,7 @@ function flip(region: HTMLElement): void {
     region.querySelector<HTMLElement>(':scope > form button')?.focus();
 }
 
-function renderBanner(count: number): void {
+function renderBanner(count: number, backingOff: boolean): void {
   const banner = document.getElementById('outbox-banner');
   const slot = banner?.querySelector('[data-role="text"]');
   if (!banner || !slot) return;
@@ -492,6 +502,7 @@ function renderBanner(count: number): void {
   else if (offline() && count >= OUTBOX_MAX_PENDING) message = fullText();
   else if (offline()) message = counted('Waiting', count);
   else if (syncing) message = counted('Syncing', count);
+  else if (backingOff) message = counted('Retrying', count);
   slot.textContent = message;
   banner.classList.toggle('hidden', message === '');
 }
@@ -876,7 +887,7 @@ async function send(record: OutboxRecord, url: URL): Promise<ReplayVerdict> {
         `[outbox] ${record.key} (key ${record.id.slice(0, 8)}) had no answer in ${REPLAY_TIMEOUT_MS / 1000} s`,
       );
     }
-    return { verdict: 'retry' };
+    return { verdict: 'retry', cause: 'unreachable' };
   } finally {
     clearTimeout(timeout);
   }
@@ -936,11 +947,18 @@ async function replayAll(
           console.info(`[outbox] ${key} not saved, superseded meanwhile`);
         }
       } else if (answer.verdict === 'retry') {
-        const attempts = record.attempts + 1;
-        await settle(record, { ...record, attempts });
-        result.retryInMs = retryDelayMs(attempts);
+        const step = afterRetry(record, answer.cause, Date.now());
+        const settled = await settle(record, step.record);
+        if (!step.stop) {
+          // Poisoned: failed, so the records behind it are sent now.
+          console.warn(
+            `[outbox] ${key} not saved: the server answered ${step.record.serverErrors} errors since ${new Date(step.record.serverErrorSince ?? 0).toISOString()}${settled ? '' : ', superseded meanwhile'}`,
+          );
+          continue;
+        }
+        result.retryInMs = retryDelayMs(step.record.attempts);
         console.info(
-          `[outbox] ${key} unreachable, retry ${attempts} in ${result.retryInMs / 1000} s`,
+          `[outbox] ${key} ${answer.cause === 'server' ? `server error ${step.record.serverErrors}` : 'unreachable'}, retry ${step.record.attempts} in ${result.retryInMs / 1000} s`,
         );
         return result;
       } else {

@@ -17,6 +17,10 @@ import {
   queuedWritesGoneAtClaim,
   REPLAY_WINDOW_DAYS,
   replayVerdict,
+  afterRetry,
+  spendServerError,
+  SERVER_ERROR_MAX_AGE_MS,
+  SERVER_ERROR_MAX_ATTEMPTS,
   retryDelayMs,
   routesThroughOutbox,
   sharedUntilRejected,
@@ -309,12 +313,97 @@ describe('replayVerdict', () => {
     // A page: an answer that is not the replay contract's is never taken
     // for saved.
     [200, null, { verdict: 'failed', reason: 'refused' }],
-    [500, null, { verdict: 'retry' }],
-    [503, null, { verdict: 'retry' }],
-    [408, null, { verdict: 'retry' }],
-    [429, null, { verdict: 'retry' }],
+    [500, null, { verdict: 'retry', cause: 'server' }],
+    [502, null, { verdict: 'retry', cause: 'server' }],
+    // The busy page (#643), a timeout and a rate limit say nothing about
+    // the record: they never spend its budget.
+    [503, null, { verdict: 'retry', cause: 'unreachable' }],
+    [408, null, { verdict: 'retry', cause: 'unreachable' }],
+    [429, null, { verdict: 'retry', cause: 'unreachable' }],
   ] as const)('reads %i (%s)', (status, outcome, verdict) => {
     expect(replayVerdict(status, outcome)).toEqual(verdict);
+  });
+});
+
+describe('spendServerError', () => {
+  it('fails a record at its Nth 5xx, and not before', () => {
+    let budget = {};
+    for (let attempt = 1; attempt < SERVER_ERROR_MAX_ATTEMPTS; attempt += 1) {
+      const next = spendServerError(budget, 'server', 1_000);
+      expect(next.exhausted).toBe(false);
+      budget = next;
+    }
+    expect(spendServerError(budget, 'server', 1_000).exhausted).toBe(true);
+  });
+
+  it('fails a record whose first 5xx is old enough', () => {
+    const first = spendServerError({}, 'server', 1_000);
+    expect(
+      spendServerError(first, 'server', 1_000 + SERVER_ERROR_MAX_AGE_MS - 1)
+        .exhausted,
+    ).toBe(false);
+    expect(
+      spendServerError(first, 'server', 1_000 + SERVER_ERROR_MAX_AGE_MS)
+        .exhausted,
+    ).toBe(true);
+  });
+
+  it('is never spent by the network, a timeout, a 429 or a 503', () => {
+    const spent = {
+      serverErrors: SERVER_ERROR_MAX_ATTEMPTS - 1,
+      serverErrorSince: 0,
+    };
+    expect(
+      spendServerError(spent, 'unreachable', 10 * SERVER_ERROR_MAX_AGE_MS),
+    ).toEqual({
+      ...spent,
+      exhausted: false,
+    });
+    expect(spendServerError({}, 'unreachable', 5)).toEqual({
+      exhausted: false,
+    });
+  });
+
+  it('starts a budget for a record queued by an older client', () => {
+    expect(spendServerError({}, 'server', 7)).toEqual({
+      serverErrors: 1,
+      serverErrorSince: 7,
+      exhausted: false,
+    });
+  });
+});
+
+describe('afterRetry', () => {
+  const record = {
+    account: '1',
+    key: 'wear:1:d',
+    state: 'pending' as const,
+    attempts: 0,
+  };
+
+  it('settles a poisoned record as failed and lets the drain go on', () => {
+    let current: typeof record & {
+      serverErrors?: number;
+      serverErrorSince?: number;
+    } = record;
+    for (let n = 1; n < SERVER_ERROR_MAX_ATTEMPTS; n += 1) {
+      const step = afterRetry(current, 'server', 1_000);
+      expect(step).toMatchObject({
+        stop: true,
+        record: { state: 'pending', attempts: n },
+      });
+      current = step.record;
+    }
+    const last = afterRetry(current, 'server', 1_000);
+    expect(last.stop).toBe(false);
+    expect(last.record).toMatchObject({ state: 'failed', reason: 'server' });
+  });
+
+  it('keeps counting attempts, and stops, for an unreachable server', () => {
+    const step = afterRetry({ ...record, attempts: 40 }, 'unreachable', 1_000);
+    expect(step.stop).toBe(true);
+    expect(step.record).toMatchObject({ state: 'pending', attempts: 41 });
+    expect(step.record).not.toHaveProperty('serverErrors');
   });
 });
 
