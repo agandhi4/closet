@@ -74,6 +74,26 @@ export function isExpired(at: Position, floor: number): boolean {
   );
 }
 
+/** Which history of the database a page reads (sync_epoch, #652). */
+export interface Epoch {
+  epoch: string;
+  /** Whether it was ever bumped (a restore since epochs shipped). */
+  bumped: boolean;
+}
+
+/**
+ * Whether a cursor's epoch is the database's: the same, or none (answered
+ * before epochs) while the epoch was never bumped. Nothing was restored
+ * before epochs shipped, so their deploy forces no re-sync; the first bump
+ * expires those cursors with the rest.
+ */
+export function isCurrentEpoch(
+  cursorEpoch: string | null,
+  now: Epoch,
+): boolean {
+  return cursorEpoch === null ? !now.bumped : cursorEpoch === now.epoch;
+}
+
 export interface ChangesCursor {
   /**
    * The user it was answered to (#617). A cursor presented by anyone else (a
@@ -82,6 +102,12 @@ export interface ChangesCursor {
    * user, expired the same way.
    */
   userId: number | null;
+  /**
+   * The database history it was answered under (sync_epoch, #652): one
+   * from another (a restore since) is expired. Null in one answered before
+   * epochs, current until the first bump: nothing was restored before it.
+   */
+  epoch: string | null;
   /** Which resources the feed carried when it answered (feed.ts' FEED_COVERAGE). */
   coverage: number;
   /** By owner id. */
@@ -108,6 +134,13 @@ const CursorJson = Type.Object(
   {
     v: Type.Literal(1),
     u: Type.Optional(Type.Integer({ minimum: 1, maximum: ROW_ID_MAX })),
+    // A pattern, not `format: 'uuid'`: Value.Check fails a format nothing registered.
+    e: Type.Optional(
+      Type.String({
+        pattern:
+          '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+      }),
+    ),
     c: Count,
     s: Type.Optional(Type.Literal(1)),
     w: Type.Record(Type.String({ pattern: '^[1-9]\\d{0,9}$' }), PositionJson),
@@ -116,7 +149,7 @@ const CursorJson = Type.Object(
 );
 
 export function writeChangesCursor(
-  cursor: ChangesCursor & { userId: number },
+  cursor: ChangesCursor & { userId: number; epoch: string },
 ): string {
   const positions = Object.fromEntries(
     [...cursor.positions].map(([ownerId, at]) => [
@@ -128,6 +161,7 @@ export function writeChangesCursor(
     JSON.stringify({
       v: 1,
       u: cursor.userId,
+      e: cursor.epoch,
       c: cursor.coverage,
       ...(cursor.snapshot && { s: 1 }),
       w: positions,
@@ -154,6 +188,7 @@ export function readChangesCursor(text: string): ChangesCursor {
   }
   return {
     userId: json.u ?? null,
+    epoch: json.e ?? null,
     coverage: json.c,
     positions,
     snapshot: json.s === 1,

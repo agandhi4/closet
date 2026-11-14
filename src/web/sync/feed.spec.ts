@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { endOf, isExpired, KIND, type Position, startOf } from './cursor';
+import {
+  endOf,
+  isCurrentEpoch,
+  isExpired,
+  KIND,
+  type Position,
+  startOf,
+} from './cursor';
 import { FEED } from './feed';
 
 describe('the feed registry', () => {
@@ -40,5 +47,20 @@ describe('isExpired: whether the prune may have dropped a deletion the cursor ne
     ['mid full sync, the floor moved past it', at(0, KIND.row, 5), 6, true],
   ] as const)('%s', (_name, position, floor, expected) => {
     expect(isExpired(position, floor)).toBe(expected);
+  });
+});
+
+describe('isCurrentEpoch: whether a cursor reads this history of the database (#652)', () => {
+  const epoch = '00000000-0000-4000-8000-000000000001';
+  const other = '00000000-0000-4000-8000-000000000002';
+
+  it.each([
+    ['the same epoch', epoch, false, true],
+    ['the same epoch, bumped to it', epoch, true, true],
+    ['another epoch', other, false, false],
+    ['none (before epochs), never bumped', null, false, true],
+    ['none (before epochs), after a bump', null, true, false],
+  ] as const)('%s', (_name, cursorEpoch, bumped, expected) => {
+    expect(isCurrentEpoch(cursorEpoch, { epoch, bumped })).toBe(expected);
   });
 });

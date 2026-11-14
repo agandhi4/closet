@@ -34,6 +34,8 @@ How to change the schema is in the root `AGENTS.md` (Changing the schema). This 
                        held (Calendar's Owner lock; the sync triggers read the mark)
     sync-tables.ts     SYNC_ROOTS / SYNC_CHILDREN: the synced tables as data, what the sync triggers
                        (drizzle/0052) stamp and sync-triggers.spec.ts holds pg_trigger to
+    sync-epoch.ts      bumpSyncEpoch(): a new history for the changes feed after a restore (#652;
+                       the post-restore command, #653), every device's cursor then a 410
     select-scalars.ts  selectScalars(): independent scalar subqueries (counts, JSON lists) in one
                        statement, one round trip (the wardrobe grid's context, #159)
     migrate.ts         runMigrations(): boot-time runner (ahead refusal, legacy adoption, advisory lock);
