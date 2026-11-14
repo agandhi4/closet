@@ -574,7 +574,12 @@ export async function rotateGarmentPhoto(
     );
     return new HttpError(409, t('refusal.garment.photoChanged'));
   };
-  const keepMask = source.cutoutStatus === 'edited';
+  // With removal off a turned photo is never re-cut, so a cutout the server
+  // (or the browser) made turns along with it instead of being dropped.
+  const keepMask =
+    source.cutoutStatus === 'edited' ||
+    (!deps.cutouts.enabled &&
+      (source.cutoutStatus === 'ready' || source.cutoutStatus === 'none'));
   const { row, cutoutKept } = await deps.photos
     .rotateStored(source.fileName, ROTATIONS[direction], ownerId, keepMask)
     .catch(async (error: unknown) => {

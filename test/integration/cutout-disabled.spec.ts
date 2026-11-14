@@ -1,7 +1,12 @@
 import { eq } from 'drizzle-orm';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { file } from '../../src/db/schema';
 import type { Readiness } from '../../src/web/health/checks';
+import { variantFileName } from '../../src/web/files/image-variant';
+import { deviceToken } from './api';
 import { fakeRunner } from './cutouts';
 import {
   createGarment,
@@ -13,6 +18,7 @@ import {
 import {
   asFixture,
   createTestApp,
+  multipart,
   type TestApp,
   unescapeHtml,
 } from './harness';
@@ -88,6 +94,109 @@ describe('cutouts switched off', () => {
       });
     },
   );
+
+  // A cutout made while removal was on survives a turn: it is never
+  // re-cut now, so dropping it would lose it for good.
+  it('turns a ready cutout along with its photo, never downgrading it', async () => {
+    const id = await createGarment(t, { name: 'Ready shirt' });
+    await uploadPhoto(t, id, await jpegPhoto());
+    const before = await photoFileName(t, id);
+    const mask = await sharp({
+      create: {
+        width: 1080,
+        height: 720,
+        channels: 4,
+        background: { r: 200, g: 30, b: 30, alpha: 1 },
+      },
+    })
+      .png()
+      .toBuffer();
+    const body = await multipart(
+      {},
+      {
+        nobgPhoto: { data: mask, filename: 'c.png', contentType: 'image/png' },
+      },
+    );
+    const saved = await t.inject({
+      method: 'POST',
+      url: `/wardrobe/${id}/nobg`,
+      payload: body.payload,
+      headers: body.headers,
+    });
+    expect(saved.statusCode).toBe(200);
+    await asFixture(t.db, (tx) =>
+      tx
+        .update(file)
+        .set({ cutoutStatus: 'ready' })
+        .where(eq(file.fileName, before)),
+    );
+
+    const res = await t.inject({
+      method: 'POST',
+      url: `/wardrobe/${id}/photo/rotate`,
+      payload: { direction: 'right' },
+    });
+    expect(res.statusCode).toBe(303);
+    const after = await photoFileName(t, id);
+    expect(after).not.toBe(before);
+    expect(await photoRow(t, after)).toMatchObject({ cutoutStatus: 'edited' });
+    expect(existsSync(join(t.dataPath, variantFileName(after, 'nobg')))).toBe(
+      true,
+    );
+  });
+
+  // The API and the changes feed agree with the page: nothing to poll for.
+  it('answers none, never pending or failed, on the API and the feed', async () => {
+    const { token } = await deviceToken(t);
+    const ids: Record<string, number> = {};
+    for (const status of ['pending', 'failed'] as const) {
+      const id = await createGarment(t, { name: `Api ${status}` });
+      await uploadPhoto(t, id, await jpegPhoto());
+      const fileName = await photoFileName(t, id);
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(file)
+          .set({
+            cutoutStatus: status,
+            cutoutRequestedAt: status === 'pending' ? new Date() : null,
+          })
+          .where(eq(file.fileName, fileName)),
+      );
+      ids[status] = id;
+    }
+    const one = await t.api(token, {
+      method: 'GET',
+      url: `/api/v1/garments/${ids.pending}`,
+    });
+    expect(
+      one.json<{ photo: { cutoutStatus: string } }>().photo.cutoutStatus,
+    ).toBe('none');
+    const list = await t.api(token, { method: 'GET', url: '/api/v1/garments' });
+    const listed = list.json<{
+      data: { id: number; photo?: { cutoutStatus: string } }[];
+    }>().data;
+    for (const id of Object.values(ids)) {
+      expect(listed.find((g) => g.id === id)?.photo?.cutoutStatus).toBe('none');
+    }
+    const feed = await t.api(token, {
+      method: 'GET',
+      url: '/api/v1/changes',
+    });
+    const changed = feed
+      .json<{
+        changes: {
+          resource: string;
+          id: number;
+          data: { photo?: { cutoutStatus: string } };
+        }[];
+      }>()
+      .changes.filter((c) => c.resource === 'garment');
+    for (const id of Object.values(ids)) {
+      expect(changed.find((c) => c.id === id)?.data.photo?.cutoutStatus).toBe(
+        'none',
+      );
+    }
+  });
 
   it('refuses a runner and reports the queue disabled, not down', async () => {
     expect(t.cutouts.enabled).toBe(false);
