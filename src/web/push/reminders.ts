@@ -191,7 +191,7 @@ export async function sendDueReminders(
     try {
       const payload =
         kind === 'morning'
-          ? await morningPayload(deps, userId, now, batch)
+          ? await morningPayload(deps, userId, now, batch, run)
           : eveningPayload(batch.evenings.get(userId));
       if (!payload) {
         run.skipped += 1;
@@ -352,13 +352,18 @@ async function swappedToday(
   userId: number,
   now: Date,
   batch: ReminderBatch,
+  run: ReminderRun,
 ): Promise<Swap[]> {
   if (!batch.replans.has(userId)) return [];
   const outcome = await replanToday(deps.replan, userId, now, {
     announcesToday: true,
+    job: 'reminders',
     listed: true,
     weather: batch.weather.get(userId),
   });
+  // The reminder reports the re-plan failures it saw first itself: the
+  // minutely run's own first failure of the day is a separate one (#858).
+  if (outcome.kind === 'failed' && outcome.reported) run.failed += 1;
   if (outcome.kind !== 'replanned') return [];
   const today = todayIn(deps.timeZone, now);
   return outcome.swaps.filter((swap) => swap.slot.day === today);
@@ -373,8 +378,9 @@ async function morningPayload(
   userId: number,
   now: Date,
   batch: ReminderBatch,
+  run: ReminderRun,
 ): Promise<PushPayload> {
-  const swapped = await swappedToday(deps, userId, now, batch);
+  const swapped = await swappedToday(deps, userId, now, batch, run);
   // The line and Today's ideas share the batch's weather (refreshed first).
   const ownWeather =
     batch.weather.get(userId) ??
