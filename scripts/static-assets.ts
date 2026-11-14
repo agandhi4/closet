@@ -22,9 +22,10 @@ const MODULES_DIR = path.join(PUBLIC_DIR, 'modules');
  * tag and importmap, src/web/layout/layout.tsx), as installed: copied into
  * public/modules/ so they are served, cached and precompressed like every
  * other static file. A library that ships no minified ES module is built
- * into public/vendor/ instead (`npm run generate:vendor`).
+ * into public/vendor/ instead (`npm run generate:vendor`). Every one is
+ * precached (scripts/generate-sw.ts refuses a build that lacks one).
  */
-const CLIENT_MODULES: readonly { from: string; to: string }[] = [
+export const CLIENT_MODULES: readonly { from: string; to: string }[] = [
   { from: 'htmx.org/dist/htmx.min.js', to: 'htmx.min.js' },
   {
     from: 'workbox-window/build/workbox-window.prod.mjs',

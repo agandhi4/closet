@@ -25,7 +25,7 @@ import { Layout } from '../layout/layout';
 import { PageMain } from '../layout/page-main';
 import {
   CameraIcon,
-  HangerIcon,
+  GarmentSilhouette,
   PHOTO_ACCEPT,
   PhotoLibraryIcon,
   PREPARE_AND_SUBMIT_PHOTO,
@@ -588,7 +588,7 @@ function OwnerMenuItems({ model }: { model: GarmentPageModel }) {
  * stands: pending polls GET /wardrobe/:id/cutout every 2 s (this component
  * again, swapped over itself; the answer without the trigger ends the
  * polling), failed offers "Try again". Its own hx-indicator keeps the polls
- * off the app bar's spinner. Without a photo, the hanger, and for whoever
+ * off the app bar's spinner. Without a photo, its role's silhouette, and for whoever
  * may add one the button that opens the photo sheet.
  */
 export function GarmentPhotoView(props: {
@@ -604,7 +604,11 @@ export function GarmentPhotoView(props: {
         id="garment-photo"
         class="rounded-box bg-base-200 aspect-[4/5] w-full flex flex-col items-center justify-center gap-4 text-faint"
       >
-        <HangerIcon class="size-20" strokeWidth="1" />
+        <GarmentSilhouette
+          category={garment.category}
+          class="size-20"
+          strokeWidth="1"
+        />
         {canEdit && (
           <button
             type="button"

@@ -4,6 +4,7 @@ import {
   imageUrl,
   type PlinthPhoto,
 } from '../files/image-url';
+import { categoryRole, type GarmentRole } from '../../wardrobe/properties';
 import { jsonForScript } from '../html';
 import { t } from '../i18n';
 
@@ -13,7 +14,28 @@ import { t } from '../i18n';
  * link and an empty-list state.
  */
 
-/** The stand-in for a garment without a photo. */
+/**
+ * The hanger's paths (hugeicons' hanger-stroke-rounded), drawn in the
+ * text's colour: the dock's Wardrobe tab and HangerIcon, one drawing.
+ */
+export const HANGER_PATHS = (
+  <>
+    <path
+      d="M4.12572 15.3668L10.1284 11.9903C10.7234 11.6556 11.3252 11.5 12 11.5C12.6748 11.5 13.2766 11.6556 13.8716 11.9903L19.8743 15.3668C20.5697 15.7579 21 16.4937 21 17.2916C21 18.5113 20.0113 19.5 18.7916 19.5H5.20841C3.98874 19.5 3 18.5113 3 17.2916C3 16.4937 3.43034 15.7579 4.12572 15.3668Z"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M10 6.40476C10 5.35279 10.8954 4.5 12 4.5C13.1046 4.5 14 5.35279 14 6.40476C14 7.12453 13.5808 7.75106 12.9623 8.07498C12.473 8.33119 12 8.75724 12 9.30952V11.5"
+      stroke-linecap="round"
+    />
+  </>
+);
+
+/**
+ * The hanger: a garment in general (EmptyState, the first-run card) and
+ * the stand-in for one whose role is none (GarmentSilhouette).
+ */
 export function HangerIcon(props: { class: string; strokeWidth: string }) {
   return (
     <svg
@@ -23,11 +45,59 @@ export function HangerIcon(props: { class: string; strokeWidth: string }) {
       stroke-width={props.strokeWidth}
       stroke="currentColor"
       class={props.class}
+      aria-hidden="true"
+    >
+      {HANGER_PATHS}
+    </svg>
+  );
+}
+
+/**
+ * Each role's outline (24 box, the text's colour), so a closet of garments
+ * without photos still reads as tops, trousers and shoes (#666). `none`
+ * (other and custom categories) is the hanger.
+ */
+const SILHOUETTES: Readonly<Record<Exclude<GarmentRole, 'none'>, string>> = {
+  top: 'M8.5 3.75 4 5.75 2.25 10l3 1.25L7 9.5v10.75h10V9.5l1.75 1.75 3-1.25L20 5.75l-4.5-2c-.5 1.5-1.9 2.5-3.5 2.5s-3-1-3.5-2.5Z',
+  bottom:
+    'M6.5 3.75h11l1.25 16.5h-4.5L12 9.5l-2.25 10.75h-4.5L6.5 3.75Zm0 3h11',
+  'one-piece': 'M9.5 3.75h5l-.75 4.5 4.75 12h-13l4.75-12-.75-4.5Zm.75 4.5h3.5',
+  layer:
+    'M8.75 3.75 4 6l-1.5 14.25h3.75l1-8.5v8.5h9.5v-8.5l1 8.5h3.75L20 6l-4.75-2.25L12 8.5 8.75 3.75ZM12 8.5v11.75',
+  footwear:
+    'M3 17.25V8.25h4.75l1.5 3c3 1 7 1.5 9.25 2.75 1.25.7 2.25 1.75 2.25 3.25H3Zm0 3h18',
+  accessory: 'M3 17.25h18M6 17.25c0-5 2.5-8.5 6-8.5s6 3.5 6 8.5',
+  bag: 'M5.25 8.25h13.5l-1 12H6.25l-1-12Zm3.75 0v-1.5a3 3 0 0 1 6 0v1.5',
+};
+
+/**
+ * A photoless garment's stand-in: its role's outline (categoryRole), the
+ * hanger for none. `data-silhouette` names the role drawn.
+ */
+export function GarmentSilhouette(props: {
+  category: string;
+  class: string;
+  strokeWidth: string;
+}) {
+  const role = categoryRole(props.category);
+  if (role === 'none') {
+    return <HangerIcon class={props.class} strokeWidth={props.strokeWidth} />;
+  }
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke-width={props.strokeWidth}
+      stroke="currentColor"
+      class={props.class}
+      aria-hidden="true"
+      data-silhouette={role}
     >
       <path
         stroke-linecap="round"
         stroke-linejoin="round"
-        d="M9 3.75H6.912a2.25 2.25 0 0 0-2.15 1.588L2.35 13.177a2.25 2.25 0 0 0-.1.661V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 0 0-2.15-1.588H15M2.25 13.5h3.86a2.251 2.251 0 0 1 2.012 1.244l.256.512a2.251 2.251 0 0 0 2.013 1.244h3.218a2.251 2.251 0 0 0 2.013-1.244l.256-.512a2.251 2.251 0 0 1 2.013-1.244h3.859M12 3v8.25m0 0-3-3m3 3 3-3"
+        d={SILHOUETTES[role]}
       />
     </svg>
   );
@@ -43,7 +113,6 @@ function OutlineIcon(props: { class: string; children: Child }) {
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
-      stroke-width="1.5"
       stroke="currentColor"
       class={props.class}
       aria-hidden="true"
@@ -172,12 +241,15 @@ export function GarmentPicture(props: {
  * A garment's photo on the plinth (base-200), as the redesign draws a
  * garment in a frame (docs/plans/2026-09-26-redesign.md, section 4,
  * "Imagery"): its cutout contained, never cropped, or, until it has one,
- * the photo as taken covering the frame. The frame's shape (aspect,
- * rounding) is the caller's `class`; `children` draw over it (the grid's
- * marks). Used by the wardrobe grid's tiles and the Capsules tab's strips.
+ * the photo as taken covering the frame; without a photo, its role's
+ * silhouette (GarmentSilhouette, from `category`). The frame's shape
+ * (aspect, rounding) is the caller's `class`; `children` draw over it (the
+ * grid's marks). Used by the wardrobe grid's tiles and the Capsules tab's
+ * strips.
  */
 export function PlinthImage(props: {
   photo: PlinthPhoto | null;
+  category: string;
   alt: string;
   class: string;
   /** Above the fold on a phone: loaded at once, not when scrolled near. */
@@ -199,7 +271,11 @@ export function PlinthImage(props: {
         />
       ) : (
         <div class="flex size-full items-center justify-center text-faint">
-          <HangerIcon class="size-1/3" strokeWidth="1" />
+          <GarmentSilhouette
+            category={props.category}
+            class="size-1/3"
+            strokeWidth="1"
+          />
         </div>
       )}
       {props.children}

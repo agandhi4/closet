@@ -78,14 +78,12 @@ describe('Muse’s outfits (#335)', () => {
   const rowOf = async (id: number) =>
     (await t.db.select().from(outfit).where(eq(outfit.id, id)))[0];
 
-  /** One card's markup on the tab. */
+  /** One card's markup on the tab: up to the next card. */
   const cardOf = (html: string, id: number) => {
     const start = html.indexOf(`data-muse-outfit="${id}"`);
     if (start === -1) return undefined;
-    return html.slice(
-      start,
-      html.indexOf('</li>', html.indexOf('data-piece', start) + 1) + 2000,
-    );
+    const next = html.indexOf('data-muse-outfit="', start + 1);
+    return html.slice(start, next === -1 ? undefined : next);
   };
 
   const primaryOf = (html: string, id: number) =>

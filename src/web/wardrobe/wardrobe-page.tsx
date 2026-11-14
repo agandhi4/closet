@@ -634,6 +634,7 @@ function TileContent(props: {
     <>
       <PlinthImage
         photo={tile.photo}
+        category={tile.category}
         alt=""
         eager={props.eager}
         class={`aspect-[4/5] rounded-box ${archived ? '[&>:first-child]:opacity-50' : ''} ${props.class}`}

@@ -83,6 +83,9 @@ describe('occasions', () => {
     t = await createTestApp();
     // The builder shows its form only with a garment to cycle.
     await createGarment(t, { name: 'Builder shirt' });
+    // An outfit's worth of closet: an empty one hides "+ Plan" (#666).
+    await createGarment(t, { name: 'Tee', category: 'tops' });
+    await createGarment(t, { name: 'Jeans', category: 'bottoms' });
   });
 
   afterAll(() => t?.cleanup());

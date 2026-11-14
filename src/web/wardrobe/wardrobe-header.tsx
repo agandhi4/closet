@@ -100,7 +100,7 @@ export function WardrobeHeader(props: WardrobeHeaderProps) {
                 class="btn btn-ghost btn-sm btn-circle"
                 aria-label={t('add.TITLE')}
                 aria-haspopup="dialog"
-                onclick="document.getElementById('add-sheet').showModal()"
+                onclick={OPEN_ADD_SHEET}
               >
                 <PlusIcon />
               </button>
@@ -236,13 +236,18 @@ export function WardrobeMenu(props: {
 
 const TO_WISHLIST = destinationParams({ to: 'wishlist' });
 
+/** The `onclick` of a control opening the add sheet: the header's ＋, Today's first-run button. */
+export const OPEN_ADD_SHEET =
+  "document.getElementById('add-sheet').showModal()";
+
 /**
  * The add sheet (plan: "+" in the Wardrobe header): a garment for the
  * closet from the camera, the photo library, a product link or entered by
  * hand; for the wishlist from a link or by hand; on the owner's Capsules
- * tab a new capsule first. The Wishlist tab lists its own first.
+ * tab a new capsule first. The Wishlist tab lists its own first. Today's
+ * first-run path (#666) renders it too, for the requester's own closet.
  */
-function AddSheet(props: {
+export function AddSheet(props: {
   tab: WardrobeTab;
   viewOwner: number | undefined;
   canEdit: boolean;

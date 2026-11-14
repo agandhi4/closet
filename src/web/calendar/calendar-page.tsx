@@ -59,6 +59,8 @@ export function CalendarPage(props: {
   banner?: PlannedBanner;
   /** After its Undo (?undone=N): the entries removed. */
   undone?: number;
+  /** The first-run gate (#666): without an outfit's worth of closet, no "Plan my week". */
+  canDress: boolean;
 }) {
   const { ctx, view } = props;
   const first = view.days[0].date;
@@ -70,7 +72,7 @@ export function CalendarPage(props: {
         <CalendarTabs active="week" />
         <WeatherSlot ctx={ctx} days={{ from: first, to: last }} />
         {props.banner && <PlannedWeekBanner banner={props.banner} />}
-        <PlanWeekForm class="mb-3" small />
+        {props.canDress && <PlanWeekForm class="mb-3" small />}
         <nav
           class="flex items-center justify-between gap-2"
           aria-label={t('calendar.WEEK_NAV')}
@@ -98,7 +100,12 @@ export function CalendarPage(props: {
           class={`lg:grid lg:grid-cols-7 lg:gap-2 lg:mt-3 ${WEEK_ROWS[view.weekOccasions.length]}`}
         >
           {view.days.map((day) => (
-            <DaySection ctx={ctx} day={day} occasions={view.weekOccasions} />
+            <DaySection
+              ctx={ctx}
+              day={day}
+              occasions={view.weekOccasions}
+              canDress={props.canDress}
+            />
           ))}
         </div>
         {/* Outside the day blocks: each is a form of its own, and the
@@ -194,10 +201,13 @@ function DaySection({
   ctx,
   day,
   occasions,
+  canDress,
 }: {
   ctx: ViewContext;
   day: CalendarDayView;
   occasions: readonly Occasion[];
+  /** The first-run gate (#666): an empty closet has nothing to plan with. */
+  canDress: boolean;
 }) {
   const occasionRow = (occasion: Occasion) =>
     rowStart(occasions.indexOf(occasion) + 2);
@@ -267,7 +277,7 @@ function DaySection({
       {/* One way into the sheet per day: an open slot opens the same sheet
           (every occasion on it), so the day's own button would say it
           twice. */}
-      {day.openSlots.length === 0 && (
+      {canDress && day.openSlots.length === 0 && (
         <button
           type="button"
           class={`btn btn-ghost btn-sm mt-1 -ms-3 font-normal text-muted lg:ms-0 lg:justify-start ${rowStart(occasions.length + 3)}`}

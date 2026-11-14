@@ -5,10 +5,20 @@ import {
   cachedAt,
   endedSession,
   forbidsStorage,
+  isBackingOff,
   isRenderedPage,
   navigationPostAnswer,
+  nextRefreshBackoff,
   PAGE_ACCOUNT_HEADER,
   pageAccount,
+  parseRefreshBackoff,
+  parseRefreshedRecord,
+  type RefreshBackoff,
+  refreshDue,
+  refreshedRecord,
+  refetchInTurn,
+  type RefetchStep,
+  refetchVerdict,
   revalidationOutcome,
   sentToLogin,
   servesStaleWhileRevalidate,
@@ -346,5 +356,217 @@ describe('revalidationOutcome', () => {
     expect(revalidationOutcome(cached, fresh({ account: '8' }))).toBe(
       'account-changed',
     );
+  });
+});
+
+describe('refetchVerdict', () => {
+  const answer = ({
+    status = 200,
+    redirected = false,
+    path = '/wardrobe/12',
+    headers = { [PAGE_ACCOUNT_HEADER]: '7' },
+  }: {
+    status?: number;
+    redirected?: boolean;
+    path?: string;
+    headers?: Record<string, string>;
+  } = {}) => ({
+    status,
+    redirected,
+    url: `${ORIGIN}${path}`,
+    headers: new Headers(headers),
+  });
+
+  it('stores a 200', () => {
+    expect(refetchVerdict(answer())).toBe('stored');
+  });
+
+  it.each([404, 403])('deletes the copy on a %i', (status) => {
+    expect(refetchVerdict(answer({ status }))).toBe('deleted');
+  });
+
+  it.each([429, 502, 503, 504])(
+    'stops the run on a %i, the server unavailable or throttling',
+    (status) => {
+      expect(refetchVerdict(answer({ status }))).toBe('stop');
+    },
+  );
+
+  it.each([500, 501])('passes over one page failing with a %i', (status) => {
+    expect(refetchVerdict(answer({ status }))).toBe('failed');
+  });
+
+  it('keeps the copy on a redirect to another page, never storing it under this key', () => {
+    expect(
+      refetchVerdict(answer({ redirected: true, path: '/wardrobe' })),
+    ).toBe('kept');
+  });
+
+  it.each([
+    ['a 401', answer({ status: 401, headers: {} })],
+    [
+      'X-Session-Ended on a 200',
+      answer({ headers: { [SESSION_ENDED_HEADER]: '1' } }),
+    ],
+    [
+      'a redirect to the login page',
+      answer({ redirected: true, path: '/auth/login', headers: {} }),
+    ],
+  ])('ends the session on %s', (_case, fetched) => {
+    expect(refetchVerdict(fetched)).toBe('session-ended');
+  });
+});
+
+describe('refetchInTurn', () => {
+  // Each key answered as the server would, through the real answer table:
+  // what refetchCachedPage hands the walk.
+  const server = (statuses: Record<string, number>) => {
+    const asked: string[] = [];
+    const step = (key: string): RefetchStep => {
+      const verdict = refetchVerdict({
+        status: statuses[key] ?? 200,
+        redirected: false,
+        url: `${ORIGIN}${key}`,
+        headers: new Headers({ [PAGE_ACCOUNT_HEADER]: '7' }),
+      });
+      if (verdict === 'deleted') return { verdict, removed: 2 };
+      if (verdict === 'stop' || verdict === 'session-ended') {
+        return { verdict, stop: verdict };
+      }
+      return { verdict };
+    };
+    const refetch = (key: string): Promise<RefetchStep> => {
+      asked.push(key);
+      return Promise.resolve(step(key));
+    };
+    return { asked, refetch };
+  };
+  const keys = ['/wardrobe/1', '/wardrobe/2', '/wardrobe/3'];
+
+  it('asks the keys after one page answering 500', async () => {
+    const { asked, refetch } = server({ '/wardrobe/2': 500 });
+    const run = await refetchInTurn(keys, refetch, () => false);
+    expect(asked).toEqual(keys);
+    expect(run).toEqual({ stored: 2, removed: 0, kept: 0, failed: 1 });
+  });
+
+  it('counts a gone page as its copies removed and goes on', async () => {
+    const { asked, refetch } = server({ '/wardrobe/1': 404 });
+    const run = await refetchInTurn(keys, refetch, () => false);
+    expect(asked).toEqual(keys);
+    expect(run).toEqual({ stored: 2, removed: 2, kept: 0, failed: 0 });
+  });
+
+  it('stops at the server unavailable, asking nothing after it', async () => {
+    const { asked, refetch } = server({ '/wardrobe/2': 503 });
+    const run = await refetchInTurn(keys, refetch, () => false);
+    expect(asked).toEqual(['/wardrobe/1', '/wardrobe/2']);
+    expect(run).toMatchObject({ stored: 1, stop: 'stop' });
+  });
+
+  it('stops before the next key once the session changed', async () => {
+    const { asked, refetch } = server({});
+    const run = await refetchInTurn(keys, refetch, () => asked.length === 1);
+    expect(asked).toEqual(['/wardrobe/1']);
+    expect(run.stop).toBe('the session changed');
+  });
+});
+
+// #782: a page answering 500 no longer makes every WARM_PAGES rescan and ask it.
+describe('the refresh backoff', () => {
+  const MINUTE = 60_000;
+  const activated = 1_000;
+
+  it('waits 5 min after a failure, doubling to a day', () => {
+    let backoff: RefreshBackoff | undefined;
+    const waits: number[] = [];
+    let now = activated;
+    for (let failure = 0; failure < 11; failure++) {
+      backoff = nextRefreshBackoff(backoff, now, activated);
+      waits.push((backoff.retryAt - now) / MINUTE);
+      now = backoff.retryAt;
+    }
+    expect(waits).toEqual([5, 10, 20, 40, 80, 160, 320, 640, 1280, 1440, 1440]);
+    expect(backoff?.failures).toBe(11);
+  });
+
+  it('passes a key over until its wait ends, then asks it again', () => {
+    const backoff = nextRefreshBackoff(undefined, activated, activated);
+    expect(isBackingOff(backoff, activated + 5 * MINUTE - 1)).toBe(true);
+    expect(isBackingOff(backoff, activated + 5 * MINUTE)).toBe(false);
+    expect(isBackingOff(undefined, activated)).toBe(false);
+  });
+
+  it('skips the scan while every left key backs off, and is due once one ends', () => {
+    const now = activated + MINUTE;
+    const waiting = [
+      nextRefreshBackoff(undefined, now, activated),
+      nextRefreshBackoff(
+        { failures: 2, retryAt: now, activatedAt: activated },
+        now,
+        activated,
+      ),
+    ];
+    const record = parseRefreshedRecord(
+      JSON.stringify(refreshedRecord(now, waiting)),
+    );
+    expect(record).toEqual({ at: now, retryAt: now + 5 * MINUTE });
+    expect(refreshDue(record, activated, now + 5 * MINUTE - 1)).toBe(false);
+    expect(refreshDue(record, activated, now + 5 * MINUTE)).toBe(true);
+    // A later deploy makes everything due again, backoff or not.
+    expect(refreshDue(record, now + 2 * MINUTE, now + 2 * MINUTE)).toBe(true);
+  });
+
+  it('is not due again after a walk that left nothing waiting', () => {
+    const now = activated + MINUTE;
+    const record = parseRefreshedRecord(
+      JSON.stringify(refreshedRecord(now, [])),
+    );
+    expect(refreshDue(record, activated, now + 365 * 24 * 60 * MINUTE)).toBe(
+      false,
+    );
+    expect(refreshDue(undefined, activated, now)).toBe(true);
+  });
+
+  // A refreshed-at written before #782 is a bare number.
+  it('reads the older record and treats unreadable ones as none', () => {
+    expect(parseRefreshedRecord('12345')).toEqual({ at: 12345 });
+    expect(parseRefreshedRecord('{')).toBeUndefined();
+    expect(
+      parseRefreshBackoff('{"failures":2,"retryAt":9,"activatedAt":1}', 1),
+    ).toEqual({ failures: 2, retryAt: 9, activatedAt: 1 });
+    expect(parseRefreshBackoff('{"failures":"2"}', 1)).toBeUndefined();
+    expect(parseRefreshBackoff(undefined, 1)).toBeUndefined();
+  });
+
+  // A deploy may fix the failing page: its backoff must not outlive the
+  // activation that wrote it.
+  it('expires a backoff once another build activates', () => {
+    const buildA = activated;
+    let now = buildA + MINUTE;
+    let backoff: RefreshBackoff | undefined;
+    for (let failure = 0; failure < 10; failure++) {
+      backoff = nextRefreshBackoff(backoff, now, buildA);
+    }
+    const stored = JSON.stringify(backoff);
+    expect(backoff?.retryAt).toBe(now + 24 * 60 * MINUTE);
+    expect(isBackingOff(parseRefreshBackoff(stored, buildA), now)).toBe(true);
+
+    now += 2 * MINUTE;
+    const buildB = now;
+    const refreshed = refreshedRecord(
+      buildA + MINUTE,
+      backoff ? [backoff] : [],
+    );
+    // The next WARM_PAGES scans, and asks the key as if it never failed.
+    expect(refreshDue(refreshed, buildB, now)).toBe(true);
+    const underB = parseRefreshBackoff(stored, buildB);
+    expect(underB).toBeUndefined();
+    expect(isBackingOff(underB, now)).toBe(false);
+    expect(nextRefreshBackoff(underB, now, buildB)).toEqual({
+      failures: 1,
+      retryAt: now + 5 * MINUTE,
+      activatedAt: buildB,
+    });
   });
 });
