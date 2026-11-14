@@ -370,8 +370,7 @@ async function readProduct(
   link: string,
 ): Promise<FoundProduct | undefined> {
   try {
-    // Every redirect must be a product link before it is requested (#698),
-    // and a tracker that answered itself (no redirect) names no product.
+    // Every redirect must be a product link before it is requested (#698).
     const { product, url } = await readProductPage(
       fetcher,
       link,
