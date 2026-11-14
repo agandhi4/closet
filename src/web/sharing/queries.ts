@@ -1,7 +1,7 @@
-import { and, eq, isNotNull, isNull, or, type SQL, sql } from 'drizzle-orm';
+import { and, eq, gt, isNotNull, isNull, or, type SQL, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { randomUUID } from 'node:crypto';
-import type { Db } from '../../db/client';
+import type { Db, Queryable } from '../../db/client';
 import { markSecretChecked } from '../../metrics/request-timing';
 import { isUniqueViolation } from '../../db/errors';
 import {
@@ -10,6 +10,7 @@ import {
   user,
   wardrobeShare,
 } from '../../db/schema';
+import { passwordFingerprintSql } from '../auth/tokens';
 import { NotFound } from '../refusals';
 import type { Actor } from './access';
 
@@ -19,7 +20,25 @@ import type { Actor } from './access';
  * a user (token and grantee set, not accepted), or an accepted share
  * (grantee and accepted_at set, token cleared). (grantor, grantee) is
  * unique, so a user holds at most one row per wardrobe.
+ *
+ * An unanswered invite lives INVITE_LIFETIME_MS from created_at (#668),
+ * derived, not stored: created_at is stamped by createInvite from the app's
+ * clock, and every check compares it with a cutoff from that clock
+ * (inviteCutoff), never Postgres now(), so the harness clock and its shift
+ * move both. Accepted shares never expire.
  */
+
+/** How long an unanswered invite can be accepted (#668). */
+export const INVITE_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** An unanswered invite created at or before this instant has expired. */
+export function inviteCutoff(now: Date): Date {
+  return new Date(now.getTime() - INVITE_LIFETIME_MS);
+}
+
+function expiredAt(createdAt: Date, cutoff: Date): boolean {
+  return createdAt.getTime() <= cutoff.getTime();
+}
 
 export interface ShareParty {
   id: number;
@@ -32,6 +51,8 @@ export interface ShareView {
   permission: SharePermission;
   inviteToken: string | null;
   acceptedAt: Date | null;
+  /** An unanswered invite past its lifetime: listed, never offered (#668). */
+  expired: boolean;
   grantor: ShareParty;
   grantee: ShareParty | null;
 }
@@ -46,6 +67,7 @@ function selectShares(db: Db) {
       permission: wardrobeShare.permission,
       inviteToken: wardrobeShare.inviteToken,
       acceptedAt: wardrobeShare.acceptedAt,
+      createdAt: wardrobeShare.createdAt,
       grantor: {
         id: grantor.id,
         email: grantor.email,
@@ -69,14 +91,30 @@ function selectShares(db: Db) {
  * - `outbound`: wardrobes this user shares, accepted shares and open invites;
  * - `inbound`: wardrobes shared with this user;
  * - `pending`: invites addressed to this user, not yet answered.
+ * An expired invite stays in its list, marked `expired`, so its grantor sees
+ * a link went out and can withdraw it.
  */
-export async function sharesOf(db: Db, userId: number) {
-  const rows = await selectShares(db).where(
-    or(
-      eq(wardrobeShare.grantorId, userId),
-      eq(wardrobeShare.granteeId, userId),
-    ),
-  );
+export async function sharesOf(
+  db: Db,
+  userId: number,
+  now = new Date(),
+): Promise<{
+  outbound: ShareView[];
+  inbound: ShareView[];
+  pending: ShareView[];
+}> {
+  const cutoff = inviteCutoff(now);
+  const rows = (
+    await selectShares(db).where(
+      or(
+        eq(wardrobeShare.grantorId, userId),
+        eq(wardrobeShare.granteeId, userId),
+      ),
+    )
+  ).map(({ createdAt, ...row }) => ({
+    ...row,
+    expired: row.acceptedAt === null && expiredAt(createdAt, cutoff),
+  }));
   const received = rows.filter((row) => row.grantee?.id === userId);
   return {
     outbound: rows.filter((row) => row.grantor.id === userId),
@@ -89,6 +127,8 @@ export async function sharesOf(db: Db, userId: number) {
 export interface InviteView {
   permission: SharePermission;
   grantor: { firstName: string | null };
+  /** Past its lifetime: the landing says so and offers no Accept (#668). */
+  expired: boolean;
 }
 
 /**
@@ -100,42 +140,102 @@ export interface InviteView {
 export async function findInvite(
   db: Db,
   token: string,
+  now = new Date(),
 ): Promise<InviteView | undefined> {
   markSecretChecked();
   const [row] = await db
     .select({
       permission: wardrobeShare.permission,
+      createdAt: wardrobeShare.createdAt,
       grantor: { firstName: user.firstName },
     })
     .from(wardrobeShare)
     .innerJoin(user, eq(user.id, wardrobeShare.grantorId))
     .where(eq(wardrobeShare.inviteToken, token));
-  return row;
+  if (!row) return undefined;
+  const { createdAt, ...invite } = row;
+  return { ...invite, expired: expiredAt(createdAt, inviteCutoff(now)) };
 }
 
-export async function createInvite(
-  db: Db,
+/**
+ * Makes an open invite, or undefined, storing nothing, when the session
+ * that asked has ended: one insert-select from the grantor's own row,
+ * locked, only while its password fingerprint is still `fingerprint` (the
+ * session's, sessionFingerprint), as upsertDevice does (#512). Without a
+ * `fingerprint` (the seed and spec fixtures: no session) the row is still
+ * locked and nothing is checked; a missing grantor is NotFound('account'). The lock is
+ * the one a new password's writer takes (updatePasswordHash), so the two
+ * take turns: an invite committed first is deleted by the password's
+ * revocations, read after their own wait; a password committed first moves
+ * the fingerprint and this inserts nothing. `no key update`: it conflicts
+ * with the password's update without holding up the household's foreign
+ * key checks. wardrobe_share is not a synced table (src/db/sync-tables.ts),
+ * so the user row lock is the only lock here, never the owner lock.
+ * created_at comes from the app's clock (`now`), what expiry compares.
+ * Raw SQL: Drizzle's insert-select must select the serial id (insertUser).
+ */
+export interface NewInvite {
+  id: number;
+  inviteToken: string;
+}
+export function createInvite(
+  db: Queryable,
   grantorId: number,
   permission: SharePermission,
-): Promise<{ id: number; inviteToken: string }> {
-  const [row] = await db
-    .insert(wardrobeShare)
-    .values({
-      grantorId,
-      permission,
-      inviteToken: randomUUID(),
-      createdAt: new Date(),
-    })
-    .returning({
-      id: wardrobeShare.id,
-      inviteToken: wardrobeShare.inviteToken,
-    });
-  return { id: row.id, inviteToken: row.inviteToken! };
+  options: { fingerprint: string; now?: Date },
+): Promise<NewInvite | undefined>;
+export function createInvite(
+  db: Queryable,
+  grantorId: number,
+  permission: SharePermission,
+  options?: { now?: Date },
+): Promise<NewInvite>;
+export async function createInvite(
+  db: Queryable,
+  grantorId: number,
+  permission: SharePermission,
+  { fingerprint, now = new Date() }: { fingerprint?: string; now?: Date } = {},
+): Promise<NewInvite | undefined> {
+  const session =
+    fingerprint === undefined
+      ? sql``
+      : sql` and ${passwordFingerprintSql} = ${fingerprint}`;
+  const { rows } = await db.execute<{ id: number; invite_token: string }>(sql`
+    insert into ${wardrobeShare} (grantor_id, permission, invite_token, created_at)
+    select ${user.id}, ${permission}, ${randomUUID()}, ${now}
+    from ${user}
+    where ${user.id} = ${grantorId}${session}
+    for no key update
+    returning id, invite_token`);
+  const [row] = rows;
+  if (row) return { id: row.id, inviteToken: row.invite_token };
+  if (fingerprint !== undefined) return undefined;
+  throw new NotFound('account', { logDetail: `user ${grantorId}` });
+}
+
+/**
+ * Deletes every invite `grantorId` sent that nobody accepted (open links
+ * and addressed invites alike); accepted shares and the invites others sent
+ * them stay. A data-modifying CTE of the new password's revocation
+ * statement (updatePasswordHash, #668), read after its row lock, so an
+ * invite minted while it waited goes too (createInvite).
+ */
+export function revokeOpenInvitesStatement(db: Queryable, grantorId: number) {
+  return db
+    .delete(wardrobeShare)
+    .where(
+      and(
+        eq(wardrobeShare.grantorId, grantorId),
+        isNull(wardrobeShare.acceptedAt),
+      ),
+    )
+    .returning({ id: wardrobeShare.id });
 }
 
 /** Why an invite could not be accepted; each has its message on the manage page. */
 export type AcceptRefusal =
   | 'not-found'
+  | 'expired'
   | 'own-invite'
   | 'wrong-recipient'
   | 'already-shared';
@@ -154,13 +254,20 @@ export type AcceptResult =
  * folds into the existing share (upgrading VIEW to MANAGE) and is deleted.
  * A pending addressed invite from the same grantor collides with the
  * (grantor, grantee) constraint: that is "already shared".
+ *
+ * Expiry is one cutoff from `now`, checked on the read ("expired") and
+ * again in the write's guard, so an invite that expires between the two is
+ * "gone meanwhile" ("not-found") and nothing changes: valid only while
+ * created_at is after the cutoff, with no instant between the checks.
  */
 export async function acceptInvite(
   db: Db,
   token: string,
   granteeId: number,
+  now = new Date(),
 ): Promise<AcceptResult> {
   markSecretChecked();
+  const cutoff = inviteCutoff(now);
   const existing = alias(wardrobeShare, 'existing');
   const [invite] = await db
     .select({
@@ -168,6 +275,7 @@ export async function acceptInvite(
       grantorId: wardrobeShare.grantorId,
       granteeId: wardrobeShare.granteeId,
       permission: wardrobeShare.permission,
+      createdAt: wardrobeShare.createdAt,
       existing: { id: existing.id, permission: existing.permission },
     })
     .from(wardrobeShare)
@@ -188,10 +296,15 @@ export async function acceptInvite(
   if (!invite) return { accepted: false, reason: 'not-found' };
   const refusal = refusalOf(invite, granteeId);
   if (refusal) return { accepted: false, reason: refusal };
-  // The invite as read: still holding its token, so still unanswered.
+  if (expiredAt(invite.createdAt, cutoff)) {
+    return { accepted: false, reason: 'expired' };
+  }
+  // The invite as read: still holding its token, so still unanswered, and
+  // still inside its lifetime (the claim's and the fold's one guard).
   const unanswered = and(
     eq(wardrobeShare.id, invite.id),
     eq(wardrobeShare.inviteToken, token),
+    gt(wardrobeShare.createdAt, cutoff),
   );
   const held = invite.existing;
   const outcome = held

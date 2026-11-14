@@ -4,7 +4,7 @@ import { AppBar } from '../layout/app-bar';
 import { Layout } from '../layout/layout';
 import { CopyableText } from '../share/share-button';
 import type { ViewContext } from '../view-context';
-import { Field, PostForm } from './form';
+import { Field, PostForm, UsernameTwin } from './form';
 import { AGENT_ACCESS_SECTION_ID, profileSection } from './urls';
 import {
   MAX_ACTIVE_TOKENS,
@@ -114,15 +114,7 @@ export function TokensPage(props: TokensPageProps) {
               {t('agentAccess.PASSWORD_WHY')}
             </p>
             <PostForm action="/auth/tokens" class="flex flex-col gap-2">
-              {/* Tells password managers which account's password this is. */}
-              <input
-                type="text"
-                name="username"
-                autocomplete="username"
-                value={ctx.user?.email ?? ''}
-                class="hidden"
-                readonly
-              />
+              <UsernameTwin email={ctx.user?.email} />
               <label class="flex flex-col gap-1">
                 <span class="text-sm">{t('agentAccess.NAME')}</span>
                 <input

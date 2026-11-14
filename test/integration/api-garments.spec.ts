@@ -10,7 +10,7 @@ import {
   jpegPhoto,
   uploadPhoto,
 } from './garments';
-import { createTestApp, type TestApp } from './harness';
+import { createTestApp, type TestApp, TEST_PASSWORD } from './harness';
 import { insertGarmentOnce } from '../../src/web/wardrobe/queries';
 import { interleave } from './interleave';
 
@@ -56,7 +56,7 @@ async function share(cookie: string, permission: 'VIEW' | 'MANAGE') {
   const invite = await t.inject({
     method: 'POST',
     url: '/wardrobe-share/create-invite-link',
-    payload: { permission },
+    payload: { permission, currentPassword: TEST_PASSWORD },
     headers: { 'hx-request': 'true' },
   });
   const token = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(

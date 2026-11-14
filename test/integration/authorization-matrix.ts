@@ -25,6 +25,7 @@ import {
 } from '../../src/web/style/validation';
 import { LOGIN_PATH } from '../../src/web/auth/login-path';
 import { addBrandSize } from '../../src/web/sizes/queries';
+import { createInvite } from '../../src/web/sharing/queries';
 import { addRepair } from '../../src/web/wardrobe/repairs';
 import { recordOrderEmail } from '../../src/web/wardrobe/order-mail/queries';
 import { addDays, type IsoDate } from '../../src/calendar-date';
@@ -486,18 +487,13 @@ export function describeMatrix(
       return { id, email, cookie };
     };
 
-    /** A new open invite link to the owner's wardrobe; its token. */
-    const createInviteLink = async (permission: 'VIEW' | 'MANAGE') => {
-      const res = await t.inject({
-        method: 'POST',
-        url: '/wardrobe-share/create-invite-link',
-        payload: { permission },
-        headers: { cookie: actors.owner.cookie, 'hx-request': 'true' },
-      });
-      const token = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(res.body);
-      if (!token) throw new Error(`No invite URL in partial:\n${res.body}`);
-      return token[1];
-    };
+    /**
+     * A new open invite link to the owner's wardrobe; its token. Through
+     * the writer: the route asks an edit link for the password and limits
+     * it (INVITE_LIMIT, #668; share-lifecycle.spec.ts drives it).
+     */
+    const createInviteLink = async (permission: 'VIEW' | 'MANAGE') =>
+      (await createInvite(t.db, t.owner.id, permission)).inviteToken;
 
     const share = async (grantee: SignedIn, permission: 'VIEW' | 'MANAGE') => {
       const token = await createInviteLink(permission);

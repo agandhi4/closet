@@ -4,7 +4,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { garment } from '../../src/db/schema';
 import { variantFileName } from '../../src/web/files/image-variant';
 import { garmentRow, jpegPhoto, uploadPhoto } from './garments';
-import { createTestApp, hxLocationPath, TestApp, userIdOf } from './harness';
+import {
+  createTestApp,
+  hxLocationPath,
+  TestApp,
+  userIdOf,
+  TEST_PASSWORD,
+} from './harness';
 import { expectOfflineGuarded } from './pages';
 
 /**
@@ -92,7 +98,7 @@ describe('garment edit, clone and archive', () => {
     const invite = await t.inject({
       method: 'POST',
       url: '/wardrobe-share/create-invite-link',
-      payload: { permission: 'MANAGE' },
+      payload: { permission: 'MANAGE', currentPassword: TEST_PASSWORD },
       headers: { cookie: alice.cookie, 'hx-request': 'true' },
     });
     const token = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(

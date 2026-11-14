@@ -16,6 +16,15 @@ export const SHARING_PATH = profileSection(SHARING_SECTION_ID);
 export const LEGACY_MANAGE_PATH = '/wardrobe-share/manage';
 
 /**
+ * The edit-link step-up page (#668): an edit link hands out write access,
+ * so it is minted only with the current password, like a token.
+ */
+export const EDIT_INVITE_PATH = '/wardrobe-share/edit-invite';
+
+/** Where both invite forms post (the view link's one tap, the step-up page). */
+export const CREATE_INVITE_PATH = '/wardrobe-share/create-invite-link';
+
+/**
  * An invite's landing page (public, its token a bearer secret: the route is
  * `secretPath`), and where signing in from it returns (#661).
  */

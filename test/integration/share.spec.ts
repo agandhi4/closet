@@ -1,6 +1,8 @@
+import { desc, isNull } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { wardrobeShare } from '../../src/db/schema';
 import { createGarment, garmentRow, garmentsNamed } from './garments';
-import { createTestApp, TestApp, userIdOf } from './harness';
+import { createTestApp, TEST_PASSWORD, TestApp, userIdOf } from './harness';
 
 describe('wardrobe sharing', () => {
   let t: TestApp;
@@ -9,7 +11,11 @@ describe('wardrobe sharing', () => {
 
   const userId = async (email: string) => userIdOf(t, email);
 
-  /** The htmx form in Profile › Sharing: returns the invite token. */
+  /**
+   * Profile › Sharing's view link (the htmx form, answering the link) or
+   * the edit link's step-up page (a native post with the password, #668,
+   * landing on the section): the new invite's token, from its row.
+   */
   const createInvite = async (
     cookie: string,
     permission: 'VIEW' | 'MANAGE',
@@ -17,13 +23,19 @@ describe('wardrobe sharing', () => {
     const res = await t.inject({
       method: 'POST',
       url: '/wardrobe-share/create-invite-link',
-      payload: { permission },
-      headers: { cookie, 'hx-request': 'true' },
+      payload: { permission, currentPassword: TEST_PASSWORD },
+      headers:
+        permission === 'VIEW' ? { cookie, 'hx-request': 'true' } : { cookie },
     });
-    expect(res.statusCode).toBeLessThan(300);
-    const match = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(res.body);
-    if (!match) throw new Error(`No invite URL in partial:\n${res.body}`);
-    return match[1];
+    expect(res.statusCode).toBe(permission === 'VIEW' ? 200 : 302);
+    const [row] = await t.db
+      .select({ token: wardrobeShare.inviteToken })
+      .from(wardrobeShare)
+      .where(isNull(wardrobeShare.acceptedAt))
+      .orderBy(desc(wardrobeShare.id))
+      .limit(1);
+    if (permission === 'VIEW') expect(res.body).toContain(row.token!);
+    return row.token!;
   };
 
   const acceptInvite = async (cookie: string, token: string) => {

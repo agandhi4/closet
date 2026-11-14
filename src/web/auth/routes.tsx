@@ -431,12 +431,13 @@ export const authRoutes: FastifyPluginCallbackTypebox<
         account: updated,
         revokedTokens,
         revokedDevices,
+        revokedInvites,
       } = await setPassword(db, id, body.newPassword, {
         endpoint: body.pushEndpoint || undefined,
       });
       setSessionCookie(reply, tokens.issue(updated));
       logger.info(
-        `Password changed for user ${id}: other sessions, ${revokedTokens.mcp} MCP tokens, ${revokedTokens.device} device tokens and ${revokedDevices} other push devices revoked`,
+        `Password changed for user ${id}: other sessions, ${revokedTokens.mcp} MCP tokens, ${revokedTokens.device} device tokens, ${revokedDevices} other push devices and ${revokedInvites} unanswered invites revoked`,
       );
       return reply.redirect(`${PROFILE_PATH}?passwordChanged=1`, 302);
     },

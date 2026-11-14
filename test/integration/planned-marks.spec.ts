@@ -4,7 +4,12 @@ import { eq } from 'drizzle-orm';
 import { garment, garmentWear, outfitCalendar } from '../../src/db/schema';
 import { dayColumns } from './calendar-page';
 import { createGarment } from './garments';
-import { createTestApp, type TestApp, asFixture } from './harness';
+import {
+  createTestApp,
+  type TestApp,
+  asFixture,
+  TEST_PASSWORD,
+} from './harness';
 
 /**
  * A planned outfit warns about a piece it cannot be worn with (#358;
@@ -235,7 +240,7 @@ describe('planned outfits: unavailable pieces', () => {
     const invite = await t.inject({
       method: 'POST',
       url: '/wardrobe-share/create-invite-link',
-      payload: { permission: 'MANAGE' },
+      payload: { permission: 'MANAGE', currentPassword: TEST_PASSWORD },
       headers: { 'hx-request': 'true' },
     });
     const token = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(

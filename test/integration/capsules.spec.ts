@@ -3,7 +3,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { capsule, capsuleGarment, garment } from '../../src/db/schema';
 import { recordStatements } from '../support/query-recorder';
 import { createGarment } from './garments';
-import { createTestApp, type TestApp, unescapeHtml, userIdOf } from './harness';
+import {
+  createTestApp,
+  type TestApp,
+  unescapeHtml,
+  userIdOf,
+  TEST_PASSWORD,
+} from './harness';
 import {
   expectFragment,
   expectFullPage,
@@ -67,7 +73,7 @@ describe('capsules', () => {
     const invite = await t.inject({
       method: 'POST',
       url: '/wardrobe-share/create-invite-link',
-      payload: { permission },
+      payload: { permission, currentPassword: TEST_PASSWORD },
       headers: { 'hx-request': 'true' },
     });
     const token = /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(

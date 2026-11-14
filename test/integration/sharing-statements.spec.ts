@@ -12,6 +12,7 @@ import {
   capsuleListSql,
   readCapsuleList,
 } from '../../src/web/capsules/queries';
+import { createInvite } from '../../src/web/sharing/queries';
 import { createGarment } from './garments';
 import {
   createTestApp,
@@ -63,15 +64,9 @@ describe('sharing: statements per request', () => {
   const post = (url: string, as: Account, payload: object = {}) =>
     t.inject({ method: 'POST', url, payload, headers: { cookie: as.cookie } });
 
-  const newInvite = async (permission: 'VIEW' | 'MANAGE' = 'VIEW') => {
-    const res = await t.inject({
-      method: 'POST',
-      url: '/wardrobe-share/create-invite-link',
-      payload: { permission },
-      headers: { cookie: owner.cookie, 'hx-request': 'true' },
-    });
-    return /\/wardrobe-share\/invite\/([0-9a-f-]{36})/.exec(res.body)![1];
-  };
+  /** Through the writer: the route is ACCOUNT_LIMITed (#668). */
+  const newInvite = async (permission: 'VIEW' | 'MANAGE' = 'VIEW') =>
+    (await createInvite(t.db, owner.id, permission)).inviteToken;
 
   const shareWith = async (grantee: Account, permission: 'VIEW' | 'MANAGE') => {
     const token = await newInvite(permission);
@@ -217,6 +212,20 @@ describe('sharing: statements per request', () => {
   });
 
   describe('invites', () => {
+    it('create: the session (with the hash) and the locked insert', async () => {
+      const creator = await signUp('creator');
+      const record = await recordQueries(async () => {
+        const res = await t.inject({
+          method: 'POST',
+          url: '/wardrobe-share/create-invite-link',
+          payload: { permission: 'VIEW' },
+          headers: { cookie: creator.cookie, 'hx-request': 'true' },
+        });
+        expect(res.statusCode).toBe(200);
+      });
+      expect(record.statements).toBe(2);
+    });
+
     it('the landing: the session and the invite, which reads no email', async () => {
       const token = await newInvite();
       const guest = await signUp('guest');
