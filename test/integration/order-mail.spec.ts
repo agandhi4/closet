@@ -534,7 +534,7 @@ describe('order email import', () => {
       jmap.deliver(
         productEmail('Mgood00001', '2026-09-28T08:05:00Z', 'Good Tee'),
       );
-      jmap.failBodyOf('Mpoison001', 'shape');
+      jmap.failBodyOf('Mpoison001', 404);
 
       const failure = await whole().catch((error: unknown) => error);
 
@@ -632,7 +632,7 @@ describe('order email import', () => {
       jmap.deliver(
         productEmail('Mtwin00002', '2026-09-28T11:00:00Z', 'Twin Two'),
       );
-      jmap.failBodyOf('Mtwin00001', 'shape');
+      jmap.failBodyOf('Mtwin00001', 404);
       await expect(whole()).rejects.toBeInstanceOf(PartialFailure);
       expect(await listedNames()).toContain('Twin Two');
       expect(await emailRow('Mtwin00001')).toMatchObject({ status: 'failed' });
@@ -646,7 +646,7 @@ describe('order email import', () => {
       expect(await emailRow('Mtwin00002')).toMatchObject({ items: 1 });
     });
 
-    it('spends no attempt on a mailbox failure until it repeats on the same email', async () => {
+    it('spends no attempt on its own body fetch failing until it repeats on the same email', async () => {
       jmap.deliver(
         productEmail('Mstuck0001', '2026-09-28T12:00:00Z', 'Stuck Tee'),
       );
@@ -679,7 +679,7 @@ describe('order email import', () => {
       jmap.deliver(
         productEmail('Mgone00001', '2026-09-28T13:00:00Z', 'Gone Tee'),
       );
-      jmap.failBodyOf('Mgone00001', 'shape');
+      jmap.failBodyOf('Mgone00001', 404);
       await expect(whole()).rejects.toBeInstanceOf(PartialFailure);
 
       jmap.remove('Mgone00001');
@@ -692,7 +692,7 @@ describe('order email import', () => {
       jmap.failBodyOf('Mgone00001', undefined);
     });
 
-    it("counts a JMAP method error as the mailbox's, never the email's", async () => {
+    it("counts a JMAP method error as the outage's, never the email's", async () => {
       jmap.deliver(
         productEmail('Mmethod001', '2026-09-28T14:00:00Z', 'Method Tee'),
       );
@@ -700,11 +700,7 @@ describe('order email import', () => {
       await expect(whole()).rejects.toThrow(
         'JMAP body failed: serverUnavailable',
       );
-      expect(await emailRow('Mmethod001')).toMatchObject({
-        status: 'failed',
-        attempts: 0,
-        mailboxFailures: 1,
-      });
+      expect(await emailRow('Mmethod001')).toBeUndefined();
       jmap.failBodyOf('Mmethod001', undefined);
       await whole();
       expect(await emailRow('Mmethod001')).toMatchObject({
@@ -719,7 +715,7 @@ describe('order email import', () => {
       jmap.deliver(
         productEmail('Mstop00001', '2026-09-28T15:05:00Z', 'Stop Tee'),
       );
-      jmap.failBodyOf('Mfirst0001', 'shape');
+      jmap.failBodyOf('Mfirst0001', 404);
       jmap.failBodyOf('Mstop00001', 503);
 
       const stopped = await whole().catch((error: unknown) => error);
@@ -734,6 +730,55 @@ describe('order email import', () => {
       jmap.failBodyOf('Mfirst0001', undefined);
       jmap.failBodyOf('Mstop00001', undefined);
       await expect(whole()).resolves.toMatchObject({ failing: 0 });
+    });
+
+    it('never strikes or spends an attempt on a session-level 503 or 429, however many polls', async () => {
+      jmap.deliver(
+        productEmail('Moldest001', '2026-09-28T16:00:00Z', 'Oldest Tee'),
+      );
+      for (const status of [503, 429]) {
+        jmap.failWith(status);
+        for (let poll = 0; poll < 10; poll += 1) {
+          await expect(whole()).rejects.toThrow(JmapError);
+        }
+      }
+      jmap.failWith(undefined);
+      // A 429 on that email's own body is the outage's too.
+      jmap.failBodyOf('Moldest001', 429);
+      for (let poll = 0; poll < 10; poll += 1) {
+        await expect(whole()).rejects.toThrow(JmapError);
+      }
+      expect(await emailRow('Moldest001')).toBeUndefined();
+
+      jmap.failBodyOf('Moldest001', undefined);
+      await whole();
+      expect(await emailRow('Moldest001')).toMatchObject({
+        status: 'decided',
+        attempts: 0,
+        mailboxFailures: 0,
+      });
+    });
+
+    it('counts a wrong-shaped body answer for its id as a strike, three in a row as one attempt', async () => {
+      jmap.deliver(
+        productEmail('Mshape0001', '2026-09-28T17:00:00Z', 'Shape Tee'),
+      );
+      jmap.failBodyOf('Mshape0001', 'shape');
+      for (const strikes of [1, 2]) {
+        await expect(whole()).rejects.toThrow(JmapError);
+        expect(await emailRow('Mshape0001')).toMatchObject({
+          attempts: 0,
+          mailboxFailures: strikes,
+        });
+      }
+      await expect(whole()).rejects.toBeInstanceOf(PartialFailure);
+      expect(await emailRow('Mshape0001')).toMatchObject({
+        attempts: 1,
+        mailboxFailures: 0,
+      });
+      jmap.failBodyOf('Mshape0001', undefined);
+      await whole();
+      expect(await emailRow('Mshape0001')).toMatchObject({ status: 'decided' });
     });
   });
 });

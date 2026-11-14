@@ -1228,3 +1228,8 @@ Consequence: `npm audit --omit=dev` is 0, so the pins cost no advisory; the reas
 Why: `@sentry/node` 11 hard-depends on `@sentry/bundler-plugins`, which pulls the `sentry` CLI (FSL-1.1-Apache-2.0, not OSI) into the AGPL production image; 11 fixed no advisory.
 Decision: `@sentry/node` stays `^10` (the range blocks 11); the tracker sets `sendDefaultPii: false` again and leaves `attachStacktrace` at v10's default. The lockfile has no non-dev `sentry`, `@sentry/bundler-plugins`, `@sentry/cli` or FSL package.
 Consequence: revisit when Sentry drops bundler-plugins from node's runtime deps or the owner settles licences (#638, #639); the reason is in `src/metrics/AGENTS.md`.
+
+## 2026-11-14 — Order mail strikes count only an email's own fetch (#932, #933)
+Why: #923 counted every mailbox-level failure as a strike on the email being read, so a 10-poll session 503, a 429 or a database blip parked healthy emails.
+Decision: `failureScope` returns `email` (spends an attempt), `message` (that id's own body fetch: 5xx or wrong shape; a strike, 3 in a row spend one) or `outage` (everything else, every database error that is not a refusal of the email's values: no row written). Strikes left by the old rule are harmless: the next strike or outcome resets them.
+Consequence: a new failure path picks one of the three in `failureScope` or `JmapError.scope`, nowhere else.

@@ -27,13 +27,20 @@ export const ORDER_EMAIL_STATUSES = ['decided', 'failed', 'parked'] as const;
 export type OrderEmailStatus = (typeof ORDER_EMAIL_STATUSES)[number];
 
 /**
- * Whose fault a failed read was: the email's own (its body answer's shape,
- * a 4xx for it, a product the columns refuse) spends one of its attempts;
- * the mailbox's (JMAP unreachable, refusing the token, a 5xx, a method
- * error; the database out of reach or timing out counts here too) fails the
- * run and spends none, so an outage never parks the inbox.
+ * What a failed read says about its email, the one rule for the strike
+ * backstop (#932):
+ * - `email`: its own content failed (a 4xx for its id, a product the
+ *   columns refuse): spends one of its attempts.
+ * - `message`: its own Email/get answered a 5xx or a wrong shape for that
+ *   id: fails the run and counts a strike on its row; ORDER_MAIL_MAILBOX_STRIKES
+ *   in a row spend one attempt.
+ * - `outage`: nothing about this email (the session, the query, the
+ *   envelopes, the transport, 401/403/408/429, a JMAP method error, an
+ *   answer that is not JSON, any database failure that is not a refusal of
+ *   the email's values): fails the run and touches no row, so an incident
+ *   never parks the inbox.
  */
-export type OrderEmailFailureScope = 'email' | 'mailbox';
+export type OrderEmailFailureScope = 'email' | 'message' | 'outage';
 
 /**
  * An email failing this many reads is parked. Link fetches that fail are

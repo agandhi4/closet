@@ -51,9 +51,9 @@ interface JmapErrorDetails {
 
 /**
  * A JMAP failure: the step and why, never the token or a body. `scope` is
- * `mailbox` but for one email's body that JMAP answered wrongly (#693): a
- * body answer of the wrong shape, or a 4xx for that id (bodyFailureScope),
- * which spend that email's attempt instead of failing the run.
+ * `outage` but for one email's own body fetch (#693, #932): a 4xx for that
+ * id is the `email`'s, a 5xx or a wrong-shaped answer is the `message`'s
+ * (bodyFailureScope); see OrderEmailFailureScope.
  */
 export class JmapError extends Error {
   readonly refusal: OutboundFetchRefusal | undefined;
@@ -65,7 +65,7 @@ export class JmapError extends Error {
     this.name = 'JmapError';
     this.refusal = details.refusal;
     this.status = details.status;
-    this.scope = details.scope ?? 'mailbox';
+    this.scope = details.scope ?? 'outage';
   }
 }
 
@@ -73,22 +73,19 @@ export class JmapError extends Error {
 const MAILBOX_STATUSES = new Set([401, 403, 408, 429]);
 
 /**
- * Whose failure one email's body request was: a 4xx for that id is the
- * email's; the transport, auth, rate limits, 5xx, a method error
- * (serverUnavailable, serverFail, forbidden: RFC 8620 names the server's
- * or the account's state, not one email's) and an answer that is not JSON
- * (a maintenance page) are the mailbox's, so an incident never parks real
- * emails; one that persists on a single email is the strikes' backstop.
- * The session, the query and the envelopes are never one email's.
+ * Whose failure one email's body request was. A 4xx for that id is the
+ * email's; a 5xx is the message's (a strike); everything else is the
+ * outage's: the transport, 401/403/408/429 (the token, the account or the
+ * server's load), a method error (serverUnavailable, serverFail,
+ * forbidden: RFC 8620 names the server's state, not one email's) and an
+ * answer that is not JSON (a maintenance page). The session, the query and
+ * the envelopes are never one email's.
  */
 function bodyFailureScope(error: JmapError): OrderEmailFailureScope {
   const { status } = error;
-  return status !== undefined &&
-    status >= 400 &&
-    status < 500 &&
-    !MAILBOX_STATUSES.has(status)
-    ? 'email'
-    : 'mailbox';
+  if (status === undefined) return 'outage';
+  if (status >= 500) return 'message';
+  return status >= 400 && !MAILBOX_STATUSES.has(status) ? 'email' : 'outage';
 }
 
 /** What the trust check reads of an email, and when it arrived. */
@@ -340,7 +337,7 @@ export function createJmapClient({
             'body',
             BodyAnswer,
             answers.get('body'),
-            'email',
+            'message',
           ).list;
           if (!email) return { kind: 'gone' };
           const parts = email.htmlBody.flatMap(({ partId, type }) => {
@@ -361,7 +358,7 @@ function checked<S extends TSchema>(
   step: string,
   schema: S,
   value: unknown,
-  scope: OrderEmailFailureScope = 'mailbox',
+  scope: OrderEmailFailureScope = 'outage',
 ): Static<S> {
   if (!Value.Check(schema, value)) {
     throw new JmapError(`JMAP ${step} answered an unexpected shape`, {
