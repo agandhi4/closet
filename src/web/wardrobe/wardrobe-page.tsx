@@ -43,6 +43,7 @@ import {
   capsuleUrl,
   draftUrl,
   garmentUrl,
+  idListValue,
   LAUNDRY_PATH,
   TAG_PATH,
   wardrobeUrl,
@@ -130,8 +131,8 @@ export interface WardrobeModel {
   picking?: Picking & { name: string };
   /** The wardrobe's capsules: the scope row's choices. */
   capsules: CapsuleRef[];
-  /** After POST /wardrobe/bulk: its toast. */
-  bulkResult?: { updated: number; skipped: number };
+  /** After one of select mode's verbs: its toast. */
+  bulkOutcome?: BulkOutcome;
   /**
    * The requester's drafts waiting for this wardrobe (#200): the prompt
    * to continue them, from the first (someone who can add only).
@@ -142,10 +143,34 @@ export interface WardrobeModel {
    * draft queue saved, checked where the first page shows them.
    */
   batchSaved: ReadonlySet<number>;
+  /** Select mode after a verb (#677): what it acted on, checked again. */
+  selection: Selection;
 }
 
-/** The one-shot flags the bulk edit's redirect carries (GridQuery). */
-const BULK_FLAGS = ['bulkUpdated', 'bulkSkipped'] as const;
+/**
+ * Select mode's selection as a verb's redirect brings it back: the ids it
+ * acted on, or `all`, every garment of the filters ("Select all N").
+ */
+export interface Selection {
+  ids: ReadonlySet<number>;
+  all: boolean;
+}
+
+const NO_SELECTION: Selection = { ids: new Set(), all: false };
+
+/** What a select-mode verb did, for its toast (the redirect's flags). */
+export type BulkOutcome =
+  | { verb: 'set'; count: number; skipped: number }
+  | { verb: 'archive' | 'wash' | 'capsule'; count: number };
+
+/** The one-shot flags select mode's verbs' redirects carry (GridQuery). */
+const BULK_FLAGS = [
+  'bulkUpdated',
+  'bulkSkipped',
+  'bulkArchived',
+  'bulkWashed',
+  'bulkAdded',
+] as const;
 
 /** The draft queue's end (#200, batchDoneUrl): its garments, checked once. */
 const BATCH_FLAGS = ['checked'] as const;
@@ -303,7 +328,8 @@ function WardrobeMain({ model }: { model: WardrobeModel }) {
           ownerView={model.ownerView}
         />
       )}
-      {model.bulkResult && <BulkToast result={model.bulkResult} />}
+      {model.selecting && !model.picking && <BulkActions model={model} />}
+      {model.bulkOutcome && <BulkToast outcome={model.bulkOutcome} />}
     </PageMain>
   );
 }
@@ -367,35 +393,58 @@ function Tiles({ model }: { model: WardrobeModel }) {
     );
   }
   if (model.selecting) {
-    const checked = model.page.tiles.filter((tile) =>
+    const batch = model.page.tiles.filter((tile) =>
       model.batchSaved.has(tile.id),
     ).length;
+    const shown = new Set(model.page.tiles.map((tile) => tile.id));
+    // A kept selection's garments this page does not show (a later page, or
+    // a filter a verb's change moved them out of) still count and post.
+    const carried = model.selection.all
+      ? []
+      : [...model.selection.ids].filter((id) => !shown.has(id));
+    const checked = model.selection.all
+      ? model.count
+      : model.page.tiles.filter((tile) => isChecked(tile, model)).length +
+        carried.length;
     return (
       <>
-        {checked > 0 && (
+        {batch > 0 && (
           <>
             <p
               role="status"
               class="alert alert-success alert-soft text-sm mb-3"
             >
-              {checked === 1
+              {batch === 1
                 ? t('drafts.DONE_ONE')
-                : t('drafts.DONE', { count: checked })}
+                : t('drafts.DONE', { count: batch })}
             </p>
             <StripFlags names={BATCH_FLAGS} />
           </>
         )}
-        <BulkForm
-          search={model.search}
-          viewOwner={model.viewOwner}
-          checked={checked}
-        >
+        <BulkForm model={model} checked={checked}>
+          <SelectAll count={model.count} checked={model.selection.all} />
+          {carried.map((id) => (
+            <input type="hidden" name="ids" value={id} data-carried="true" />
+          ))}
           <Grid model={model} />
         </BulkForm>
       </>
     );
   }
   return <Grid model={model} />;
+}
+
+/** A select-mode tile checked as the page renders it: a batch's garment (#200), or the selection a verb kept. */
+function isChecked(
+  tile: GarmentTile,
+  model: { batchSaved?: ReadonlySet<number>; selection?: Selection },
+): boolean {
+  const selection = model.selection ?? NO_SELECTION;
+  return (
+    selection.all ||
+    selection.ids.has(tile.id) ||
+    (model.batchSaved?.has(tile.id) ?? false)
+  );
 }
 
 /** Whether anything but the capsule scope narrows the grid. */
@@ -473,6 +522,7 @@ function Grid({ model }: { model: WardrobeModel }) {
         selecting={model.selecting}
         picking={model.picking}
         batchSaved={model.batchSaved}
+        selection={model.selection}
         firstPage
       />
     </GarmentGrid>
@@ -496,6 +546,8 @@ export function GarmentTiles(props: {
   picking?: Picking;
   /** Select mode at a batch's end: its garments checked (the first page only). */
   batchSaved?: ReadonlySet<number>;
+  /** Select mode after a verb: what it acted on, checked on every page. */
+  selection?: Selection;
   firstPage?: boolean;
 }) {
   const { page, search, viewOwner, selecting, picking } = props;
@@ -507,9 +559,7 @@ export function GarmentTiles(props: {
           <SelectTile
             tile={tile}
             eager={eager}
-            checked={
-              tile.member === true || (props.batchSaved?.has(tile.id) ?? false)
-            }
+            checked={tile.member === true || isChecked(tile, props)}
             shown={picking !== undefined}
           />
         ) : (
@@ -522,6 +572,7 @@ export function GarmentTiles(props: {
           hx-get={tilesUrl(viewOwner, search, page.before, {
             selecting,
             picking,
+            selection: props.selection,
           })}
           hx-trigger="revealed"
           hx-swap="outerHTML"
@@ -547,14 +598,20 @@ export function tilesUrl(
   viewOwner: number | undefined,
   search: GridSearch,
   before: GridCursor,
-  mode: { selecting: boolean; picking?: Picking } = { selecting: false },
+  mode: { selecting: boolean; picking?: Picking; selection?: Selection } = {
+    selecting: false,
+  },
 ): string {
+  const selection = mode.selection ?? NO_SELECTION;
   return wardrobeUrl(
     viewOwner,
     {
       ...searchParams(search),
       select: mode.selecting && !mode.picking ? '1' : undefined,
       pick: mode.picking?.capsuleId,
+      // A kept selection reaches the later pages too (#677).
+      selected: idListValue([...selection.ids]),
+      all: selection.all ? '1' : undefined,
       before: gridCursorText(before),
     },
     '/wardrobe/tiles',
@@ -1324,37 +1381,149 @@ function SelectForm(props: {
 }
 
 /**
- * Bulk edit: POST /wardrobe/bulk with the filters in its query, so the
- * redirect lands on the same grid; "Set…" opens the dialog below.
+ * Select mode's form (#677: one selection, several verbs): POST
+ * /wardrobe/bulk ("Set…") by default, and each verb of the Actions sheet
+ * its own `formaction`, all with the filters in the query, so the redirect
+ * lands back in select mode on the same grid.
  */
 function BulkForm(props: {
-  search: GridSearch;
-  viewOwner: number | undefined;
-  /** Boxes checked as rendered (a batch's garments, #200). */
+  model: WardrobeModel;
+  /** Boxes checked as rendered (a batch's garments, #200, or a kept selection). */
   checked: number;
   children: Child;
 }) {
+  const { search, viewOwner } = props.model;
   return (
     <SelectForm
       id={BULK_FORM_ID}
-      action={wardrobeUrl(
-        props.viewOwner,
-        searchParams(props.search),
-        '/wardrobe/bulk',
-      )}
+      action={wardrobeUrl(viewOwner, searchParams(search), '/wardrobe/bulk')}
       checked={props.checked}
       button={
-        <button
-          type="button"
-          class="btn btn-primary btn-sm"
-          onclick="document.getElementById('bulk-dialog').showModal()"
-        >
-          {t('BULK_SET')}
-        </button>
+        <div class="flex gap-2">
+          <button
+            type="button"
+            class="btn btn-sm"
+            onclick="document.getElementById('bulk-actions').showModal()"
+          >
+            {t('BULK_ACTIONS')}
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary btn-sm"
+            onclick="document.getElementById('bulk-dialog').showModal()"
+          >
+            {t('BULK_SET')}
+          </button>
+        </div>
       }
     >
       {props.children}
     </SelectForm>
+  );
+}
+
+/**
+ * "Select all N": every garment of the current filters, loaded or not. The
+ * post carries `all=1` and the filters (the action's query), never the ids,
+ * and the server resolves them as the grid does (gridIds). Checking it
+ * checks every tile shown, and unchecking a tile unchecks it
+ * (public/js/select-count.js); without script it still posts `all`.
+ */
+function SelectAll(props: { count: number; checked: boolean }) {
+  return (
+    <label class="flex items-center gap-2 text-sm mb-3 cursor-pointer w-fit">
+      <input
+        type="checkbox"
+        name="all"
+        value="1"
+        checked={props.checked}
+        class="checkbox checkbox-sm"
+        data-select-all=""
+        data-total={String(props.count)}
+      />
+      {t('SELECT_ALL', { count: props.count })}
+    </label>
+  );
+}
+
+/**
+ * The verbs beside "Set…": Add to capsule (owner and MANAGE: the
+ * wardrobe's capsules, the first chosen, so the field always posts), and
+ * on one's own wardrobe Mark washed and Archive (wears and the status are
+ * the owner's). Outside the form, like the "Set…" dialog, each button
+ * joins it through `form` and posts to its own `formaction`. Online only
+ * (data-needs-network): "Select all" is resolved by the server, so none
+ * of them is queued like the laundry's batch.
+ */
+function BulkActions({ model }: { model: WardrobeModel }) {
+  const { search, viewOwner, capsules } = model;
+  const verbUrl = (verb: string) =>
+    wardrobeUrl(viewOwner, searchParams(search), `/wardrobe/bulk/${verb}`);
+  return (
+    <dialog id="bulk-actions" class="modal modal-bottom sm:modal-middle">
+      <div class="modal-box">
+        <h3 class="font-bold text-lg mb-4">{t('BULK_ACTIONS_TITLE')}</h3>
+        <p class="text-sm text-muted mb-3" data-offline-note="">
+          {t('BULK_NEEDS_NETWORK')}
+        </p>
+        <div class="flex flex-col gap-4" data-needs-network="">
+          {capsules.length > 0 && (
+            <div class="flex items-end gap-2">
+              <label class="flex-1 min-w-0">
+                <span class="label text-sm mb-1">{t('CAPSULE')}</span>
+                <select
+                  name="capsuleId"
+                  form={BULK_FORM_ID}
+                  class="select select-sm w-full"
+                >
+                  {capsules.map((capsule) => (
+                    <option value={String(capsule.id)}>{capsule.name}</option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="submit"
+                form={BULK_FORM_ID}
+                formaction={verbUrl('capsule')}
+                class="btn btn-sm"
+              >
+                {t('BULK_ADD_TO_CAPSULE')}
+              </button>
+            </div>
+          )}
+          {model.ownerView && (
+            <div class="flex gap-2">
+              <button
+                type="submit"
+                form={BULK_FORM_ID}
+                formaction={verbUrl('washed')}
+                class="btn btn-sm flex-1"
+              >
+                {t('BULK_MARK_WASHED')}
+              </button>
+              <button
+                type="submit"
+                form={BULK_FORM_ID}
+                formaction={verbUrl('archive')}
+                class="btn btn-sm flex-1"
+              >
+                {t('BULK_ARCHIVE')}
+              </button>
+            </div>
+          )}
+        </div>
+        <div class="modal-action">
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            onclick="this.closest('dialog').close()"
+          >
+            {t('CANCEL')}
+          </button>
+        </div>
+      </div>
+      <SheetBackdrop label={t('CLOSE')} />
+    </dialog>
   );
 }
 
@@ -1451,6 +1620,9 @@ function BulkDialog() {
       <div class="modal-box">
         <h3 class="font-bold text-lg mb-2">{t('BULK_TITLE')}</h3>
         <p class="text-sm text-muted mb-4">{t('BULK_HINT')}</p>
+        <p class="text-sm text-muted mb-4" data-offline-note="">
+          {t('BULK_NEEDS_NETWORK')}
+        </p>
         <div role="tablist" class="tabs tabs-box tabs-sm flex-wrap">
           {BULK_PROPERTIES.map((property, index) => {
             const choice = BULK_CHOICES[property];
@@ -1511,6 +1683,7 @@ function BulkDialog() {
             type="submit"
             form={BULK_FORM_ID}
             class="btn btn-primary btn-sm"
+            data-needs-network=""
           >
             {t('APPLY')}
           </button>
@@ -1521,17 +1694,33 @@ function BulkDialog() {
   );
 }
 
-/** What the bulk edit did, once (StripFlags drops its flags from the URL). */
-function BulkToast(props: { result: { updated: number; skipped: number } }) {
-  const { updated, skipped } = props.result;
-  const text =
-    skipped > 0
-      ? t('BULK_RESULT_SKIPPED', { updated, skipped })
-      : t('BULK_RESULT', { updated });
+/** What a select-mode verb did, once (StripFlags drops its flags from the URL). */
+function BulkToast(props: { outcome: BulkOutcome }) {
   return (
     <>
-      <SavedToast id="bulk-toast" text={text} />
+      <SavedToast id="bulk-toast" text={bulkOutcomeText(props.outcome)} />
       <StripFlags names={BULK_FLAGS} />
     </>
   );
+}
+
+/** Each verb's toast, for one garment and for `{count}` (never "1 garments"). */
+const BULK_TOASTS: Record<
+  BulkOutcome['verb'] | 'setSkipped',
+  { one: StringKey; many: StringKey }
+> = {
+  set: { one: 'BULK_RESULT_ONE', many: 'BULK_RESULT' },
+  setSkipped: { one: 'BULK_RESULT_ONE_SKIPPED', many: 'BULK_RESULT_SKIPPED' },
+  archive: { one: 'BULK_ARCHIVED_ONE', many: 'BULK_ARCHIVED' },
+  wash: { one: 'BULK_WASHED_ONE', many: 'BULK_WASHED' },
+  capsule: { one: 'BULK_ADDED_ONE', many: 'BULK_ADDED' },
+};
+
+function bulkOutcomeText(outcome: BulkOutcome): string {
+  const { count } = outcome;
+  const skipped = outcome.verb === 'set' ? outcome.skipped : 0;
+  const keys = BULK_TOASTS[skipped > 0 ? 'setSkipped' : outcome.verb];
+  return count === 1
+    ? t(keys.one, { skipped })
+    : t(keys.many, { count, skipped });
 }

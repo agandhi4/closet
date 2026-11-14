@@ -76,6 +76,12 @@ const GridFilters = {
   capsule: Type.Optional(Type.Union([Type.Literal(''), RowId])),
 };
 
+/**
+ * The longest `selected` a verb's redirect carries (about 400 ids); a
+ * longer selection comes back unchecked rather than as a 400 (selectedParam).
+ */
+export const SELECTED_MAX_LENGTH = 4000;
+
 export const GridQuery = Type.Object({
   ...OwnerQuery.properties,
   ...GridFilters,
@@ -84,9 +90,17 @@ export const GridQuery = Type.Object({
   // The capsule picker: select mode whose checkboxes are this capsule's
   // membership (POST /capsules/:id/garments). Owner and MANAGE only.
   pick: Type.Optional(RowId),
-  // One-shot flags from POST /wardrobe/bulk's redirect (the toast).
+  // Select mode's selection after a verb (#677): the ids it acted on,
+  // checked again (readIdList), or every garment of the filters ("Select
+  // all N"). Navigation state.
+  selected: Type.Optional(Type.String({ maxLength: SELECTED_MAX_LENGTH })),
+  all: Type.Optional(Type.String({ maxLength: 5 })),
+  // One-shot flags from select mode's verbs' redirects (the toast).
   bulkUpdated: Type.Optional(Type.Integer({ minimum: 0 })),
   bulkSkipped: Type.Optional(Type.Integer({ minimum: 0 })),
+  bulkArchived: Type.Optional(Type.Integer({ minimum: 0 })),
+  bulkWashed: Type.Optional(Type.Integer({ minimum: 0 })),
+  bulkAdded: Type.Optional(Type.Integer({ minimum: 0 })),
   // Select mode after a batch of drafts (#200): the garments it saved,
   // checked on the first page (readIdList; navigation state).
   checked: DraftsSaved,
@@ -114,13 +128,34 @@ export const BULK_PROPERTIES = [
 export type BulkProperty = (typeof BULK_PROPERTIES)[number];
 
 /**
- * POST /wardrobe/bulk: the selected tiles' ids (none is a no-op), the
+ * POST /wardrobe/bulk: the selection (none is a no-op), the
  * property (the dialog's tab), and that property's value field, as the
  * garment form names it. The other tabs' fields may ride along and are
  * ignored. '' clears a property; materials add `material`.
  */
-export const BulkBody = Type.Object({
+/**
+ * What every select-mode verb posts (#677): the checked tiles' `ids`, or
+ * `all=1` ("Select all N"), which means every garment of the filters in the
+ * action's query and ignores `ids`. Neither is a no-op.
+ */
+const Selection = {
   ids: Type.Optional(Type.Array(RowId, { maxItems: 2000 })),
+  all: Type.Optional(Type.Literal('1')),
+};
+
+/** Select mode's Archive and Mark washed: the selection alone. */
+export const SelectionBody = Type.Object(Selection);
+export type SelectionBody = Static<typeof SelectionBody>;
+
+/** Select mode's "Add to capsule": the selection and the capsule. */
+export const CapsuleBulkBody = Type.Object({
+  ...Selection,
+  capsuleId: RowId,
+});
+export type CapsuleBulkBody = Static<typeof CapsuleBulkBody>;
+
+export const BulkBody = Type.Object({
+  ...Selection,
   property: Type.Union(BULK_PROPERTIES.map((name) => Type.Literal(name))),
   warmth: choice(WARMTHS),
   formality: choice(FORMALITIES),

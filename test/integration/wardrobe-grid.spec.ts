@@ -223,9 +223,9 @@ describe('wardrobe grid', () => {
       expect(record.sql.join('\n')).not.toContain('"wardrobe_share"');
     });
 
-    it('select mode: the tiles alone, since it renders no count, filters or prompts', async () => {
+    it('select mode: the tiles and one context statement (the count for "Select all N", the capsules), no filters or prompts', async () => {
       const record = await recordQueries(() => get('/wardrobe?select=1'));
-      expect(record.statements).toBe(2);
+      expect(record.statements).toBe(3);
     });
 
     it('the next page: the tiles alone', async () => {

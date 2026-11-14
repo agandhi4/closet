@@ -222,6 +222,13 @@ const ORDER_MAIL = {
   webOnly: 'the order-email import: a review list of the household inbox',
 } as const;
 const MULTI_ADD = { webOnly: 'the multi-add drafts (plan section 6)' } as const;
+// Select mode's Archive and Mark washed (#677) act on the grid's selection,
+// or on "Select all" resolved from its filters, which only the page holds:
+// a client keeps its own selection and calls the writes that take ids.
+const GRID_SELECTION = {
+  webOnly:
+    "select mode's verbs over the grid's selection or filters: a client archives through PUT /garments/{id}/status and washes through POST /garments/washes",
+} as const;
 const WEB_PUSH = {
   webOnly:
     "Web Push: the browser's subscription and its reminders (a native client's push is APNs, #197)",
@@ -280,6 +287,9 @@ export const PAGE_WRITES: Readonly<
   },
   'POST /wardrobe/:id/tag': { api: 'tagGarment' },
   'POST /wardrobe/bulk': { api: 'bulkUpdateGarments' },
+  'POST /wardrobe/bulk/archive': GRID_SELECTION,
+  'POST /wardrobe/bulk/washed': GRID_SELECTION,
+  'POST /wardrobe/bulk/capsule': { api: 'changeCapsuleMembers' },
   'POST /wardrobe/:id/photo': { api: 'replaceGarmentPhoto' },
   'POST /wardrobe/:id/photo/rotate': { api: 'rotateGarmentPhoto' },
   'POST /wardrobe/:id/nobg': { api: 'saveGarmentCutout' },

@@ -1,7 +1,10 @@
 import type { FastifyPluginCallbackTypebox } from '@fastify/type-provider-typebox';
 import type { CapsuleRef } from '../capsules/queries';
 import { readGridCursor } from './grid-cursor';
-import { capsuleNotFound } from '../capsules/capsule-actions';
+import {
+  capsuleNotFound,
+  setCapsuleMembers,
+} from '../capsules/capsule-actions';
 import {
   findType,
   FORMALITIES,
@@ -12,6 +15,8 @@ import {
 import { CARE_WASH } from '../../wardrobe/care';
 import { sessionUserId } from '../auth/require-session';
 import type { WebOptions } from '../plugin';
+import { todayIn } from '../../calendar-date';
+import { postedInstant } from '../offline-writes';
 import { renderFragment, renderPage, wantsFragment } from '../render';
 import { actorOf, type WardrobeAccess } from '../sharing/access';
 import { viewContext } from '../view-context';
@@ -22,14 +27,20 @@ import {
   taggedGarmentIn,
 } from './garment-access';
 import { tagGarment } from './garment-actions';
+import { markWashed } from '../wears/queries';
 import {
   bulkSetProperty,
   type GridFilters,
+  gridIds,
   gridPage,
   nextToTag,
 } from './queries';
 import { type GridContextPart, gridContext } from './grid-context';
-import { type GarmentScope } from './status';
+import {
+  type GarmentScope,
+  setGarmentsStatus,
+  type StatusOutcome,
+} from './status';
 import {
   TAG_CARD_ID,
   TagCard,
@@ -37,17 +48,22 @@ import {
   TagPage,
   TagSaved,
 } from './tag-page';
-import { TAG_PATH, wardrobeUrl, readIdList } from './urls';
+import { idListValue, TAG_PATH, wardrobeUrl, readIdList } from './urls';
 import {
+  type BulkOutcome,
   GarmentTiles,
   type GridSearch,
+  type Selection,
   searchParams,
   WardrobeFragment,
   WardrobePage,
 } from './wardrobe-page';
 import {
   BulkBody,
+  CapsuleBulkBody,
   GridQuery,
+  SELECTED_MAX_LENGTH,
+  SelectionBody,
   readBulkChange,
   TagBody,
   TagQuery,
@@ -131,13 +147,53 @@ function scopeOf(search: GridSearch): GarmentScope {
   return search.archived === 'true' ? 'owned' : 'closet';
 }
 
-/** What POST /wardrobe/bulk's redirect reports, for its toast. */
-function bulkResult(
-  query: GridQuery,
-): { updated: number; skipped: number } | undefined {
-  return query.bulkUpdated === undefined
-    ? undefined
-    : { updated: query.bulkUpdated, skipped: query.bulkSkipped ?? 0 };
+/** What a select-mode verb's redirect reports, for its toast. */
+function bulkOutcome(query: GridQuery): BulkOutcome | undefined {
+  if (query.bulkUpdated !== undefined) {
+    return {
+      verb: 'set',
+      count: query.bulkUpdated,
+      skipped: query.bulkSkipped ?? 0,
+    };
+  }
+  if (query.bulkArchived !== undefined) {
+    return { verb: 'archive', count: query.bulkArchived };
+  }
+  if (query.bulkWashed !== undefined) {
+    return { verb: 'wash', count: query.bulkWashed };
+  }
+  if (query.bulkAdded !== undefined) {
+    return { verb: 'capsule', count: query.bulkAdded };
+  }
+  return undefined;
+}
+
+/** The selection a verb's redirect checked again (selectionParams), as the page reads it. */
+function readSelection(query: GridQuery): Selection {
+  return {
+    ids: new Set(readIdList(query.selected)),
+    all: query.all === '1',
+  };
+}
+
+/**
+ * The selection as a verb's redirect carries it back: always the ids
+ * acted on, never `all=1` (a kept `all` re-runs the filters, so a "Set…"
+ * that changes the filtered property would turn "Select all N" into a
+ * different set for the next verb). While they fit in a URL
+ * (SELECTED_MAX_LENGTH; past it select mode comes back with nothing
+ * checked rather than a 400).
+ */
+function selectionParams(selection: {
+  ids: readonly number[];
+}): Record<string, string | undefined> {
+  const selected = idListValue(selection.ids);
+  return { selected: selected.length <= SELECTED_MAX_LENGTH ? selected : '' };
+}
+
+/** A verb's log line says when the selection was "Select all" (the filters', not ids). */
+function allNote(selection: { all: boolean }): string {
+  return selection.all ? ' (all of the filters)' : '';
 }
 
 /** The capsule `id` names among the wardrobe's own, or a 404 like an unknown id. */
@@ -150,22 +206,21 @@ function listedCapsule(capsules: CapsuleRef[], id: number): CapsuleRef {
 /**
  * What GET /wardrobe's answer renders around its tiles (GridContext):
  * browsing, all of it the requester may see, the app bar's switcher only
- * on a full page (a fragment swaps #wardrobe-main and the ⋯ menu). Select
- * mode and the picker render none of it; they read the capsules only to
- * refuse another wardrobe's `?capsule=` or `?pick=` and to name the picker.
+ * on a full page (a fragment swaps #wardrobe-main and the ⋯ menu). The
+ * picker reads only the capsules (to refuse another wardrobe's `?pick=` and
+ * to name it); select mode the count ("Select all N") and the capsules
+ * (its "Add to capsule", and a foreign `?capsule=`).
  */
 function gridContextParts(answer: {
   access: WardrobeAccess;
   selecting: boolean;
   fragment: boolean;
-  filters: GridFilters;
   pick: number | undefined;
 }): Set<GridContextPart> {
-  const { access, selecting, fragment, filters, pick } = answer;
-  if (selecting) {
-    const capsuleNamed = filters.capsule !== undefined || pick !== undefined;
-    return new Set(capsuleNamed ? ['capsules'] : []);
-  }
+  const { access, selecting, fragment, pick } = answer;
+  if (pick !== undefined) return new Set(['capsules']);
+  // Select mode's "Select all N" and "Add to capsule" (#677).
+  if (selecting) return new Set(['count', 'capsules']);
   const parts: GridContextPart[] = ['count', 'options', 'capsules'];
   // Tagging and drafts are for someone who can write; wears are the owner's.
   if (access.canManage) parts.push('toTag', 'drafts');
@@ -176,7 +231,7 @@ function gridContextParts(answer: {
 
 /**
  * The grid and the modes that work on it: GET /wardrobe (with its fragment),
- * its "load more" tiles, select mode's bulk edit and tagging mode. Every
+ * its "load more" tiles, select mode's verbs and tagging mode. Every
  * route takes `?ownerId=` for a shared wardrobe (garmentGuard).
  */
 export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
@@ -184,7 +239,7 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   options,
   done,
 ) => {
-  const { db, logger } = options;
+  const { db, logger, config } = options;
   const authorize = garmentGuard(db);
 
   /** The tagging card for the garment after `before` (the first without). */
@@ -226,7 +281,7 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         gridContext(
           db,
           { userId, ownerId: access.ownerId, filters },
-          gridContextParts({ access, selecting, fragment, filters, pick }),
+          gridContextParts({ access, selecting, fragment, pick }),
         ),
       ]);
       const { capsules } = context;
@@ -242,9 +297,10 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
         ownerView: access.isOwner,
         selecting,
         picking: picking && { capsuleId: picking.id, name: picking.name },
-        bulkResult: bulkResult(request.query),
+        bulkOutcome: bulkOutcome(request.query),
         // A batch's end (#200): its garments start checked for "Set…".
         batchSaved: new Set(readIdList(request.query.checked)),
+        selection: readSelection(request.query),
       };
       if (fragment) {
         return renderFragment(
@@ -289,36 +345,165 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
             (request.query.select === '1' || pick !== undefined)
           }
           picking={picking}
+          selection={readSelection(request.query)}
         />,
       );
     },
   );
 
-  // Select mode's "Set…": one property on every selected garment its role
-  // allows (bulkSetProperty), then back to the grid with the same filters
-  // (carried in the action's query) and a toast saying how many were set
-  // and skipped. A native post (PostForm): htmx drops a 4xx, and the answer
-  // is another page anyway.
+  /**
+   * The garments a select-mode verb acts on (#677): the checked `ids`, or
+   * with `all` every garment of the filters in the action's query, through
+   * the grid's own gridSearch and gridWhere (gridIds), so "Select all N" is
+   * the N the page showed, never only its loaded tiles.
+   */
+  async function selected(
+    access: WardrobeAccess,
+    request: { query: GridQuery; body: SelectionBody },
+  ): Promise<{ ids: number[]; all: boolean; search: GridSearch }> {
+    const search = gridSearch(request.query, access.isOwner);
+    const all = request.body.all === '1';
+    const ids = all
+      ? await gridIds(db, access.ownerId, gridFilters(search))
+      : (request.body.ids ?? []);
+    return { ids, all, search };
+  }
+
+  /** Back to select mode as it was: the same filters, the selection checked, the verb's toast. */
+  function backToSelection(
+    viewOwner: number | undefined,
+    search: GridSearch,
+    kept: { ids: readonly number[] } | undefined,
+    flags: Record<string, number>,
+  ): string {
+    return wardrobeUrl(viewOwner, {
+      ...searchParams(search),
+      select: '1',
+      ...(kept && selectionParams(kept)),
+      ...flags,
+    });
+  }
+
+  // Select mode's verbs (select-and-tag.md): native posts (PostForm; htmx
+  // drops a 4xx, and the answer is another page anyway), each with the
+  // filters in its action's query, answered 303 back to select mode with
+  // the selection still checked, so a second verb needs no reselecting.
+  // Each calls its writer once, and the writer takes the owner lock.
+
+  // "Set…": one property on every selected garment its role allows
+  // (bulkSetProperty), with how many were set and skipped for the toast.
   app.post(
     '/wardrobe/bulk',
     { schema: { querystring: GridQuery, body: BulkBody } },
     async (request, reply) => {
       const { access, viewOwner } = await authorize(request, 'manage');
-      const ids = request.body.ids ?? [];
+      const selection = await selected(access, request);
+      const { ids } = selection;
       const change = readBulkChange(request.body);
       const result =
         change && ids.length > 0
           ? await bulkSetProperty(db, access.ownerId, ids, change)
           : { updated: 0, skipped: 0 };
       logger.info(
-        `Bulk ${request.body.property} by user ${sessionUserId(request)} in wardrobe ${access.ownerId}: ${result.updated} set, ${result.skipped} skipped, ${ids.length} selected`,
+        `Bulk ${request.body.property} by user ${sessionUserId(request)} in wardrobe ${access.ownerId}: ${result.updated} set, ${result.skipped} skipped, ${ids.length} selected${allNote(selection)}`,
       );
-      const search = gridSearch(request.query, access.isOwner);
       return reply.redirect(
-        wardrobeUrl(viewOwner, {
-          ...searchParams(search),
+        backToSelection(viewOwner, selection.search, selection, {
           bulkUpdated: result.updated,
           bulkSkipped: result.skipped,
+        }),
+        303,
+      );
+    },
+  );
+
+  // Archive: the owner's alone, as a garment's own Archive (a MANAGE
+  // grantee is refused). setGarmentsStatus moves what the machine lets go
+  // (an archived garment stays, uncounted). The archived leave the grid,
+  // so select mode comes back with nothing checked: a kept `all` would
+  // select what is left.
+  app.post(
+    '/wardrobe/bulk/archive',
+    { schema: { querystring: GridQuery, body: SelectionBody } },
+    async (request, reply) => {
+      const { access, viewOwner } = await authorize(request, 'own');
+      const selection = await selected(access, request);
+      const { ids } = selection;
+      const outcomes =
+        ids.length > 0
+          ? await setGarmentsStatus(db, ids, access.ownerId, {
+              event: 'archive',
+            })
+          : new Map<number, StatusOutcome>();
+      const archived = [...outcomes.values()].filter((move) => move.ok).length;
+      logger.info(
+        `Bulk archive by user ${sessionUserId(request)} in wardrobe ${access.ownerId}: ${archived} archived, ${ids.length} selected${allNote(selection)}`,
+      );
+      return reply.redirect(
+        backToSelection(viewOwner, selection.search, undefined, {
+          bulkArchived: archived,
+        }),
+        303,
+      );
+    },
+  );
+
+  // Mark washed: the owner's own record (wears and washes are never a
+  // grantee's), today, as the laundry's batch (markWashed). Not queued
+  // offline like the laundry's: "Select all" is resolved here, so the
+  // verbs need the server (data-needs-network on the bar).
+  app.post(
+    '/wardrobe/bulk/washed',
+    { schema: { querystring: GridQuery, body: SelectionBody } },
+    async (request, reply) => {
+      const { access, viewOwner } = await authorize(request, 'own');
+      const selection = await selected(access, request);
+      const { ids } = selection;
+      const day = todayIn(config.timeZone, new Date());
+      const washed =
+        ids.length > 0
+          ? await markWashed(
+              db,
+              access.ownerId,
+              ids,
+              day,
+              postedInstant(request, undefined, day, config.timeZone),
+            )
+          : [];
+      logger.info(
+        `Bulk wash by user ${sessionUserId(request)} on ${day}: ${washed.length} washed, ${ids.length} selected${allNote(selection)}`,
+      );
+      return reply.redirect(
+        backToSelection(viewOwner, selection.search, selection, {
+          bulkWashed: washed.length,
+        }),
+        303,
+      );
+    },
+  );
+
+  // Add to capsule: the selection joins the capsule (setCapsuleMembers,
+  // which refuses itself: owner or MANAGE, a capsule outside the wardrobe a
+  // 404); nothing leaves it. The toast counts the garments new to it.
+  app.post(
+    '/wardrobe/bulk/capsule',
+    { schema: { querystring: GridQuery, body: CapsuleBulkBody } },
+    async (request, reply) => {
+      const { access, viewOwner } = await authorize(request, 'manage');
+      const selection = await selected(access, request);
+      const { capsuleId } = request.body;
+      const { added } = await setCapsuleMembers(
+        db,
+        actorOf(request),
+        { id: capsuleId, ownerId: request.query.ownerId },
+        { add: selection.ids, remove: [] },
+      );
+      logger.info(
+        `Bulk capsule ${capsuleId} by user ${sessionUserId(request)} in wardrobe ${access.ownerId}: ${added} added, ${selection.ids.length} selected${allNote(selection)}`,
+      );
+      return reply.redirect(
+        backToSelection(viewOwner, selection.search, selection, {
+          bulkAdded: added,
         }),
         303,
       );
