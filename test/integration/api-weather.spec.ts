@@ -716,11 +716,37 @@ describe('one answer to the rain on every surface (#759)', () => {
       // The plan reads the gear as Today does: the hat answers the rain.
       expect(await planProblems()).not.toContain('needs-water-resistance');
 
-      // Planned to come: the umbrella answer, packed or not.
+      // In the wash it is not the closet's gear: every surface, the plan
+      // included, asks the outfit for water resistance, as the closet at
+      // home stands (a dirty hat is not available). Washed again, it is back.
       const [hatRow] = await t.db
         .select({ id: garment.id })
         .from(garment)
         .where(eq(garment.name, 'Rain hat'));
+      await asFixture(t.db, (tx) =>
+        tx
+          .update(garment)
+          .set({ washAfterWears: 1 })
+          .where(eq(garment.id, hatRow.id)),
+      );
+      const wornHat = await api(
+        'PUT',
+        `/garments/${hatRow.id}/wears/${REFERENCE_ANCHOR}`,
+        {},
+      );
+      expect(wornHat.statusCode, wornHat.body).toBe(200);
+      const dirty = await everywhere();
+      expect(dirty).toEqual(
+        dirty.map(() => ({ needsWaterResistance: true, takeUmbrella: false })),
+      );
+      expect(await planProblems()).toContain('needs-water-resistance');
+      const washed = await api('POST', `/garments/${hatRow.id}/washes`, {
+        day: REFERENCE_ANCHOR,
+      });
+      expect(washed.statusCode, washed.body).toBe(200);
+      expect(await everywhere()).toEqual(atHome);
+
+      // Planned to come: the umbrella answer, packed or not.
       const hatOutfit = await api('POST', '/outfits', {
         slots: [{ category: 'accessories', garmentId: hatRow.id }],
       });
