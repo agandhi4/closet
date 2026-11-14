@@ -46,10 +46,13 @@ export interface StorageMarker {
  * Why the directory is not the one this process claimed (identityProblem):
  * no marker, another install's, or a marker that cannot be read (a stale
  * NFS handle, EIO, EACCES; MALFORMED content), named by its code only.
+ * `unpaired`: a marker whose install id is not the one the database
+ * records (#833; storage-identity.ts asks, PhotoStorage has no database).
  */
 export type IdentityProblem =
   | { kind: 'absent' }
   | { kind: 'foreign' }
+  | { kind: 'unpaired' }
   | { kind: 'unreadable'; code: string };
 
 /** The marker file as read: never a rejection, so readiness always answers. */
@@ -165,13 +168,15 @@ export class PhotoStorage {
    * code, never a path) for claimStorage to refuse. The temp
    * file is linked, never renamed: a rename replaces, a link fails with
    * EEXIST. A reader sees no marker or a whole one. Only claimStorage
-   * decides that one may be written.
+   * decides that one may be written, and with which install id (the
+   * database's, once it is paired: #833).
    */
   async createMarker(
+    installId: string = randomUUID(),
     now: Date = new Date(),
   ): Promise<Exclude<MarkerRead, { state: 'absent' }>> {
     const marker: StorageMarker = {
-      installId: randomUUID(),
+      installId,
       createdAt: now.toISOString(),
     };
     const tempPath = path.join(this.incoming, `${randomUUID()}-marker`);
@@ -198,6 +203,11 @@ export class PhotoStorage {
   /** Records the marker claimStorage verified; identityProblem compares with it. */
   claim(marker: StorageMarker): void {
     this.claimed = marker;
+  }
+
+  /** The install id claimed at boot: what the database's pairing is compared with. */
+  get claimedInstallId(): string | undefined {
+    return this.claimed?.installId;
   }
 
   /**
