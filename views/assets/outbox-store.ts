@@ -33,60 +33,6 @@ export function openOutboxDatabase(): Promise<IDBDatabase> {
   });
 }
 
-/**
- * When the server last answered one of an account's replays properly: the
- * evidence that a 5xx is a record's fault (replayQueue). Its own database,
- * not a second store in the outbox's: a version bump of the outbox's would
- * wait on every open tab of the older build holding version 1 (nothing
- * closes it on `versionchange`), hanging the page and the worker.
- */
-const HEALTH_DB_NAME = 'closet-outbox-health';
-const HEALTH_STORE = 'healthy';
-
-function inHealthStore<T>(
-  mode: IDBTransactionMode,
-  work: (store: IDBObjectStore) => IDBRequest<T> | undefined,
-): Promise<T | undefined> {
-  return new Promise<T | undefined>((resolve, reject) => {
-    const opening = indexedDB.open(HEALTH_DB_NAME, 1);
-    opening.onupgradeneeded = () => {
-      opening.result.createObjectStore(HEALTH_STORE, { keyPath: 'account' });
-    };
-    opening.onerror = () =>
-      reject(opening.error ?? new Error('health open failed'));
-    opening.onsuccess = () => {
-      const db = opening.result;
-      const transaction = db.transaction(HEALTH_STORE, mode);
-      const request = work(transaction.objectStore(HEALTH_STORE));
-      transaction.oncomplete = () => {
-        db.close();
-        resolve(request?.result);
-      };
-      transaction.onabort = transaction.onerror = () => {
-        db.close();
-        reject(transaction.error ?? new Error('health transaction failed'));
-      };
-    };
-  });
-}
-
-export async function readHealthyAt(
-  account: string,
-): Promise<number | undefined> {
-  const row = await inHealthStore<{ at?: unknown } | undefined>(
-    'readonly',
-    (store) => store.get(account),
-  );
-  return typeof row?.at === 'number' ? row.at : undefined;
-}
-
-export async function writeHealthyAt(
-  account: string,
-  at: number,
-): Promise<void> {
-  await inHealthStore('readwrite', (store) => store.put({ account, at }));
-}
-
 /** One transaction over the store, settled when it commits. */
 export function inTransaction(
   db: IDBDatabase,

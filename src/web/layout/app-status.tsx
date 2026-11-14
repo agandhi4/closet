@@ -102,6 +102,12 @@ function outboxText(): Record<`data-text-outbox-${string}`, string> {
       action: '{action}',
       reason: '{reason}',
     }),
+    stuck: t('outbox.STUCK', {
+      label: '{label}',
+      action: '{action}',
+    }),
+    'try-again': t('outbox.TRY_AGAIN'),
+    'discard-write': t('outbox.DISCARD_WRITE'),
     'action-wear': t('outbox.action.WEAR'),
     'action-wash': t('outbox.action.WASH'),
     'action-entry': t('outbox.action.ENTRY'),
@@ -111,7 +117,6 @@ function outboxText(): Record<`data-text-outbox-${string}`, string> {
     'reason-future': t('outbox.reason.FUTURE'),
     'reason-account': t('outbox.reason.ACCOUNT'),
     'reason-refused': t('outbox.reason.REFUSED'),
-    'reason-server': t('outbox.reason.SERVER'),
   };
   return Object.fromEntries(
     Object.entries(text).map(([name, value]) => [

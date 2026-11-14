@@ -62,6 +62,7 @@ import {
   REPLAY_TIMEOUT_MS,
   type ReplayFailure,
   type ReplayVerdict,
+  isStuck,
   type ReplayDriver,
   replayQueue,
   replayVerdict,
@@ -69,14 +70,13 @@ import {
   sharedUntilRejected,
   takesDay,
   takesInstant,
+  unstuck,
 } from '../../src/offline-writes';
 import {
   inTransaction,
   openOutboxChannel,
   openOutboxDatabase,
   type OutboxChange,
-  readHealthyAt,
-  writeHealthyAt,
 } from './outbox-store';
 
 type Fields = Record<string, string | string[]>;
@@ -93,9 +93,9 @@ interface OutboxRecord {
   label: string;
   queuedAt: number;
   attempts: number;
-  /** 5xx answers so far and the first's time: absent on an older client's record. */
+  /** Consecutive 5xx answers, and when it became stuck (replayQueue): absent on a record without either. */
   serverErrors?: number;
-  serverErrorSince?: number;
+  stuckAt?: number;
   state: 'pending' | 'failed';
   reason?: ReplayFailure;
 }
@@ -163,7 +163,6 @@ const REASON_TEXT: Record<ReplayFailure, string> = {
   future: 'textOutboxReasonFuture',
   account: 'textOutboxReasonAccount',
   refused: 'textOutboxReasonRefused',
-  server: 'textOutboxReasonServer',
 };
 
 // ---- The page ---------------------------------------------------------------
@@ -352,9 +351,13 @@ function render(records: OutboxRecord[]): void {
   // waiting out its backoff (a 5xx, a timeout), which nothing else shows.
   renderBanner(
     waiting,
-    records.some((record) => isPending(record) && record.attempts > 0),
+    records.some(
+      (record) => isPending(record) && !isStuck(record) && record.attempts > 0,
+    ),
   );
-  renderNotice(records.filter((record) => record.state === 'failed'));
+  renderNotice(
+    records.filter((record) => !isPending(record) || isStuck(record)),
+  );
   guardFull(waiting);
 }
 
@@ -467,6 +470,15 @@ function showServerState(region: HTMLElement): void {
   }
 }
 
+/** A discarded record's region back to the server's state, its intent mark gone. */
+function revertRegions(key: string): void {
+  for (const region of document.querySelectorAll<HTMLElement>(REGION)) {
+    if (region.dataset.outboxKey !== key) continue;
+    showServerState(region);
+    delete region.dataset[INTENT_MARK];
+  }
+}
+
 /** The form shown posts what the record posts (its day and ids aside). */
 function asksFor(region: HTMLElement, record: OutboxRecord): boolean {
   if (!region.querySelector(ALTERNATE)) return false;
@@ -509,24 +521,57 @@ function renderBanner(count: number, backingOff: boolean): void {
   banner.classList.toggle('hidden', message === '');
 }
 
-function renderNotice(failures: OutboxRecord[]): void {
+function renderNotice(unsaved: OutboxRecord[]): void {
   const notice = document.getElementById('outbox-notice');
   const list = notice?.querySelector('[data-role="list"]');
   if (!notice || !list) return;
   list.replaceChildren(
-    ...failures.map((record) => {
+    ...unsaved.map((record) => {
       const item = document.createElement('li');
-      item.textContent = failureText(record);
+      item.className = 'flex flex-wrap items-center gap-x-2';
+      const line = document.createElement('span');
+      line.textContent = noticeText(record);
+      item.append(line);
+      if (isStuck(record)) {
+        item.append(
+          noticeButton('data-outbox-retry', record.id, 'textOutboxTryAgain'),
+          noticeButton(
+            'data-outbox-discard',
+            record.id,
+            'textOutboxDiscardWrite',
+          ),
+        );
+      }
       return item;
     }),
   );
-  notice.classList.toggle('hidden', failures.length === 0);
+  notice
+    .querySelector('[data-outbox-dismiss]')
+    ?.classList.toggle('hidden', !unsaved.some((r) => !isPending(r)));
+  notice.classList.toggle('hidden', unsaved.length === 0);
 }
 
-/** "Navy chinos, Wore today: not saved, it was deleted." */
-function failureText(record: OutboxRecord): string {
+function noticeButton(
+  attribute: string,
+  id: string,
+  label: string,
+): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'btn btn-ghost btn-xs';
+  button.setAttribute(attribute, id);
+  button.textContent = text(label);
+  return button;
+}
+
+/**
+ * "Navy chinos, Wore today: not saved, it was deleted." A stuck write is
+ * still queued: "Navy chinos, Wore today: not saved yet, the server keeps
+ * answering with an error."
+ */
+function noticeText(record: OutboxRecord): string {
   // Replaced through functions: a label's `$&` is not a pattern.
-  return text('textOutboxNotSaved')
+  return text(isStuck(record) ? 'textOutboxStuck' : 'textOutboxNotSaved')
     .replace('{label}', () => record.label)
     .replace('{action}', () => text(ACTION_TEXT[record.kind]))
     .replace('{reason}', () => text(REASON_TEXT[record.reason ?? 'refused']));
@@ -912,25 +957,6 @@ async function replayAll(
     `${record.key} (key ${record.id.slice(0, 8)})`;
   const driver: ReplayDriver<OutboxRecord> = {
     now: Date.now,
-    async lastHealthy() {
-      try {
-        return await readHealthyAt(account);
-      } catch (error) {
-        // No evidence is the safe reading: nothing is counted against a record.
-        console.warn(
-          '[outbox] could not read when the server last answered',
-          error,
-        );
-        return undefined;
-      }
-    },
-    async markHealthy(at) {
-      try {
-        await writeHealthyAt(account, at);
-      } catch (error) {
-        console.warn('[outbox] could not record a proper answer', error);
-      }
-    },
     async skip(record) {
       if (!replayUrl(record.path)) {
         await remove([record]);
@@ -1147,6 +1173,35 @@ document.addEventListener('click', (event) => {
     console.info(`[outbox] ${dismissed.length} failure(s) dismissed`);
   })().catch((error: unknown) => {
     console.warn('[outbox] could not dismiss', error);
+  });
+});
+
+// A stuck write's notice: Try again clears its count and drains; Discard
+// deletes it and puts its region back to the server's state.
+document.addEventListener('click', (event) => {
+  if (!(event.target instanceof Element)) return;
+  const retry = event.target.closest('[data-outbox-retry]');
+  const discard = event.target.closest('[data-outbox-discard]');
+  const id =
+    retry?.getAttribute('data-outbox-retry') ??
+    discard?.getAttribute('data-outbox-discard');
+  const account = pageAccount();
+  if (!id || !account) return;
+  void (async () => {
+    const record = (await recordsOf(account)).find((r) => r.id === id);
+    if (!record) return;
+    const name = `${record.key} (key ${id.slice(0, 8)})`;
+    if (retry) {
+      if (await settle(record, unstuck(record))) {
+        console.info(`[outbox] ${name} retried by the user`);
+        await schedule('try again');
+      }
+    } else if (await settle(record)) {
+      revertRegions(record.key);
+      console.info(`[outbox] ${name} discarded by the user`);
+    }
+  })().catch((error: unknown) => {
+    console.warn('[outbox] could not act on a stuck write', error);
   });
 });
 
