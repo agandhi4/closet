@@ -75,13 +75,15 @@ describe('who may sign a photo URL', () => {
   });
 
   // A positional JSON (json_build_array, decoded by readPhotoRef: the
-  // gallery's and Styling's tuples) carries the variant key right after the
-  // version, or its URL is signed without it.
-  it('never reads a photo tuple without its variant key', () => {
-    const tuple =
-      /\$\{file\.fileName\},\s*\$\{file\.version\}(?!,\s*\$\{file\.variantKey\})/;
+  // gallery's and Styling's tuples) names its photo through shownPhotoName
+  // (null once nothing of it is stored, #653) and carries the variant key
+  // right after the version, or its URL is signed without it.
+  it('reads a photo tuple only through shownPhotoName, with its variant key', () => {
+    const rawName = /\$\{file\.fileName\},\s*\$\{file\.version\}/;
+    const keyless =
+      /\$\{shownPhotoName\},\s*\$\{file\.version\}(?!,\s*\$\{file\.variantKey\})/;
     const found = sources(SRC)
-      .filter((path) => tuple.test(read(path)))
+      .filter((path) => rawName.test(read(path)) || keyless.test(read(path)))
       .map(name);
     expect(found).toEqual([]);
   });

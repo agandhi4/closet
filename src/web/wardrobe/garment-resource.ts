@@ -103,6 +103,13 @@ const identity = {
   quantity: Type.Integer({ minimum: 1 }),
   condition: literals(CONDITIONS),
   photo: Type.Optional(GarmentPhotoResource),
+  photoMissingSince: Type.Optional(
+    Type.String({
+      format: 'date-time',
+      description:
+        'Since when nothing of the photo is stored (a database restored ahead of its photos): `photo` is then absent, and comes back with its bytes',
+    }),
+  ),
 };
 
 export const GarmentListItem = Type.Object(
@@ -134,6 +141,7 @@ export function toGarmentListItem(summary: GarmentSummary): GarmentListItem {
     quantity: summary.quantity,
     condition: summary.condition,
     photo: summary.photo && toGarmentPhoto(summary.photo),
+    photoMissingSince: summary.photoMissingSince?.toISOString(),
     type: summary.type,
     warmth: summary.warmth,
     formality: summary.formality,
@@ -291,6 +299,7 @@ function recordOf(
     quantity: garment.quantity,
     condition: garment.condition,
     photo: garment.photo && toGarmentPhoto(garment.photo),
+    photoMissingSince: garment.photoMissingSince?.toISOString(),
     notes: garment.notes,
     acquiredOn: garment.acquiredOn,
     replacesGarmentId: garment.replacesGarmentId,

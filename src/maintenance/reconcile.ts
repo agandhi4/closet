@@ -1,5 +1,17 @@
-import { and, eq, not } from 'drizzle-orm';
+import {
+  and,
+  count,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  not,
+  or,
+  sql,
+} from 'drizzle-orm';
+import { garmentOwnersOf } from '../cutout/queries';
 import type { Db } from '../db/client';
+import { ownersLockCte } from '../db/owner-lock';
 import { file } from '../db/schema';
 import {
   parseStoredName,
@@ -72,6 +84,17 @@ export interface ReconciliationReport {
   orphanedRowsDeleted: number;
   /** `file` rows whose original is gone from storage; reported, never deleted. */
   missingOriginals: number;
+  /** Their names (the post-restore command lists their garments, #653). */
+  missingOriginalPhotos: string[];
+  /**
+   * Rows newly marked `original_missing_since` (nothing of the photo left
+   * to show), and marked rows something of whose photo is stored again.
+   * A dry run counts what it would change.
+   */
+  photosMarkedMissing: number;
+  photosNoLongerMissing: number;
+  /** The marks could not be written (a lock timeout); set only then. */
+  marksFailed?: true;
   /**
    * Pending photos never saved (a `pending_photo` row past its cutoff: the
    * run's, or a week for a batch's drafts), deleted with their photo sets.
@@ -109,6 +132,8 @@ interface FileRow extends StoredPhoto {
   createdOn: string;
   /** photoIsReferenced at the read. */
   referenced: boolean;
+  /** original_missing_since is set. */
+  marked: boolean;
 }
 
 /**
@@ -199,6 +224,7 @@ export async function reconcileStorageWhole(
     {
       refused: report.refused ? 1 : 0,
       'rows missing their original': report.missingOriginals,
+      'missing-photo marks not written': report.marksFailed ? 1 : 0,
     },
     report,
   );
@@ -244,6 +270,12 @@ async function cleanUp(
   const deleted = refused
     ? { rows: 0, quarantined: 0, superseded: 0 }
     : await removeOrphans(deps, plan, today, dryRun);
+  // After the deletions and the quarantine, as a step of its own: a lock
+  // timeout here is reported (marksFailed) and costs no deletion. Even when
+  // the guard refused: a mark deletes nothing, and a restore is exactly
+  // when the guard refuses. The rows deleted as orphans are not in the
+  // plan's marks.
+  const marksFailed = !dryRun && !(await writeMissingMarks(deps, plan.marks));
   // Not while the guard refuses: storage and the database disagreeing
   // wholesale is exactly when the trash may hold what is needed back.
   const trashSetsPurged = refused
@@ -262,7 +294,11 @@ async function cleanUp(
     orphanedSetsQuarantined: deleted.quarantined,
     trashSetsPurged,
     orphanedRowsDeleted: deleted.rows,
-    missingOriginals: plan.missingOriginals,
+    missingOriginals: plan.missingOriginals.length,
+    missingOriginalPhotos: plan.missingOriginals,
+    photosMarkedMissing: plan.marks.mark.length,
+    photosNoLongerMissing: plan.marks.clear.length,
+    ...(marksFailed ? { marksFailed: true as const } : {}),
     pendingPhotosDeleted: agedPending.size,
     pendingRowsWithoutFiles,
     supersededVariantsDeleted: deleted.superseded,
@@ -331,6 +367,9 @@ function refuse(
     trashSetsPurged: 0,
     orphanedRowsDeleted: 0,
     missingOriginals: 0,
+    missingOriginalPhotos: [],
+    photosMarkedMissing: 0,
+    photosNoLongerMissing: 0,
     pendingPhotosDeleted: 0,
     pendingRowsWithoutFiles: 0,
     supersededVariantsDeleted: 0,
@@ -350,6 +389,10 @@ function summary(report: ReconciliationReport): string {
     `${report.trashSetsPurged} quarantined sets ${would}purged, ` +
     `${report.orphanedRowsDeleted} orphaned rows ${would}deleted, ` +
     `${report.missingOriginals} rows missing their original, ` +
+    `${report.photosMarkedMissing} photos ${would}marked missing and ` +
+    `${report.photosNoLongerMissing} ${would}unmarked` +
+    (report.marksFailed ? ' (marks not written)' : '') +
+    ', ' +
     `${report.pendingPhotosDeleted} abandoned link imports and ${report.pendingRowsWithoutFiles} ` +
     `pending rows without files ${would}deleted, ` +
     `${report.supersededVariantsDeleted} superseded variant files ${would}deleted` +
@@ -417,7 +460,10 @@ interface ReconciliationPlan {
   orphanedRows: FileRow[];
   /** Photo sets older than the cutoff with no row, by base name. */
   orphanedSets: [string, StoredPhotoSet][];
-  missingOriginals: number;
+  /** Live rows past the cutoff whose original is not stored. */
+  missingOriginals: string[];
+  /** The `original_missing_since` changes (missingMarks), by file id. */
+  marks: MissingMarks;
   /** Stored photo sets that no pending row explains. */
   unpendingSets: number;
   /** Pending rows (read before the scan) whose original is not stored. */
@@ -442,6 +488,7 @@ function fileRows(db: Db): Promise<FileRow[]> {
       ...STORED_PHOTO_COLUMNS,
       createdOn: file.createdOn,
       referenced: photoIsReferenced(file.id),
+      marked: sql<boolean>`${file.originalMissingSince} is not null`,
     })
     .from(file);
 }
@@ -489,8 +536,9 @@ function planReconciliation(
     cutoff,
     logger,
   );
+  const live = rows.filter((row) => !orphanedIds.has(row.id));
   const missingOriginals = reportMissingOriginals(
-    rows.filter((row) => !orphanedIds.has(row.id)),
+    live,
     photoSets,
     cutoffIso,
     logger,
@@ -502,6 +550,7 @@ function planReconciliation(
     orphanedRows,
     orphanedSets,
     missingOriginals,
+    marks: missingMarks(live, photoSets, cutoffIso),
     unpendingSets: unpendingSetCount(photoSets, pendingRows),
     pendingRowsWithoutFiles,
     superseded,
@@ -784,19 +833,137 @@ async function removeOrphanedRows(
 }
 
 function reportMissingOriginals(
-  rows: FileRow[],
-  photoSets: Map<string, StoredPhotoSet>,
+  rows: readonly FileRow[],
+  photoSets: ReadonlyMap<string, StoredPhotoSet>,
   cutoffIso: string,
   logger: Logger,
-): number {
-  let missing = 0;
+): string[] {
+  const missing: string[] = [];
   for (const row of rows) {
     if (row.createdOn >= cutoffIso) continue;
     if (holdsOriginal(photoSets, row.fileName)) continue;
     logger.warn(
       `File row ${row.fileName} (created ${row.createdOn}) has no original in storage`,
     );
-    missing += 1;
+    missing.push(row.fileName);
   }
   return missing;
+}
+
+/** File ids whose `original_missing_since` a run sets, and clears. */
+export interface MissingMarks {
+  mark: number[];
+  clear: number[];
+}
+
+/**
+ * Which live rows' `original_missing_since` changes (#653). A row is marked
+ * when nothing of its photo is left to show: its original and the nobg and
+ * thumb of its row's variant all absent (a thumb alone, or a cutout alone,
+ * still shows the garment). Past the cutoff only, like the missing-original
+ * report: a younger row's bytes may be in flight. A marked row is cleared
+ * as soon as any of them is stored again (a second restore, a share
+ * remounted, --restore-from-trash), whatever its age.
+ */
+function missingMarks(
+  rows: readonly FileRow[],
+  photoSets: ReadonlyMap<string, StoredPhotoSet>,
+  cutoffIso: string,
+): MissingMarks {
+  const marks: MissingMarks = { mark: [], clear: [] };
+  for (const row of rows) {
+    const shown = showsSomething(row, photoSets.get(row.fileName)?.objects);
+    if (row.marked && shown) marks.clear.push(row.id);
+    if (!row.marked && !shown && row.createdOn < cutoffIso) {
+      marks.mark.push(row.id);
+    }
+  }
+  return marks;
+}
+
+// Whether storage holds anything a page could show of the row's photo.
+function showsSomething(
+  row: StoredPhoto,
+  objects: readonly StoredObject[] = [],
+): boolean {
+  return objects.some((object) => {
+    const parsed = parseStoredName(object.name);
+    return (
+      parsed !== undefined &&
+      (parsed.variant === 'original' || parsed.variantKey === row.variantKey)
+    );
+  });
+}
+
+/**
+ * Writes `marks` in one statement under the owners' lock: the photo row is
+ * synced data (its garment's revision moves, closet_sync_touch_photo), so
+ * every owner of a garment showing one of them is locked first, in id
+ * order (ownersLockCte over garmentOwnersOf, the cutout retry's shape). A
+ * photo no garment shows (a selfie's, a look's) locks nobody. The WHERE
+ * re-asserts each change's condition, so a row another run marked or
+ * cleared meanwhile is left as it is. False when it failed (a 55P03 behind
+ * a stalled writer): logged, and the next run tries again.
+ */
+async function writeMissingMarks(
+  { db, logger }: ReconcileDeps,
+  { mark, clear }: MissingMarks,
+): Promise<boolean> {
+  const ids = [...mark, ...clear];
+  if (ids.length === 0) return true;
+  try {
+    const lock = ownersLockCte(
+      db,
+      garmentOwnersOf(
+        sql`${sql.join(
+          ids.map((id) => sql`${id}::int`),
+          sql`, `,
+        )}`,
+      ),
+    );
+    const marked = mark.length > 0 ? inArray(file.id, mark) : sql`false`;
+    const written = await db
+      .with(lock)
+      .update(file)
+      .set({
+        originalMissingSince: sql`case when ${marked} then now() end`,
+      })
+      .where(
+        and(
+          // Runs the lock before the scan (an uncorrelated InitPlan, as
+          // ownerLocked); `>= 0`, not `> 0`: photos no garment shows
+          // have no owner to lock and are written all the same.
+          sql`(${db.select({ owners: count() }).from(lock)}) >= 0`,
+          or(
+            mark.length > 0
+              ? and(inArray(file.id, mark), isNull(file.originalMissingSince))
+              : undefined,
+            clear.length > 0
+              ? and(
+                  inArray(file.id, clear),
+                  isNotNull(file.originalMissingSince),
+                )
+              : undefined,
+          ),
+        ),
+      )
+      .returning({
+        fileName: file.fileName,
+        missing: file.originalMissingSince,
+      });
+    for (const row of written) {
+      logger.info(
+        row.missing
+          ? `Photo ${row.fileName} marked missing: nothing of it is in storage`
+          : `Photo ${row.fileName} no longer missing: its bytes are back in storage`,
+      );
+    }
+    return true;
+  } catch (error) {
+    logger.error(
+      { err: error },
+      `Could not write the missing-photo marks of ${ids.length} photos`,
+    );
+    return false;
+  }
 }

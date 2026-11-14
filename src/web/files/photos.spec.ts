@@ -81,6 +81,8 @@ const writtenKey = (): string => {
   if (event?.type !== 'edit' && event?.type !== 'succeed') {
     throw new Error('No cutout event was applied');
   }
+  // Photos always stores a cutout under a fresh key (newVariantKey).
+  if (event.variantKey === null) throw new Error('An unkeyed cutout event');
   return event.variantKey;
 };
 

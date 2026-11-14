@@ -30,7 +30,7 @@ import { inCapsule } from '../capsules/queries';
 import type { SignablePhotoRef } from '../files/image-url';
 import { NotFound } from '../refusals';
 import type { Actor } from '../sharing/access';
-import { photoRefJson, readPhotoRef } from '../files/queries';
+import { photoRefJson, readPhotoRef, shownPhotoName } from '../files/queries';
 import { sameGarmentsOutfit } from '../outfits/queries';
 import { outfitIsComplete } from '../outfits/references';
 import {
@@ -373,7 +373,7 @@ const drawnJson = sql<DrawnJson>`json_build_array(
   ${garment.id}, ${garment.name}, ${garment.category}, ${garment.colors},
   ${garment.pattern}, ${garment.formality}, ${garment.warmth}, ${garment.type},
   ${garment.fabricWeight}, ${garment.waterResistant},
-  ${file.fileName}, ${file.version}, ${file.variantKey}
+  ${shownPhotoName}, ${file.version}, ${file.variantKey}
 )`;
 
 /** A drawnJson array as a garment that is never rotated. */

@@ -331,6 +331,8 @@ export interface GarmentSummary {
   sourceUrl: string | null;
   status: GarmentStatus;
   photo: PhotoWithCutout | null;
+  /** Its photo's original_missing_since (#653): `photo` is null then. */
+  photoMissingSince: Date | null;
 }
 
 /**
@@ -375,6 +377,7 @@ export async function garmentSummaries(
       sourceUrl: garment.sourceUrl,
       status: garment.status,
       photo: photoWithCutoutJson,
+      photoMissingSince: file.originalMissingSince,
       rank,
     })
     .from(garment)
@@ -531,6 +534,8 @@ export interface GarmentDetail
   /** A wishlist item's (or a bought one's) garment it replaces. */
   replacesGarmentId: number | null;
   photo: GarmentPhoto | null;
+  /** Its photo's original_missing_since (#653): `photo` is null then. */
+  photoMissingSince: Date | null;
   // The owner's own records (src/web/wears): the page shows them to the
   // owner alone.
   lastWashedOn: string | null;
@@ -596,6 +601,7 @@ const detailColumns = {
   dismissedAt: garment.dismissedAt,
   madeByAgent: sql<boolean>`${garment.addedByTokenId} is not null`,
   photo: photoWithCutoutJson,
+  photoMissingSince: file.originalMissingSince,
 };
 
 /** The garment in `ownerId`'s wardrobe, or undefined. */

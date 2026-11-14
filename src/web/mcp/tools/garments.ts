@@ -151,6 +151,8 @@ async function garmentOut(
     status: garment.status,
     replacesGarmentId: garment.replacesGarmentId,
     hasPhoto: garment.photo !== null,
+    // Set while nothing of its photo is stored (#653): hasPhoto is false then.
+    photoMissingSince: garment.photoMissingSince?.toISOString() ?? null,
     properties: {
       type: garment.type,
       warmth: garment.warmth,
@@ -423,7 +425,7 @@ export const garmentTools = [
   defineTool({
     name: 'get_garment',
     title: 'Get a garment',
-    description: `One garment in full: its status (closet, archived, or wishlist: not bought yet) and fields, every property, its care label, product link and price, what it replaces (a wishlist item), quantity and condition, the capsules it is in, and on your own wardrobe your wears and washes, what it cost (price per piece × copies plus what its repairs cost; null without a price) and its cost per wear (that over the days worn; null until worn), and its repair and alteration log (each with its day, kind, note and cost), and agent when an agent added it over MCP (your token's name when it was yours, "<first name>'s agent" for a grantee's on your wardrobe, else "Agent"). No photo: get_garment_photo has it.`,
+    description: `One garment in full: its status (closet, archived, or wishlist: not bought yet) and fields, every property, its care label, product link and price, what it replaces (a wishlist item), quantity and condition, the capsules it is in, and on your own wardrobe your wears and washes, what it cost (price per piece × copies plus what its repairs cost; null without a price) and its cost per wear (that over the days worn; null until worn), and its repair and alteration log (each with its day, kind, note and cost), and agent when an agent added it over MCP (your token's name when it was yours, "<first name>'s agent" for a grantee's on your wardrobe, else "Agent"). No photo: get_garment_photo has it; photoMissingSince is set while nothing of the photo is stored (hasPhoto false until it is back).`,
     input: z.object({ id: rowId(), ownerId: ownerIdInput }),
     writes: false,
     async run({ id, ownerId }, ctx) {
