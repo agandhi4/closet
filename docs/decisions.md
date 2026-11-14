@@ -1012,6 +1012,19 @@ Why: the calendar shows Sunday to Saturday, the plan covers today and six days, 
 Decision: the POST redirects to `?week=<startOfWeek(first planned day)>&planned=<batch>#day-<first>`; banner rows are links (`#day-D` in the shown week, `dayUrl` otherwise) with a `thumb` collage. Nothing planned keeps `/calendar?planned=none`.
 Consequence: `plannedWeekUrl(planned, firstDay?)` is the one builder; the banner's garments ride `batchEntriesSql`, still the week's one statement.
 
+## 2026-11-13 — One status region for every write's result (#679)
+
+**Why:** "Wore today", the worn pill, Washed, Mark washed and Wear this dropped focus to `<body>` and announced nothing; `SavedToast` inserted its own `aria-live` container with the page, which screen readers do not reliably read.
+**Decision:** `#toast-host` is the one polite region (`role="status"`); htmx writes fill it with `announce()` (`HX-Trigger` `closet:status`, the encoding shared with #642's failures, `src/htmx/trigger.ts`), native posts' landing pages with `SavedToast`'s inert template, both read by `public/js/toast.js`. Toasts carry no role of their own. In-place write buttons keep one id across states (htmx refocuses by id); a vanished control or a landing page sets `autofocus` on where focus goes.
+**Consequence:** saved toasts now show at the bottom above the dock, not under the app bar, and need script. `SavedToast`'s props are unchanged. A new in-place queued write needs a stable button id (`expectInPlaceWritesKeepFocus`, in `expectFullPage`); other `hx-post` forms are not yet held to it.
+
+## 2026-11-14 — A trip is dressed in its destination's zone; "today" stays home's (#678)
+
+**Why:** every forecast was asked in `APP_TIMEZONE`, so a Tokyo trip day's 8-22 window read 22:00 to 12:00 Tokyo time (the night), and its outfits and packing skewed cold for eastward travel.
+**Decision:** a trip carries `time_zone` (0057), the geocoding answer's `timezone`, canonicalised by `canonicalTimeZone` and written only by `setTripDestination` with the coordinates (invalid or missing: null). The weather caches key on `(latitude, longitude, time_zone)`; a trip's forecast and normals are asked in its zone, the home's in `APP_TIMEZONE`. Nothing is learned on a GET.
+**Known 0.1 limits:** "today while travelling is home's": which trip days are left, "Wore it" and the calendar follow `APP_TIMEZONE`, so across the date line a trip day can lack a forecast and shows its typical weather instead. Trips located before 0057 keep APP_TIMEZONE until their destination is re-saved: geocoding has no reverse lookup, and a backfill job probing the forecast per trip was not worth a job for a handful of rows.
+**Consequence:** a new reader of a trip's weather passes `zonedIn(trip.location, weather.timeZone)`; a new writer of a trip's place goes through `setTripDestination`. Rolling back past 0057 needs the down script in `docs/operations.md`.
+
 ## 2026-11-14 — Select mode is one selection several verbs act on (#677)
 
 **Why:** select mode was wired to one verb (Set…) and returned to the plain grid, so a second property, a capsule or a wash meant selecting again, and only loaded tiles could be selected.

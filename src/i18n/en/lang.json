@@ -829,7 +829,14 @@
     "LAUNDRY_PROMPT": "{count} garments need a wash",
     "LAUNDRY_PROMPT_ONE": "1 garment needs a wash",
     "LAUNDRY_WASHED": "{count} washed",
-    "MARK_WASHED": "Mark washed"
+    "MARK_WASHED": "Mark washed",
+    "status": {
+      "WORE_TODAY": "Logged as worn today",
+      "WORE_TODAY_UNDONE": "Today’s wear removed",
+      "WASHED": "Marked washed",
+      "WORN": "Marked worn",
+      "UNDO_WORN": "No longer marked worn"
+    }
   },
   "mark": {
     "TO_BUY": "To buy",

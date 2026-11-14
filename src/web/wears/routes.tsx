@@ -3,8 +3,10 @@ import { Type } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AWAY_REASONS } from '../../wardrobe/availability';
 import { sessionUserId } from '../auth/require-session';
+import { announce } from '../announce';
 import { AutosaveSaved } from '../autosave';
 import { todayIn } from '../../calendar-date';
+import { t } from '../i18n';
 import type { WebOptions } from '../plugin';
 import { renderFragment, renderPage } from '../render';
 import {
@@ -35,7 +37,7 @@ import {
   WearClientIdRefusal,
   wearGarment,
 } from './wear-actions';
-import { WearStatus } from './wear-section';
+import { WearStatus, type WearTap } from './wear-section';
 
 // `day` is a queued tap's own day (#178), else today: requestedDay
 // refuses one outside the replay window (409).
@@ -96,12 +98,15 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
 
   /**
    * A replay's 204 (src/web/offline-writes.ts); the wear status again to
-   * htmx; the garment page to a plain post.
+   * htmx, with what the tap did said in the status region (#679); the
+   * garment page to a plain post. `after` is the tap's control, which the
+   * answer keeps focused (WearStatus).
    */
   async function answer(
     request: FastifyRequest,
     reply: FastifyReply,
     write: { id: number; ownerId: number; changed: boolean },
+    result: { message: string; after: WearTap },
   ): Promise<FastifyReply> {
     const { id, ownerId } = write;
     if (isReplay(request)) return answerReplay(reply, write.changed);
@@ -111,11 +116,13 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
     const day = today();
     const status = await wearStatusOf(db, id, ownerId, day);
     if (!status) throw garmentNotFound();
+    announce(reply, result.message);
     return renderFragment(
       reply,
       <WearStatus
         garment={status.garment}
         panel={{ summary: status.summary, today: day }}
+        after={result.after}
       />,
     );
   }
@@ -158,7 +165,17 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       logger.info(
         `Garment ${id} ${worn ? 'worn' : 'wear undone'} on ${day} by user ${ownerId}${changed ? '' : ', already so'}${replayNote(request)}`,
       );
-      return answer(request, reply, { id, ownerId, changed });
+      return answer(
+        request,
+        reply,
+        { id, ownerId, changed },
+        {
+          message: worn
+            ? t('wear.status.WORE_TODAY')
+            : t('wear.status.WORE_TODAY_UNDONE'),
+          after: 'wear',
+        },
+      );
     },
   );
 
@@ -187,7 +204,12 @@ export const wearRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       logger.info(
         `Garment ${id} washed on ${day} ${instantNote(at)} by user ${ownerId}${changed ? '' : ', already washed then or later'}${replayNote(request)}`,
       );
-      return answer(request, reply, { id, ownerId, changed });
+      return answer(
+        request,
+        reply,
+        { id, ownerId, changed },
+        { message: t('wear.status.WASHED'), after: 'wash' },
+      );
     },
   );
 

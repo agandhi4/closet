@@ -8,14 +8,16 @@ import {
 } from '../../weather/forecast';
 import {
   COORDINATE_DECIMALS,
-  type Location,
   roundedLocation,
+  type Location,
+  type ZonedLocation,
 } from '../../weather/location';
 import {
   type ClimateNormals,
   climateNormals,
   type ObservedDay,
 } from '../../weather/normals';
+import { canonicalTimeZone } from '../../calendar-date';
 import type { OutboundFetcher } from '../security/outbound-fetch';
 
 /**
@@ -65,14 +67,19 @@ export interface Place {
   /** "Brooklyn, New York, United States": what the profile shows and stores. */
   label: string;
   location: Location;
+  /**
+   * The place's IANA zone from the search's answer, canonical; null when it
+   * named none Intl knows (the weather then reads APP_TIMEZONE, #678).
+   */
+  timeZone: string | null;
 }
 
 export interface WeatherClient {
-  /** FORECAST_DAYS days from today, hours in `timeZone`. */
-  forecast(location: Location): Promise<Forecast>;
-  /** Every calendar day's normals over `years` (whole years, inclusive). */
+  /** FORECAST_DAYS days from the place's today, days and hours in its zone. */
+  forecast(place: ZonedLocation): Promise<Forecast>;
+  /** Every calendar day's normals over `years` (whole years, inclusive), in the place's zone. */
   normals(
-    location: Location,
+    place: ZonedLocation,
     years: { first: number; last: number },
   ): Promise<ClimateNormals>;
   searchPlaces(query: string): Promise<Place[]>;
@@ -90,6 +97,8 @@ const Numbers = Type.Array(Type.Union([Type.Number(), Type.Null()]));
 
 // Only what the app reads; Open-Meteo's other fields pass unchecked.
 const ForecastAnswer = Type.Object({
+  // The zone the days and hours are in, as Open-Meteo resolved the request's.
+  timezone: Type.String(),
   hourly: Type.Object({
     time: Type.Array(Type.String()),
     apparent_temperature: Numbers,
@@ -107,6 +116,7 @@ const ForecastAnswer = Type.Object({
 type ForecastAnswer = Static<typeof ForecastAnswer>;
 
 const ArchiveAnswer = Type.Object({
+  timezone: Type.String(),
   daily: Type.Object({
     time: Type.Array(Type.String()),
     temperature_2m_max: Numbers,
@@ -128,6 +138,7 @@ const GeocodingAnswer = Type.Object({
         longitude: Type.Number(),
         admin1: Type.Optional(Type.String()),
         country: Type.Optional(Type.String()),
+        timezone: Type.Optional(Type.String()),
       }),
     ),
   ),
@@ -141,11 +152,9 @@ const OVERCAST = 3;
 
 export function createOpenMeteoClient(options: {
   fetcher: OutboundFetcher;
-  /** APP_TIMEZONE: the forecast's days and hours are the household's. */
-  timeZone: string;
   endpoints?: WeatherEndpoints;
 }): WeatherClient {
-  const { fetcher, timeZone, endpoints = OPEN_METEO } = options;
+  const { fetcher, endpoints = OPEN_METEO } = options;
 
   async function getJson(endpoint: string, query: URLSearchParams) {
     const url = new URL(endpoint);
@@ -162,16 +171,16 @@ export function createOpenMeteoClient(options: {
   }
 
   return {
-    async forecast(location) {
+    async forecast(place) {
       const answer = await getJson(
         endpoints.forecast,
         new URLSearchParams({
-          latitude: location.latitude.toFixed(COORDINATE_DECIMALS),
-          longitude: location.longitude.toFixed(COORDINATE_DECIMALS),
+          latitude: place.latitude.toFixed(COORDINATE_DECIMALS),
+          longitude: place.longitude.toFixed(COORDINATE_DECIMALS),
           hourly: 'apparent_temperature,precipitation_probability,weather_code',
           daily:
             'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
-          timezone: timeZone,
+          timezone: place.timeZone,
           forecast_days: String(FORECAST_DAYS),
         }),
       );
@@ -180,20 +189,21 @@ export function createOpenMeteoClient(options: {
           'The forecast is not the documented shape',
         );
       }
-      return { timeZone, days: forecastDays(answer) };
+      checkEcho(place, answer.timezone);
+      return { timeZone: place.timeZone, days: forecastDays(answer) };
     },
 
-    async normals(location, years) {
+    async normals(place, years) {
       const answer = await getJson(
         endpoints.archive,
         new URLSearchParams({
-          latitude: location.latitude.toFixed(COORDINATE_DECIMALS),
-          longitude: location.longitude.toFixed(COORDINATE_DECIMALS),
+          latitude: place.latitude.toFixed(COORDINATE_DECIMALS),
+          longitude: place.longitude.toFixed(COORDINATE_DECIMALS),
           start_date: `${years.first}-01-01`,
           end_date: `${years.last}-12-31`,
           daily:
             'temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum',
-          timezone: timeZone,
+          timezone: place.timeZone,
         }),
       );
       if (!Value.Check(ArchiveAnswer, answer)) {
@@ -201,6 +211,7 @@ export function createOpenMeteoClient(options: {
           'The archive answer is not the documented shape',
         );
       }
+      checkEcho(place, answer.timezone);
       const observed = observedDays(answer, years);
       if (observed.length === 0) {
         throw new WeatherResponseError('The archive has no complete days');
@@ -229,10 +240,25 @@ export function createOpenMeteoClient(options: {
         const label = [result.name, result.admin1, result.country]
           .filter((part, i, parts) => part && parts.indexOf(part) === i)
           .join(', ');
-        return [{ label, location }];
+        const timeZone =
+          result.timezone === undefined
+            ? null
+            : canonicalTimeZone(result.timezone);
+        return [{ label, location, timeZone }];
       });
     },
   };
+}
+
+/**
+ * The answer's days and hours are the asked zone's, or they are another
+ * place's day (#678): the echo and the request go through one canonicaliser,
+ * so "GMT" answering "UTC" is the same zone.
+ */
+function checkEcho(place: ZonedLocation, echoed: string): void {
+  if (canonicalTimeZone(echoed) !== canonicalTimeZone(place.timeZone)) {
+    throw new WeatherResponseError('The answer is for another time zone');
+  }
 }
 
 /**
@@ -241,15 +267,18 @@ export function createOpenMeteoClient(options: {
  * chance of precipitation reads as none.
  */
 function forecastDays({ hourly, daily }: ForecastAnswer): DayForecast[] {
-  if (
-    hourly.apparent_temperature.length !== hourly.time.length ||
-    hourly.precipitation_probability.length !== hourly.time.length ||
-    hourly.weather_code.length !== hourly.time.length ||
-    daily.weather_code.length !== daily.time.length ||
-    daily.temperature_2m_max.length !== daily.time.length ||
-    daily.temperature_2m_min.length !== daily.time.length ||
-    daily.precipitation_probability_max.length !== daily.time.length
-  ) {
+  const hourlyAligned = alignedWith(hourly.time, [
+    hourly.apparent_temperature,
+    hourly.precipitation_probability,
+    hourly.weather_code,
+  ]);
+  const dailyAligned = alignedWith(daily.time, [
+    daily.weather_code,
+    daily.temperature_2m_max,
+    daily.temperature_2m_min,
+    daily.precipitation_probability_max,
+  ]);
+  if (!hourlyAligned || !dailyAligned) {
     throw new WeatherResponseError('The forecast series differ in length');
   }
   const hoursByDay = new Map<string, HourForecast[]>();
@@ -298,27 +327,30 @@ function observedDays(
     daily.apparent_temperature_min,
     daily.precipitation_sum,
   ];
-  if (series.some((values) => values.length !== daily.time.length)) {
+  if (!alignedWith(daily.time, series)) {
     throw new WeatherResponseError('The archive series differ in length');
   }
   const first = `${years.first}-01-01`;
   const last = `${years.last}-12-31`;
+  const inYears = (day: string) =>
+    LOCAL_DAY.test(day) && day >= first && day <= last;
   return daily.time.flatMap((day, i) => {
-    const [high, low, feelsHigh, feelsLow, precipitation] = series.map(
-      (values) => values[i],
-    );
-    if (
-      !LOCAL_DAY.test(day) ||
-      day < first ||
-      day > last ||
-      high === null ||
-      low === null ||
-      feelsHigh === null ||
-      feelsLow === null ||
-      precipitation === null
-    ) {
-      return [];
-    }
+    const values = series.map((column) => column[i]);
+    if (!inYears(day) || !complete(values)) return [];
+    const [high, low, feelsHigh, feelsLow, precipitation] = values;
     return [{ day, high, low, feelsHigh, feelsLow, precipitation }];
   });
+}
+
+/** Whether every series has a value for each of `time`'s entries. */
+function alignedWith(
+  time: readonly string[],
+  series: readonly (readonly unknown[])[],
+): boolean {
+  return series.every((values) => values.length === time.length);
+}
+
+/** Whether a day has every value (the archive's newest days come back null). */
+function complete(values: (number | null)[]): values is number[] {
+  return values.every((value) => value !== null);
 }

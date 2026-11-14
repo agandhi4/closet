@@ -86,6 +86,7 @@ const FORECAST: DayForecast[] = WEEK.map((day) => ({
 
 /** Answers FORECAST for any location, without the database. */
 const weather: WeatherService = {
+  timeZone: 'America/New_York',
   forecastFor: () =>
     Promise.resolve({
       forecast: { timeZone: 'America/New_York', days: FORECAST },

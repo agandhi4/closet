@@ -1,6 +1,6 @@
 import type { Db } from '../../db/client';
 import { DEFAULT_OCCASION, type Occasion } from '../../wardrobe/occasions';
-import type { Location } from '../../weather/location';
+import type { PickedLocation } from '../../weather/location';
 import type { IsoDate } from '../../calendar-date';
 import type { OutfitDestination } from '../outfits/destination';
 import { ideasDayOf, type TripRow } from '../trips/queries';
@@ -15,7 +15,7 @@ export interface IdeasAim {
   /** The trip of `for=trip:ID`, the requester's own. */
   trip?: TripRow;
   /** Where the day's weather is (IdeasInput.place): absent for the person's own. */
-  weatherAt: { place?: Location | null; tripId?: number };
+  weatherAt: { place?: PickedLocation | null; tripId?: number };
 }
 
 /**

@@ -11,6 +11,7 @@ import {
 } from '../../src/db/schema';
 import { selectScalars } from '../../src/db/select-scalars';
 import { addDays } from '../../src/calendar-date';
+import { t as text } from '../../src/web/i18n';
 import { savedOutfitsSql } from '../../src/web/outfits/queries';
 import { wearIdea } from '../../src/web/today/queries';
 import { decide, markSuggestion } from '../../src/web/wishlist/decisions';
@@ -441,7 +442,6 @@ describe('Today', () => {
       const [idea] = cardsOf((await get('/')).body);
       const res = await wear(idea);
       expect(res.statusCode).toBe(303);
-      expect(res.headers.location).toBe('/');
       const [outfitId] = await outfitsOf(idea);
       // A one-off (#659): Worn and planned, never on Saved.
       const [made] = await t.db
@@ -454,6 +454,8 @@ describe('Today', () => {
         .from(outfitCalendar)
         .where(eq(outfitCalendar.outfitId, outfitId));
       expect(entry).toMatchObject({ day: t.today(), occasion: 'all-day' });
+      // Lands on Today naming the entry it wore (#679).
+      expect(res.headers.location).toBe(`/?wore=${entry.id}`);
       expect(entry.wornAt).not.toBeNull();
       expect(
         await t.db.$count(
@@ -474,6 +476,28 @@ describe('Today', () => {
       expect(rowsOf(html)).toEqual([['planned', 'all-day']]);
       expect(html).toContain('✓ Worn');
       expect(html).toContain('name="worn" value="0"');
+      expect(html).not.toContain('data-status-message');
+
+      // The landing: focus on the entry's Undo, the result to say. A flag
+      // naming no worn entry of the page says nothing.
+      const landed = await get(`/?wore=${entry.id}`);
+      expect(landed.body).toMatch(
+        new RegExp(
+          `<button type="submit" id="entry-${entry.id}-worn" autofocus=""`,
+        ),
+      );
+      expect(landed.body).toContain(
+        `<template id="wore-toast" data-status-message="">${text('wear.status.WORN')}</template>`,
+      );
+      const stale = await get(`/?wore=${entry.id + 1000}`);
+      expect(stale.body).not.toContain('data-status-message');
+      expect(stale.body).not.toMatch(/-worn" autofocus/);
+      // URL state is a fallback, never a 400: a repeated flag reads its
+      // first valid value, a malformed one is no flag.
+      const repeated = await get(`/?wore=junk&wore=${entry.id}&wore=1`);
+      expect(repeated.statusCode).toBe(200);
+      expect(repeated.body).toContain('data-status-message');
+      expect((await get('/?wore=junk&wore=')).statusCode).toBe(200);
     });
 
     // adoptOutfit only raises an origin (#659): an idea's reuse of a kept

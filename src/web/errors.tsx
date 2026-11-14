@@ -2,6 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { STATUS_CODES } from 'node:http';
 import { isLockTimeout } from '../db/errors';
 import { FRAGMENT_VARY, isFragmentRequest } from '../htmx/fragment-request';
+import { hxTrigger } from '../htmx/trigger';
 import { OWNER_LOCK_TIMEOUT_MS } from '../db/owner-lock';
 import { t } from './i18n';
 import { ErrorPage } from './error-page';
@@ -294,17 +295,9 @@ export interface RequestFailure {
   requestId: string;
 }
 
-/**
- * The `HX-Trigger` header naming a failure. Escaped to ASCII: a header
- * value is Latin-1 on the wire and Node throws on anything past it (a
- * curly quote in a message would fail inside the error handler), while
- * htmx's JSON.parse reads the `\uXXXX` escapes back.
- */
+/** The `HX-Trigger` header naming a failure (ASCII-escaped: hxTrigger). */
 export function failureTrigger(failure: RequestFailure): string {
-  return JSON.stringify({ [REQUEST_FAILED_EVENT]: failure }).replace(
-    /[\u007f-￿]/g,
-    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`,
-  );
+  return hxTrigger(REQUEST_FAILED_EVENT, failure);
 }
 
 /**

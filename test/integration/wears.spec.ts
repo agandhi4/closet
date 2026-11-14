@@ -16,16 +16,23 @@ import {
   wearsSinceWashSql,
 } from '../../src/web/wears/queries';
 import { WASH_CASES, washCaseRows } from '../support/wash-cases';
+import { t as text } from '../../src/web/i18n';
 import { createGarment } from './garments';
 import {
   createTestApp,
   hasText,
+  shownMarkup,
   type TestApp,
   unescapeHtml,
   userIdOf,
   asFixture,
 } from './harness';
-import { expectFragment, expectFullPage } from './pages';
+import {
+  expectFragment,
+  expectFullPage,
+  expectInPlaceWritesKeepFocus,
+  expectStatusMessage,
+} from './pages';
 
 /**
  * Wears and washes (#7, plan section 1): the wear log that outfit edits
@@ -425,6 +432,78 @@ describe('wears and washes', () => {
       const page = await garmentPage(tee);
       expect(hasText(page.body, 'Worn today (calendar)')).toBe(true);
       expect(page.body).not.toContain(`/wardrobe/${tee}/wear`);
+    });
+  });
+
+  // #679: each tap's control keeps one id across the swap (htmx refocuses
+  // it), and the answer says what it did in the page's status region.
+  describe('the result of a tap', () => {
+    /** The opening tag of the element with this id, or undefined. */
+    const tagOf = (html: string, id: string) =>
+      new RegExp(`<[a-z]+\\b[^>]*\\bid="${id}"[^>]*>`).exec(html)?.[0];
+
+    it('Wore today and its undo keep one button and say what they did', async () => {
+      const tee = await newGarment('Focus tee', 'tops');
+      const id = `garment-${tee}-wore-today`;
+      expect(tagOf((await garmentPage(tee)).body, id)).toBeDefined();
+
+      const worn = await post(`/wardrobe/${tee}/wear`, { worn: '1' });
+      expectFragment(worn);
+      expectInPlaceWritesKeepFocus(worn);
+      expectStatusMessage(worn, text('wear.status.WORE_TODAY'));
+      expect(tagOf(worn.body, id)).toBeDefined();
+      expect(worn.body).not.toContain('autofocus');
+
+      const undone = await post(`/wardrobe/${tee}/wear`, { worn: '0' });
+      expectStatusMessage(undone, text('wear.status.WORE_TODAY_UNDONE'));
+      expect(tagOf(undone.body, id)).toBeDefined();
+    });
+
+    it('Washed, gone once nothing is worn since, hands focus to the wear line', async () => {
+      const tee = await newGarment('Focus wash tee', 'tops');
+      await post(`/wardrobe/${tee}/wear`, { worn: '1' });
+      expect(
+        tagOf((await garmentPage(tee)).body, `garment-${tee}-washed`),
+      ).toBeDefined();
+
+      const washed = await post(`/wardrobe/${tee}/washed`);
+      expectStatusMessage(washed, text('wear.status.WASHED'));
+      expect(washed.body).not.toContain(`id="garment-${tee}-washed"`);
+      const line = tagOf(washed.body, 'garment-wear-status');
+      expect(line).toContain('tabindex="-1"');
+      expect(line).toContain('autofocus');
+    });
+
+    it('the calendar’s worn pill keeps one button across the row’s swap', async () => {
+      const tee = await newGarment('Focus pill tee', 'tops');
+      const entry = await schedule(await newOutfit('Pill', [tee]), today());
+      const id = `entry-${entry}-worn`;
+      const worn = await post(`/calendar/${entry}/worn`, { worn: '1' });
+      expectFragment(worn);
+      expectInPlaceWritesKeepFocus(worn);
+      expectStatusMessage(worn, text('wear.status.WORN'));
+      expect(tagOf(shownMarkup(worn.body), id)).toContain('type="submit"');
+
+      const undone = await post(`/calendar/${entry}/worn`, { worn: '0' });
+      expectStatusMessage(undone, text('wear.status.UNDO_WORN'));
+      expect(tagOf(shownMarkup(undone.body), id)).toBeDefined();
+    });
+
+    it('Mark washed lands with the result to say and focus on the way on', async () => {
+      const tee = await newGarment('Focus laundry tee', 'tops');
+      await post(`/wardrobe/${tee}/wear`, { worn: '1' });
+      const before = await t.inject({ method: 'GET', url: '/laundry' });
+      expect(tagOf(before.body, 'laundry-mark-washed')).not.toContain(
+        'autofocus',
+      );
+
+      const after = await t.inject({ method: 'GET', url: '/laundry?washed=1' });
+      expectFullPage(after);
+      // The message, inert until public/js/toast.js says it.
+      expect(after.body).toMatch(
+        /<template id="laundry-toast" data-status-message="">1 washed<\/template>/,
+      );
+      expect(tagOf(after.body, 'laundry-mark-washed')).toContain('autofocus');
     });
   });
 

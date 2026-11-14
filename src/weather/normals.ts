@@ -137,9 +137,8 @@ const TYPICAL_CODE = { dry: 2, rain: 63, snow: 73 };
  * - every hour's chance of precipitation is the day's rain chance, so a
  *   typical day asks for water resistance only where most days are wet
  *   (RAIN_CHANCE), as a forecast hour does;
- * - the hours are read as the household's hours (APP_TIMEZONE), as the
- *   forecast's are: the curve is not shifted for a destination in another
- *   zone;
+ * - the hours are the place's own, as the forecast's are: the archive is
+ *   asked in the zone the normals are kept in (a destination's, #678);
  * - the condition is only dry, rain or snow (snow when it would be wet and
  *   the high feels below 1 °C).
  */

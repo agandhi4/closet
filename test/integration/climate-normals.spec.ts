@@ -227,9 +227,9 @@ describe('climate normals', () => {
       expect(html).toContain(`/outfits/ideas?for=trip:${id}:${day}`);
     }
     expect(t.logs.messages('info', 'Weather')).toEqual([
-      'Climate normals for 30.27,-97.74: refreshing; none kept, the ask waits',
+      'Climate normals for 30.27,-97.74 America/New_York: refreshing; none kept, the ask waits',
       expect.stringMatching(
-        /^Climate normals for 30\.27,-97\.74: 366 days from 2016-2025 in \d+ ms$/,
+        /^Climate normals for 30\.27,-97\.74 America\/New_York: 366 days from 2016-2025 in \d+ ms$/,
       ),
     ]);
   });
@@ -287,7 +287,7 @@ describe('climate normals', () => {
     expect(archiveHits()).toHaveLength(before + 1);
     expect(t.logs.messages('warn', 'Weather')).toEqual([
       expect.stringMatching(
-        /^Climate normals for 30\.27,-97\.74 failed \(http-status\) after \d+ ms; serving the one from 2026-09-27T00:30:00\.000Z$/,
+        /^Climate normals for 30\.27,-97\.74 America\/New_York failed \(http-status\) after \d+ ms; serving the one from 2026-09-27T00:30:00\.000Z$/,
       ),
     ]);
 

@@ -16,8 +16,8 @@ import { RowId } from '../schemas';
 import { enforceLimit } from '../security/rate-limit';
 import { type Actor, actorOf } from '../sharing/access';
 import { API_PREFIX } from '../surface';
-import { pickedPlace } from '../weather/place-picker';
-import { KeptPlace, PlaceInput } from '../weather/weather-resource';
+import { keptDestination, pickedPlace } from '../weather/place-picker';
+import { KeptDestination, PlaceInput } from '../weather/weather-resource';
 import { tripForecast } from './forecast';
 import { createTrip, listTrips } from './queries';
 import {
@@ -554,7 +554,7 @@ export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
             "A place from GET /weather/places becomes the destination (its name too), so the trip gets the place's weather. Set-state. 10 a minute per user (each new place is a forecast to fetch).",
           params: TripParams,
           body: PlaceInput,
-          response: apiResponses({ 200: KeptPlace }),
+          response: apiResponses({ 200: KeptDestination }),
         },
       },
       async (request) => {
@@ -570,7 +570,7 @@ export const tripApiRoutes: FastifyPluginCallbackTypebox<ApiOptions> = (
         logger.info(
           `Trip ${id} destination located by user ${actor.userId} (API)`,
         );
-        return { name: place.name, ...place.location };
+        return keptDestination(place);
       },
     );
   }

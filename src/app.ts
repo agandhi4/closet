@@ -533,7 +533,6 @@ function createWeather(
         logger: logger.child({ logger: 'OutboundFetch' }),
         ...stub?.fetch,
       }),
-      timeZone: config.APP_TIMEZONE,
       endpoints: stub?.endpoints,
     }),
     logger: logger.child({ logger: 'Weather' }),

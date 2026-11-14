@@ -5,9 +5,11 @@ import type { IsoDate } from '../calendar-date';
  * normalized by src/web/weather/open-meteo.ts, stored in the cache table
  * (weather_forecast.forecast) and read by the views, the matching
  * (match.ts) and the MCP tool. Every temperature is °C. Days and hours are
- * the household's (APP_TIMEZONE, which the request names), so a forecast
- * day lines up with a calendar day and an hour with an occasion's window
- * (src/wardrobe/occasions.ts). Pure.
+ * the zone's the request names (`timeZone`): the household's (APP_TIMEZONE)
+ * for the home, so a forecast day lines up with a calendar day, and a trip
+ * destination's own (#678), so a trip day is a civil date there; either way
+ * an hour lines up with an occasion's window (src/wardrobe/occasions.ts).
+ * Pure.
  */
 
 /** How far ahead Open-Meteo forecasts; past it the calendar shows no weather. */
@@ -20,7 +22,7 @@ export const FORECAST_DAYS = 16;
 export const RAIN_CHANCE = 50;
 
 export interface HourForecast {
-  /** 0-23 in APP_TIMEZONE (a DST fall-back day repeats one). */
+  /** 0-23 in the forecast's zone (a DST fall-back day repeats one). */
   hour: number;
   /** Apparent ("feels like") temperature. */
   feelsLike: number;
@@ -44,7 +46,7 @@ export interface DayForecast {
 }
 
 export interface Forecast {
-  /** The zone the days and hours are in (the request's APP_TIMEZONE). */
+  /** The zone the days and hours are in: the request's, canonical. */
   timeZone: string;
   days: DayForecast[];
 }

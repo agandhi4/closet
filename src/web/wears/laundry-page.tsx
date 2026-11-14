@@ -41,6 +41,9 @@ export function LaundryPage(props: {
   const { ctx, items } = props;
   const due = items.filter((item) => item.dirty > 0);
   const worn = items.filter((item) => item.dirty === 0);
+  // Back from Mark washed (#679): focus starts where the tap left it, on
+  // the button, or on the way on once the hamper is empty.
+  const landed = props.washed !== undefined;
   return (
     <Layout ctx={ctx} title={t('wear.LAUNDRY')}>
       <WardrobeHeader
@@ -55,7 +58,7 @@ export function LaundryPage(props: {
         <main class="p-4 pb-40 w-full max-w-lg mx-auto">
           {items.length === 0 ? (
             <EmptyState message={t('wear.LAUNDRY_EMPTY')}>
-              <a href="/wardrobe" class="btn btn-sm">
+              <a href="/wardrobe" class="btn btn-sm" autofocus={landed}>
                 {t('WARDROBE')}
               </a>
             </EmptyState>
@@ -72,7 +75,12 @@ export function LaundryPage(props: {
                 <LaundryGroup title={t('wear.LAUNDRY_WORN')} items={worn} />
               )}
               <div class="fixed bottom-dock left-rail right-0 bg-base-100 border-t border-base-300 z-20 px-4 py-3 flex justify-end">
-                <button type="submit" class="btn btn-primary btn-sm">
+                <button
+                  type="submit"
+                  id="laundry-mark-washed"
+                  class="btn btn-primary btn-sm"
+                  autofocus={landed}
+                >
                   {t('wear.MARK_WASHED')}
                 </button>
               </div>

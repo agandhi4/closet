@@ -23,19 +23,19 @@ vi.mock('./queries', () => ({
 
 /**
  * What the service asks the location cache to treat as "another question"
- * (#112's sweep): a forecast requested in another zone than APP_TIMEZONE,
+ * (#112's sweep): a forecast kept in another zone than its key's (#678),
  * and normals of years that are no longer the last ten. Either is refetched
  * however young its row is. The cache's own discipline is
  * location-cache.spec.ts.
  */
 
-const HERE = { latitude: 40.69, longitude: -73.98 };
 const ZONE = 'America/New_York';
+const HERE = { latitude: 40.69, longitude: -73.98, timeZone: ZONE };
 
 function service(now: Date) {
   const client = {
-    forecast: vi.fn(() =>
-      Promise.resolve<Forecast>({ timeZone: ZONE, days: [] }),
+    forecast: vi.fn((place: { timeZone: string }) =>
+      Promise.resolve<Forecast>({ timeZone: place.timeZone, days: [] }),
     ),
     normals: vi.fn((_location, years: { first: number; last: number }) =>
       Promise.resolve<ClimateNormals>({ years, days: {} }),
@@ -75,8 +75,25 @@ describe('createWeatherService', () => {
     });
     expect(client.forecast).toHaveBeenCalledTimes(1);
     expect(logs.messages('info')[0]).toBe(
-      'Forecast for 40.69,-73.98: the one from 2026-09-27T11:55:00.000Z is for America/Chicago, not America/New_York; not served',
+      'Forecast for 40.69,-73.98 America/New_York: the one from 2026-09-27T11:55:00.000Z is for America/Chicago, not America/New_York; not served',
     );
+  });
+
+  it("asks a destination in its own zone and names the household's zone (#678)", async () => {
+    const now = new Date('2026-09-27T12:00:00Z');
+    vi.mocked(findForecastRow).mockResolvedValue(undefined);
+    const { weather, client } = service(now);
+    const tokyo = {
+      latitude: 35.68,
+      longitude: 139.69,
+      timeZone: 'Asia/Tokyo',
+    };
+    await expect(weather.forecastFor(tokyo)).resolves.toMatchObject({
+      forecast: { timeZone: 'Asia/Tokyo' },
+    });
+    expect(client.forecast).toHaveBeenCalledWith(tokyo);
+    expect(findForecastRow).toHaveBeenCalledWith({}, tokyo);
+    expect(weather.timeZone).toBe(ZONE);
   });
 
   it('keeps serving a young forecast in this zone', async () => {
@@ -115,7 +132,7 @@ describe('createWeatherService', () => {
       last: 2026,
     });
     expect(logs.messages('info')[0]).toBe(
-      'Climate normals for 40.69,-73.98: the one from 2026-12-31T17:00:00.000Z is of 2016-2025, not 2017-2026; not served',
+      'Climate normals for 40.69,-73.98 America/New_York: the one from 2026-12-31T17:00:00.000Z is of 2016-2025, not 2017-2026; not served',
     );
   });
 

@@ -1,9 +1,13 @@
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
 import type { Forecast } from '../../weather/forecast';
-import { type Location, locationLabel } from '../../weather/location';
+import {
+  type ZonedLocation,
+  zonedIn,
+  zonedLabel,
+} from '../../weather/location';
 import { type ClimateNormals, normalYears } from '../../weather/normals';
-import { todayIn } from '../../calendar-date';
+import { canonicalTimeZone, todayIn } from '../../calendar-date';
 import {
   createLocationCache,
   elapsed,
@@ -82,12 +86,17 @@ export interface CachedNormals {
 
 export interface WeatherService {
   /**
+   * APP_TIMEZONE, canonical: the zone the home's and the phone's weather is
+   * asked and kept in (a trip's destination has its own, #678).
+   */
+  readonly timeZone: string;
+  /**
    * The location's cached forecast (refreshed in the background once
    * stale), fetched while the ask waits only when none is cached; null if
    * Open-Meteo never answered.
    */
   forecastFor(
-    location: Location,
+    location: ZonedLocation,
     read?: ReadOptions,
     /** The row userWeather read with the settings (LocationCache.get). */
     known?: KnownRow<Forecast>,
@@ -98,7 +107,7 @@ export interface WeatherService {
    * weekly plan stay forecast-only (src/weather/normals.ts).
    */
   normalsFor(
-    location: Location,
+    location: ZonedLocation,
     /** The row the caller read in a statement of its own (tripForecast). */
     known?: KnownRow<ClimateNormals>,
   ): Promise<CachedNormals | null>;
@@ -121,12 +130,14 @@ export function createWeatherService(options: {
   db: Db;
   client: WeatherClient;
   logger: Logger;
-  /** APP_TIMEZONE: which year it is, for the normals' years. */
+  /** APP_TIMEZONE: which year it is, for the normals' years; the home's zone. */
   timeZone: string;
   /** The clock; specs pin it. */
   now?: () => Date;
 }): WeatherService {
-  const { db, client, logger, timeZone, now = () => new Date() } = options;
+  const { db, client, logger, now = () => new Date() } = options;
+  // Checked at boot (loadConfig); canonical, as every cache key's zone is.
+  const timeZone = canonicalTimeZone(options.timeZone)!;
 
   const currentYears = () => normalYears(todayIn(timeZone, now()));
 
@@ -141,12 +152,12 @@ export function createWeatherService(options: {
     recordFailure: (location, at) => recordFailedForecast(db, location, at),
     fetch: (location) => client.forecast(location),
     describe: (forecast) => `${forecast.days.length} days`,
-    // Its days and hours are the zone's it was requested in: after an
-    // APP_TIMEZONE change they are another household's days.
-    mismatch: (forecast) =>
-      forecast.timeZone === timeZone
+    // The key's zone is the one asked (a row from before #678 names its own
+    // in its JSON, which the migration copied): never another zone's days.
+    mismatch: (forecast, location) =>
+      forecast.timeZone === location.timeZone
         ? null
-        : `for ${forecast.timeZone}, not ${timeZone}`,
+        : `for ${forecast.timeZone}, not ${location.timeZone}`,
   });
 
   const normals = createLocationCache<ClimateNormals>({
@@ -172,6 +183,8 @@ export function createWeatherService(options: {
   });
 
   return {
+    timeZone,
+
     async forecastFor(location, read, known) {
       const cached = await forecasts.get(location, read, known);
       return cached && { forecast: cached.value, fetchedAt: cached.fetchedAt };
@@ -220,7 +233,12 @@ export async function userWeather(
   /** `{ fresh: true }` for a job's one-shot decision (location-cache.ts). */
   read?: ReadOptions,
 ): Promise<UserWeather> {
-  const found = await findWeatherWithForecast(db, userId, now);
+  const found = await findWeatherWithForecast(
+    db,
+    userId,
+    now,
+    weather.timeZone,
+  );
   return userWeatherFrom(weather, found, now, read);
 }
 
@@ -238,7 +256,11 @@ export async function userWeatherFrom(
 ): Promise<UserWeather> {
   const active = activeLocation(settings, now);
   const cached = active
-    ? await weather.forecastFor(active.location, read, forecast ?? undefined)
+    ? await weather.forecastFor(
+        zonedIn(active.location, weather.timeZone),
+        read,
+        forecast ?? undefined,
+      )
     : null;
   return { settings, active, cached };
 }
@@ -267,10 +289,15 @@ export async function refreshForecastsFor(
   now: Date,
 ): Promise<Map<number, UserWeather>> {
   const users = new Map<number, UserWeather>();
-  const found = await findWeathersWithForecast(deps.db, userIds, now);
+  const found = await findWeathersWithForecast(
+    deps.db,
+    userIds,
+    now,
+    deps.weather.timeZone,
+  );
   const locations = new Map<
     string,
-    { location: Location; known: KnownRow<Forecast> | undefined }
+    { location: ZonedLocation; known: KnownRow<Forecast> | undefined }
   >();
   const actives = new Map<number, ActiveLocation>();
   for (const userId of new Set(userIds)) {
@@ -284,10 +311,11 @@ export async function refreshForecastsFor(
       continue;
     }
     actives.set(userId, active);
-    const label = locationLabel(active.location);
+    const location = zonedIn(active.location, deps.weather.timeZone);
+    const label = zonedLabel(location);
     if (!locations.has(label)) {
       locations.set(label, {
-        location: active.location,
+        location,
         known: forecast ?? undefined,
       });
     }
@@ -336,7 +364,7 @@ export async function refreshForecastsFor(
     }`,
   );
   for (const [userId, active] of actives) {
-    const label = locationLabel(active.location);
+    const label = zonedLabel(zonedIn(active.location, deps.weather.timeZone));
     if (!answers.has(label)) continue;
     users.set(userId, {
       settings: found.get(userId)!.settings,

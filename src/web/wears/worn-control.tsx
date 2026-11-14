@@ -13,6 +13,15 @@ function entryWornUrl(entryId: number): string {
   return `/calendar/${entryId}/worn`;
 }
 
+/**
+ * The entry's button, "Wore it" or "Worn?" and its Undo alike: one id in
+ * both states, so htmx gives focus back to the replacement after the
+ * calendar's in-place swap (#679), and a page landing from a tap can name it.
+ */
+function entryWornButtonId(entryId: number): string {
+  return `entry-${entryId}-worn`;
+}
+
 type WornControlTarget =
   /**
    * An entry on the calendar, worn or not: marked and unmarked in place, and
@@ -42,6 +51,11 @@ export type WornControlProps = WornControlTarget & {
   past?: boolean;
   /** Where a native post comes back to (safeReturnTo, on the worn route). */
   returnTo: string;
+  /**
+   * The page lands from a tap on this entry (Today after "Wear this"):
+   * focus starts on its button, where the tap left it (#679).
+   */
+  autofocus?: boolean;
 };
 
 type Look = Pick<WornControlProps, 'size' | 'past'>;
@@ -66,13 +80,14 @@ export function WornControl(props: WornControlProps) {
       </PostForm>
     );
   }
-  const state = (worn: boolean) => (
+  const state = (worn: boolean, autofocus: boolean) => (
     <EntryWornForm
       entryId={props.entryId}
       worn={worn}
       inPlace={props.inPlace === true}
       returnTo={props.returnTo}
       look={props}
+      autofocus={autofocus}
     />
   );
   return (
@@ -80,8 +95,8 @@ export function WornControl(props: WornControlProps) {
       class={`flex items-center gap-1 ${props.size === 'pill' ? 'shrink-0' : 'flex-1'}`}
       {...outboxRegion(queuedTarget('entry', props.entryId), props.label)}
     >
-      {state(props.worn)}
-      <OutboxAlternate>{state(!props.worn)}</OutboxAlternate>
+      {state(props.worn, props.autofocus === true)}
+      <OutboxAlternate>{state(!props.worn, false)}</OutboxAlternate>
       <OutboxPending />
     </div>
   );
@@ -94,6 +109,7 @@ function EntryWornForm(props: {
   inPlace: boolean;
   returnTo: string;
   look: Look;
+  autofocus: boolean;
 }) {
   const action = entryWornUrl(props.entryId);
   const layout = layoutClass(props.worn, props.look.size);
@@ -101,7 +117,14 @@ function EntryWornForm(props: {
     <>
       <input type="hidden" name="worn" value={props.worn ? '0' : '1'} />
       <input type="hidden" name="returnTo" value={props.returnTo} />
-      <WornBody worn={props.worn} look={props.look} />
+      <WornBody
+        worn={props.worn}
+        look={props.look}
+        button={{
+          id: entryWornButtonId(props.entryId),
+          autofocus: props.autofocus,
+        }}
+      />
     </>
   );
   if (props.inPlace) {
@@ -126,8 +149,15 @@ function EntryWornForm(props: {
   );
 }
 
-function WornBody(props: { worn: boolean; look: Look }) {
+/** The entry's submit button's identity; the create-and-wear form has none. */
+interface WornButton {
+  id: string;
+  autofocus: boolean;
+}
+
+function WornBody(props: { worn: boolean; look: Look; button?: WornButton }) {
   const { size, past } = props.look;
+  const { button } = props;
   if (props.worn) {
     return (
       <>
@@ -139,6 +169,8 @@ function WornBody(props: { worn: boolean; look: Look }) {
         </span>
         <button
           type="submit"
+          id={button?.id}
+          autofocus={button?.autofocus}
           class="btn btn-ghost btn-xs font-normal text-muted hover:text-base-content"
         >
           {t('wear.UNDO_WORN')}
@@ -147,7 +179,12 @@ function WornBody(props: { worn: boolean; look: Look }) {
     );
   }
   return (
-    <button type="submit" class={wearClass(size, past === true)}>
+    <button
+      type="submit"
+      id={button?.id}
+      autofocus={button?.autofocus}
+      class={wearClass(size, past === true)}
+    >
       {past ? t('wear.WORN_ASK') : t('wear.WORE_IT')}
     </button>
   );

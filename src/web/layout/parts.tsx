@@ -363,36 +363,19 @@ export function EmptyState(props: {
 }
 
 /**
- * A success message shown once after a redirect that carries a flag in the
- * URL (`?created=1`, `?bulkUpdated=3`); it hides itself (toast-auto-hide in
- * main.css). Pair it with StripFlags so a reload or a shared link does not
- * show it again.
+ * A success message said once after a redirect that carries a flag in the
+ * URL (`?created=1`, `?bulkUpdated=3`). Inert here: public/js/toast.js
+ * moves its text into `#toast-host`, the page's one polite status region
+ * (#679), once the page has loaded or a swap brought it, as the htmx
+ * writes' STATUS_EVENT (src/web/announce.ts) does. A live region of its own,
+ * inserted with the page, was not reliably read. Pair it with StripFlags so
+ * a reload or a shared link does not say it again; specs find it by `id`.
  */
 export function SavedToast(props: { id: string; text: string }) {
   return (
-    <div
-      id={props.id}
-      class="toast toast-top toast-center z-20 top-36 toast-auto-hide"
-      aria-live="polite"
-    >
-      <div class="alert alert-success shadow-md">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          class="size-5 shrink-0"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
-        <span>{props.text}</span>
-      </div>
-    </div>
+    <template id={props.id} data-status-message="">
+      {props.text}
+    </template>
   );
 }
 

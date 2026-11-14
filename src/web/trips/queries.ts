@@ -20,7 +20,7 @@ import {
 } from '../../db/schema';
 import type { Occasion } from '../../wardrobe/occasions';
 import type { OutfitOrigin } from '../../wardrobe/outfit-origin';
-import type { Location } from '../../weather/location';
+import type { PickedLocation } from '../../weather/location';
 import { addDays, type IsoDate } from '../../calendar-date';
 import { pickIdea, type PickResult } from '../outfits/pick';
 import { refuseUnholdable } from '../outfits/gone-garments';
@@ -55,8 +55,11 @@ export interface TripFields {
 
 export interface TripRow extends TripFields {
   id: number;
-  /** The destination picked from the geocoding search, rounded; null until then. */
-  location: Location | null;
+  /**
+   * The destination picked from the geocoding search, rounded, with its zone
+   * (null: APP_TIMEZONE's days, #678); null until then.
+   */
+  location: PickedLocation | null;
 }
 
 const tripColumns = {
@@ -65,6 +68,7 @@ const tripColumns = {
   destination: trip.destination,
   latitude: trip.latitude,
   longitude: trip.longitude,
+  timeZone: trip.timeZone,
   startsOn: trip.startsOn,
   endsOn: trip.endsOn,
   notes: trip.notes,
@@ -74,18 +78,23 @@ const tripColumns = {
 export type TripSelect = {
   latitude: number | null;
   longitude: number | null;
+  timeZone: string | null;
 } & Omit<TripRow, 'location'>;
 
 export function tripRow({
   latitude,
   longitude,
+  timeZone,
   ...fields
 }: TripSelect): TripRow {
-  // trip_location_check keeps the two together.
+  // trip_location_check keeps the two together, trip_time_zone_check the
+  // zone with them.
   return {
     ...fields,
     location:
-      latitude !== null && longitude !== null ? { latitude, longitude } : null,
+      latitude !== null && longitude !== null
+        ? { latitude, longitude, timeZone }
+        : null,
   };
 }
 
@@ -145,6 +154,7 @@ export function ownTripSql(
       'destination', ${trip.destination},
       'latitude', ${trip.latitude},
       'longitude', ${trip.longitude},
+      'timeZone', ${trip.timeZone},
       'startsOn', ${trip.startsOn},
       'endsOn', ${trip.endsOn},
       'notes', ${trip.notes}
@@ -281,7 +291,7 @@ export function updateTrip(
           starts_on = ${startsOn},
           ends_on = ${endsOn},
           notes = ${fields.notes}
-          ${locationCleared ? sql`, latitude = null, longitude = null` : sql.empty()}
+          ${locationCleared ? sql`, latitude = null, longitude = null, time_zone = null` : sql.empty()}
         where ${eq(trip.id, id)}
       ),
       removed as (
@@ -298,14 +308,16 @@ export function updateTrip(
 }
 
 /**
- * The destination picked from the geocoding search: its name and rounded
- * location together. False when the trip is not the owner's.
+ * The destination picked from the geocoding search: its name, rounded
+ * location and zone together, the one writer of all three (updateTrip only
+ * clears them), so a zone never outlives its place (#678;
+ * trip-location-writers.spec.ts). False when the trip is not the owner's.
  */
 export async function setTripDestination(
   db: Queryable,
   id: number,
   ownerId: number,
-  place: { name: string; location: Location },
+  place: { name: string; location: PickedLocation },
 ): Promise<boolean> {
   const lock = ownerLockCte(db, ownerId);
   const updated = await db
@@ -315,6 +327,7 @@ export async function setTripDestination(
       destination: place.name,
       latitude: place.location.latitude,
       longitude: place.location.longitude,
+      timeZone: place.location.timeZone,
     })
     .where(and(ownsTripWhere(id, ownerId), ownerLocked(db, lock)))
     .returning({ id: trip.id });

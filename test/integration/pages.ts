@@ -4,6 +4,7 @@ import { expect } from 'vitest';
 import { outfit as outfitTable } from '../../src/db/schema';
 import { addDays } from '../../src/calendar-date';
 import { QUEUEABLE_ROUTES } from '../../src/offline-writes';
+import { STATUS_EVENT } from '../../src/web/announce';
 import { classOf } from '../../src/web/error-page';
 import { REQUEST_FAILED_EVENT } from '../../src/web/errors';
 import { t as text } from '../../src/web/i18n';
@@ -319,6 +320,8 @@ export function expectFullPage(res: LightMyRequestResponse): void {
   expectPostFormsOfflineGuarded(res);
   expect(misannouncedSessionForms(res.body)).toEqual([]);
   expectAutosaveControls(res);
+  expectInPlaceWritesKeepFocus(res);
+  expectOneStatusRegion(res);
   expectNoScriptNavigation(res);
   expectAppBar(res);
   // _hyperscript left the app (2026-09-26): an `_=` attribute would do
@@ -457,6 +460,61 @@ export function expectAutosaveControls(res: LightMyRequestResponse): void {
 }
 
 /**
+ * The page's one polite status region (#679, `#toast-host` in AppStatus,
+ * src/web/layout/app-status.tsx), where every toast lands
+ * (public/js/toast.js). One per page, and never in a fragment
+ * (expectFragment): a swap that brought one would replace it, and a region
+ * inserted with its message is not reliably read.
+ */
+export function expectOneStatusRegion(res: LightMyRequestResponse): void {
+  const regions = res.body.match(/<div\b[^>]*\bid="toast-host"[^>]*>/g);
+  expect(regions).toHaveLength(1);
+  expect(regions![0]).toContain('role="status"');
+  expect(regions![0]).toContain('aria-live="polite"');
+  // The same node across boosted navigations (public/js/toast.js).
+  expect(regions![0]).toContain('hx-preserve');
+}
+
+/**
+ * A write swapped in place keeps keyboard focus (#679): htmx gives focus
+ * back to the element with the focused one's id, so every submit button of
+ * an in-place queued write (an `hx-post` form the outbox queues: Wore today,
+ * Washed, the calendar's worn pill) carries an id, the same in each of its
+ * states. Autosave forms are AutosaveForm's (expectAutosaveControls). The
+ * answer says what it did through expectStatusMessage.
+ */
+export function expectInPlaceWritesKeepFocus(
+  res: LightMyRequestResponse,
+): void {
+  const forms = (
+    res.body.match(/<form\b[^>]*\bhx-post=[^>]*>[\s\S]*?<\/form>/g) ?? []
+  ).filter((form) => {
+    const tag = /^<form\b[^>]*>/.exec(form)![0];
+    return /\bdata-offline-queue=/.test(tag) && !/\bdata-autosave=/.test(tag);
+  });
+  const offenders = forms
+    .flatMap((form) => form.match(/<button\b[^>]*>/g) ?? [])
+    .filter((button) => !/\bid="[^"]+"/.test(button));
+  expect(offenders).toEqual([]);
+}
+
+/**
+ * How an htmx write's answer says what it did (#679, `announce`,
+ * src/web/announce.ts): the STATUS_EVENT `HX-Trigger` public/js/toast.js
+ * puts in the status region.
+ */
+export function expectStatusMessage(
+  res: LightMyRequestResponse,
+  message: string,
+): void {
+  const trigger = res.headers['hx-trigger'];
+  expect(typeof trigger).toBe('string');
+  expect(JSON.parse(String(trigger))).toEqual({
+    [STATUS_EVENT]: { message },
+  });
+}
+
+/**
  * An htmx swap target: no layout around it. Status is the caller's to
  * check.
  */
@@ -464,6 +522,7 @@ export function expectFragment(res: LightMyRequestResponse): void {
   expect(res.headers['content-type']).toMatch(/^text\/html/);
   expect(res.body).not.toMatch(/<html\b/i);
   expect(res.body).not.toContain('htmx-config');
+  expect(res.body).not.toContain('id="toast-host"');
   expect(res.body.trim().length).toBeGreaterThan(0);
   expectNoRawI18nKeys(res);
 }

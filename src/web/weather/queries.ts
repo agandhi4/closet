@@ -17,7 +17,7 @@ import {
   weatherNeeds,
 } from '../../weather/match';
 import type { Occasion } from '../../wardrobe/occasions';
-import type { Location } from '../../weather/location';
+import type { Location, ZonedLocation } from '../../weather/location';
 import type { ClimateNormals } from '../../weather/normals';
 import {
   DEFAULT_TEMPERATURE_UNIT,
@@ -145,8 +145,10 @@ export interface WeatherWithForecastJson {
 export function weatherWithForecastSql(
   userId: number,
   now: Date,
+  /** APP_TIMEZONE (WeatherService.timeZone): the home's rows are kept in it. */
+  householdZone: string,
 ): SQL<WeatherWithForecastJson | null> {
-  const { json, from } = weatherWithForecastParts(now);
+  const { json, from } = weatherWithForecastParts(now, householdZone);
   return sql<WeatherWithForecastJson | null>`(
     select ${json} ${from} where ${eq(userWeather.userId, userId)})`;
 }
@@ -159,8 +161,9 @@ export function weatherWithForecastSql(
 function weathersWithForecastSql(
   userIds: readonly number[],
   now: Date,
+  householdZone: string,
 ): SQL<WeatherWithForecastJson[]> {
-  const { json, from } = weatherWithForecastParts(now);
+  const { json, from } = weatherWithForecastParts(now, householdZone);
   return sql<WeatherWithForecastJson[]>`(
     select coalesce(json_agg(${json}), '[]') ${from}
     where ${inArray(userWeather.userId, [...userIds])})`;
@@ -168,7 +171,10 @@ function weathersWithForecastSql(
 
 // The one definition of a user's weather-with-forecast value and the join
 // it is read from; the two subqueries above differ only in their WHERE.
-function weatherWithForecastParts(now: Date): { json: SQL; from: SQL } {
+function weatherWithForecastParts(
+  now: Date,
+  householdZone: string,
+): { json: SQL; from: SQL } {
   const hereSince = new Date(now.getTime() - HERE_FRESH_HOURS * 3_600_000);
   const hereFresh = sql`${userWeather.hereLocatedAt} > ${hereSince}`;
   const latitude = sql`case when ${hereFresh}
@@ -197,7 +203,8 @@ function weatherWithForecastParts(now: Date): { json: SQL; from: SQL } {
     from: sql`from ${userWeather}
     left join ${weatherForecast}
       on ${weatherForecast.latitude} = ${latitude}
-      and ${weatherForecast.longitude} = ${longitude}`,
+      and ${weatherForecast.longitude} = ${longitude}
+      and ${weatherForecast.timeZone} = ${householdZone}`,
   };
 }
 
@@ -254,9 +261,10 @@ export async function findWeatherWithForecast(
   db: Queryable,
   userId: number,
   now: Date,
+  householdZone: string,
 ): Promise<WeatherWithForecast> {
   const { weather } = await selectScalars(db, {
-    weather: weatherWithForecastSql(userId, now),
+    weather: weatherWithForecastSql(userId, now, householdZone),
   });
   return readWeatherWithForecast(weather, now);
 }
@@ -270,11 +278,16 @@ export async function findWeathersWithForecast(
   db: Queryable,
   userIds: readonly number[],
   now: Date,
+  householdZone: string,
 ): Promise<Map<number, WeatherWithForecast>> {
   const found = new Map<number, WeatherWithForecast>();
   if (userIds.length === 0) return found;
   const { weathers } = await selectScalars(db, {
-    weathers: weathersWithForecastSql([...new Set(userIds)], now),
+    weathers: weathersWithForecastSql(
+      [...new Set(userIds)],
+      now,
+      householdZone,
+    ),
   });
   for (const json of weathers) {
     found.set(json.settings.userId, readWeatherWithForecast(json, now));
@@ -432,12 +445,12 @@ export interface CacheRowJson<T> {
 }
 
 /**
- * The forecast cache row at `location` as a scalar subquery (null: none),
+ * The forecast cache row at `location` (in its zone) as a scalar subquery (null: none),
  * for a caller that reads it with its other reads and hands it to
  * forecastFor as the row it knows (tripForecast).
  */
 export function forecastRowSql(
-  location: Location,
+  location: ZonedLocation,
 ): SQL<CacheRowJson<Forecast> | null> {
   return sql<CacheRowJson<Forecast> | null>`(
     select json_build_object(
@@ -450,7 +463,7 @@ export function forecastRowSql(
 
 /** forecastRowSql for the climate normals (normalsFor). */
 export function normalsRowSql(
-  location: Location,
+  location: ZonedLocation,
 ): SQL<CacheRowJson<ClimateNormals> | null> {
   return sql<CacheRowJson<ClimateNormals> | null>`(
     select json_build_object(
@@ -504,16 +517,17 @@ export function readTemperaturePrefs(
   );
 }
 
-function forecastAt(location: Location) {
+function forecastAt(location: ZonedLocation) {
   return and(
     eq(weatherForecast.latitude, location.latitude),
     eq(weatherForecast.longitude, location.longitude),
+    eq(weatherForecast.timeZone, location.timeZone),
   );
 }
 
 export async function findForecastRow(
   db: Queryable,
-  location: Location,
+  location: ZonedLocation,
 ): Promise<CacheRow<Forecast> | undefined> {
   const [row] = await db
     .select({
@@ -528,7 +542,7 @@ export async function findForecastRow(
 
 export async function saveForecast(
   db: Queryable,
-  location: Location,
+  location: ZonedLocation,
   forecast: Forecast,
   at: Date,
 ): Promise<void> {
@@ -537,7 +551,11 @@ export async function saveForecast(
     .insert(weatherForecast)
     .values({ ...location, ...values })
     .onConflictDoUpdate({
-      target: [weatherForecast.latitude, weatherForecast.longitude],
+      target: [
+        weatherForecast.latitude,
+        weatherForecast.longitude,
+        weatherForecast.timeZone,
+      ],
       set: values,
     });
 }
@@ -545,28 +563,33 @@ export async function saveForecast(
 /** A failed refresh: the last good answer stays, the attempt is noted. */
 export async function recordFailedForecast(
   db: Queryable,
-  location: Location,
+  location: ZonedLocation,
   at: Date,
 ): Promise<void> {
   await db
     .insert(weatherForecast)
     .values({ ...location, attemptedAt: at })
     .onConflictDoUpdate({
-      target: [weatherForecast.latitude, weatherForecast.longitude],
+      target: [
+        weatherForecast.latitude,
+        weatherForecast.longitude,
+        weatherForecast.timeZone,
+      ],
       set: { attemptedAt: at },
     });
 }
 
-function normalsAt(location: Location) {
+function normalsAt(location: ZonedLocation) {
   return and(
     eq(weatherNormals.latitude, location.latitude),
     eq(weatherNormals.longitude, location.longitude),
+    eq(weatherNormals.timeZone, location.timeZone),
   );
 }
 
 export async function findNormalsRow(
   db: Queryable,
-  location: Location,
+  location: ZonedLocation,
 ): Promise<CacheRow<ClimateNormals> | undefined> {
   const [row] = await db
     .select({
@@ -581,7 +604,7 @@ export async function findNormalsRow(
 
 export async function saveNormals(
   db: Queryable,
-  location: Location,
+  location: ZonedLocation,
   normals: ClimateNormals,
   at: Date,
 ): Promise<void> {
@@ -590,7 +613,11 @@ export async function saveNormals(
     .insert(weatherNormals)
     .values({ ...location, ...values })
     .onConflictDoUpdate({
-      target: [weatherNormals.latitude, weatherNormals.longitude],
+      target: [
+        weatherNormals.latitude,
+        weatherNormals.longitude,
+        weatherNormals.timeZone,
+      ],
       set: values,
     });
 }
@@ -598,14 +625,18 @@ export async function saveNormals(
 /** A failed refresh: the last good normals stay, the attempt is noted. */
 export async function recordFailedNormals(
   db: Queryable,
-  location: Location,
+  location: ZonedLocation,
   at: Date,
 ): Promise<void> {
   await db
     .insert(weatherNormals)
     .values({ ...location, attemptedAt: at })
     .onConflictDoUpdate({
-      target: [weatherNormals.latitude, weatherNormals.longitude],
+      target: [
+        weatherNormals.latitude,
+        weatherNormals.longitude,
+        weatherNormals.timeZone,
+      ],
       set: { attemptedAt: at },
     });
 }
