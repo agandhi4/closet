@@ -17,7 +17,9 @@ describe('request security', () => {
     (await t.db.select({ n: count() }).from(table))[0].n;
 
   beforeAll(async () => {
-    t = await createTestApp();
+    // A second name, as production's plain-HTTP twin: the Host allowlist
+    // and the trusted proxy's forwarded host below.
+    t = await createTestApp({ ALLOWED_HOSTS: 'closet.example' });
     // The outfit form only renders its fields (and the posted-back
     // returnTo) once there is a garment to pick.
     await createGarment(t, { name: 'Plain tee' });
@@ -210,6 +212,81 @@ describe('request security', () => {
         headers: { origin: 'https://evil.test' },
       });
       expect(res.statusCode).toBe(200);
+    });
+  });
+
+  describe('Host allowlist (DNS rebinding, #702)', () => {
+    const ATTACKER = 'attacker.example';
+    const forHost = (
+      host: string,
+      request: { method: 'GET' | 'POST'; url: string; payload?: object },
+    ) =>
+      t.inject({
+        ...request,
+        anonymous: true,
+        // A rebound page is same-origin to itself: Origin agrees with Host.
+        headers: { host, origin: `http://${host}` },
+      });
+
+    it.each([
+      ['a page', { method: 'GET', url: '/outfits' }],
+      ['the API', { method: 'GET', url: '/api/v1/garments' }],
+      ['MCP', { method: 'POST', url: '/mcp', payload: {} }],
+      ['a static path', { method: 'GET', url: '/js/connectivity.js' }],
+    ] as const)(
+      'refuses %s for a foreign Host with a bodiless 421',
+      async (_label, request) => {
+        const res = await forHost(ATTACKER, request);
+        expect(res.statusCode).toBe(421);
+        expect(res.body).toBe('');
+      },
+    );
+
+    it('refuses a rebound registration before it writes', async () => {
+      const email = 'rebound@example.com';
+      const res = await forHost(ATTACKER, {
+        method: 'POST',
+        url: '/auth/register',
+        payload: {
+          email,
+          password: TEST_PASSWORD,
+          confirmPassword: TEST_PASSWORD,
+        },
+      });
+      expect(res.statusCode).toBe(421);
+      expect(
+        await t.db.select().from(user).where(eq(user.email, email)),
+      ).toHaveLength(0);
+    });
+
+    it.each([
+      ["SITE_URL's host", 'localhost:3000'],
+      ['an ALLOWED_HOSTS name, any case', 'Closet.Example'],
+      ['loopback at any port', '127.0.0.1:3802'],
+    ])('serves %s', async (_label, host) => {
+      expect(
+        (await forHost(host, { method: 'GET', url: '/outfits' })).statusCode,
+      ).toBe(302);
+      expect(
+        (await forHost(host, { method: 'GET', url: '/api/v1/garments' }))
+          .statusCode,
+      ).toBe(401);
+      expect(
+        (await forHost(host, { method: 'POST', url: '/mcp', payload: {} }))
+          .statusCode,
+      ).toBe(401);
+    });
+
+    it('names a refused host in one warn line, not one per request', async () => {
+      t.logs.clear();
+      const host = 'once.attacker.example';
+      await forHost(host, { method: 'GET', url: '/outfits' });
+      await forHost(host, { method: 'GET', url: '/outfits' });
+      expect(
+        t.logs
+          .messages('warn', 'Security')
+          .filter((line) => line.includes(host)),
+      ).toHaveLength(1);
     });
   });
 
