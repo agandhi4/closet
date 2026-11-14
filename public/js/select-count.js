@@ -11,6 +11,11 @@
  * they arrive), and unchecking a tile unchecks it: the selection is then
  * the tiles still checked.
  *
+ * A kept selection's garments the page does not show (a later page, or out
+ * of the filters after a verb changed them) ride as hidden `data-carried`
+ * ids, counted and posted; the page that brings the tile drops its twin, so
+ * the tile's own box decides from then on.
+ *
  * Evaluated once per document: the listeners sit on the document and serve
  * every select-mode page a boosted navigation brings. The server renders the
  * first page's count, but this module loads after the page does, so a box
@@ -19,7 +24,8 @@
  */
 
 const FORM = '[data-select-count]';
-const TILES = 'input[name=ids]';
+const TILES = 'input[type=checkbox][name=ids]';
+const CARRIED = 'input[data-carried]';
 
 function count(form) {
   const shown = form.querySelector('[data-select-count-value]');
@@ -30,7 +36,17 @@ function count(form) {
     shown.textContent = all.dataset.total ?? '';
     return;
   }
-  shown.textContent = String(form.querySelectorAll(`${TILES}:checked`).length);
+  shown.textContent = String(
+    form.querySelectorAll(`${TILES}:checked, ${CARRIED}`).length,
+  );
+}
+
+function dropShownCarried(form) {
+  for (const twin of form.querySelectorAll(CARRIED)) {
+    if (form.querySelector(`${TILES}[value="${twin.value}"]`)) {
+      twin.remove();
+    }
+  }
 }
 
 function toggled(event) {
@@ -48,7 +64,9 @@ function toggled(event) {
 
 function settled(event) {
   const form = event.target instanceof Element && event.target.closest(FORM);
-  if (form) count(form);
+  if (!form) return;
+  dropShownCarried(form);
+  count(form);
 }
 
 document.addEventListener('change', toggled);

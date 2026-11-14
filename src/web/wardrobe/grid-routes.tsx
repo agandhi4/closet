@@ -177,15 +177,16 @@ function readSelection(query: GridQuery): Selection {
 }
 
 /**
- * The selection as a verb's redirect carries it back: `all=1`, or the ids
- * acted on while they fit in a URL (SELECTED_MAX_LENGTH; past it select
- * mode comes back with nothing checked rather than a 400).
+ * The selection as a verb's redirect carries it back: always the ids
+ * acted on, never `all=1` (a kept `all` re-runs the filters, so a "Set…"
+ * that changes the filtered property would turn "Select all N" into a
+ * different set for the next verb). While they fit in a URL
+ * (SELECTED_MAX_LENGTH; past it select mode comes back with nothing
+ * checked rather than a 400).
  */
 function selectionParams(selection: {
   ids: readonly number[];
-  all: boolean;
 }): Record<string, string | undefined> {
-  if (selection.all) return { all: '1' };
   const selected = idListValue(selection.ids);
   return { selected: selected.length <= SELECTED_MAX_LENGTH ? selected : '' };
 }
@@ -372,7 +373,7 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
   function backToSelection(
     viewOwner: number | undefined,
     search: GridSearch,
-    kept: { ids: readonly number[]; all: boolean } | undefined,
+    kept: { ids: readonly number[] } | undefined,
     flags: Record<string, number>,
   ): string {
     return wardrobeUrl(viewOwner, {
@@ -459,13 +460,16 @@ export const gridRoutes: FastifyPluginCallbackTypebox<WebOptions> = (
       const selection = await selected(access, request);
       const { ids } = selection;
       const day = todayIn(config.timeZone, new Date());
-      const washed = await markWashed(
-        db,
-        access.ownerId,
-        ids,
-        day,
-        postedInstant(request, undefined, day, config.timeZone),
-      );
+      const washed =
+        ids.length > 0
+          ? await markWashed(
+              db,
+              access.ownerId,
+              ids,
+              day,
+              postedInstant(request, undefined, day, config.timeZone),
+            )
+          : [];
       logger.info(
         `Bulk wash by user ${sessionUserId(request)} on ${day}: ${washed.length} washed, ${ids.length} selected${allNote(selection)}`,
       );

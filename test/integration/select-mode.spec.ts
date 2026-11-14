@@ -121,7 +121,9 @@ describe('select mode verbs', () => {
       property: 'warmth',
       warmth: '4',
     });
-    expect(res.headers.location).toContain('all=1');
+    // Resolved once: the answer carries the ids, never all=1.
+    expect(res.headers.location).not.toContain('all=1');
+    expect(res.headers.location).toContain('selected=');
     expect((await rows(coats)).map((coat) => coat.warmth)).toEqual(
       coats.map(() => 4),
     );
@@ -130,9 +132,66 @@ describe('select mode verbs', () => {
     // Back with all selected: every tile checked, the bar says N.
     const back = (await get(res.headers.location!)).body;
     expect(checkedIds(back)).toHaveLength(GRID_PAGE_SIZE);
+    // The two on the next page ride as carried ids, so the bar says N.
+    expect(back.match(/data-carried="true"/g)).toHaveLength(
+      coats.length - GRID_PAGE_SIZE,
+    );
     expect(back).toMatch(
       new RegExp(`data-select-count-value="true">${coats.length}<`),
     );
+    // Later pages arrive checked: the sentinel's tiles carry the selection.
+    const tilesUrl = /hx-get="([^"]*\/wardrobe\/tiles[^"]*)"/.exec(
+      unescapeHtml(back),
+    )![1];
+    const tiles = (await get(tilesUrl)).body;
+    expect(checkedIds(tiles)).toHaveLength(coats.length - GRID_PAGE_SIZE);
+  });
+
+  it('resolves Select all once: a Set… that leaves the filter does not change what the next verb acts on', async () => {
+    const all = await post('/wardrobe/bulk?category=outerwear&warmth=4', {
+      all: '1',
+      property: 'warmth',
+      warmth: '5',
+    });
+    // The coats left ?warmth=4; the kept selection is still all of them.
+    expect(all.headers.location).not.toContain('all=1');
+    const ids = new URL(all.headers.location!, 'http://x').searchParams
+      .get('selected')!
+      .split(',')
+      .map(Number)
+      .sort((a, b) => a - b);
+    expect(ids).toEqual([...coats].sort((a, b) => a - b));
+
+    // The carried selection reaches every verb as ids; none re-runs the filters.
+    const washed = await post(
+      '/wardrobe/bulk/washed?category=outerwear&warmth=4',
+      {
+        ids,
+      },
+    );
+    expect(washed.headers.location).toContain(`bulkWashed=${coats.length}`);
+    expect(washed.headers.location).not.toContain('all=1');
+    const made = await post('/capsules', { name: 'Outerwear' });
+    const capsule = await post('/wardrobe/bulk/capsule?warmth=4', {
+      ids,
+      capsuleId: Number(/^\/capsules\/(\d+)/.exec(made.headers.location!)![1]),
+    });
+    expect(capsule.headers.location).toContain(`bulkAdded=${coats.length}`);
+    expect(capsule.headers.location).not.toContain('all=1');
+    const archived = await post('/wardrobe/bulk/archive?category=outerwear', {
+      ids,
+    });
+    expect(archived.headers.location).toContain(`bulkArchived=${coats.length}`);
+    expect(archived.headers.location).not.toContain('all=1');
+  });
+
+  it('Mark washed with nothing selected writes nothing', async () => {
+    const { res, statements } = await recordedPost('/wardrobe/bulk/washed', {
+      ids: [],
+    });
+    expect(res.headers.location).toContain('bulkWashed=0');
+    // Only the session.
+    expect(statements).toBe(1);
   });
 
   it('adds the selection to a capsule in one write, keeping it selected', async () => {

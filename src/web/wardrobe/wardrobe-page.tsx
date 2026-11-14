@@ -396,9 +396,16 @@ function Tiles({ model }: { model: WardrobeModel }) {
     const batch = model.page.tiles.filter((tile) =>
       model.batchSaved.has(tile.id),
     ).length;
+    const shown = new Set(model.page.tiles.map((tile) => tile.id));
+    // A kept selection's garments this page does not show (a later page, or
+    // a filter a verb's change moved them out of) still count and post.
+    const carried = model.selection.all
+      ? []
+      : [...model.selection.ids].filter((id) => !shown.has(id));
     const checked = model.selection.all
       ? model.count
-      : model.page.tiles.filter((tile) => isChecked(tile, model)).length;
+      : model.page.tiles.filter((tile) => isChecked(tile, model)).length +
+        carried.length;
     return (
       <>
         {batch > 0 && (
@@ -416,6 +423,9 @@ function Tiles({ model }: { model: WardrobeModel }) {
         )}
         <BulkForm model={model} checked={checked}>
           <SelectAll count={model.count} checked={model.selection.all} />
+          {carried.map((id) => (
+            <input type="hidden" name="ids" value={id} data-carried="true" />
+          ))}
           <Grid model={model} />
         </BulkForm>
       </>
