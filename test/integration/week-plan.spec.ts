@@ -1770,6 +1770,24 @@ describe('the weekly auto-plan', () => {
         }
       });
 
+      it('a person whose re-plan and whose send both failed is one failed person (#858)', async () => {
+        await planWarm();
+        await remindAt(REPLAN_HOUR);
+        forecastDays = weekAt(() => -2);
+        const down = {
+          ...reminders.sender,
+          sendEach: () => Promise.reject(new Error('devices unreadable')),
+        } as unknown as typeof reminders.sender;
+        const run = await withFailingSwaps(() =>
+          sendDueReminders(
+            { ...reminders, sender: down },
+            at(TODAY, REPLAN_HOUR),
+          ),
+        );
+        expect(run).toMatchObject({ claimed: 1, sent: 0, failed: 1 });
+        expect([...run.failedUsers]).toEqual([t.owner.id]);
+      });
+
       it('an entry the person took over is named as they left it, and a failed re-plan still lets the reminder go', async () => {
         await planWarm();
         await remindAt(REPLAN_HOUR);

@@ -110,9 +110,17 @@ export interface ReminderRun {
   /** People sent a reminder, and those whose evening one was skipped. */
   sent: number;
   skipped: number;
+  /** People whose reminder failed, whichever step: one person counts once (markFailed). */
   failed: number;
+  failedUsers: Set<number>;
   /** Claims given back unsent, for the next run (sendAll). */
   released: number;
+}
+
+/** `run.failed` counts people, so a failed re-plan and a failed send of one person are one. */
+function markFailed(run: ReminderRun, userId: number): void {
+  run.failedUsers.add(userId);
+  run.failed = run.failedUsers.size;
 }
 
 /** One person's reminder of one kind, to the devices that claimed it. */
@@ -155,6 +163,7 @@ export async function sendDueReminders(
     sent: 0,
     skipped: 0,
     failed: 0,
+    failedUsers: new Set(),
     released: 0,
   };
   if (due.length === 0) return run;
@@ -210,7 +219,7 @@ export async function sendDueReminders(
         claims,
       });
     } catch (error) {
-      run.failed += 1;
+      markFailed(run, userId);
       logger.error(
         { err: error },
         `The ${kind} reminder for user ${userId} failed`,
@@ -297,13 +306,13 @@ async function sendAll(
         run.sent += 1;
         return;
       }
-      run.failed += 1;
+      markFailed(run, composed[index].message.userId);
       deps.logger.error(
         `The ${composed[index].message.payload.tag ?? 'reminder'} for user ${composed[index].message.userId} reached ${report.delivered} of ${report.devices} device(s)`,
       );
     });
   } catch (error) {
-    run.failed += composed.length;
+    for (const { message } of composed) markFailed(run, message.userId);
     const users = composed.map((c) => c.message.userId).join(', ');
     deps.logger.error(
       { err: error },
@@ -363,7 +372,7 @@ async function swappedToday(
   });
   // The reminder reports the re-plan failures it saw first itself: the
   // minutely run's own first failure of the day is a separate one (#858).
-  if (outcome.kind === 'failed' && outcome.reported) run.failed += 1;
+  if (outcome.kind === 'failed' && outcome.reported) markFailed(run, userId);
   if (outcome.kind !== 'replanned') return [];
   const today = todayIn(deps.timeZone, now);
   return outcome.swaps.filter((swap) => swap.slot.day === today);

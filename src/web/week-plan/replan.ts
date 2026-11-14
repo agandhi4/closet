@@ -329,10 +329,10 @@ export async function replanToday(
   now: Date,
   {
     announcesToday = false,
-    job = 'replan',
+    job,
     listed = false,
     weather,
-  }: Partial<ReplanOptions> = {},
+  }: Pick<ReplanOptions, 'job'> & Partial<ReplanOptions>,
 ): Promise<ReplanOutcome> {
   const result = await replanOnce(deps, userId, now, {
     announcesToday,
@@ -348,7 +348,7 @@ export async function replanToday(
 
 interface ReplanOptions {
   announcesToday: boolean;
-  /** The job whose run counts this re-plan's failure; the minutely run by default. */
+  /** The job whose run counts this re-plan's failure. */
   job: ReplanJob;
   /**
    * The caller listed the user as due a moment ago (replanCandidates: the

@@ -541,7 +541,9 @@ describe('the owner lock', () => {
 
     it('swaps an unwearable auto entry when nobody writes meanwhile (the control)', async () => {
       const { day, outfitId } = await unwearableAutoEntry();
-      const outcome = await replanToday(deps, t.owner.id, new Date());
+      const outcome = await replanToday(deps, t.owner.id, new Date(), {
+        job: 'replan',
+      });
       expect(outcome).toMatchObject({ kind: 'replanned' });
       const entries = await entriesOn(day);
       expect(entries).toHaveLength(1);
@@ -560,7 +562,7 @@ describe('the owner lock', () => {
             occasion: 'all-day',
             chooser: BY_PERSON,
           }),
-        () => replanToday(deps, t.owner.id, new Date()),
+        () => replanToday(deps, t.owner.id, new Date(), { job: 'replan' }),
       );
       expect(schedule).toEqual({
         outcome: 'already-scheduled',
@@ -580,7 +582,7 @@ describe('the owner lock', () => {
       const outfits = await t.db.$count(outfit);
       const [deleted, replan] = await interleave(
         (tx) => deleteEntry(tx, entryId, t.owner.id),
-        () => replanToday(deps, t.owner.id, new Date()),
+        () => replanToday(deps, t.owner.id, new Date(), { job: 'replan' }),
       );
       // Its planner-made outfit goes with it (Undo's rule, #659).
       expect(deleted).toEqual({ selfies: [], plannerOutfitRemoved: outfitId });
@@ -601,7 +603,9 @@ describe('the owner lock', () => {
         await released;
       });
       await Promise.race([holding, holder]);
-      const replan = await replanToday(deps, t.owner.id, new Date());
+      const replan = await replanToday(deps, t.owner.id, new Date(), {
+        job: 'replan',
+      });
       release();
       await holder;
 
@@ -617,7 +621,9 @@ describe('the owner lock', () => {
           ),
       ).toBe(true);
       // The next minute's run judges it.
-      expect(await replanToday(deps, t.owner.id, new Date())).toMatchObject({
+      expect(
+        await replanToday(deps, t.owner.id, new Date(), { job: 'replan' }),
+      ).toMatchObject({
         kind: 'replanned',
       });
       expect((await entriesOn(day))[0].outfitId).not.toBe(outfitId);
