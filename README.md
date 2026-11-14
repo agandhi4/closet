@@ -67,16 +67,25 @@ volumes:
   closet_pg:
 ```
 
-**Upgrading from the earlier Postgres 17 example.** Postgres 18 keeps its data under `/var/lib/postgresql`, so pointing this block at a 17 volume starts an empty cluster and Closet migrates into an empty database: your wardrobe looks gone. To keep your data:
+**Behind HTTPS.** The installed app, its offline shell and push need a secure origin. With `PWA_ENABLED: 'true'` the server refuses to start unless `SITE_URL` is an `https://` URL and both VAPID keys are set, and it names the missing key. Set `TRUSTED_PROXIES` to your reverse proxy so the client address is read correctly.
+
+Open [http://localhost:3000](http://localhost:3000) and register an account: login is always required. Once everyone in the household has signed up, set `DISABLE_REGISTRATION=true`.
+
+### Upgrading
+
+Closet applies its database migrations at boot, so starting a newer image is the upgrade. Migrations only go forward: there is no downgrade. To go back, stop Closet and restore the **pair** taken before the upgrade, the Postgres dump and the `DATA_PATH` backup together (the nightly storage reconciliation deletes photos no database row references, so a mismatched pair loses photos). An older image on a newer database is unsupported; the known cases are in [docs/operations.md](docs/operations.md).
+
+Pin an immutable image tag, not `latest`, so a pull never upgrades you unannounced: `ghcr.io/kashhq/closet:sha-<7>`, the 7-character commit shown as `version` by `/health/ready` and the About page. Only the 10 newest `sha-*` tags are kept, so move the pin forward from time to time. Before changing the pin, take a database dump and a `DATA_PATH` backup.
+
+One-off steps after an upgrade, each needed once, by the release that introduced it:
+
+- **Past #373 (trimmed thumbs).** Run `docker exec closet npm run maintenance:retrim-thumbs -- --dry-run`, then again without `--dry-run`, so existing cutouts get a thumb trimmed to the garment ([details](docs/operations.md)).
+- **Moving from the Postgres 17 example (#738).** Postgres 18 keeps its data under `/var/lib/postgresql`, so pointing the quick-start block at a 17 volume starts an empty cluster and Closet migrates into an empty database: your wardrobe looks gone. To keep your data:
 
 1. On the old stack, run `docker compose exec postgres pg_dump -U closet -d closet > closet.sql`, then stop it.
 2. Start only the database of the new one: `docker compose up -d postgres`. A full `up` would start Closet, which migrates the empty cluster first and makes the restore collide with what it created.
 3. Restore with `docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U closet -d closet < closet.sql`.
 4. Start Closet: `docker compose up -d`.
-
-**Behind HTTPS.** The installed app, its offline shell and push need a secure origin. With `PWA_ENABLED: 'true'` the server refuses to start unless `SITE_URL` is an `https://` URL and both VAPID keys are set, and it names the missing key. Set `TRUSTED_PROXIES` to your reverse proxy so the client address is read correctly.
-
-Open [http://localhost:3000](http://localhost:3000) and register an account: login is always required. Once everyone in the household has signed up, set `DISABLE_REGISTRATION=true`.
 
 ---
 
@@ -228,7 +237,7 @@ npm run precommit:full  # check + verify:push + page audit + lighthouse (minutes
 npm run maintenance:reconcile [-- --dry-run] [--force]
                         # one storage reconciliation pass (needs `npm run build`; see below)
 npm run maintenance:retrim-thumbs [-- --dry-run]
-                        # trim every cutout's thumb to its garment, once after upgrading past #373
+                        # trim every cutout's thumb to its garment, once after upgrading past #373; see Upgrading
                         # (needs `npm run build`; on the NAS: docker exec closet npm run ...)
 npm run user:set-password -- <email>
                         # set a locked-out user's password (needs `npm run build`; see below)
@@ -372,12 +381,10 @@ SELECT count(*) FROM garment
 ### Docker build
 
 ```bash
-# Build image
-docker build --no-cache . -t closet:latest
-
-# Cross-compile for linux/amd64 (e.g. building on Apple Silicon for a VPS)
-docker buildx build --platform linux/amd64 --no-cache . -t closet:latest
+docker build --platform linux/amd64 --build-arg APP_VERSION=$(git rev-parse --short=7 HEAD) -t closet .
 ```
+
+`--platform linux/amd64` because the Dockerfile drops the arm64 onnxruntime binding: an arm64 image boots and reports healthy, but every photo stays at "Removing background". `APP_VERSION` is what `/health/ready` and About report; without it the image says `dev`. How the published image is built and shipped: [docs/operations.md](docs/operations.md).
 
 ---
 
