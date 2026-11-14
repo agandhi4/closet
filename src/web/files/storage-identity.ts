@@ -1,7 +1,7 @@
 import type { Db } from '../../db/client';
 import type { Logger } from '../../logger';
 import { parseStoredName } from './image-variant';
-import { hasPhotoRows } from './queries';
+import { photoRowNames } from './queries';
 import {
   type IdentityProblem,
   type PhotoStorage,
@@ -10,17 +10,28 @@ import {
 } from './storage';
 
 /**
+ * The share of `file` rows whose photo set an unmarked directory must hold
+ * to be adopted. Not "any photo": a bare mountpoint collects stray uploads
+ * while the share is unmounted (the very story of #650), so a few sets
+ * prove nothing. Not every row either: a row whose original was lost
+ * (reconciliation's `missingOriginals`) must not lock a real share out.
+ * An existing share holds nearly all of them; a mountpoint with a night's
+ * strays holds next to none.
+ */
+export const ADOPT_MIN_COVERAGE = 0.9;
+
+/**
  * Whether DATA_PATH is the household's photo storage (#650). Contents
- * cannot say: a bare mountpoint (the NFS share not mounted) reads as
- * storage whose every photo is gone, and reconciliation would then act on
- * it while uploads landed where the remount hides them. So the directory
+ * alone cannot say: a bare mountpoint (the NFS share not mounted) reads as
+ * storage whose every photo is gone, and reconciliation would act on it
+ * while uploads landed where the remount hides them. So the directory
  * carries a marker (STORAGE_MARKER), written only when this process can
  * prove the directory is the right one:
  *   - the `file` table is empty: a first boot, nothing to lose;
- *   - rows exist and so do stored photos: an existing share from before
- *     the marker, adopted.
- * Rows and no photos, unmarked, is the unmounted share: refused, and the
- * marker is never written there.
+ *   - the directory holds the sets of at least ADOPT_MIN_COVERAGE of the
+ *     rows: an existing share from before the marker, adopted.
+ * Anything else unmarked is the unmounted share or the wrong directory, and
+ * so is a marker that cannot be read: refused, nothing written there.
  *
  * Called by createPhotos, so the server's boot and every CLI that writes
  * photos (reconcile, retrim, seed) refuse the same directory.
@@ -30,32 +41,39 @@ export async function claimStorage(
   db: Db,
   logger: Logger,
 ): Promise<StorageMarker> {
-  const existing = await storage.readMarker();
-  if (existing) {
-    storage.claim(existing);
+  const read = await storage.readMarker();
+  if (read.state === 'present') {
+    storage.claim(read.marker);
     logger.info(
-      `Photo storage ${existing.installId} (marked ${existing.createdAt})`,
+      `Photo storage ${read.marker.installId} (marked ${read.marker.createdAt})`,
     );
-    return existing;
+    return read.marker;
+  }
+  if (read.state === 'unreadable') {
+    throw new StorageIdentityError({ kind: 'unreadable', code: read.code });
   }
   // Only for an unmarked directory: a marked boot sends no statement.
-  if (!(await hasPhotoRows(db))) {
-    const marker = await storage.writeMarker();
-    storage.claim(marker);
+  const rows = await photoRowNames(db);
+  const covered = rows.length === 0 ? 0 : await coveredRows(storage, rows);
+  if (rows.length > 0 && covered < rows.length * ADOPT_MIN_COVERAGE) {
+    logger.warn(
+      `Refusing an unmarked DATA_PATH holding the photos of ${covered} of ${rows.length} rows`,
+    );
+    throw new StorageIdentityError({ kind: 'absent' });
+  }
+  // Ours, or the marker a process booting beside this one linked first.
+  const marker = await storage.createMarker();
+  storage.claim(marker);
+  if (rows.length === 0) {
     logger.info(
       `Photo storage ${marker.installId}: marked (no photo rows yet: a first boot)`,
     );
-    return marker;
-  }
-  if (await holdsStoredPhoto(storage)) {
-    const marker = await storage.writeMarker();
-    storage.claim(marker);
+  } else {
     logger.warn(
-      `Photo storage ${marker.installId}: adopted an unmarked directory holding photos and their rows`,
+      `Photo storage ${marker.installId}: adopted an unmarked directory holding the photos of ${covered} of ${rows.length} rows`,
     );
-    return marker;
   }
-  throw new StorageIdentityError('absent');
+  return marker;
 }
 
 /** Where an operator reads what the marker is and how to re-adopt. */
@@ -63,7 +81,7 @@ export const STORAGE_MARKER_FIX = 'docs/operations.md#photo-storage-marker';
 
 /**
  * The refusal, naming the key and never its value (the boot logged that
- * already): main.ts logs the message alone, like a ConfigError.
+ * already): main.ts logs it through identityRefusal, like a ConfigError.
  */
 export class StorageIdentityError extends Error {
   constructor(readonly problem: IdentityProblem) {
@@ -74,17 +92,31 @@ export class StorageIdentityError extends Error {
 
 /** One wording for the boot, readiness's log line and reconciliation. */
 export function identityRefusal(problem: IdentityProblem): string {
-  return problem === 'absent'
-    ? `DATA_PATH has no ${STORAGE_MARKER} marker: ` +
+  switch (problem.kind) {
+    case 'absent':
+      return (
+        `DATA_PATH has no ${STORAGE_MARKER} marker: ` +
         `the photo share is not mounted, or DATA_PATH is the wrong directory (${STORAGE_MARKER_FIX})`
-    : `DATA_PATH holds another install's ${STORAGE_MARKER} than the one this process booted with: ` +
-        `a different share was mounted (${STORAGE_MARKER_FIX})`;
+      );
+    case 'foreign':
+      return (
+        `DATA_PATH holds another install's ${STORAGE_MARKER} than the one this process booted with: ` +
+        `a different share was mounted (${STORAGE_MARKER_FIX})`
+      );
+    case 'unreadable':
+      return `DATA_PATH storage unreadable: ${problem.code} (${STORAGE_MARKER_FIX})`;
+  }
 }
 
-// The first stored photo ends the listing: one is proof enough.
-async function holdsStoredPhoto(storage: PhotoStorage): Promise<boolean> {
+// How many rows have any file of their set in storage, from one listing.
+async function coveredRows(
+  storage: PhotoStorage,
+  rows: readonly string[],
+): Promise<number> {
+  const stored = new Set<string>();
   for await (const object of storage.list()) {
-    if (parseStoredName(object.name)) return true;
+    const parsed = parseStoredName(object.name);
+    if (parsed) stored.add(parsed.baseName);
   }
-  return false;
+  return rows.filter((name) => stored.has(name)).length;
 }

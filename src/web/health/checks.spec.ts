@@ -167,6 +167,17 @@ describe('createStorageCheck', () => {
     expect(logs.messages('warn')).toEqual(['Readiness: no marker']);
   });
 
+  it('is down, never a rejection, when the marker check itself fails', async () => {
+    logs.clear();
+    expect(
+      await check([writable], () => Promise.reject(new Error('EIO'))),
+    ).toEqual({ status: 'down', required: true, fix: IDENTITY_FIX });
+    expect(logs.messages('warn')).toEqual([
+      'Readiness: the storage marker check failed',
+      'Readiness: the storage marker could not be checked',
+    ]);
+  });
+
   it('probes once per TTL, concurrent callers sharing the probe', async () => {
     let probes = 0;
     let clock = 0;

@@ -151,7 +151,15 @@ export function createStorageCheck({
   const run = async (): Promise<HealthCheck> => {
     const [results, problem] = await Promise.all([
       Promise.all(directories.map(probe)),
-      identity(),
+      // identityProblem never rejects for the disk's sake; anything else
+      // still reads as down, never as a rejected readiness check.
+      identity().catch((error: unknown) => {
+        logger.warn(
+          { err: error },
+          'Readiness: the storage marker check failed',
+        );
+        return 'the storage marker could not be checked';
+      }),
     ]);
     const unwritable = directories.filter((directory, i) => {
       const result = results[i];

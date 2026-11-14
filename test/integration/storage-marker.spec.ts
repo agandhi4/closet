@@ -11,7 +11,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/app';
 import { file, pendingPhoto } from '../../src/db/schema';
@@ -24,7 +24,7 @@ import {
   photoFileName,
   uploadPhoto,
 } from './garments';
-import { createTestApp, type TestApp } from './harness';
+import { asFixture, createTestApp, type TestApp } from './harness';
 import { silentLogger } from './logger';
 
 const TWO_DAYS_AGO = () => new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
@@ -200,5 +200,37 @@ describe('the photo storage marker', () => {
       (JSON.parse(marker) as { installId: string }).installId,
     );
     expect(await storedFiles()).toContain(live);
+  });
+
+  // The bug's own story: uploads made while the share was unmounted left
+  // a few sets (with rows) on the bare mountpoint. They must not adopt it.
+  it("refuses an unmarked directory holding only a few of the rows' sets", async () => {
+    const names = Array.from({ length: 99 }, () => `${randomUUID()}.webp`);
+    await asFixture(t.db, (tx) =>
+      tx.insert(file).values(
+        names.map((fileName) => ({
+          fileName,
+          shareableId: randomUUID(),
+          createdOn: TWO_DAYS_AGO().toISOString(),
+          createdById: t.owner.id,
+        })),
+      ),
+    );
+    const mountpoint = await mkdtemp(join(tmpdir(), 'closet-strays-'));
+    try {
+      for (const name of names.slice(0, 3)) {
+        await writeFile(join(mountpoint, name), 'a stray upload');
+      }
+      // 3 of 100 rows' sets: far under ADOPT_MIN_COVERAGE.
+      await expect(
+        createApp({ ...t.config, DATA_PATH: mountpoint }, silentLogger),
+      ).rejects.toThrow(/^DATA_PATH has no \.closet-storage marker/);
+      expect(await readdir(mountpoint)).not.toContain(STORAGE_MARKER);
+    } finally {
+      await rm(mountpoint, { recursive: true, force: true });
+      await asFixture(t.db, (tx) =>
+        tx.delete(file).where(inArray(file.fileName, names)),
+      );
+    }
   });
 });

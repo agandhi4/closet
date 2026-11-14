@@ -213,10 +213,14 @@ export async function lockOwnersAndPhotoName(
   return locked.owners === accounts.length;
 }
 
-/** Whether the `file` table has any row: claimStorage's "is this a first boot". */
-export async function hasPhotoRows(q: Queryable): Promise<boolean> {
-  const [row] = await q.select({ id: file.id }).from(file).limit(1);
-  return row !== undefined;
+/**
+ * Every `file` row's stored name: claimStorage's proof, on an unmarked
+ * boot only, that a directory holds this database's photos (a household's
+ * few hundred names).
+ */
+export async function photoRowNames(q: Queryable): Promise<string[]> {
+  const rows = await q.select({ fileName: file.fileName }).from(file);
+  return rows.map((row) => row.fileName);
 }
 
 export async function photoRowExists(
