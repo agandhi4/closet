@@ -11,6 +11,7 @@ import { householdToday } from './support/household-today';
 import { pageErrors } from './support/page-errors';
 import {
   cachePage,
+  closeSwitchedContext,
   networkSwitch,
   waitForServiceWorker,
   withoutWarming,
@@ -643,7 +644,7 @@ test('offline: PostForms are guarded, and queued writes wait, save and stay orde
 
       expect(appErrors).toEqual([]);
     } finally {
-      await context.close();
+      await closeSwitchedContext(context);
     }
   });
 
