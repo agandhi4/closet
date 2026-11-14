@@ -300,8 +300,8 @@ describe('photo storage on disk', () => {
       if (secondCreated.state !== 'present') throw new Error('not present');
       const secondMarker = secondCreated.marker;
 
-      first.claim(secondMarker);
-      second.claim(secondMarker);
+      first.claim(secondMarker, 'advisory');
+      second.claim(secondMarker, 'advisory');
       expect(await first.identityProblem()).toBeUndefined();
       expect(await second.identityProblem()).toBeUndefined();
       expect(

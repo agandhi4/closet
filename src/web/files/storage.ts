@@ -55,6 +55,13 @@ export type IdentityProblem =
   | { kind: 'unpaired' }
   | { kind: 'unreadable'; code: string };
 
+/**
+ * Whether a marker of another install than the database's is refused
+ * (`enforced`: APP_ENV production) or only logged (`advisory`: dev and
+ * gate, where worktrees with their own DATA_PATH share one database).
+ */
+export type InstallPairing = 'enforced' | 'advisory';
+
 /** The marker file as read: never a rejection, so readiness always answers. */
 export type MarkerRead =
   | { state: 'present'; marker: StorageMarker }
@@ -107,6 +114,7 @@ export class PhotoStorage {
   // with the one on disk later, so a share swapped under a running server
   // is noticed too.
   private claimed: StorageMarker | undefined;
+  private pairing: InstallPairing = 'advisory';
 
   constructor(
     readonly directory: string,
@@ -200,14 +208,23 @@ export class PhotoStorage {
     }
   }
 
-  /** Records the marker claimStorage verified; identityProblem compares with it. */
-  claim(marker: StorageMarker): void {
+  /**
+   * Records the marker claimStorage verified (identityProblem compares with
+   * it) and whether the database's pairing with it is enforced, which
+   * storageIdentityProblem reads (#833: production only).
+   */
+  claim(marker: StorageMarker, pairing: InstallPairing): void {
     this.claimed = marker;
+    this.pairing = pairing;
   }
 
   /** The install id claimed at boot: what the database's pairing is compared with. */
   get claimedInstallId(): string | undefined {
     return this.claimed?.installId;
+  }
+
+  get installPairing(): InstallPairing {
+    return this.pairing;
   }
 
   /**

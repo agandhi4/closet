@@ -462,11 +462,12 @@ describe('background jobs: statements per run (#173)', () => {
     );
   });
 
-  // The install pairing (#833), the pending photos, the aged ones' delete
-  // and the file table, read whole: reconciliation compares storage with every row, so its scans
-  // are the job. Per row only for what it finds to delete (orphans, each
-  // in its own statement so one bad row cannot cancel the sweep).
-  it('reconciles storage in four statements when there is nothing to delete', async () => {
+  // The pending photos, the aged ones' delete and the file table, read
+  // whole (production adds the install pairing's row, #833): reconciliation
+  // compares storage with every row, so its scans are the job. Per row only
+  // for what it finds to delete (orphans, each in its own statement so one
+  // bad row cannot cancel the sweep).
+  it('reconciles storage in three statements when there is nothing to delete', async () => {
     const recorded = await recordQueries(() =>
       reconcileStorage({
         db: t.db,
@@ -475,6 +476,6 @@ describe('background jobs: statements per run (#173)', () => {
         logger: t.logger.child({ logger: 'Reconciliation' }),
       }),
     );
-    expect(recorded.statements).toBe(4);
+    expect(recorded.statements).toBe(3);
   });
 });

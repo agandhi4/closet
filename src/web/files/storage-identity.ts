@@ -9,6 +9,7 @@ import {
 } from './queries';
 import {
   type IdentityProblem,
+  type InstallPairing,
   type PhotoStorage,
   STORAGE_MARKER,
   type StorageMarker,
@@ -44,6 +45,9 @@ export const ADOPT_MIN_COVERAGE = 0.9;
  * there), so a marked share from another install, or a database restored
  * from another install's dump, is refused. A marker this claim writes
  * carries the paired id, so re-adopting a restored, unmarked share pairs.
+ * Only `enforced` pairing (APP_ENV production) refuses a mismatch: in dev
+ * and gate, worktrees each with their own DATA_PATH share one database, so
+ * it is one warn line and the claim goes on (#650's rules apply in all).
  *
  * Called by createPhotos, so the server's boot and every CLI that writes
  * photos (reconcile, retrim, seed) refuse the same directory.
@@ -52,12 +56,13 @@ export async function claimStorage(
   storage: PhotoStorage,
   db: Db,
   logger: Logger,
+  pairing: InstallPairing,
 ): Promise<StorageMarker> {
   const read = await storage.readMarker();
   if (read.state === 'unreadable') {
     throw new StorageIdentityError({ kind: 'unreadable', code: read.code });
   }
-  const paired = await pairedInstallId(db);
+  let paired = await pairedInstallId(db);
   const marker =
     read.state === 'present'
       ? read.marker
@@ -65,21 +70,22 @@ export async function claimStorage(
   if (paired === undefined) {
     await pairInstallOnce(db, marker.installId);
     // Read back: a process claiming beside this one may have paired first.
-    const recorded = await pairedInstallId(db);
-    if (recorded !== marker.installId) {
-      logger.warn(
-        `Refusing photo storage ${marker.installId}: the database was paired with ${recorded} meanwhile`,
+    paired = await pairedInstallId(db);
+    if (paired === marker.installId) {
+      logger.info(
+        `Photo storage ${marker.installId} paired with this database`,
       );
+    }
+  }
+  if (paired !== marker.installId) {
+    const mismatch = `photo storage ${marker.installId}: this database belongs to install ${paired}`;
+    if (pairing === 'enforced') {
+      logger.warn(`Refusing ${mismatch}`);
       throw new StorageIdentityError({ kind: 'unpaired' });
     }
-    logger.info(`Photo storage ${marker.installId} paired with this database`);
-  } else if (paired !== marker.installId) {
-    logger.warn(
-      `Refusing photo storage ${marker.installId}: this database belongs to install ${paired}`,
-    );
-    throw new StorageIdentityError({ kind: 'unpaired' });
+    logger.warn(`Using ${mismatch} (not refused outside APP_ENV production)`);
   }
-  storage.claim(marker);
+  storage.claim(marker, pairing);
   logger.info(`Photo storage ${marker.installId} (marked ${marker.createdAt})`);
   return marker;
 }
@@ -119,17 +125,19 @@ async function markUnmarked(
 }
 
 /**
- * Whether DATA_PATH is still the storage this process claimed and the one
- * the database is paired with: readiness's `storage` check and every
- * reconciliation run ask. The marker can change under a running server (a
- * remount), the pairing too (the database restored or repointed).
+ * Whether DATA_PATH is still the storage this process claimed and, where
+ * the pairing is enforced, the one the database is paired with: every
+ * reconciliation run asks (a job may read the row; the database can be
+ * restored or repointed under a running server). Readiness asks only
+ * PhotoStorage.identityProblem, the marker against the id claimed at boot,
+ * never the database: storage and database health stay separate checks.
  */
 export async function storageIdentityProblem(
   storage: PhotoStorage,
   db: Db,
 ): Promise<IdentityProblem | undefined> {
   const problem = await storage.identityProblem();
-  if (problem) return problem;
+  if (problem || storage.installPairing === 'advisory') return problem;
   const paired = await pairedInstallId(db);
   return paired === storage.claimedInstallId ? undefined : { kind: 'unpaired' };
 }
