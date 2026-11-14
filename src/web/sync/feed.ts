@@ -41,6 +41,7 @@ import {
 import {
   type ChangesCursor,
   endOf,
+  isCurrentEpoch,
   isExpired,
   KIND,
   type Position,
@@ -293,10 +294,24 @@ export async function readChanges(
   // A 410 mid-way restarts the full sync: the client syncs from no cursor.
   const fullSync = cursor === undefined || cursor.snapshot;
   return inFeedSnapshot(db, async (tx) => {
-    const wardrobes = await feedWardrobes(tx, actor.userId);
+    const { epoch, wardrobes } = await feedWardrobes(tx, actor.userId);
+    // A restore since (#652): the cursor's revisions and ids are another
+    // history's, and the deletions it needs were never written.
+    if (cursor && !isCurrentEpoch(cursor.epoch, epoch)) {
+      throw expired(
+        `a cursor of epoch ${cursor.epoch ?? 'none'}, not ${epoch.epoch}`,
+      );
+    }
     const reads = wardrobes.map((wardrobe): WardrobeRead => {
       const at =
         cursor?.positions.get(wardrobe.ownerId) ?? startOf(wardrobe.floor);
+      // Past the wardrobe's own revision: a restore the epoch missed, whose
+      // next writes would reuse the revisions this cursor is past.
+      if (at.revision > wardrobe.revision) {
+        throw expired(
+          `owner ${wardrobe.ownerId} at revision ${at.revision}, above its ${wardrobe.revision}`,
+        );
+      }
       if (isExpired(at, wardrobe.floor)) {
         throw expired(
           `owner ${wardrobe.ownerId} at revision ${at.revision}, floor ${wardrobe.floor}`,
@@ -324,6 +339,7 @@ export async function readChanges(
       cursor: writeChangesCursor({
         ...nextCursor(reads, page.at(-1), items[limit]),
         userId: actor.userId,
+        epoch: epoch.epoch,
         snapshot: fullSync && more,
       }),
       more,
@@ -385,7 +401,7 @@ function nextCursor(
   reads: readonly WardrobeRead[],
   last: FeedItem | undefined,
   next: FeedItem | undefined,
-): Omit<ChangesCursor, 'snapshot' | 'userId'> {
+): Omit<ChangesCursor, 'snapshot' | 'userId' | 'epoch'> {
   const nextRank = next
     ? reads.findIndex((read) => read.ownerId === next.ownerId)
     : reads.length;

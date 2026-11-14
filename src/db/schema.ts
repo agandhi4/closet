@@ -399,6 +399,26 @@ export const install = pgTable(
   (table) => [check('install_singleton_check', sql`${table.singleton}`)],
 );
 
+// Which history of this database the changes feed's cursors belong to
+// (#652): every cursor carries the epoch it was answered under, and one
+// presented under another is expired. A restore brings back the epoch of
+// its dump, so the post-restore command replaces it (bumpSyncEpoch,
+// src/db/sync-epoch.ts) and every device re-syncs in full. One row, written
+// by migration 0061, never by a claim: not `install`, whose row exists
+// only once photo storage is paired. Random, never a counter: two restores
+// of one dump must not mint the same epoch. Not synced (no owner).
+export const syncEpoch = pgTable(
+  'sync_epoch',
+  {
+    singleton: boolean('singleton').primaryKey().default(true),
+    epoch: uuid('epoch').defaultRandom().notNull(),
+    // Null until the first bump: a cursor from before epochs (no `e`) is
+    // current only while it is null (cursor.ts).
+    bumpedAt: timestamp('bumped_at', { withTimezone: true }),
+  },
+  (table) => [check('sync_epoch_singleton_check', sql`${table.singleton}`)],
+);
+
 // One row per stored photo set (the original's name; see AGENTS.md, Images).
 export const file = pgTable(
   'file',

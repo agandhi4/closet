@@ -1,10 +1,10 @@
 import { eq, type SQL, sql } from 'drizzle-orm';
 import { unionAll } from 'drizzle-orm/pg-core';
 import type { Db, Queryable } from '../../db/client';
-import { syncTombstone, user, wardrobeShare } from '../../db/schema';
+import { syncEpoch, syncTombstone, user, wardrobeShare } from '../../db/schema';
 import type { SYNC_ROOTS, SyncResource } from '../../db/sync-tables';
 import { acceptedSharesWith } from '../sharing/access';
-import { KIND, type Position } from './cursor';
+import { type Epoch, KIND, type Position } from './cursor';
 
 /** A synced root as sync-tables.ts lists it. */
 export type FeedRoot = (typeof SYNC_ROOTS)[number];
@@ -37,30 +37,45 @@ export interface FeedWardrobe {
 
 /**
  * The caller's own wardrobe, then each one shared with them (the access
- * resolver's accepted shares) by owner id: the order a page fills in.
+ * resolver's accepted shares) by owner id: the order a page fills in. The
+ * epoch rides on every row (its one-row table cross-joined), so reading it
+ * costs no statement and it is the snapshot's own.
  */
 export async function feedWardrobes(
   db: Queryable,
   userId: number,
-): Promise<FeedWardrobe[]> {
+): Promise<{ epoch: Epoch; wardrobes: FeedWardrobe[] }> {
   const columns = {
     ownerId: user.id,
     revision: user.revision,
     floor: user.syncFloor,
+    epoch: syncEpoch.epoch,
+    bumped: sql<boolean>`${syncEpoch.bumpedAt} is not null`,
   };
   const rows = await unionAll(
-    db.select(columns).from(user).where(eq(user.id, userId)),
+    db
+      .select(columns)
+      .from(user)
+      .crossJoin(syncEpoch)
+      .where(eq(user.id, userId)),
     db
       .select(columns)
       .from(wardrobeShare)
       .innerJoin(user, eq(user.id, wardrobeShare.grantorId))
+      .crossJoin(syncEpoch)
       .where(acceptedSharesWith(userId)),
   );
-  return rows.sort(
-    (a, b) =>
-      Number(b.ownerId === userId) - Number(a.ownerId === userId) ||
-      a.ownerId - b.ownerId,
-  );
+  const own = rows.find((row) => row.ownerId === userId);
+  // The caller's own row is always there: a device token names a live user.
+  if (!own) throw new Error(`The changes feed found no user ${userId}`);
+  const wardrobes = rows
+    .map(({ ownerId, revision, floor }) => ({ ownerId, revision, floor }))
+    .sort(
+      (a, b) =>
+        Number(b.ownerId === userId) - Number(a.ownerId === userId) ||
+        a.ownerId - b.ownerId,
+    );
+  return { epoch: { epoch: own.epoch, bumped: own.bumped }, wardrobes };
 }
 
 /** One wardrobe's part of a page: where it resumes and what it carries. */
